@@ -20,6 +20,8 @@ HOOK = os.path.join(r"d:\datrix\.claude\hooks", "guard-code-standards.py")
 fails = []
 BLOCK, ALLOW = 2, 0
 REPO = r"d:\datrix\datrix-alpha"  # matches the framework-repo shape; the files live in a real temp tree below
+VENV_PYTHON = r"d:\datrix\.venv\Scripts\python.exe"
+SCRIPTS_LIB = r"d:\datrix\datrix\scripts\common\lib"
 # The second reader is off unless a case points it at its own loopback server, so no machine's answer
 # can change a verdict here; its requests never count as real use of the machines.
 JUDGE_OFF = {"DATRIX_LOCAL_JUDGE": "off"}
@@ -27,9 +29,13 @@ USAGE_LOG = r"D:\datrix\.tmp\code-standards-test-usage.jsonl"
 
 
 def run(payload, env=None):
+    return run_full(payload, env)[:2]
+
+
+def run_full(payload, env=None):
     p = subprocess.run([sys.executable, HOOK], input=json.dumps(payload), capture_output=True, text=True,
-                       env={**os.environ, **(env or JUDGE_OFF)})
-    return p.returncode, p.stderr
+                       env={**os.environ, **JUDGE_OFF, **(env or {})})
+    return p.returncode, p.stderr, p.stdout
 
 
 def judged(port):
@@ -67,6 +73,10 @@ class Repo:
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(text)
         return path
+
+
+def system_message(out):
+    return json.loads(out)["systemMessage"] if out.strip() else ""
 
 
 def write(path, content):
@@ -157,6 +167,35 @@ with Repo() as repo:
     check("a new function over 15", edit(typed, "def f(", f"def deep(x: int) -> int:\n{nested}    return 0\n\n\ndef f("), BLOCK)
     legacy_deep = repo.file("src/pkg/deep.py", f"def deep(x: int) -> int:\n{nested}    return 0\n")
     check("an edit inside a function already over 15", edit(legacy_deep, "    return 0", "    return 2"), ALLOW)
+    # The hook's own interpreter need not carry cognitive_complexity: the shared venv scores the edit.
+    over = {"tool_name": "Edit", "tool_input": {"file_path": typed, "old_string": "def f(",
+                                                "new_string": f"def deep(x: int) -> int:\n{nested}    return 0\n\n\ndef f("}}
+    code, err, out = run_full(over)
+    check("the refusal names the function the shared venv scored over 15",
+          (code, "[complexity] def deep is above 15" in err, out), (BLOCK, True, ""))
+    clean = {"tool_name": "Edit", "tool_input": {"file_path": typed, "old_string": "return x", "new_string": "return x + 1"}}
+    check("a clean edit scored by the shared venv says nothing", run_full(clean), (ALLOW, "", ""))
+    # When the shared venv cannot score, the edit is judged on the other checks, and the hook says so.
+    no_venv = {"DATRIX_CODESTD_VENV_PYTHON": os.path.join(repo.root, "no-venv", "python.exe")}
+    code, err, out = run_full(over, no_venv)
+    message = system_message(out)
+    check("an unscorable edit is allowed, never silently",
+          (code, "did not run on this edit" in message, "  - cognitive-complexity: " in message,
+           "venv.ps1 -Ensure -EnsurePackages" in message, "metrics/complexity.ps1" in message),
+          (ALLOW, True, True, True, True))
+    code, err, out = run_full({"tool_name": "Edit", "tool_input": {
+        "file_path": typed, "old_string": "    return x", "new_string": "    # TODO x\n    return x"}}, no_venv)
+    check("a refusal on another check carries the unscored note",
+          (code, "[todo]" in err, "  - cognitive-complexity: " in err), (BLOCK, True, True))
+    # The scorer refuses, naming the declaring group and the venv repair, when the package is missing:
+    # `-S` keeps the venv's site-packages (and so cognitive_complexity) off the path.
+    scorer = subprocess.run([VENV_PYTHON, "-S", "-m", "datrix_scripts.cognitive_scores"], input="[]",
+                            capture_output=True, text=True, cwd=SCRIPTS_LIB)
+    check("the scorer refuses without cognitive_complexity",
+          (scorer.returncode, scorer.stdout, all(s in scorer.stderr for s in (
+              "cognitive_complexity cannot be imported", "`scripts` dependency group",
+              "venv.ps1 -EnsurePackages")))
+          , (1, "", True))
 
     print("== flattened entities (generators only) ==")
     gen = repo.file("src/pkg/generators/emit.py", "def emit(app: App) -> list[str]:\n    return []\n")
@@ -321,6 +360,40 @@ with Repo() as repo:
           all(s in err for s in ("[table-row] def test_string_annotation", "PLANTED_TYPES['String']",
                                  "test_table[planted::String]", "tables.ps1 rows")), True)
 
+    print("== a test-shape check that cannot run is named, never silent ==")
+    # The hook's own interpreter carries no datrix_testing, so a library root that does not exist
+    # leaves every classifier unimportable; a venv interpreter that does not exist leaves every resolve.
+    no_library = {"DATRIX_CODESTD_TESTING_SRC": os.path.join(repo.root, "no-testing", "src")}
+    add_literal = {"tool_name": "Edit", "tool_input": {"file_path": facts, "old_string": "    assert index == {}\n",
+                                                       "new_string": "    assert index == {}\n" + literal}}
+    code, err, out = run_full(add_literal, no_library)
+    message = system_message(out)
+    check("no test library: a literal-fact test is allowed, naming both classifiers and the repair",
+          (code, "  - literal-fact: " in message, "  - migrated-shape: " in message,
+           "no-testing" in message, "restore that checkout" in message), (ALLOW, True, True, True, True))
+    code, err, out = run_full({"tool_name": "Edit", "tool_input": {
+        "file_path": facts, "old_string": "    assert index == {}\n",
+        "new_string": "    assert index == {}\n    # TODO x\n" + literal}}, no_library)
+    check("no test library: a refusal on another check names the skipped classifiers",
+          (code, "[todo]" in err, "[literal-fact]" in err, "  - literal-fact: " in err), (BLOCK, True, False, True))
+    add_bound = {"tool_name": "Edit", "tool_input": {"file_path": model_test, "old_string": "== ''\n",
+                                                     "new_string": "== ''\n" + raises_bound}}
+    code, err, out = run_full(add_bound, no_library)
+    check("no test library: a schema-shaped test is allowed, naming the inventory",
+          (code, "  - schema-shaped: " in system_message(out)), (ALLOW, True))
+    code, err, out = run_full(add_bound, no_venv)
+    message = system_message(out)
+    check("no venv: a schema-shaped test is allowed, naming the resolve and the venv repair",
+          (code, "  - schema-shaped: " in message, "venv.ps1 -Ensure" in message), (ALLOW, True, True))
+    code, err, out = run_full({"tool_name": "Edit", "tool_input": {
+        "file_path": row_test, "old_string": "> 0\n", "new_string": "> 0\n" + row_value}}, no_venv)
+    message = system_message(out)
+    check("no venv: a per-row hand test is allowed, naming the table-row check",
+          (code, "  - table-row: " in message, "  - cognitive-complexity: " in message), (ALLOW, True, True))
+    code, err, out = run_full(add_bound)
+    check("with the venv and the library in place, nothing is reported skipped",
+          (code, "did not run on this edit" in err, out), (BLOCK, False, ""))
+
     print("== the message names what was added ==")
     code, err = run({"tool_name": "Edit", "tool_input": {
         "file_path": mod, "old_string": "    return 1",
@@ -352,6 +425,7 @@ with codegen:
     check("the refusal names the function, the call and the recorded facts",
           all(s in err for s in ("[body-walk]", "datrix_codegen_gate/reads.py::names calls iter_tree()",
                                  "datrix_common.datrix_model.effects", "no_body_walk_allowlist.json")), True)
+
 
 class Verdict:
     """The reader's answer every chat gets; a case sets it before running the hook."""

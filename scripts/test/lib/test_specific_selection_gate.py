@@ -76,6 +76,7 @@ _DEFAULT_FILE_B = "tests/generators/cross_cutting/test_resilience_test_generator
 _TEST_PS1 = SCRIPTS_DIR / "test" / "test.ps1"
 _RUN_DIR_MARKERS = ("Details:", "Structured test results:")
 
+
 def _normalize(path_text: str) -> str:
     """Normalize a test path for comparison (slashes, node id, casing of separators)."""
     cleaned = path_text.strip().replace("\\", "/")

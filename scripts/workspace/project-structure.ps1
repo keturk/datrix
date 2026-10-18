@@ -55,7 +55,7 @@ param(
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pythonArgs = if ($All) { @("--all") } else { @($Projects) }
+$pythonArgs = @(if ($All) { "--all" } else { $Projects })
 $pythonArgs += @("--depth", "$Depth")
 if ($Dbg) { $pythonArgs += "--debug" }
 

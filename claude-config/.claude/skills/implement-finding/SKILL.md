@@ -45,9 +45,12 @@ Before your first edit, read the mandatory cores and the knowledge pack of each 
    in every package it reaches (`-Tag`, at most 3 per run). Never a whole suite. Prefer not to
    pipe the output through a filter: a pipe hides `test.ps1`'s exit code, so a piped run counts only
    when its output still ends with `test.ps1`'s own `Total: N | Passed: N | Failed: 0` line for every
-   `test.ps1` call (`| tail` keeps it; `| head`, `| grep` and `Select-String` drop it). Your **last**
-   `test.ps1` run must pass: under `CLOSE: script` the script reads it from the session log and keeps
-   the finding when it failed, never ran, or proved nothing.
+   `test.ps1` call (`| tail` keeps it; `| head`, `| grep` and `Select-String` drop it). Code no
+   `test.ps1` reaches (the `datrix/scripts` tree hosts no test suite) is proven by its gate
+   (`*-gate.ps1`, `-Only <check>` to target it; never `-SelfTest`/`-HarnessSelfTest`): that run
+   counts when its output keeps the gate's last line `[GATE] <name> PASSED exit=0` for every gate
+   call. Your **last** `test.ps1` or gate run must pass: under `CLOSE: script` the script reads it
+   from the session log and keeps the finding when it failed, never ran, or proved nothing.
 5. **Update the documentation** your change makes wrong, and every doc the finding names as stale —
    it must describe the behaviour the code now has. No design-doc or task reference and no customer
    term in a committed file. **Remove pointers to this finding** from other findings files (a

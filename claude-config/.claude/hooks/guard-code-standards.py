@@ -27,29 +27,32 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
   * COGNITIVE COMPLEXITY. "Cognitive complexity <= 15." A function whose cognitive complexity
     (the `cognitive_complexity` package, as `metrics/complexity.ps1` measures it) is above 15. Judged
     by function: a function already over the limit never blocks an edit; one the edit takes over it
-    does. Skipped when the package is not importable.
+    does. The package belongs to the shared venv, not to the interpreter running this hook, so the
+    shared venv scores both sides of the edit (`python -m datrix_scripts.cognitive_scores`); skipped,
+    and said so, when it cannot.
   * LITERAL-FACT TEST. In a package whose `tests/` carries the case runner `test_cases.py`, a literal
     fact about a stage result is a case row (`cases.ps1 new`), never a test function. A `test_*`
     function of the literal-fact shape -- every assertion compares one value with a string literal by
     `==`, `in` or `not in`, with no loop, comprehension or `pytest.raises` -- that the edit adds (by
     name) is refused. The shape is judged by
     `datrix_testing.conformance.assertion_inventory.literal_fact_tests`, the one definition the
-    test-shape pin and the migration tool share; skipped when that module is not importable.
+    test-shape pin and the migration tool share; skipped, and said so, when that module is not
+    importable.
   * MIGRATED TEST SHAPE. In the same packages, a fact a fixture line carries -- a diagnostic code of an
     analysis, the code a transpiler emits for one expression, a language server's answer at a `Position`,
     compared with a literal -- is an annotation on that line, never a test function. A `test_*` function
     of one of those shapes that the edit adds is refused, naming its carrier. The shapes are judged by
     `datrix_testing.conformance.assertion_inventory.migrated_shape_tests`, the definition the test-shape
-    pins share; a test of a migrated shape is reported once (not again as a literal fact); skipped when
-    that module is not importable.
+    pins share; a test of a migrated shape is reported once (not again as a literal fact); skipped, and
+    said so, when that module is not importable.
   * TABLE ROW TEST. In a package whose `tests/` carries the table runner `test_tables.py`, a fact
     about one row of a registered table (the builtin registry, a type map, an emit table, a DAL
     generator's file declarations) is proven by the runner's item for that row: adding the row is the
     whole change. A `test_*` function the edit adds (by name) that
     `python -m datrix_testing.tables.cli resolve` (the shared venv, which loads the package's
     registered tables) classifies as a per-row hand test -- its whole body looks a registered table's
-    row up and compares it -- is refused, naming the rows and the items. Skipped when the venv cannot
-    resolve the module.
+    row up and compares it -- is refused, naming the rows and the items. Skipped, and said so, when the
+    venv cannot resolve the module.
   * SCHEMA-SHAPED TEST. In a package whose `tests/` carries the model contract runner
     `test_model_contracts.py`, a required-field, default, bound, pattern, declared-constraint
     (`NonBlankStr`) or unknown-key fact of a model is proven by a derived runner item, never a test
@@ -57,8 +60,8 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     (by name) whose shape `datrix_testing.model_contracts.inventory` marks *raises* or *default*, and
     that `python -m datrix_testing.model_contracts.cli resolve` (the shared venv) resolves to schema
     facts, is refused, naming the model, the facts and the items that prove them. A test of a
-    validator's rule, or one stating more than schema facts, is allowed. Skipped when the inventory is
-    not importable or the venv cannot resolve the module.
+    validator's rule, or one stating more than schema facts, is allowed. Skipped, and said so, when the
+    inventory is not importable or the venv cannot resolve the module.
   * BODY WALKS. In a `datrix-codegen-*/src/` file, a generator reads the facts analysis records on a
     body (`datrix_common.datrix_model` `effects` / `usage` / `reads` / `resolution`) instead of
     walking it again. A walk-function, walk-method or `getattr` walk call the edit adds to a function
@@ -73,6 +76,14 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     the reader answers "history" -- about the source code itself, not data or runtime state -- with a
     quote found verbatim in the added comment. No model, a timeout
     or an unreadable answer: allowed. `DATRIX_LOCAL_JUDGE=off` disables it.
+
+SKIPPED CHECKS ARE REPORTED, NEVER SILENT. Five checks lean on something outside this interpreter:
+cognitive complexity, table rows and schema-shaped tests on the shared venv (no interpreter, a module
+missing from it, a failed or timed-out run), literal facts, migrated shapes and schema-shaped tests on
+the shared test library read from the datrix-testing checkout (not importable). A check that cannot
+run is skipped -- the edit is judged on the others, fail-open -- and the hook names every skipped
+check with its reason and repair: a `systemMessage` on an allowed edit, a note under a refusal. A
+rebuilt or partial venv therefore never disables a refusal without a word.
 
 HOW IT DECIDES -- A DELTA, NEVER A SCAN. The file as it would exist after the edit is parsed and so
 is the file as it exists now; a violation is reported only when the edit ADDS one (a multiset
@@ -99,11 +110,11 @@ import subprocess
 import sys
 import tokenize
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Final, Protocol
+from typing import Final, NoReturn, Protocol
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _hook_log import WORKSPACE, add_scripts_lib_to_path  # noqa: E402
+from _hook_log import SCRIPTS_LIB_DIR, WORKSPACE, add_scripts_lib_to_path  # noqa: E402
 from _local_judge import CommentToken, comment_tokens, history_candidates, judge_comments, quoted_candidate  # noqa: E402
 
 _FRAMEWORK_RE: Final = re.compile(r"^d:/datrix/datrix[^/]*/")
@@ -141,6 +152,27 @@ _RESOLVE_TIMEOUT_SECONDS: Final = 180
 _SCHEMA_FACT_DISPOSITIONS: Final = frozenset({"covered", "uncovered"})
 # The shared test library; the classifier's import chain is stdlib only.
 _TESTING_SRC: Final = "d:/datrix/datrix-testing/src"
+# The module the shared venv scores functions' cognitive complexity with, run from the scripts
+# package's directory so `-m` finds it whatever the venv's own path holds.
+_SCORER_MODULE: Final = "datrix_scripts.cognitive_scores"
+_SCORE_TIMEOUT_SECONDS: Final = 30
+# The overrides let the hook's test name a venv interpreter and a test-library root of its own; hook
+# subprocesses inherit Claude Code's environment, not a shell the agent can export into, so neither is
+# an escape hatch.
+_VENV_PYTHON_OVERRIDE: Final = "DATRIX_CODESTD_VENV_PYTHON"
+_TESTING_SRC_OVERRIDE: Final = "DATRIX_CODESTD_TESTING_SRC"
+_VENV_MISSING: Final = (
+    "The shared venv's interpreter {python} does not exist; create the venv and install the packages with "
+    "scripts/common/venv.ps1 -Ensure -EnsurePackages."
+)
+_LIBRARY_MISSING: Final = (
+    "The shared test library cannot be imported from {src}: {error}. The hook reads it from the "
+    "datrix-testing checkout (its import chain is stdlib only); restore that checkout."
+)
+_COMPLEXITY_REMEDY: Final = "Measure the file with `metrics/complexity.ps1 -Files <file>` once the shared venv is repaired."
+_SKIPPED_NOTE: Final = (
+    "guard-code-standards: {count} check(s) did not run on this edit; the other Code Standards checks did.\n{checks}"
+)
 # A generator package's source tree, whose functions read recorded facts instead of walking bodies,
 # and the no-body-walk gate's library, which owns the matcher and the allowlist.
 _CODEGEN_SOURCE_RE: Final = re.compile(r"^d:/datrix/(datrix-codegen-[^/]+/src/.+)$", re.IGNORECASE)
@@ -149,6 +181,15 @@ _SITE_SEPARATOR: Final = "::"
 
 Violation = tuple[str, str]
 FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
+# A text's functions' cognitive complexity, keyed by the `def` line and column.
+Scores = dict[tuple[int, int], int]
+# The checks that could not run on an edit, each with why, gathered over both sides of the edit.
+Skipped = dict[str, str]
+
+
+class CheckUnavailable(Exception):
+    """A check could not run on this edit: the shared venv or the test library is unavailable; the
+    message says why and how to repair it."""
 
 
 class _WalkCall(Protocol):
@@ -361,32 +402,70 @@ def _flattened_entity_violations(tree: ast.AST) -> list[Violation]:
     return found
 
 
-def _complexity_violations(functions: list[tuple[str, FunctionNode]]) -> list[Violation]:
-    """Functions over the cognitive-complexity limit, keyed by name only so a function already over
-    it is not "added" again by an edit that changes its score."""
+def _run_venv_module(arguments: list[str], text: str, timeout: int, cwd: str | None = None) -> str:
+    """What `<shared venv python> -m <arguments>` prints when fed ``text``.
+
+    Raises CheckUnavailable when the venv cannot run it: no interpreter, a run that does not finish,
+    or a nonzero exit (its last line of output says why).
+    """
+    python = os.environ.get(_VENV_PYTHON_OVERRIDE) or _VENV_PYTHON
+    command = f"`{python} -m {' '.join(arguments)}`"
+    if not os.path.isfile(python):
+        raise CheckUnavailable(_VENV_MISSING.format(python=python))
     try:
-        from cognitive_complexity.api import get_cognitive_complexity
-    except ImportError:
-        return []
+        completed = subprocess.run(
+            [python, "-m", *arguments], input=text, cwd=cwd,
+            capture_output=True, text=True, timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CheckUnavailable(f"{command} did not finish: {exc}") from exc
+    if completed.returncode != 0:
+        output = (completed.stderr.strip() or completed.stdout.strip()).splitlines()
+        raise CheckUnavailable(f"{command} exited {completed.returncode}: "
+                               f"{output[-1] if output else 'no output'}")
+    return completed.stdout
+
+
+def _cognitive_scores(texts: list[str]) -> list[Scores]:
+    """Each text's function scores, from the shared venv in one run.
+
+    Raises CheckUnavailable when the venv cannot score them.
+    """
+    stdout = _run_venv_module([_SCORER_MODULE], json.dumps(texts), _SCORE_TIMEOUT_SECONDS, cwd=SCRIPTS_LIB_DIR)
+    try:
+        rows = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise CheckUnavailable(f"`-m {_SCORER_MODULE}` printed no JSON: {exc}") from exc
+    return [{(line, column): score for line, column, score in per_text} for per_text in rows]
+
+
+def _complexity_violations(functions: list[tuple[str, FunctionNode]], scores: Scores) -> list[Violation]:
+    """Functions over the cognitive-complexity limit, keyed by name only so a function already over
+    it is not "added" again by an edit that changes its score. A function the scorer could not read
+    has no score; the metrics script reports it."""
     found: list[Violation] = []
     for name, node in functions:
-        try:
-            score = get_cognitive_complexity(node)
-        except (RecursionError, ValueError, TypeError, AttributeError):
-            continue  # the scorer cannot read this construct; the metrics script reports it
-        if score > _MAX_COGNITIVE:
+        position = (node.lineno, node.col_offset)
+        if position in scores and scores[position] > _MAX_COGNITIVE:
             found.append(("complexity", f"def {name} is above {_MAX_COGNITIVE}"))
     return found
 
 
-def _literal_fact_classifier() -> Callable[[ast.Module], Iterable[FunctionNode]] | None:
-    """The shared literal-fact classifier, or None when the test library is not importable."""
-    if _TESTING_SRC not in sys.path:
-        sys.path.insert(0, _TESTING_SRC)
+def _testing_src() -> str:
+    """The shared test library's source root, put on the import path."""
+    src = os.environ.get(_TESTING_SRC_OVERRIDE) or _TESTING_SRC
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    return src
+
+
+def _literal_fact_classifier() -> Callable[[ast.Module], Iterable[FunctionNode]]:
+    """The shared literal-fact classifier. Raises CheckUnavailable when the test library is not importable."""
+    src = _testing_src()
     try:
         from datrix_testing.conformance.assertion_inventory import literal_fact_tests
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise CheckUnavailable(_LIBRARY_MISSING.format(src=src, error=exc)) from exc
     return literal_fact_tests
 
 
@@ -396,14 +475,13 @@ def carries_cases(path: str) -> bool:
     return bool(match) and os.path.isfile(f"{match.group(1)}/{_CASE_RUNNER}")
 
 
-def _migrated_shape_classifier() -> Callable[[ast.Module], Iterable[tuple[FunctionNode, str]]] | None:
-    """The shared migrated-shape classifier, or None when the test library is not importable."""
-    if _TESTING_SRC not in sys.path:
-        sys.path.insert(0, _TESTING_SRC)
+def _migrated_shape_classifier() -> Callable[[ast.Module], Iterable[tuple[FunctionNode, str]]]:
+    """The shared migrated-shape classifier. Raises CheckUnavailable when the test library is not importable."""
+    src = _testing_src()
     try:
         from datrix_testing.conformance.assertion_inventory import migrated_shape_tests
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise CheckUnavailable(_LIBRARY_MISSING.format(src=src, error=exc)) from exc
     return migrated_shape_tests
 
 
@@ -414,40 +492,49 @@ def carries_model_contracts(path: str) -> bool:
 
 
 def _schema_shaped_names(text: str) -> set[str] | None:
-    """The qualified names of the schema-shaped tests of ``text``; None when it cannot be judged."""
-    if _TESTING_SRC not in sys.path:
-        sys.path.insert(0, _TESTING_SRC)
+    """The qualified names of the schema-shaped tests of ``text``; None when it does not parse.
+
+    Raises CheckUnavailable when the test library's inventory is not importable.
+    """
+    src = _testing_src()
     try:
         from datrix_testing.model_contracts.inventory import schema_shaped_tests
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise CheckUnavailable(_LIBRARY_MISSING.format(src=src, error=exc)) from exc
     try:
         return {test.function for test in schema_shaped_tests(ast.parse(text))}
     except (SyntaxError, ValueError):
         return None
 
 
-def _resolved_schema_facts(path: str, text: str, names: set[str]) -> list[Violation]:
-    """The added tests among ``names`` the shared venv resolves to schema facts; [] when it cannot."""
+def _resolved_records(module: str, path: str, text: str) -> list[dict[str, object]]:
+    """The JSON records `<module> resolve` prints for the test module ``text`` at ``path``.
+
+    Raises CheckUnavailable when the shared venv cannot resolve it.
+    """
     match = _PACKAGE_TESTS_RE.match(path)
-    if not match or not os.path.isfile(_VENV_PYTHON):
+    if not match:
         return []
-    module = path.split(_TESTS_SEGMENT, 1)[1]
-    try:
-        completed = subprocess.run(
-            [_VENV_PYTHON, "-m", _RESOLVE_MODULE, "resolve", match.group(1), module],
-            input=text, capture_output=True, text=True, timeout=_RESOLVE_TIMEOUT_SECONDS, check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if completed.returncode != 0:
-        return []
-    found: list[Violation] = []
-    for line in completed.stdout.splitlines():
+    test_module = path.split(_TESTS_SEGMENT, 1)[1]
+    stdout = _run_venv_module([module, "resolve", match.group(1), test_module], text, _RESOLVE_TIMEOUT_SECONDS)
+    records: list[dict[str, object]] = []
+    for line in stdout.splitlines():
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def _resolved_schema_facts(path: str, text: str, names: set[str]) -> list[Violation]:
+    """The added tests among ``names`` the shared venv resolves to schema facts.
+
+    Raises CheckUnavailable when the shared venv cannot resolve them.
+    """
+    found: list[Violation] = []
+    for record in _resolved_records(_RESOLVE_MODULE, path, text):
         if record["function"] in names and record["disposition"] in _SCHEMA_FACT_DISPOSITIONS:
             proven = ", ".join(record["items"]) if record["disposition"] == "covered" else "no item yet: add a fixture"
             found.append(("schema-shaped", f"def {record['function']} restates {record['model']} "
@@ -455,14 +542,19 @@ def _resolved_schema_facts(path: str, text: str, names: set[str]) -> list[Violat
     return found
 
 
-def _schema_shaped_violations(path: str, before: str | None, after: str) -> list[Violation]:
-    """The schema-shaped tests this edit adds that restate model facts the runner proves."""
-    after_names = _schema_shaped_names(after)
-    before_names = set() if before is None else _schema_shaped_names(before)
-    if after_names is None or before_names is None:
+def _schema_shaped_violations(path: str, before: str | None, after: str, skipped: Skipped) -> list[Violation]:
+    """The schema-shaped tests this edit adds that restate model facts the runner proves; a check that
+    cannot run is recorded in ``skipped``."""
+    try:
+        after_names = _schema_shaped_names(after)
+        before_names = set() if before is None else _schema_shaped_names(before)
+        if after_names is None or before_names is None:
+            return []
+        added = after_names - before_names
+        return _resolved_schema_facts(path, after, added) if added else []
+    except CheckUnavailable as exc:
+        skipped["schema-shaped"] = str(exc)
         return []
-    added = after_names - before_names
-    return _resolved_schema_facts(path, after, added) if added else []
 
 
 def carries_tables(path: str) -> bool:
@@ -492,40 +584,20 @@ def _test_names(text: str | None) -> set[str] | None:
     return names
 
 
-def _resolved_rows(path: str, text: str) -> list[dict[str, object]]:
-    """The per-row hand tests of ``text``, resolved by the shared venv; [] when it cannot."""
-    match = _PACKAGE_TESTS_RE.match(path)
-    if not match or not os.path.isfile(_VENV_PYTHON):
-        return []
-    module = path.split(_TESTS_SEGMENT, 1)[1]
-    try:
-        completed = subprocess.run(
-            [_VENV_PYTHON, "-m", _TABLE_RESOLVE_MODULE, "resolve", match.group(1), module],
-            input=text, capture_output=True, text=True, timeout=_RESOLVE_TIMEOUT_SECONDS, check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if completed.returncode != 0:
-        return []
-    records: list[dict[str, object]] = []
-    for line in completed.stdout.splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(record, dict):
-            records.append(record)
-    return records
-
-
-def _table_row_violations(path: str, before: str | None, after: str) -> list[Violation]:
-    """The per-row hand tests this edit adds (by name) over the package's registered tables."""
+def _table_row_violations(path: str, before: str | None, after: str, skipped: Skipped) -> list[Violation]:
+    """The per-row hand tests this edit adds (by name) over the package's registered tables; a check
+    that cannot run is recorded in ``skipped``."""
     before_names = _test_names(before)
     after_names = _test_names(after)
     if before_names is None or after_names is None or not (after_names - before_names):
         return []
+    try:
+        records = _resolved_records(_TABLE_RESOLVE_MODULE, path, after)
+    except CheckUnavailable as exc:
+        skipped["table-row"] = str(exc)
+        return []
     found: list[Violation] = []
-    for record in _resolved_rows(path, after):
+    for record in records:
         if record["function"] in before_names:
             continue
         rows = record["rows"] if isinstance(record["rows"], list) else []
@@ -535,18 +607,25 @@ def _table_row_violations(path: str, before: str | None, after: str) -> list[Vio
     return found
 
 
-def _case_violations(tree: ast.Module) -> list[Violation]:
+def _case_violations(tree: ast.Module, skipped: Skipped) -> list[Violation]:
     """Tests whose fact a case carries: a migrated shape (its fixture line's annotation), else a
-    literal fact (a case row). A test of a migrated shape is reported once, with its carrier."""
+    literal fact (a case row). A test of a migrated shape is reported once, with its carrier. A
+    classifier that cannot be imported is recorded in ``skipped``."""
     found: list[Violation] = []
     migrated: set[str] = set()
-    shapes = _migrated_shape_classifier()
-    if shapes is not None:
+    try:
+        shapes = _migrated_shape_classifier()
+    except CheckUnavailable as exc:
+        skipped["migrated-shape"] = str(exc)
+    else:
         for function, shape in shapes(tree):
             migrated.add(function.name)
             found.append(("migrated-shape", f"def {function.name} ({shape})"))
-    literal = _literal_fact_classifier()
-    if literal is not None:
+    try:
+        literal = _literal_fact_classifier()
+    except CheckUnavailable as exc:
+        skipped["literal-fact"] = str(exc)
+    else:
         found += [("literal-fact", f"def {f.name}") for f in literal(tree) if f.name not in migrated]
     return found
 
@@ -625,7 +704,7 @@ def _history_comment_violations(before: str | None, after: str) -> list[Violatio
 
 
 def _violations(
-    text: str, is_test: bool, is_generator: bool = False, cases: bool = False
+    text: str, scores: Scores, is_test: bool, skipped: Skipped, is_generator: bool = False, cases: bool = False
 ) -> collections.Counter[Violation] | None:
     """The violations in ``text``, or None when it cannot be parsed (so the caller cannot judge)."""
     try:
@@ -633,13 +712,13 @@ def _violations(
         functions = _functions(tree)
         found = _silent_except_violations(tree) + _todo_violations(text)
         found += _annotation_violations(functions) + _any_violations(tree, functions)
-        found += _log_violations(tree) + _get_none_violations(tree) + _complexity_violations(functions)
+        found += _log_violations(tree) + _get_none_violations(tree) + _complexity_violations(functions, scores)
         if is_generator:
             found += _flattened_entity_violations(tree)
         if is_test:
             found += _mock_violations(tree)
         if cases:
-            found += _case_violations(tree)
+            found += _case_violations(tree, skipped)
     except (SyntaxError, ValueError, tokenize.TokenError, IndentationError):
         return None
     return collections.Counter(found)
@@ -769,6 +848,22 @@ _REMEDY: Final = {
 }
 
 
+def _skipped_note(skipped: Skipped) -> str:
+    """The note naming every check that could not run on this edit, with why; empty when all ran."""
+    if not skipped:
+        return ""
+    checks = "\n".join(f"  - {check}: {reason}" for check, reason in sorted(skipped.items()))
+    return _SKIPPED_NOTE.format(count=len(skipped), checks=checks)
+
+
+def _allow(skipped: Skipped) -> NoReturn:
+    """Allow the edit, telling Jon about every check that could not judge it."""
+    note = _skipped_note(skipped)
+    if note:
+        print(json.dumps({"systemMessage": note}))
+    sys.exit(0)
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
@@ -790,23 +885,32 @@ def main() -> None:
     if after is None:
         sys.exit(0)
 
+    texts = [after] if before is None else [after, before]
+    skipped: Skipped = {}
+    try:
+        scores = _cognitive_scores(texts)
+    except CheckUnavailable as exc:
+        scores = [{} for _ in texts]
+        skipped["cognitive-complexity"] = f"{exc} {_COMPLEXITY_REMEDY}"
+
     is_test = _is_test_file(path)
     is_generator = not is_test and bool(_GENERATOR_PATH_RE.search(path))
     cases = is_test and carries_cases(path)
-    after_found = _violations(after, is_test, is_generator, cases)
-    before_found = collections.Counter() if before is None else _violations(before, is_test, is_generator, cases)
+    after_found = _violations(after, scores[0], is_test, skipped, is_generator, cases)
+    before_found = (collections.Counter() if before is None
+                    else _violations(before, scores[1], is_test, skipped, is_generator, cases))
     if after_found is None or before_found is None:
-        sys.exit(0)
+        _allow(skipped)
 
     added = after_found - before_found
     added.update(_body_walk_violations(raw_path, before, after))
     if is_test and carries_model_contracts(path):
-        added.update(_schema_shaped_violations(path, before, after))
+        added.update(_schema_shaped_violations(path, before, after, skipped))
     if is_test and carries_tables(path):
-        added.update(_table_row_violations(path, before, after))
+        added.update(_table_row_violations(path, before, after, skipped))
     added.update(_history_comment_violations(before, after))
     if not added:
-        sys.exit(0)
+        _allow(skipped)
 
     kinds = sorted({kind for kind, _ in added})
     lines = [f"  - [{kind}] {text}" for (kind, text), count in sorted(added.items())
@@ -817,6 +921,7 @@ def main() -> None:
         + "\n\n"
         + "\n\n".join(_REMEDY[kind] for kind in kinds)
         + "\n\nOnly what this edit ADDS is judged; existing code in the file is never a reason to refuse an edit."
+        + (f"\n\n{_skipped_note(skipped)}" if skipped else "")
     )
     sys.exit(2)
 

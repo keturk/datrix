@@ -122,13 +122,13 @@ The `datrix generate` command requires `--language`/`-L` (resolved against the r
 
 #### Validation levels
 
-`PipelineConfig.validation_level` controls which post-generation hooks run after files are written. The enum `ValidationLevel` lives in `datrix-cli` (`datrix_cli.generation.validation_level`), beside the CLI commands and the generation pipeline that both read it.
+`PipelineConfig.validation_level` controls which language hooks run: `normalize_source`, which each `write:{target}` stage applies in memory to the run's backend language files before writing them, and the post-generation hooks that run after files are written. The enum `ValidationLevel` lives in `datrix-cli` (`datrix_cli.generation.validation_level`), beside the CLI commands and the generation pipeline that both read it.
 
 | Level | Post-processing behavior |
 |---|---|
-| `none` | Skip `fix_imports`, `format_files`, and `validate_files`. Parser, config resolution, and semantic analysis still run (they are pre-generation and mandatory). |
-| `fast` | Run `fix_imports` and `format_files` (if cheap). Skip `validate_files`. |
-| `standard` | Run all three hooks: `fix_imports`, `format_files`, `validate_files`. This is the default and the most thorough level — what `validate_files` checks is each language plugin's own decision (ruff for Python, `tsc --noEmit` for TypeScript, and so on), never a CLI-owned tool list. |
+| `none` | Skip `normalize_source`, `fix_imports`, `format_files`, and `validate_files`. Parser, config resolution, and semantic analysis still run (they are pre-generation and mandatory). |
+| `fast` | Run `normalize_source` before the write, then `fix_imports` and `format_files` (if cheap). Skip `validate_files`. |
+| `standard` | Run every hook: `normalize_source` before the write, then `fix_imports`, `format_files`, `validate_files`. This is the default and the most thorough level — what `validate_files` checks is each language plugin's own decision (ruff for Python, `tsc --noEmit` for TypeScript, and so on), never a CLI-owned tool list. |
 
 CLI mapping: `--skip-validation` is shorthand for `--validation-level none`. `--validation-level` and `--skip-validation` cannot both specify a non-none level (a warning is emitted if they conflict, and `--skip-validation` wins).
 

@@ -560,7 +560,7 @@ def step2_generate(
     """Step 2: Generate examples via generate.ps1.
 
     Delegates to generate.ps1 which handles package installation checks
-    (Ensure-DatrixPackagesInstalled) before running the generation pipeline.
+    (the venv install check, venv.ps1 -EnsurePackages) before running the generation pipeline.
     This ensures changed source files are always picked up.
 
     Note: generate.ps1 creates its own log file under .generated/.results/.

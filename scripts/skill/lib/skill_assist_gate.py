@@ -233,6 +233,8 @@ def check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_cit
 # ===========================================================================
 
 _TEST_PS1 = 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-alpha'
+_GATE_PS1 = 'powershell -File "d:/datrix/datrix/scripts/test/shared-library-gate.ps1"'
+_GATE_VERDICT_LINE = "[GATE] shared-library {} exit={} log=D:\\datrix\\.test-output\\gates\\shared-library\\run.log"
 
 
 def _shell_call(call_id: str, command: str, background: bool = False) -> str:
@@ -289,6 +291,34 @@ def check_implement_finding_test_runs_reads_foreground_test_ps1_results_only() -
         assert [run.passed for run in runs] == [False, False, False, True, True, False, False, False], runs
         assert runs[3].command.endswith("-Specific a.py || exit 1"), runs
         assert "piped" in runs[-1].failure and "exited non-zero" in runs[0].failure, runs
+
+
+def check_implement_finding_test_runs_judges_a_gate_run_by_its_verdict_line() -> None:
+    passed = f"[FAIL] fixture check expected\n1 failed\n{_GATE_VERDICT_LINE.format('PASSED', 0)}"
+    with _workspace() as root:
+        log = write_file(root / ".tmp/step.stream.jsonl", "\n".join([
+            _shell_call("a", f"{_GATE_PS1} -SelfTest"), _shell_result("a", _GATE_VERDICT_LINE.format("PASSED", 0)),
+            _shell_call("b", f"{_GATE_PS1} -HarnessSelfTest"), _shell_result("b", "ok"),
+            _shell_call("c", _GATE_PS1, background=True), _shell_result("c", "started"),
+            _shell_call("d", _GATE_PS1), _shell_result("d", passed),
+            _shell_call("e", f"{_GATE_PS1} -Only check_x 2>&1 | tail -3"),
+            _shell_result("e", _GATE_VERDICT_LINE.format("FAILED", 1)),
+            _shell_call("f", f"{_GATE_PS1} 2>&1 | head -3"), _shell_result("f", "Running checks"),
+            _shell_call("g", f"{_GATE_PS1}; {_GATE_PS1} -Only check_y"),
+            _shell_result("g", _GATE_VERDICT_LINE.format("PASSED", 0)),
+            _shell_call("h", _GATE_PS1), _shell_result("h", "Exit code 1", is_error=True),
+            _shell_call("i", f"{_TEST_PS1} -Tag x; {_GATE_PS1}"),
+            _shell_result("i", f"Total: 1 | Passed: 1 | Failed: 0\n{_GATE_VERDICT_LINE.format('PASSED', 0)}"),
+        ]) + "\n")
+        runs = test_runs(log)
+        assert [run.passed for run in runs] == [True, False, False, False, False, True], runs
+        assert "reports FAILED" in runs[1].failure and "verdict line for each gate call" in runs[2].failure, runs
+        assert "verdict line for each gate call" in runs[3].failure and "exited non-zero" in runs[4].failure, runs
+        folder = root / "reports/finding"
+        finding = write_file(folder / "20261001-000000-a.md", "# A\n")
+        write_file(log, "\n".join([_shell_call("p", _GATE_PS1), _shell_result("p", passed)]) + "\n")
+        result = _close(root, finding, log)
+        assert result.returncode == EXIT_DELETED and not finding.exists(), (result.returncode, result.stdout)
 
 
 def check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_passing_last_test_run() -> None:
@@ -507,6 +537,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_citation,
     check_implement_finding_selects_the_first_files_by_name,
     check_implement_finding_test_runs_reads_foreground_test_ps1_results_only,
+    check_implement_finding_test_runs_judges_a_gate_run_by_its_verdict_line,
     check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_passing_last_test_run,
     check_checklist_verifies_quotes_and_lists_uncovered_requirement_lines,
     check_absorb_references_find_name_number_and_title_but_not_task_folders,

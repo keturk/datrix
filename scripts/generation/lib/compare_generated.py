@@ -472,6 +472,7 @@ def _run_llm_summary(
     )
     return advisory_text(settings, request, "LLM generated comparison summary")
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Content-level comparison of .generated vs .generated_saved (purpose-driven report).",

@@ -17,8 +17,8 @@ Allowed (these create, they do not discard):
   git stash list             git reflog             git status/diff/log/show
 
 The one exemption -- `/resolve-conflicts`. Pulling over uncommitted work needs a few
-of the shapes above, so while the most recent HUMAN prompt in the transcript is
-Jon's own `/resolve-conflicts` invocation, and only then, these become allowed:
+of the shapes above, so once Jon has typed his own `/resolve-conflicts` invocation in
+the session (any HUMAN prompt in the transcript), these become allowed:
 
   git stash push [...] -- <paths>   shelve exactly the files the pull would overwrite
   git stash pop|apply|drop|show     bring them back / drop the entry once reapplied
@@ -34,7 +34,10 @@ The exemption is read from the transcript the harness writes, never from a state
 file an agent could author: a user entry that is neither a tool result nor harness
 meta text is a prompt Jon typed. The skill is `disable-model-invocation`, so no
 agent can open the window itself. An unreadable transcript grants nothing -- fail
-closed. A follow-up prompt closes the window, like any other skill scoping.
+closed. The window stays open for the rest of the session: a merge often runs over
+several of Jon's follow-up prompts ("fix these", "finish the work"), and the harness
+also records its own mid-turn notices as user entries, so tying the window to the
+latest prompt closed it in the middle of a merge and stranded the shelved work.
 
 FAMILY 2 -- standalone type-checkers.
 CLAUDE.md, "Running Python": "Never run a standalone type-checker -- no agent,
@@ -64,7 +67,6 @@ Exit codes:
 
 import functools
 import json
-import os
 import re
 import shlex
 import sys
@@ -112,8 +114,8 @@ _GIT_TAIL = (
     "to escape a fix that went sideways, that is not an option either: read the error "
     "text, re-diagnose, and fix the root cause "
     "(.claude/skills/_shared/execution-contract.md).\n\n"
-    "Pulling over uncommitted work is Jon's `/resolve-conflicts` (he types it). While "
-    "it is the latest prompt it allows path-limited `git stash push -- <paths>`, "
+    "Pulling over uncommitted work is Jon's `/resolve-conflicts` (he types it). Once "
+    "he has typed it in the session it allows path-limited `git stash push -- <paths>`, "
     "`stash pop/apply/drop`, index-only `git reset [HEAD] -- <paths>`, "
     "`git restore --staged`, and `git checkout --ours/--theirs` -- nothing that "
     "discards work."
@@ -126,10 +128,6 @@ _RESOLVE_CONFLICTS_INVOCATION_RE: Final = re.compile(
     r"^\s*(?:<command-message>[^<]*</command-message>\s*)?"
     r"<command-name>/resolve-conflicts</command-name>"
 )
-
-#: How much of the transcript tail is searched for the latest human prompt. A
-#: prompt older than this grants nothing -- fail closed.
-_TRANSCRIPT_TAIL_BYTES: Final = 8 * 1024 * 1024
 
 #: Where one git call's arguments end inside a compound command.
 _CALL_END_RE: Final = re.compile(r"[;|&\n]")
@@ -166,25 +164,33 @@ def _prompt_text(entry: dict[str, Any]) -> str:
 
 @functools.lru_cache(maxsize=1)
 def _resolve_conflicts_active(transcript_path: str) -> bool:
-    """True only while the latest human prompt is Jon's `/resolve-conflicts`."""
+    """True once any human prompt of the session is Jon's `/resolve-conflicts`.
+
+    The whole transcript is read, line by line, so a long merge never pushes the
+    invocation out of reach.
+    """
     if not transcript_path:
         return False
     try:
-        size = os.path.getsize(transcript_path)
-        with open(transcript_path, "rb") as handle:
-            handle.seek(max(0, size - _TRANSCRIPT_TAIL_BYTES))
-            lines = handle.read().decode("utf-8", errors="replace").splitlines()
+        with open(transcript_path, encoding="utf-8", errors="replace") as handle:
+            return any(_is_invocation(line) for line in handle)
     except OSError:
         return False
 
-    for line in reversed(lines):
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(entry, dict) and _is_human_prompt(entry):
-            return bool(_RESOLVE_CONFLICTS_INVOCATION_RE.match(_prompt_text(entry)))
-    return False
+
+def _is_invocation(line: str) -> bool:
+    """One transcript line that is Jon's typed `/resolve-conflicts` prompt."""
+    if "/resolve-conflicts" not in line:
+        return False
+    try:
+        entry = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(entry, dict)
+        and _is_human_prompt(entry)
+        and bool(_RESOLVE_CONFLICTS_INVOCATION_RE.match(_prompt_text(entry)))
+    )
 
 
 def _call_args(normalized: str, match: re.Match[str]) -> list[str]:
@@ -251,6 +257,7 @@ def _exempt(subcommand: str, args: list[str], transcript_path: str) -> bool:
     if predicate is None or not predicate(args):
         return False
     return _resolve_conflicts_active(transcript_path)
+
 
 # Executable names that ARE a standalone type-checker. `leading_token` returns the
 # bare basename with any `.exe` stripped, so an absolute venv path matches too.

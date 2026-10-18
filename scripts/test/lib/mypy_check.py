@@ -10,13 +10,9 @@ import argparse
 import os
 import subprocess
 import sys
+import tomllib
 from datetime import datetime
 from pathlib import Path
-
-try:
- import tomllib
-except ImportError:
- tomllib = None  # type: ignore[assignment]
 
 from datrix_scripts.framework_repos import workspace_package_dirs
 from datrix_scripts.paths import WORKSPACE_DIR
@@ -38,18 +34,13 @@ def has_mypy_config(project_root: Path) -> bool:
  pyproject_path = project_root / "pyproject.toml"
  if not pyproject_path.exists():
   return False
- if tomllib is not None:
-  try:
-   with pyproject_path.open("rb") as f:
-    data = tomllib.load(f)
-   tool = data.get("tool", {})
-   return isinstance(tool, dict) and isinstance(tool.get("mypy"), dict)
-  except (OSError, ValueError):
-   return False
  try:
-  return "[tool.mypy]" in pyproject_path.read_text(encoding="utf-8")
- except OSError:
+  with pyproject_path.open("rb") as f:
+   data = tomllib.load(f)
+ except (OSError, ValueError):
   return False
+ tool = data.get("tool", {})
+ return isinstance(tool, dict) and isinstance(tool.get("mypy"), dict)
 
 
 def resolve_specific_targets(project_root: Path, specific: str | None) -> list[str]:

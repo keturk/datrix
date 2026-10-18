@@ -13,8 +13,9 @@
 
     The session never deletes the finding; the script does, through skill-assist finding-close
     (skill\lib\implement_finding.py), not on a model's word: never while another findings file
-    names it, and after DONE only when the session's last foreground test.ps1 run passed (read
-    from the step's stream log). Each finding is closed before the next one starts.
+    names it, and after DONE only when the session's last foreground test.ps1 or *-gate.ps1 run
+    passed (read from the step's stream log; a gate passes on its "[GATE] <name> PASSED exit=0"
+    verdict line, and -SelfTest runs do not count). Each finding is closed before the next one starts.
 
     Step logs: <workspace>\.tmp\skill-chain\<timestamp>\.
 

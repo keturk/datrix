@@ -87,6 +87,7 @@ from datrix_scripts.paths import (  # noqa: E402
     WORKSPACE_DIR,
     resolve_output_path,
 )
+from datrix_scripts.powershell_ast import parse_scripts  # noqa: E402
 from datrix_scripts.status_tests import parse_timestamp_from_log_file  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -150,29 +151,18 @@ _OVERALL_SELF_TEST_FAILED = "SELF_TEST_FAILED"
 _OVERALL_INSTALL_CHECK_FAILED = "INSTALL_CHECK_FAILED"
 _WALL_SECONDS_DECIMALS = 1
 
-#: The PowerShell module holding the one install/repair implementation the
-#: gate and ``test.ps1`` both call -- never reimplemented here.
+#: The wrapper of the one install/repair implementation (``datrix_scripts.venv``)
+#: the gate and ``test.ps1`` both run -- never reimplemented here.
 _VENV_PS1_RELPATH = ("datrix", "scripts", "common", "venv.ps1")
 #: The flag by which a caller tells ``test.ps1`` (and ``test_project.py`` below
 #: it) that the shared venv's installs were already verified for this run.
 PACKAGES_ENSURED_ENV = "DATRIX_PACKAGES_ENSURED"
 _PACKAGES_ENSURED_VALUE = "1"
 _XDIST_WORKERS_ENV = "PYTEST_XDIST_AUTO_NUM_WORKERS"
-#: Carries the venv.ps1 path into the install check, so the command text is a
-#: constant and no path is ever spliced into PowerShell source.
-_VENV_SCRIPT_ENV = "DATRIX_GATE_VENV_SCRIPT"
 _POWERSHELL_EXE = "powershell"
-#: The same two calls, with the same failure handling, ``test.ps1`` makes
-#: before its project loop.
-_ENSURE_PACKAGES_COMMAND = (
-    "$ErrorActionPreference = 'Stop'; "
-    "try { "
-    ". $env:DATRIX_GATE_VENV_SCRIPT; "
-    "if (-not (Ensure-DatrixVenv)) { exit 1 }; "
-    "if (-not (Ensure-DatrixPackagesInstalled -SkipIfInstalled)) { exit 1 }; "
-    "exit 0 "
-    "} catch { [Console]::Error.WriteLine(\"Install check failed: $_\"); exit 1 }"
-)
+#: The check ``test.ps1``'s runner makes before its project loop (``Invoke-DatrixPythonScript
+#: -RequirePackages``): the venv, then its installs, reinstalling nothing that is current.
+_INSTALL_CHECK_SWITCHES = ("-Ensure", "-EnsurePackages", "-SkipIfInstalled")
 
 
 class InstallCheckError(Exception):
@@ -996,7 +986,7 @@ def attributed_run_dir(test_results_dir: Path, reported_index_paths: list[str]) 
 
 
 def venv_script_path(workspace: Path) -> Path:
-    """The ``venv.ps1`` module holding ``Ensure-DatrixPackagesInstalled``."""
+    """The ``venv.ps1`` wrapper that runs the venv and install checks (``datrix_scripts.venv``)."""
     return workspace.joinpath(*_VENV_PS1_RELPATH)
 
 
@@ -1004,12 +994,11 @@ def ensure_packages_installed_once(venv_script: Path) -> None:
     """Verify (and repair) the shared venv's package installs ONCE for the gate.
 
     Every child is a ``test.ps1`` run against the one shared venv; each would
-    otherwise spend its own ``Ensure-DatrixPackagesInstalled -SkipIfInstalled``
-    check (a ``python -c "import ..."`` spawn per package) on the same answer.
-    This runs the same two calls ``test.ps1`` makes -- ``Ensure-DatrixVenv``,
-    then ``Ensure-DatrixPackagesInstalled -SkipIfInstalled`` -- by dot-sourcing
-    the same ``venv.ps1``, so the install/repair logic has one home. Each child
-    is then launched with ``DATRIX_PACKAGES_ENSURED=1`` (:func:`_child_environment`)
+    otherwise spend its own install check (one import-check process over every
+    package) on the same answer. This runs the same check ``test.ps1``'s runner
+    makes -- ``venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled``, through the
+    same wrapper, so the install/repair logic has one home. Each child is then
+    launched with ``DATRIX_PACKAGES_ENSURED=1`` (:func:`_child_environment`)
     and skips its own check.
 
     Its output streams through: with ``DATRIX_VENV_VERBOSE=1`` the check's
@@ -1022,24 +1011,20 @@ def ensure_packages_installed_once(venv_script: Path) -> None:
     """
     if not venv_script.is_file():
         raise InstallCheckError(
-            f"The venv module {venv_script} does not exist, so the package install check cannot run. "
+            f"The venv wrapper {venv_script} does not exist, so the package install check cannot run. "
             f"Expected the workspace's datrix/scripts/common/venv.ps1; run the gate from the Datrix "
             f"workspace it belongs to."
         )
-    env = os.environ.copy()
-    env[_VENV_SCRIPT_ENV] = str(venv_script)
     logger.info("install_check_started venv_script=%s", venv_script)
     result = subprocess.run(
-        [_POWERSHELL_EXE, "-NoProfile", "-NonInteractive", "-Command", _ENSURE_PACKAGES_COMMAND],
-        env=env,
+        [_POWERSHELL_EXE, "-NoProfile", "-NonInteractive", "-File", str(venv_script), *_INSTALL_CHECK_SWITCHES],
         check=False,
     )
     if result.returncode != 0:
         raise InstallCheckError(
-            f"The package install check (Ensure-DatrixVenv, then Ensure-DatrixPackagesInstalled "
-            f"-SkipIfInstalled, from {venv_script}) exited {result.returncode} before any child was "
-            f"launched. Fix the venv/install error printed above -- set DATRIX_VENV_VERBOSE=1 to see "
-            f"each package it checked -- then re-run the gate."
+            f"The package install check ({venv_script} {' '.join(_INSTALL_CHECK_SWITCHES)}) exited "
+            f"{result.returncode} before any child was launched. Fix the venv/install error printed above "
+            f"-- set DATRIX_VENV_VERBOSE=1 to see each package it checked -- then re-run the gate."
         )
     logger.info("install_check_passed venv_script=%s", venv_script)
 
@@ -2517,37 +2502,33 @@ def _check_completion_row_shares_the_guards_ts_type_and_is_distinguishable() -> 
 # Install-once self-tests: the flag every child carries, the one upstream
 # check, and the reader that honours the flag -- checked against the real
 # test.ps1 / test_project.py / venv.ps1 sources, and the check's exit-code
-# wiring against real PowerShell processes over planted venv modules.
+# wiring against real PowerShell processes over planted venv wrappers.
 # ---------------------------------------------------------------------------
 
 _SELF_TEST_CHECK_PREFIX = "_check_"
 _TEST_PS1_PARTS = ("scripts", "test", "test.ps1")
 _TEST_PROJECT_NAME = "test_project.py"
-_INSTALL_CALL = "Ensure-DatrixPackagesInstalled -SkipIfInstalled"
+#: The venv wrapper's install switch: test.ps1 must never pass it itself.
+_INSTALL_CALL = "-EnsurePackages"
 _INSTALL_GUARD = f'$env:{PACKAGES_ENSURED_ENV} -ne "{_PACKAGES_ENSURED_VALUE}"'
 #: test.ps1 decides from the flag whether its runner calls carry the install check ...
 _TEST_PS1_INSTALL_DECISION = f"$requirePackages = {_INSTALL_GUARD}"
-#: ... and hands that decision to the runner, which runs Ensure-DatrixPackagesInstalled -SkipIfInstalled.
+#: ... and hands that decision to the runner, which runs venv.ps1's -EnsurePackages -SkipIfInstalled.
 _TEST_PS1_INSTALL_REQUEST = "-RequirePackages:$requirePackages"
 _SIGNAL_TO_TEST_PROJECT = f'$env:{PACKAGES_ENSURED_ENV} = "{_PACKAGES_ENSURED_VALUE}"'
 _CALLER_VALUE_RESTORE = f"$env:{PACKAGES_ENSURED_ENV} = $script:CallerPackagesEnsured"
 _ENSURED_MARKER = "packages-ensured.marker"
-_PLANTED_VENV_OK = """
-function Ensure-DatrixVenv { return $true }
-function Ensure-DatrixPackagesInstalled {
-    param([switch]$SkipIfInstalled)
-    if (-not $SkipIfInstalled) { return $false }
-    Set-Content -LiteralPath (Join-Path $PSScriptRoot 'packages-ensured.marker') -Value 'ensured'
-    return $true
-}
+_PLANTED_VENV_PARAMS = "param([switch]$Ensure, [switch]$EnsurePackages, [switch]$SkipIfInstalled)\n"
+_PLANTED_VENV_OK = _PLANTED_VENV_PARAMS + """
+if (-not ($Ensure -and $EnsurePackages -and $SkipIfInstalled)) { exit 1 }
+Set-Content -LiteralPath (Join-Path $PSScriptRoot 'packages-ensured.marker') -Value 'ensured'
+exit 0
 """
-_PLANTED_VENV_PACKAGES_FAIL = """
-function Ensure-DatrixVenv { return $true }
-function Ensure-DatrixPackagesInstalled { param([switch]$SkipIfInstalled) return $false }
+_PLANTED_VENV_PACKAGES_FAIL = _PLANTED_VENV_PARAMS + """
+exit 1
 """
-_PLANTED_VENV_THROWS = """
-function Ensure-DatrixVenv { throw 'self-test fixture: planted venv activation failure (expected)' }
-function Ensure-DatrixPackagesInstalled { param([switch]$SkipIfInstalled) return $true }
+_PLANTED_VENV_THROWS = _PLANTED_VENV_PARAMS + """
+throw 'self-test fixture: planted venv check failure (expected)'
 """
 
 
@@ -2567,7 +2548,7 @@ def _install_decision_problems(text: str) -> list[str]:
     if "-RequirePackages " in text or "-RequirePackages\n" in text or text.rstrip().endswith("-RequirePackages"):
         problems.append("a runner call asks for the install check unconditionally (bare -RequirePackages)")
     if _INSTALL_CALL in text:
-        problems.append(f"it calls {_INSTALL_CALL} itself instead of through the runner")
+        problems.append(f"it passes venv.ps1 {_INSTALL_CALL} itself instead of asking the runner")
     decision, signal = text.find(_TEST_PS1_INSTALL_DECISION), text.find(_SIGNAL_TO_TEST_PROJECT)
     if decision >= 0 and signal >= 0 and signal < decision:
         problems.append("it sets the flag before reading it, so its own check would always be skipped")
@@ -2622,9 +2603,9 @@ def _check_install_check_runs_once_before_carry_and_any_child() -> None:
     """Read from this module's own source: the install check is called
     exactly once in the whole module, from ``_run``, after its usage checks
     and before the carry decision and the scheduler; ``main`` returns for
-    ``--self-test`` before ``_run_recorded`` can reach it. The command
-    dot-sources the real workspace's venv.ps1 through the environment and
-    calls the two functions that module defines."""
+    ``--self-test`` before ``_run_recorded`` can reach it. The check runs the
+    real workspace's venv.ps1, whose parameter block declares every switch the
+    gate passes."""
     tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
     functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
     install_name = ensure_packages_installed_once.__name__
@@ -2669,19 +2650,18 @@ def _check_install_check_runs_once_before_carry_and_any_child() -> None:
 
     venv_script = venv_script_path(WORKSPACE_DIR)
     assert venv_script == _showcase_repo() / "scripts" / "common" / "venv.ps1", venv_script
-    venv_source = venv_script.read_text(encoding="utf-8-sig")
-    for function_name in ("Ensure-DatrixVenv", "Ensure-DatrixPackagesInstalled"):
-        assert f"function {function_name}" in venv_source, f"{venv_script} no longer defines {function_name}"
-        assert function_name in _ENSURE_PACKAGES_COMMAND, f"the install check no longer calls {function_name}"
-    assert _INSTALL_CALL in _ENSURE_PACKAGES_COMMAND, "the gate's install check must match test.ps1's -SkipIfInstalled call"
-    assert f"$env:{_VENV_SCRIPT_ENV}" in _ENSURE_PACKAGES_COMMAND, "the command must dot-source the path the gate passes"
+    wrapper = parse_scripts([venv_script])[venv_script.resolve()]
+    undeclared = [switch for switch in _INSTALL_CHECK_SWITCHES if not wrapper.declares(switch.lstrip("-"))]
+    assert not undeclared, f"{venv_script} no longer declares {undeclared}, which the gate's install check passes"
+    assert {_INSTALL_CALL, "-SkipIfInstalled"} <= set(_INSTALL_CHECK_SWITCHES), (
+        "the gate's install check must match the runner's -RequirePackages check (-EnsurePackages -SkipIfInstalled)"
+    )
 
 
 def _check_install_check_passes_through_and_fails_loud() -> None:
-    """Real PowerShell processes over planted venv modules: a module whose
-    two functions succeed passes, and its install function was called with
-    -SkipIfInstalled; a module whose install function returns false, one
-    whose venv function throws, and a missing module each raise
+    """Real PowerShell processes over planted venv wrappers: a wrapper that
+    exits 0 passes, and it was run with -Ensure -EnsurePackages -SkipIfInstalled;
+    a wrapper that exits 1, one that throws, and a missing wrapper each raise
     InstallCheckError -- never a silent pass."""
     with tempfile.TemporaryDirectory(prefix="affected-gate-selftest-") as tmp:
         root = Path(tmp)
@@ -2690,7 +2670,7 @@ def _check_install_check_passes_through_and_fails_loud() -> None:
         passing.write_text(_PLANTED_VENV_OK, encoding="utf-8")
         ensure_packages_installed_once(passing)
         assert (passing.parent / _ENSURED_MARKER).is_file(), (
-            "the install check passed without calling Ensure-DatrixPackagesInstalled -SkipIfInstalled"
+            "the install check passed without running venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled"
         )
         failing = (
             ("packages-fail", _PLANTED_VENV_PACKAGES_FAIL),

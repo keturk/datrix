@@ -7,8 +7,9 @@ Each census names one fact that has exactly one home and reports every place tha
     ``run_checks``, ``run_self_test_checks``, ``harness_self_test``, ``_ok``, ``_fail``,
     ``_step``, ``_assert``, ``configure_logging`` or ``_configure_logging``.
 ``runner-adoption``
-    No ``.ps1`` other than ``common/venv.ps1`` calls ``Ensure-DatrixVenv`` (a wrapper runs its
-    Python through ``Invoke-DatrixPythonScript``), and every gate wrapper reports one verdict
+    No ``.ps1`` calls the retired ``Ensure-DatrixVenv`` (``datrix_scripts.venv`` checks the venv,
+    and a wrapper runs its Python through ``Invoke-DatrixEntrypoint`` or
+    ``Invoke-DatrixPythonScript``), and every gate wrapper reports one verdict
     line: it passes ``-Gate`` to ``Invoke-DatrixPythonScript`` or calls
     ``Write-DatrixGateVerdict``.
 ``package-discovery``
@@ -31,6 +32,15 @@ Each census names one fact that has exactly one home and reports every place tha
     No ``.py``, ``.ps1`` or ``.psm1`` defines, imports or calls a retired workspace-root resolver
     (``RETIRED_PY_ROOT_RESOLVERS``, ``RETIRED_PS_ROOT_RESOLVERS``); the root is
     ``Get-DatrixWorkspaceRoot`` and ``datrix_scripts.paths.WORKSPACE_DIR``.
+
+One census holds a defect class rather than a home:
+
+``unrolled-append``
+    No ``.ps1`` or ``.psm1`` assigns a variable from a bare ``if``, ``switch``, loop or ``try``
+    statement and then grows it with ``+=``. The statement's output is unrolled, so a branch that
+    emits one element binds a scalar and ``+=`` concatenates strings (``--all`` then ``--rule x``
+    becomes the one argument ``--all--rule``); ``$x = @(if (...) { ... } else { ... })`` keeps
+    an array.
 
 The censuses parse structure (Python ``ast``; PowerShell's own parser through
 ``datrix_scripts.powershell_ast``), never text.
@@ -59,13 +69,13 @@ HARNESS_NAMES: Final = frozenset(
 )
 HARNESS_HOME: Final = "common/lib/datrix_scripts/gate_harness.py"
 DISCOVERY_HOME: Final = "common/lib/datrix_scripts/framework_repos.py"
-VENV_HOME: Final = "common/venv.ps1"
 SYS_PATH_ALLOWED: Final = frozenset(
     {
         "common/lib/datrix_scripts/suite_inputs.py",
         "gates/parity/lib/behaviour_parity.py",
         "test/lib/affected_gate.py",
         "common/lib/datrix_scripts/hook_modules.py",
+        "common/lib/datrix_scripts/package_imports.py",
     }
 )
 _SYS_PATH_MUTATORS: Final = frozenset({"insert", "append", "extend"})
@@ -79,6 +89,7 @@ _BOUND_NAME_PLACEHOLDER: Final = "_bound{}"
 
 ENSURE_VENV: Final = "Ensure-DatrixVenv"
 RUNNER: Final = "Invoke-DatrixPythonScript"
+ENTRYPOINT: Final = "Invoke-DatrixEntrypoint"
 VERDICT_WRITER: Final = "Write-DatrixGateVerdict"
 GATE_PARAMETER: Final = "Gate"
 SELF_TEST_PARAMETER: Final = "SelfTest"
@@ -98,6 +109,7 @@ class Census(StrEnum):
     IDENTICAL_BODIES = "identical-bodies"
     SELF_TEST = "gate-self-test"
     ROOT_RESOLVERS = "root-resolvers"
+    UNROLLED_APPEND = "unrolled-append"
 
 
 @dataclass(frozen=True)
@@ -580,12 +592,13 @@ def runner_adoption(scripts_dir: Path, facts: dict[Path, ScriptFacts]) -> list[C
     hits: list[CensusHit] = []
     for path, script in sorted(facts.items()):
         relative = _relative(path, scripts_dir)
-        if relative != VENV_HOME and script.calls(ENSURE_VENV):
+        if script.calls(ENSURE_VENV):
             hits.append(
                 CensusHit(
                     Census.RUNNER,
                     relative,
-                    f"calls {ENSURE_VENV}; run the Python through {RUNNER} (common/DatrixPythonScript.psm1)",
+                    f"calls the retired {ENSURE_VENV}; the venv check is datrix_scripts.venv (common/venv.ps1), and "
+                    f"a wrapper runs its Python through {ENTRYPOINT} or {RUNNER} (common/DatrixPythonScript.psm1)",
                 )
             )
         if is_gate_wrapper(path) and not _reports_verdict(script):
@@ -629,6 +642,21 @@ def powershell_root_resolvers(scripts_dir: Path, facts: dict[Path, ScriptFacts])
     return hits
 
 
+def unrolled_appends(scripts_dir: Path, facts: dict[Path, ScriptFacts]) -> list[CensusHit]:
+    """Every variable bound to a bare flow-control statement's output and later grown with ``+=``."""
+    return [
+        CensusHit(
+            Census.UNROLLED_APPEND,
+            f"{_relative(path, scripts_dir)}:{assignment.line}",
+            f"${assignment.variable} = <{assignment.statement}> is later grown with +=; a branch "
+            f"emitting one element binds a scalar and += concatenates onto it. Wrap the whole "
+            f"statement: ${assignment.variable} = @(if (...) {{ ... }} else {{ ... }})",
+        )
+        for path, script in sorted(facts.items())
+        for assignment in script.unrolled_then_appended()
+    ]
+
+
 def parse_errors(scripts_dir: Path, facts: dict[Path, ScriptFacts]) -> list[str]:
     return [
         f"{_relative(path, scripts_dir)}: {script.parse_errors[0]}"
@@ -668,6 +696,7 @@ def run_censuses(scripts_dir: Path) -> dict[Census, list[CensusHit]]:
         *python_root_resolvers(modules),
         *powershell_root_resolvers(scripts_dir, facts),
     ]
+    results[Census.UNROLLED_APPEND] = unrolled_appends(scripts_dir, facts)
     return results
 
 
@@ -679,8 +708,9 @@ def census_failures(results: dict[Census, list[CensusHit]]) -> list[str]:
             continue
         listing = "\n    ".join(hit.render() for hit in hits)
         messages.append(
-            f"census {census.value}: {len(hits)} hit(s). Expected none: each fact has exactly one "
-            f"home. Fix: move each copy to its home (or delete it). Hits:\n    {listing}"
+            f"census {census.value}: {len(hits)} hit(s). Expected none: every census is a hard "
+            f"zero. Fix: each hit names its fix (a copy moves to its home or is deleted). "
+            f"Hits:\n    {listing}"
         )
     return messages
 
@@ -771,6 +801,19 @@ _PY_ROOT_CLEAN: Final = "from datrix_scripts.paths import WORKSPACE_DIR\n\nROOT 
 _PS_ROOT_RESOLVER_CALL: Final = f"$root = {_PS_RESOLVER}\n"
 _PS_ROOT_RESOLVER_DEFINITION: Final = f"function {_PS_RESOLVER} {{ return 'x' }}\n"
 _PS_ROOT_CLEAN: Final = "$root = Get-DatrixWorkspaceRoot\n"
+#: Two hits: an if-expression and a switch, each grown with += (the second through another case).
+_UNROLLED_APPENDS: Final = (
+    "$pyArgs = if ($All) { @('--all') } else { @($Projects) }\n"
+    "if ($Rule) { $pyArgs += @('--rule', $Rule) }\n"
+    "$mode = switch ($Kind) { 'a' { '--a' } default { '--b' } }\n"
+    "$MODE += '--c'\n"
+)
+#: The wrapped form, and an if-expression no += grows: no hit.
+_WRAPPED_APPENDS: Final = (
+    "$pyArgs = @(if ($All) { '--all' } else { $Projects })\n"
+    "if ($Rule) { $pyArgs += @('--rule', $Rule) }\n"
+    "$label = if ($All) { 'all' } else { 'some' }\n"
+)
 
 
 def _expect(files: dict[str, str], census: Census, expected: int) -> None:
@@ -825,7 +868,7 @@ def _check_shared_helper_copies() -> None:
 
 def _check_runner_adoption() -> None:
     _expect({_PLANTED_WRAPPER: _VENV_WRAPPER}, Census.RUNNER, 1)
-    _expect({VENV_HOME: _VENV_WRAPPER}, Census.RUNNER, 0)
+    _expect({"common/venv.ps1": _VENV_WRAPPER}, Census.RUNNER, 1)
     _expect({_PLANTED_GATE: _GATE_WITHOUT_VERDICT}, Census.RUNNER, 1)
     _expect({_PLANTED_GATE: _GATE_WITH_VERDICT}, Census.RUNNER, 0)
 
@@ -843,6 +886,12 @@ def _check_root_resolvers() -> None:
     _expect({_PLANTED_WRAPPER: _PS_ROOT_CLEAN}, Census.ROOT_RESOLVERS, 0)
 
 
+def _check_unrolled_appends() -> None:
+    _expect({_PLANTED_WRAPPER: _UNROLLED_APPENDS}, Census.UNROLLED_APPEND, 2)
+    _expect({_PLANTED_MODULE: _UNROLLED_APPENDS}, Census.UNROLLED_APPEND, 2)
+    _expect({_PLANTED_WRAPPER: _WRAPPED_APPENDS}, Census.UNROLLED_APPEND, 0)
+
+
 def self_test_checks() -> list[NamedCheck]:
     """Each census reports a planted copy and passes its clean twin."""
     return [
@@ -854,4 +903,5 @@ def self_test_checks() -> list[NamedCheck]:
         NamedCheck("census_runner_adoption_reports_planted_wrappers", _check_runner_adoption),
         NamedCheck("census_gate_self_test_reports_a_planted_gate", _check_gate_self_test),
         NamedCheck("census_root_resolvers_reports_planted_definitions_and_uses", _check_root_resolvers),
+        NamedCheck("census_unrolled_append_reports_planted_statement_assignments", _check_unrolled_appends),
     ]

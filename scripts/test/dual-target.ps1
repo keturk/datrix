@@ -54,14 +54,13 @@ $datrixScriptsRoot = Split-Path -Parent $scriptDir
 $commonDir = Join-Path $datrixScriptsRoot "common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
 
 # Runtime-validate -Platform against the installed datrix.platforms plugins
 # (DI-6 / D4 open identity) rather than a static ValidateSet, so a
 # newly installed datrix-codegen-<provider> package is selectable here with no
 # edit to this script. The query runs the venv interpreter by path; generate.ps1
 # and run-complete.ps1 run their own Python through the shared runner.
-$pythonExe = Join-Path (Get-DatrixVenvPath) "Scripts\python.exe"
+$pythonExe = Get-DatrixVenvPython
 $installedPlatforms = Get-DatrixInstalledPlatforms -PythonExe $pythonExe
 
 if ($Platform -notin $installedPlatforms) {

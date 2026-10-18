@@ -35,9 +35,11 @@ run with nothing committed, naming file, line and label. There is NO skip switch
 a reference cannot be committed.
 
 Likewise, every dirty repo's pending .py files are linted for pyflakes findings
-(ruff check --select F, run from the repo root so its per-file-ignores apply; see
-gates/repo-hygiene/python-lint-correctness-gate.ps1): an unused import, an undefined name, or a
-test function shadowed by a same-named redefinition. The checked-in output under
+(ruff check --select F) and top-level blank-line findings (ruff check --preview
+--select E302,E305), each run from the repo root so its per-file-ignores apply; see
+gates/repo-hygiene/python-lint-correctness-gate.ps1: an unused import, an undefined name, a
+test function shadowed by a same-named redefinition, or a top-level def/class without two
+blank lines before or after it. The checked-in output under
 examples/**/generated/ is generator output and is not linted here. One finding aborts the whole
 run with nothing committed, naming file, line and code. There is NO skip switch;
 a genuinely required finding is suppressed on its own line with `# noqa: <code>`
@@ -187,9 +189,8 @@ if (-not (Test-Path -LiteralPath $pythonScript)) {
 }
 
 # The commit path imports the shared scripts package (the isolation, ignored-source,
-# lint and design-reference scanners); put it on PYTHONPATH for the child.
-. (Join-Path $scriptDir '..\common\venv.ps1')
-Set-DatrixPythonPath
+# lint and design-reference scanners); Enter-DatrixVenvEnvironment puts it on PYTHONPATH for the child.
+Import-Module (Join-Path $scriptDir '..\common\DatrixPythonScript.psm1')
 
 $workspaceRoot = Split-Path -Parent $datrixRoot
 $venvPython = Join-Path $workspaceRoot '.venv\Scripts\python.exe'
@@ -229,5 +230,12 @@ if ($SkipPolyStringCaseCheck) {
     $pyArgs += '--skip-polystring-case-check'
 }
 
-& $pythonExe @pyArgs
-exit $LASTEXITCODE
+$savedEnvironment = Enter-DatrixVenvEnvironment
+try {
+    & $pythonExe @pyArgs
+    $exitCode = $LASTEXITCODE
+}
+finally {
+    Exit-DatrixVenvEnvironment -Saved $savedEnvironment
+}
+exit $exitCode

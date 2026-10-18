@@ -82,7 +82,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -90,6 +90,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from datrix_codegen_common.algorithms.test_case_identity import TEST_CASE_ID_PROPERTY
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 from datrix_scripts import suite_inputs
 from datrix_scripts.aggregate_test_writer import (
@@ -118,6 +120,7 @@ from datrix_scripts.deploy_test_log_writer import (
     TRANSIENT_ERROR_PATTERNS,
     DeployTestLogWriter,
 )
+from datrix_scripts.dev_specs import SCRIPTS_DEPENDENCY_GROUP, read_dependency_group, read_dev_specs
 from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
 from datrix_scripts.gate_harness import CheckFunc, NamedCheck, check_list_main, write_files
 from datrix_scripts.generated_test_log_writer import (
@@ -161,7 +164,9 @@ from datrix_scripts.local_llm_loopback import (
 from datrix_scripts.local_llm_usage import GATE_USAGE_LOG, usage_report
 from datrix_scripts.logging_utils import LogConfig, TeeLogger, cleanup_old_logs
 from datrix_scripts.node_test_runner import node_selection, node_suite_inputs
-from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, WORKSPACE_DIR
+from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, SHOWCASE_DIR, WORKSPACE_DIR, script_env
+from datrix_scripts.pyproject_deps import discover_packages, read_project_dependencies
+from datrix_scripts.selection_export import SelectedItem, SelectionExportError, read_selection
 from datrix_scripts.status_tests import _phase_status_from_index
 from datrix_scripts.structured_log_writer import (
     _MAX_FILENAME_BODY_LENGTH,
@@ -185,7 +190,14 @@ from datrix_scripts.suite_stamp import (
     unstamped_recorder_environment,
 )
 from datrix_scripts.test_runner import (
+    EXECUTION_PARALLEL_SERIAL,
+    EXECUTION_SINGLE_PROCESS,
+    PARALLEL_ARGS_FILE_NAME,
     REQUIRE_TAGS_OPTION,
+    SELECTED_ARGS_FILE_NAME,
+    SELECTION_FILE_NAME,
+    SERIAL_ARGS_FILE_NAME,
+    SERIAL_SKIPPED_NO_SELECTED_SERIAL_ITEMS,
     SERIAL_SKIPPED_NO_SERIAL_ITEMS,
     TAGS_OPTION,
     TIER_MARKER_EXPRESSIONS,
@@ -197,7 +209,9 @@ from datrix_scripts.test_runner import (
     _note_incomplete_phase,
     _serial_phase_decision_for_run,
     decide_serial_phase,
+    plan_tag_run,
     split_tags,
+    write_tag_run_files,
 )
 from run_complete_checks import checks as run_complete_checks
 from scripts_contract_checks import checks as contract_checks
@@ -1100,19 +1114,49 @@ def check_test_runner_passes_feature_tag_options_as_standalone_argv() -> None:
     assert split_tags(" gateway , ,identity ") == ["gateway", "identity"]
 
 
-def _make_tagged_package(root: Path) -> TestRunner:
-    """A real two-module package: ``test_alpha.py`` tagged alpha, ``test_beta.py`` beta."""
-    tests_dir = root / "tests"
-    tests_dir.mkdir()
-    for tag in ("alpha", "beta"):
-        (tests_dir / f"test_{tag}.py").write_text(
-            "import pytest\n"
-            f"pytestmark = pytest.mark.tag({tag!r})\n"
-            f"def test_{tag}_holds() -> None:\n"
-            "    assert True\n",
-            encoding="utf-8",
-        )
+#: A planted package's pytest configuration: it makes the package root pytest's
+#: rootdir (so node IDs are root-relative, as in every real package) and
+#: registers ``serial``, which the runner's ``--strict-markers`` requires.
+_PLANTED_PYPROJECT = (
+    "[tool.pytest.ini_options]\n"
+    'markers = ["serial: runs one at a time, outside the worker pool"]\n'
+)
+#: Two tags of the feature-tag vocabulary table: a runner session refuses a
+#: collected tag the table does not list, so planted tests carry listed ones.
+_TAG_A = "parser"
+_TAG_B = "grammar-build"
+
+
+def _plant_package(root: Path, modules: dict[str, str]) -> TestRunner:
+    """A real package under *root*: its pyproject and each ``tests/<name>`` module."""
+    write_files(
+        root,
+        {"pyproject.toml": _PLANTED_PYPROJECT, **{f"tests/{name}": body for name, body in modules.items()}},
+    )
     return TestRunner(TestConfig(project_root=root, project_name="tagged-fixture"))
+
+
+def _make_tagged_package(root: Path) -> TestRunner:
+    """A real two-module package: ``test_alpha.py`` tagged ``_TAG_A``, ``test_beta.py`` ``_TAG_B``."""
+    return _plant_package(
+        root,
+        {
+            f"test_{name}.py": (
+                "import pytest\n"
+                f"pytestmark = pytest.mark.tag({tag!r})\n"
+                f"def test_{name}_holds() -> None:\n"
+                "    assert True\n"
+            )
+            for name, tag in (("alpha", _TAG_A), ("beta", _TAG_B))
+        },
+    )
+
+
+def _newest_run_dir(root: Path) -> Path:
+    """The single run directory a planted package's run wrote."""
+    run_dirs = sorted((root / ".test_results").glob("test-results-*"))
+    assert len(run_dirs) == 1, f"expected one run directory under {root / '.test_results'}, found {run_dirs}"
+    return run_dirs[0]
 
 
 def check_test_runner_preflight_refuses_an_unknown_tag_before_any_phase() -> None:
@@ -1125,27 +1169,260 @@ def check_test_runner_preflight_refuses_an_unknown_tag_before_any_phase() -> Non
         runner = _make_tagged_package(root)
         python_exe = runner._get_python_executable()
 
-        printed = io.StringIO()
-        with contextlib.redirect_stdout(printed):
-            refused = runner._preflight_tag_selection(python_exe, None, ["nosuch"])
-        assert refused == 4, f"an unknown tag was not refused (got {refused!r})"
-        assert "carries tag(s) ['nosuch']" in printed.getvalue(), printed.getvalue()
+        refused = runner._preflight_tag_selection(python_exe, None, ["nosuch"])
+        assert refused.exit_code == 4, f"an unknown tag was not refused (got {refused!r})"
+        assert "carries tag(s) ['nosuch']" in refused.output, refused.output
 
-        assert runner._preflight_tag_selection(python_exe, None, ["alpha"]) is None, (
-            "a tag that selects part of the tree was refused"
+        kept = runner._preflight_tag_selection(python_exe, None, [_TAG_A])
+        assert kept.succeeded and len(kept.selection) == 1, (
+            f"a tag that selects part of the tree was refused: {kept!r}"
         )
 
-        with contextlib.redirect_stdout(io.StringIO()):
-            assert runner._preflight_tag_selection(python_exe, None, ["alpha", "beta"]) == 4, (
-                "a tag set selecting the whole test tree (the full suite) was not refused"
-            )
+        whole = runner._preflight_tag_selection(python_exe, None, [_TAG_A, _TAG_B])
+        assert whole.exit_code == 4, (
+            f"a tag set selecting the whole test tree (the full suite) was not refused: {whole!r}"
+        )
 
-        with contextlib.redirect_stdout(io.StringIO()):
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
             code = runner.run(tags=["nosuch"])
         assert code == 4, f"run() with an unknown tag returned {code!r}, not the refusal"
+        assert "carries tag(s) ['nosuch']" in printed.getvalue(), printed.getvalue()
         assert not (root / ".test_results").exists(), (
             "run() with an unknown tag wrote a run directory: a phase started"
         )
+
+
+#: A planted tree holding an ``a`` test, a ``b`` test and a ``serial`` ``a`` test
+#: (``a`` = ``_TAG_A``, ``b`` = ``_TAG_B``).
+_SELECTION_MODULE = (
+    "import pytest\n"
+    f"@pytest.mark.tag({_TAG_A!r})\n"
+    "def test_a_plain() -> None:\n"
+    "    assert True\n"
+    f"@pytest.mark.tag({_TAG_B!r})\n"
+    "def test_b_plain() -> None:\n"
+    "    assert True\n"
+    "@pytest.mark.serial\n"
+    f"@pytest.mark.tag({_TAG_A!r})\n"
+    "def test_a_serial() -> None:\n"
+    "    assert True\n"
+)
+#: pytest's collection summary without its timing ("2/3 tests collected (1 deselected)").
+_COLLECTED_SUMMARY = re.compile(r"^(\d+(?:/\d+)? tests? collected(?: \(\d+ deselected\))?)", re.MULTILINE)
+
+
+def _collect_with_export(root: Path, python_exe: str, *extra: str) -> subprocess.CompletedProcess[str]:
+    """A collection-only session of the planted package selecting tag ``a``."""
+    return subprocess.run(  # noqa: S603 -- venv interpreter, fixed argv
+        [
+            python_exe, "-m", "pytest", "tests", "--collect-only", "-q", "-p", "no:cacheprovider",
+            f"{TAGS_OPTION}={_TAG_A}", *extra,
+        ],
+        cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+        env=script_env(),
+    )
+
+
+def check_test_runner_selection_export_writes_exactly_the_tagged_items() -> None:
+    """The export plugin writes the items a session kept after every filter --
+    exactly the two ``a`` items of a planted tree holding ``a``, ``b`` and
+    ``serial``+``a`` tests, the serial one marked -- and changes nothing the
+    session collects or selects; without its option it writes nothing. The
+    preflight a ``-Tag`` run starts with returns that same selection."""
+    expected = (
+        SelectedItem(nodeid="tests/test_selection.py::test_a_plain", serial=False),
+        SelectedItem(nodeid="tests/test_selection.py::test_a_serial", serial=True),
+    )
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp) / "pkg"
+        runner = _plant_package(root, {"test_selection.py": _SELECTION_MODULE})
+        python_exe = runner._get_python_executable()
+        out = Path(tmp) / "export" / "selection.json"
+
+        exported = _collect_with_export(root, python_exe, "-p", "datrix_scripts.selection_export", f"--datrix-selection-out={out}")
+        assert exported.returncode == 0, exported.stdout + exported.stderr
+        assert read_selection(out) == expected, f"the export holds {read_selection(out)!r}, expected {expected!r}"
+
+        plain = _collect_with_export(root, python_exe)
+        assert plain.returncode == 0, plain.stdout + plain.stderr
+        summaries = (_COLLECTED_SUMMARY.findall(exported.stdout), _COLLECTED_SUMMARY.findall(plain.stdout))
+        assert summaries[0] and summaries[0] == summaries[1], (
+            f"loading the export plugin changed the selection: {summaries[0]} vs {summaries[1]}"
+        )
+
+        out.unlink()
+        unset = _collect_with_export(root, python_exe, "-p", "datrix_scripts.selection_export")
+        assert unset.returncode == 0, unset.stdout + unset.stderr
+        assert list(out.parent.iterdir()) == [], "the export plugin wrote a file without its option"
+
+        preflight = runner._preflight_tag_selection(python_exe, None, [_TAG_A])
+        assert preflight.succeeded and preflight.selection == expected, (
+            f"the preflight's selection is {preflight!r}, expected {expected!r}"
+        )
+
+
+def _expect_node_id_args_refused(runner: TestRunner, node_id_file: Path, fragment: str, **filters: str) -> None:
+    try:
+        runner._build_pytest_args(
+            python_exe="python", coverage=False, verbose=False, node_id_file=node_id_file, **filters
+        )
+    except ValueError as error:
+        assert fragment in str(error), str(error)
+        return
+    raise AssertionError(f"a node-id session was built for {node_id_file} with {filters!r}")
+
+
+def _check_tag_run_plan_and_files(tmp: Path) -> None:
+    items = (
+        SelectedItem(nodeid="tests/test_t.py::test_one", serial=False),
+        SelectedItem(nodeid="tests/test_t.py::test_two[1,2]", serial=False),
+        SelectedItem(nodeid="tests/test_t.py::test_three", serial=True),
+    )
+    plan = plan_tag_run(items, cpu_count=2, parallel_available=True)
+    assert plan.execution == EXECUTION_PARALLEL_SERIAL, plan
+    assert plan.selection_record() == {"selected_items": 3, "serial_items": 1, "execution": EXECUTION_PARALLEL_SERIAL}
+    assert plan.serial_decision().skip_reason is None, "a selection holding a serial item skipped the serial phase"
+    files = write_tag_run_files(tmp / "run", plan)
+    assert files.selection.name == SELECTION_FILE_NAME and read_selection(files.selection) == items
+    assert files.parallel_args.name == PARALLEL_ARGS_FILE_NAME and files.serial_args.name == SERIAL_ARGS_FILE_NAME
+    assert files.parallel_args.read_text(encoding="utf-8").splitlines() == [
+        "tests/test_t.py::test_one", "tests/test_t.py::test_two[1,2]",
+    ]
+    assert files.serial_args.read_text(encoding="utf-8").splitlines() == ["tests/test_t.py::test_three"]
+    assert files.selected_args.name == SELECTED_ARGS_FILE_NAME
+    assert len(files.selected_args.read_text(encoding="utf-8").splitlines()) == 3
+
+    no_serial = plan_tag_run(items[:2], cpu_count=1, parallel_available=True)
+    assert no_serial.serial_decision().skip_reason == SERIAL_SKIPPED_NO_SELECTED_SERIAL_ITEMS
+    assert plan_tag_run(items, cpu_count=3, parallel_available=True).execution == EXECUTION_SINGLE_PROCESS, (
+        "a selection no larger than the CPU count started a worker pool"
+    )
+    assert plan_tag_run(items, cpu_count=1, parallel_available=False).execution == EXECUTION_SINGLE_PROCESS
+
+    runner = _make_test_runner(has_xdist=True)
+    parallel = runner._build_pytest_args(
+        python_exe="python", coverage=False, verbose=False, node_id_file=files.parallel_args
+    )
+    assert parallel[3] == f"@{files.parallel_args}" and parallel.count(f"@{files.parallel_args}") == 1, parallel
+    assert parallel[parallel.index("-n") + 1] == "auto" and "loadgroup" in parallel, parallel
+    assert not any(arg.startswith(TAGS_OPTION + "=") for arg in parallel), parallel
+    assert "-m" not in parallel[3:] and "not serial" not in " ".join(parallel), parallel
+    serial = runner._build_pytest_args(
+        python_exe="python", coverage=False, verbose=False, node_id_file=files.serial_args, distributed=False
+    )
+    assert "-n" not in serial and "-m" not in serial[3:], serial
+
+    empty = tmp / "empty-args.txt"
+    empty.write_text("", encoding="utf-8")
+    _expect_node_id_args_refused(runner, empty, "lists no node ID")
+    _expect_node_id_args_refused(runner, files.parallel_args, "takes no marker", marker_expr="unit")
+
+
+def _planted_wide_module(count: int) -> str:
+    return (
+        "import pytest\n"
+        f"@pytest.mark.parametrize('n', range({count}))\n"
+        f"@pytest.mark.tag({_TAG_A!r})\n"
+        "def test_a_many(n: int) -> None:\n"
+        "    assert n >= 0\n"
+        f"@pytest.mark.tag({_TAG_B!r})\n"
+        "def test_b_one() -> None:\n"
+        "    assert True\n"
+    )
+
+
+def check_test_runner_tag_run_runs_node_id_argument_files() -> None:
+    """A ``-Tag`` run splits its exported selection into ``parallel-args.txt``
+    (non-serial node IDs) and ``serial-args.txt`` (serial ones); its phases run
+    those files, so nothing is deselected; an empty serial file skips the
+    serial phase with the selection's reason; and a selection no larger than
+    the CPU count runs in one process, written to ``junit.xml`` alone."""
+    with TemporaryDirectory() as tmp:
+        _check_tag_run_plan_and_files(Path(tmp))
+
+    wide = (os.cpu_count() or 1) + 1
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        runner = _plant_package(root, {"test_wide.py": _planted_wide_module(wide)})
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = runner.run(tags=[_TAG_A])
+        run_dir = _newest_run_dir(root)
+        log = (run_dir / "full.log").read_text(encoding="utf-8")
+        assert code == 0, f"the planted -Tag run failed ({code}):\n{log}"
+        index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+        assert index["selection"]["selected_items"] == wide and index["selection"]["serial_items"] == 0, index
+        assert index["selection"]["execution"] == EXECUTION_PARALLEL_SERIAL, index["selection"]
+        assert index["phases"]["Serial"] == SERIAL_SKIPPED_NO_SELECTED_SERIAL_ITEMS, index["phases"]
+        assert index["counts"]["passed"] == wide, index["counts"]
+        assert len((run_dir / PARALLEL_ARGS_FILE_NAME).read_text(encoding="utf-8").splitlines()) == wide
+        assert (run_dir / SERIAL_ARGS_FILE_NAME).read_text(encoding="utf-8") == ""
+        assert re.search(r"\d+ deselected", log) is None, "a node-id phase deselected items"
+
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        runner = _plant_package(root, {"test_selection.py": _SELECTION_MODULE})
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = runner.run(tags=[_TAG_A])
+        run_dir = _newest_run_dir(root)
+        log = (run_dir / "full.log").read_text(encoding="utf-8")
+        assert code == 0, f"the planted single-process -Tag run failed ({code}):\n{log}"
+        index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+        assert index["selection"]["execution"] == EXECUTION_SINGLE_PROCESS, index["selection"]
+        assert index["counts"]["passed"] == 2 and "Tests" in index["phases"], index
+        assert (run_dir / "junit.xml").is_file() and not (run_dir / "junit-parallel.xml").exists()
+        assert re.search(r"\d+ deselected", log) is None, "the single-process phase deselected items"
+
+
+_BROKEN_MODULE = (
+    "import nosuch_module_planted_for_the_preflight\n"
+    "import pytest\n"
+    f"@pytest.mark.tag({_TAG_A!r})\n"
+    "def test_never_collected() -> None:\n"
+    "    assert True\n"
+)
+
+
+def check_test_runner_preflight_collection_error_fails_the_run_closed() -> None:
+    """A preflight that exits with a collection error fails the run: it is
+    recorded FAILED with the preflight's exit code and output, and no phase
+    runs -- never a fall-through to a run over the whole tree. An export the
+    runner cannot read is a runner error naming the file."""
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        runner = _plant_package(
+            root, {"test_selection.py": _SELECTION_MODULE, "test_broken.py": _BROKEN_MODULE}
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = runner.run(tags=[_TAG_A])
+        run_dir = _newest_run_dir(root)
+        assert code == 2, f"a preflight collection error returned {code}, not pytest's interrupted code 2"
+        index = json.loads((run_dir / "index.json").read_text(encoding="utf-8"))
+        assert index["result"] == "FAILED", index
+        assert len(index["runner_errors"]) == 1 and "exited 2" in index["runner_errors"][0], index
+        assert "nosuch_module_planted_for_the_preflight" in (run_dir / "full.log").read_text(encoding="utf-8"), (
+            "the run's log does not carry the preflight's output"
+        )
+        phase_files = (
+            SELECTION_FILE_NAME, PARALLEL_ARGS_FILE_NAME, SERIAL_ARGS_FILE_NAME, SELECTED_ARGS_FILE_NAME,
+            "junit.xml", "junit-parallel.xml", "junit-serial.xml",
+        )
+        ran = [name for name in phase_files if (run_dir / name).exists()]
+        assert ran == [], f"a phase was prepared or ran after the preflight failed: {ran}"
+
+    with TemporaryDirectory() as tmp:
+        missing = Path(tmp) / "absent.json"
+        garbled = Path(tmp) / "garbled.json"
+        garbled.write_text("{not json", encoding="utf-8")
+        wrong = Path(tmp) / "wrong.json"
+        wrong.write_text(json.dumps({"schema": 1, "items": [{"nodeid": "", "serial": "no"}]}), encoding="utf-8")
+        for path in (missing, garbled, wrong):
+            try:
+                read_selection(path)
+            except SelectionExportError as error:
+                assert str(path) in str(error), str(error)
+                continue
+            raise AssertionError(f"the unreadable export {path} was accepted")
 
 
 def check_test_runner_selection_classifier_distinguishes_full_from_targeted() -> None:
@@ -1952,18 +2229,21 @@ def _lib_dirs(scripts_dir: Path) -> list[Path]:
     ) + sorted(path for path in scripts_dir.glob(f"{_FAMILY_FOLDER}/*/{_LIB}") if path.is_dir())
 
 
-#: Tools a person installs on demand, as the folder's README says, and never a venv dependency:
-#: the codemod recipes are run by ``python -m bowler`` after ``pip install bowler`` (codemods/README.md).
-_OPTIONAL_TOOL_MODULES = frozenset({"bowler"})
-
-
 def _installed_top_level_names() -> frozenset[str]:
-    """Every name ``import <name>`` reaches outside the scripts tree: stdlib, installed distributions and
-    the on-demand tools."""
-    return (
-        frozenset(sys.stdlib_module_names)
-        | frozenset(importlib.metadata.packages_distributions())
-        | _OPTIONAL_TOOL_MODULES
+    """Every name ``import <name>`` reaches outside the scripts tree: stdlib and installed distributions."""
+    return frozenset(sys.stdlib_module_names) | frozenset(importlib.metadata.packages_distributions())
+
+
+def _declared_distributions(workspace: Path, scripts_project: Path) -> frozenset[str]:
+    """Canonical names of every distribution a manifest the shared venv installs declares: each datrix-*
+    package itself, its ``[project.dependencies]`` and ``[dev]`` extra, and the scripts tree's dependency
+    group in *scripts_project*'s pyproject.toml."""
+    packages = discover_packages(workspace)
+    specs = read_dependency_group(scripts_project, SCRIPTS_DEPENDENCY_GROUP)
+    for root in packages.values():
+        specs += read_project_dependencies(root / "pyproject.toml") + read_dev_specs(root)
+    return frozenset(canonicalize_name(name) for name in packages) | frozenset(
+        canonicalize_name(Requirement(spec).name) for spec in specs
     )
 
 
@@ -2003,23 +2283,272 @@ def _unresolved_import(module: str, siblings: Path | None, installed: frozenset[
     return top not in installed
 
 
-def _unresolved_imports(scripts_dir: Path, installed: frozenset[str]) -> list[str]:
-    """Imports in the scripts tree that name no module the importing file can reach.
+def _scripts_tree_imports(scripts_dir: Path) -> list[tuple[str, str, Path | None]]:
+    """``(<file>:<line>, module, siblings)`` for every level-0 import in the scripts tree, *siblings*
+    being the folder the importing file may import bare names from (None inside the shared package).
 
     A flat ``lib/`` file runs with its own folder as ``sys.path[0]``, so it may import its siblings
     by bare name; a shared-package module runs as ``-m datrix_scripts.<name>`` and may not.
     """
-    unresolved: list[str] = []
+    found: list[tuple[str, str, Path | None]] = []
     for path in _script_python_files(scripts_dir):
         # A local package's module runs with its entry script's lib/ first on sys.path.
         siblings = None if path.is_relative_to(PACKAGE_DIR) else (_local_package_lib(path, scripts_dir) or path.parent)
         tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-        unresolved.extend(
-            f"{path.relative_to(scripts_dir).as_posix()}:{line}: import {module}"
-            for module, line in _imported_modules(tree)
-            if _unresolved_import(module, siblings, installed)
+        where = path.relative_to(scripts_dir).as_posix()
+        found.extend((f"{where}:{line}", module, siblings) for module, line in _imported_modules(tree))
+    return found
+
+
+def _unresolved_imports(scripts_dir: Path, installed: frozenset[str]) -> list[str]:
+    """Imports in the scripts tree that name no module the importing file can reach."""
+    return [
+        f"{where}: import {module}"
+        for where, module, siblings in _scripts_tree_imports(scripts_dir)
+        if _unresolved_import(module, siblings, installed)
+    ]
+
+
+def _undeclared_imports(
+    scripts_dir: Path, declared: frozenset[str], distributions: Mapping[str, list[str]]
+) -> list[str]:
+    """Imports in the scripts tree of an installed distribution no manifest in *declared* names.
+
+    Stdlib modules, ``datrix_scripts`` and siblings are first-party. A module no installed distribution
+    provides is ``check_scripts_tree_imports_resolve``'s to report; this one reports the module that
+    resolves only because something installed it by hand or pulled it in transitively.
+    """
+    undeclared: list[str] = []
+    for where, module, siblings in _scripts_tree_imports(scripts_dir):
+        top = module.split(".", 1)[0]
+        if top in sys.stdlib_module_names or top == PACKAGE_DIR.name:
+            continue
+        if siblings is not None and _module_exists(siblings, top):
+            continue
+        owners = distributions.get(top, [])
+        if owners and not any(canonicalize_name(owner) in declared for owner in owners):
+            undeclared.append(f"{where}: import {module} (distribution {', '.join(sorted(set(owners)))})")
+    return undeclared
+
+
+_IMPORT_ERRORS = frozenset({"ImportError", "ModuleNotFoundError"})
+_EXIT_CALLS = frozenset({"sys.exit", "exit"})
+#: The one wording of a missing declared tool's refusal (``datrix_scripts.venv``).
+_VENV_REFUSAL = "missing_declared_tool"
+
+
+def _catches_import_error(handler: ast.ExceptHandler) -> bool:
+    caught = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+    return any(isinstance(name, ast.Name) and name.id in _IMPORT_ERRORS for name in caught)
+
+
+def _refuses(handler: ast.ExceptHandler) -> bool:
+    """The handler ends the run: its last statement raises, exits, or returns a nonzero exit status."""
+    last = handler.body[-1]
+    if isinstance(last, ast.Raise):
+        return True
+    if isinstance(last, ast.Expr) and isinstance(last.value, ast.Call):
+        return ast.unparse(last.value.func) in _EXIT_CALLS
+    return (isinstance(last, ast.Return) and isinstance(last.value, ast.Constant)
+            and isinstance(last.value.value, int) and last.value.value != 0)
+
+
+def _guarded_imports(body: list[ast.stmt]) -> list[str]:
+    """The modules the statements of a ``try`` body import, each a level-0 import."""
+    return [module for module, _line in _imported_modules(ast.Module(body=body, type_ignores=[]))]
+
+
+def _import_error_handlers(scripts_dir: Path) -> list[tuple[str, list[str], ast.ExceptHandler]]:
+    """``(<file>, guarded modules, handler)`` for every ``except ImportError`` handler of the scripts
+    tree, the modules being those its ``try`` body imports."""
+    found: list[tuple[str, list[str], ast.ExceptHandler]] = []
+    for path in _script_python_files(scripts_dir):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        rel = path.relative_to(scripts_dir).as_posix()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            modules = _guarded_imports(node.body)
+            found.extend((rel, modules, handler) for handler in node.handlers
+                         if handler.type is not None and _catches_import_error(handler))
+    return found
+
+
+def _declared_import_handlers(
+    scripts_dir: Path, declared: frozenset[str], distributions: Mapping[str, list[str]]
+) -> list[tuple[str, list[str], ast.ExceptHandler]]:
+    """``(<file>, declared distributions, handler)`` for every ``except ImportError`` handler around an
+    import of a declared distribution. Stdlib and first-party imports are not judged."""
+    found: list[tuple[str, list[str], ast.ExceptHandler]] = []
+    for rel, modules, handler in _import_error_handlers(scripts_dir):
+        owners = sorted({owner for module in modules for owner in distributions.get(module.split(".", 1)[0], [])
+                         if canonicalize_name(owner) in declared})
+        if owners:
+            found.append((rel, owners, handler))
+    return found
+
+
+def _silent_import_fallbacks(
+    scripts_dir: Path, declared: frozenset[str], distributions: Mapping[str, list[str]]
+) -> list[str]:
+    """``except ImportError`` handlers around an import of a declared distribution that carry on.
+
+    A declared tool is installed with the shared venv, so its absence means the venv is broken; a
+    handler that substitutes something (``tool = None``, another output format) and carries on hides
+    that and reports a result the tool never produced. A handler that raises, exits, or returns a
+    nonzero exit status refuses, and is fine. Stdlib and first-party imports are not judged.
+    """
+    return [
+        f"{rel}:{handler.lineno}: except ImportError carries on (distribution {', '.join(owners)})"
+        for rel, owners, handler in _declared_import_handlers(scripts_dir, declared, distributions)
+        if not _refuses(handler)
+    ]
+
+
+def _calls_venv_refusal(handler: ast.ExceptHandler) -> bool:
+    """The handler words its refusal with ``missing_declared_tool`` (bare or module-qualified)."""
+    return any(isinstance(node, ast.Call) and ast.unparse(node.func).rsplit(".", 1)[-1] == _VENV_REFUSAL
+               for node in ast.walk(handler))
+
+
+def _unworded_declared_tool_refusals(
+    scripts_dir: Path, declared: frozenset[str], distributions: Mapping[str, list[str]]
+) -> list[str]:
+    """``except ImportError`` handlers around an import of a declared distribution that refuse without
+    ``missing_declared_tool``: their own text (``pip install <tool>``) repairs the interpreter by hand
+    instead of naming the declaring manifest and the venv repair."""
+    return [
+        f"{rel}:{handler.lineno}: refuses without {_VENV_REFUSAL} (distribution {', '.join(owners)})"
+        for rel, owners, handler in _declared_import_handlers(scripts_dir, declared, distributions)
+        if _refuses(handler) and not _calls_venv_refusal(handler)
+    ]
+
+
+#: Install advice a script words by hand: it installs into whatever interpreter the reader has, never
+#: the shared venv from its manifests (``missing_declared_tool`` and ``venv_repair`` name that repair).
+_HAND_INSTALL_ADVICE = re.compile(r"\bpip\s+install\b")
+#: The last name of a call whose arguments reach a reader: printed, written to a stream, logged, or
+#: the exit message.
+_MESSAGE_CALLS = frozenset({"print", "write", "exit", "SystemExit", "debug", "info", "warning", "error",
+                            "critical", "exception"})
+_SUBPROCESS_PREFIX = "subprocess."
+_CONSOLE_SCRIPTS = "console_scripts"
+_FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _reaches_reader(node: ast.AST) -> bool:
+    """*node* is a ``raise`` or a call whose arguments a reader sees (``_MESSAGE_CALLS``)."""
+    if isinstance(node, ast.Raise):
+        return True
+    return isinstance(node, ast.Call) and ast.unparse(node.func).rsplit(".", 1)[-1] in _MESSAGE_CALLS
+
+
+def _hand_install_advice(scripts_dir: Path) -> list[str]:
+    """Text the scripts tree shows its reader -- printed, written, logged, raised or exited with --
+    that tells them to ``pip install`` something. Docstrings, comments and data (a planted fixture's
+    source) reach no reader and are not judged."""
+    found: set[str] = set()
+    for path in _script_python_files(scripts_dir):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        rel = path.relative_to(scripts_dir).as_posix()
+        found.update(
+            f"{rel}:{inner.lineno}: shows hand-worded install advice"
+            for node in ast.walk(tree) if _reaches_reader(node)
+            for inner in ast.walk(node)
+            if isinstance(inner, ast.Constant) and isinstance(inner.value, str)
+            and _HAND_INSTALL_ADVICE.search(inner.value)
         )
-    return unresolved
+    return sorted(found)
+
+
+def _declared_console_scripts(declared: frozenset[str]) -> dict[str, str]:
+    """``{console-script name: distribution}`` for every installed distribution *declared* names."""
+    scripts: dict[str, str] = {}
+    for distribution in importlib.metadata.distributions():
+        name = distribution.metadata["Name"]
+        if not name or canonicalize_name(name) not in declared:
+            continue
+        scripts.update((entry.name, name) for entry in distribution.entry_points if entry.group == _CONSOLE_SCRIPTS)
+    return scripts
+
+
+def _own_nodes(scope: ast.AST) -> Iterator[ast.AST]:
+    """The nodes of *scope*, not descending into the functions it defines."""
+    pending = list(ast.iter_child_nodes(scope))
+    while pending:
+        node = pending.pop()
+        yield node
+        if not isinstance(node, _FUNCTION_NODES):
+            pending.extend(ast.iter_child_nodes(node))
+
+
+def _scope_bindings(scope: ast.AST) -> dict[str, ast.expr]:
+    """``{name: value}`` for every single-name assignment made directly in *scope*."""
+    bindings: dict[str, ast.expr] = {}
+    for node in _own_nodes(scope):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            bindings[node.targets[0].id] = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            bindings[node.target.id] = node.value
+    return bindings
+
+
+def _string_value(node: ast.expr, bindings: Mapping[str, ast.expr]) -> str:
+    """The string *node* spells: a literal, or a name bound to one; empty for anything else."""
+    if isinstance(node, ast.Name) and node.id in bindings:
+        node = bindings[node.id]
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return ""
+
+
+def _launched_program(node: ast.AST, bindings: Mapping[str, ast.expr]) -> str:
+    """The program a ``subprocess.*`` call launches when its argv is a list or tuple literal, or a name
+    *bindings* binds to one: the argv's first element as a string. Empty for any other node, and for
+    an argv the scope receives from elsewhere."""
+    if not (isinstance(node, ast.Call) and node.args and ast.unparse(node.func).startswith(_SUBPROCESS_PREFIX)):
+        return ""
+    argv = node.args[0]
+    if isinstance(argv, ast.Name) and argv.id in bindings:
+        argv = bindings[argv.id]
+    if not (isinstance(argv, (ast.List, ast.Tuple)) and argv.elts):
+        return ""
+    return _string_value(argv.elts[0], bindings)
+
+
+def _subprocess_programs(tree: ast.Module) -> Iterator[tuple[int, str]]:
+    """``(line, program)`` for every ``subprocess.*`` call of *tree* whose program ``_launched_program``
+    reads, each scope's names resolved over the module's."""
+    module_bindings = _scope_bindings(tree)
+    for scope in [tree, *(node for node in ast.walk(tree) if isinstance(node, _FUNCTION_NODES))]:
+        bindings = {**module_bindings, **_scope_bindings(scope)}
+        for node in _own_nodes(scope):
+            program = _launched_program(node, bindings)
+            if program:
+                yield node.lineno, program
+
+
+def _console_script_launches(scripts_dir: Path, console_scripts: Mapping[str, str]) -> list[str]:
+    """``subprocess`` runs of the scripts tree that launch a declared distribution by its console-script
+    name, so PATH -- not the shared venv's interpreter -- decides which copy runs."""
+    found: list[str] = []
+    for path in _script_python_files(scripts_dir):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        rel = path.relative_to(scripts_dir).as_posix()
+        found.extend(
+            f"{rel}:{line}: launches {program} by its console-script name (distribution {console_scripts[program]})"
+            for line, program in _subprocess_programs(tree) if program in console_scripts
+        )
+    return found
+
+
+def _stdlib_import_fallbacks(scripts_dir: Path) -> list[str]:
+    """``except ImportError`` handlers whose ``try`` body imports stdlib modules only."""
+    return [
+        f"{rel}:{handler.lineno}: except ImportError around {', '.join(sorted(set(modules)))}"
+        for rel, modules, handler in _import_error_handlers(scripts_dir)
+        if modules and all(module.split(".", 1)[0] in sys.stdlib_module_names for module in modules)
+    ]
 
 
 def _wrapper_references(wrapper: Path, scripts_dir: Path) -> tuple[list[Path], list[str]]:
@@ -2184,6 +2713,166 @@ def check_scripts_tree_imports_resolve() -> None:
     assert not unresolved, (
         f"imports that reach no module: {unresolved}. A module several folders use is imported as "
         "datrix_scripts.<name>; a flat import names a sibling in the same lib/ folder."
+    )
+
+
+def check_scripts_tree_third_party_imports_are_declared() -> None:
+    """Every third-party distribution the scripts tree imports is declared by a manifest the shared venv
+    installs: a datrix-* package's dependencies or ``[dev]`` extra, or the ``scripts`` dependency group of
+    ``datrix/pyproject.toml``. A module present only because it was installed by hand (or pulled in by
+    another tool) is reported, since a venv rebuilt from the manifests lacks it."""
+    with TemporaryDirectory(prefix="scripts-declared-") as tmp:
+        planted = Path(tmp)
+        write_files(planted / "scan" / _LIB, {
+            "cli.py": "import json\nimport yaml\nimport libcst.metadata\nimport helper\nimport datrix_scripts.paths\n",
+            "helper.py": "",
+        })
+        found = _undeclared_imports(planted, frozenset({"pyyaml"}), {"yaml": ["PyYAML"], "libcst": ["libcst"]})
+        assert found == ["scan/lib/cli.py:3: import libcst.metadata (distribution libcst)"], (
+            f"the declaration check misread a planted tree (only the undeclared libcst is reported): {found}"
+        )
+    declared = _declared_distributions(WORKSPACE_DIR, SHOWCASE_DIR)
+    assert {"datrix-common", "libcst"} <= declared, (
+        f"the declared set misses a workspace package or the scripts group: {sorted(declared)}"
+    )
+    undeclared = _undeclared_imports(_scripts_dir(), declared, importlib.metadata.packages_distributions())
+    assert not undeclared, (
+        f"scripts-tree imports of distributions no manifest declares: {undeclared}. Add each to the "
+        f"'{SCRIPTS_DEPENDENCY_GROUP}' dependency group of {SHOWCASE_DIR / 'pyproject.toml'} "
+        "(or to the datrix-* package whose code needs it); the shared venv installs that group."
+    )
+
+
+def check_scripts_tree_declared_tools_are_never_optional() -> None:
+    """No ``except ImportError`` around an import of a declared distribution carries on with less: a
+    missing declared tool means a broken venv, and the script must refuse (raise, exit, or return a
+    nonzero status), never measure half or write another format. A planted tree is read exactly."""
+    with TemporaryDirectory(prefix="scripts-optional-tools-") as tmp:
+        planted = Path(tmp)
+        write_files(planted / "metrics" / _LIB, {
+            "fallback.py": "try:\n    import radon\nexcept ImportError:\n    radon = None\n",
+            "raises.py": "try:\n    import radon\nexcept ImportError as exc:\n    raise SystemExit('x') from exc\n",
+            "exits.py": "import sys\ntry:\n    import radon\nexcept ImportError:\n    print('x')\n    sys.exit(2)\n",
+            "status.py": "def f() -> int:\n    try:\n        import radon\n    except ImportError:\n        return 2\n"
+                         "    return 0\n",
+            "stdlib.py": "try:\n    import tomllib\nexcept ImportError:\n    tomllib = None\n",
+            "inner.py": "def f() -> list[int]:\n    try:\n        from radon.raw import analyze\n"
+                        "    except (ValueError, ModuleNotFoundError):\n        return []\n    return [1]\n",
+        })
+        found = _silent_import_fallbacks(planted, frozenset({"radon"}), {"radon": ["radon"]})
+        assert found == [
+            "metrics/lib/fallback.py:3: except ImportError carries on (distribution radon)",
+            "metrics/lib/inner.py:4: except ImportError carries on (distribution radon)",
+        ], f"the optional-tool census misread a planted tree: {found}"
+    declared = _declared_distributions(WORKSPACE_DIR, SHOWCASE_DIR)
+    fallbacks = _silent_import_fallbacks(_scripts_dir(), declared, importlib.metadata.packages_distributions())
+    assert not fallbacks, (
+        f"scripts that carry on without a declared tool: {fallbacks}. Import it unconditionally, or refuse "
+        "with datrix_scripts.venv.missing_declared_tool (raise SystemExit), which names the declaring "
+        "manifest and the venv repair (common/venv.ps1 -EnsurePackages)."
+    )
+
+
+def check_scripts_tree_declared_tool_refusals_name_the_venv_repair() -> None:
+    """Every refusal of a missing declared tool is worded by ``datrix_scripts.venv.missing_declared_tool``:
+    a refusal of its own (``pip install <tool>``) installs the tool by hand into whatever interpreter ran
+    it, leaving the shared venv broken where the declaration check cannot see it. A planted tree is
+    read exactly."""
+    with TemporaryDirectory(prefix="scripts-tool-refusals-") as tmp:
+        planted = Path(tmp)
+        write_files(planted / "scan" / _LIB, {
+            "advice.py": "import sys\ntry:\n    import libcst\nexcept ImportError:\n"
+                         "    print('pip install libcst')\n    sys.exit(1)\n",
+            "worded.py": "try:\n    import libcst\nexcept ImportError as exc:\n"
+                         "    raise SystemExit(missing_declared_tool('libcst', 'x')) from exc\n",
+            "qualified.py": "import sys\ndef f() -> None:\n    try:\n        import libcst\n    except ImportError:\n"
+                            "        print(venv.missing_declared_tool('libcst', 'x'))\n        sys.exit(2)\n",
+            "fallback.py": "try:\n    import libcst\nexcept ImportError:\n    libcst = None\n",
+            "undeclared.py": "try:\n    import yaml\nexcept ImportError as exc:\n    raise SystemExit('x') from exc\n",
+        })
+        found = _unworded_declared_tool_refusals(planted, frozenset({"libcst"}), {"libcst": ["libcst"], "yaml": ["PyYAML"]})
+        assert found == ["scan/lib/advice.py:4: refuses without missing_declared_tool (distribution libcst)"], (
+            f"the refusal-wording census misread a planted tree (only advice.py words its own refusal): {found}"
+        )
+    declared = _declared_distributions(WORKSPACE_DIR, SHOWCASE_DIR)
+    unworded = _unworded_declared_tool_refusals(_scripts_dir(), declared, importlib.metadata.packages_distributions())
+    assert not unworded, (
+        f"refusals of a missing declared tool worded by hand: {unworded}. Refuse with "
+        "datrix_scripts.venv.missing_declared_tool(<distribution>, <declaring manifest constant>), which "
+        "names the manifest and the venv repair (common/venv.ps1 -EnsurePackages)."
+    )
+
+
+def check_scripts_tree_declared_tool_runs_name_the_venv_repair() -> None:
+    """A declared tool run as a subprocess is the shared venv's copy, refused in the venv's words: no
+    script shows its reader hand-worded ``pip install`` advice (printed, written, logged, raised or
+    exited with), which installs into whatever interpreter the reader has; and no script launches a
+    declared distribution by its console-script name, which runs whatever copy PATH finds first. The
+    tool runs as ``sys.executable -m <module>``, refused up front with ``missing_declared_tool`` when
+    ``importlib.util.find_spec`` finds no module. A planted tree is read exactly."""
+    with TemporaryDirectory(prefix="scripts-tool-runs-") as tmp:
+        planted = Path(tmp)
+        write_files(planted / "metrics" / _LIB, {
+            "handler.py": "import subprocess\nimport sys\ntry:\n    subprocess.run([sys.executable, '-m', 'bandit'])\n"
+                          "except FileNotFoundError:\n    print('Install with: pip install bandit')\n",
+            "raised.py": "import sys\ndef f() -> None:\n    raise RuntimeError(f'{sys.executable} -m pip install vulture')\n",
+            "documented.py": "'''Never pip install a tool by hand.'''\n",
+            "data.py": "SOURCE = \"print('pip install x')\"\n",
+            "launch.py": "import subprocess\nTOOL = 'pygount'\ndef f() -> None:\n    cmd = [TOOL, '--format', 'json']\n"
+                         "    subprocess.run(cmd)\n",
+            "module.py": "import subprocess\nimport sys\nsubprocess.run([sys.executable, '-m', 'pygount.command'])\n",
+            "other.py": "import subprocess\nsubprocess.run(['git', 'status'])\n",
+            "names.py": "TOOLS = ('pygount', 'ruff')\n",
+        })
+        advice = _hand_install_advice(planted)
+        assert advice == ["metrics/lib/handler.py:6: shows hand-worded install advice",
+                          "metrics/lib/raised.py:3: shows hand-worded install advice"], (
+            f"the install-advice census misread a planted tree (only handler.py and raised.py show it): {advice}"
+        )
+        launches = _console_script_launches(planted, {"pygount": "pygount"})
+        assert launches == ["metrics/lib/launch.py:5: launches pygount by its console-script name "
+                            "(distribution pygount)"], (
+            f"the console-script census misread a planted tree (only launch.py launches by name): {launches}"
+        )
+    declared = _declared_distributions(WORKSPACE_DIR, SHOWCASE_DIR)
+    console_scripts = _declared_console_scripts(declared)
+    assert {"bandit", "datrix", "pygount", "vulture"} <= console_scripts.keys(), (
+        f"the declared console scripts miss a declared tool the scripts run: {sorted(console_scripts)}. "
+        "Repair the venv with common/venv.ps1 -EnsurePackages."
+    )
+    offences = _hand_install_advice(_scripts_dir()) + _console_script_launches(_scripts_dir(), console_scripts)
+    assert not offences, (
+        f"declared tools run outside the shared venv's repair: {offences}. Run the tool as "
+        "[sys.executable, '-m', <module>], refuse up front when importlib.util.find_spec(<module>) is None "
+        "with datrix_scripts.venv.missing_declared_tool(<distribution>, <declaring manifest constant>), and "
+        "word any other repair with datrix_scripts.venv.venv_repair()."
+    )
+
+
+def check_scripts_tree_stdlib_imports_are_unconditional() -> None:
+    """No ``except ImportError`` guards an import of stdlib modules only. Every stdlib module present at
+    ``requires-python``'s floor is always there, so a fallback (``tomllib = None``) is dead code that
+    turns that guarantee into a runtime branch; a module newer than the floor is chosen by
+    ``sys.version_info`` and a platform-only module by ``sys.platform``, never by an ImportError. A
+    planted tree is read exactly."""
+    with TemporaryDirectory(prefix="scripts-stdlib-imports-") as tmp:
+        planted = Path(tmp)
+        write_files(planted / "metrics" / _LIB, {
+            "fallback.py": "try:\n    import tomllib\nexcept ImportError:\n    tomllib = None\n",
+            "refuses.py": "try:\n    from tomllib import load\nexcept ImportError as exc:\n    raise SystemExit('x') from exc\n",
+            "mixed.py": "try:\n    import json\n    import libcst\nexcept ImportError as exc:\n    raise SystemExit('x') from exc\n",
+            "plain.py": "import tomllib\n",
+        })
+        found = _stdlib_import_fallbacks(planted)
+        assert found == [
+            "metrics/lib/fallback.py:3: except ImportError around tomllib",
+            "metrics/lib/refuses.py:3: except ImportError around tomllib",
+        ], f"the stdlib-guard census misread a planted tree (a try that also imports libcst is not judged): {found}"
+    guarded = _stdlib_import_fallbacks(_scripts_dir())
+    assert not guarded, (
+        f"stdlib imports guarded by except ImportError: {guarded}. Import each unconditionally "
+        "(datrix/pyproject.toml's requires-python guarantees it); branch on sys.version_info or sys.platform "
+        "for a module that only some interpreters carry."
     )
 
 
@@ -5008,6 +5697,9 @@ _ALL_CHECKS: list[CheckFunc | NamedCheck] = [
     check_test_runner_enables_runner_plugin_flag_only_when_requested,
     check_test_runner_passes_feature_tag_options_as_standalone_argv,
     check_test_runner_preflight_refuses_an_unknown_tag_before_any_phase,
+    check_test_runner_selection_export_writes_exactly_the_tagged_items,
+    check_test_runner_tag_run_runs_node_id_argument_files,
+    check_test_runner_preflight_collection_error_fails_the_run_closed,
     check_test_runner_selection_classifier_distinguishes_full_from_targeted,
     check_structured_log_writer_records_selection_and_inputs,
     # datrix_scripts.suite_stamp + the runners' stamp paths (real git repositories)
@@ -5029,6 +5721,11 @@ _ALL_CHECKS: list[CheckFunc | NamedCheck] = [
     check_scripts_tree_python_lives_in_lib_folders,
     check_scripts_tree_lib_modules_shadow_no_installed_module,
     check_scripts_tree_imports_resolve,
+    check_scripts_tree_third_party_imports_are_declared,
+    check_scripts_tree_declared_tools_are_never_optional,
+    check_scripts_tree_declared_tool_refusals_name_the_venv_repair,
+    check_scripts_tree_declared_tool_runs_name_the_venv_repair,
+    check_scripts_tree_stdlib_imports_are_unconditional,
     check_scripts_tree_wrapper_targets_exist,
     check_scripts_tree_references_name_existing_scripts,
     # datrix_scripts.codegen_hint_mapper

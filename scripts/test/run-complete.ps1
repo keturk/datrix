@@ -233,7 +233,6 @@ $commonDir = Join-Path $PSScriptRoot "..\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
 
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
 
@@ -261,7 +260,7 @@ Write-Info ""
 # Validate -Language against the installed datrix.languages set (runtime discovery,
 # never a hardcoded python/typescript literal) so a newly installed
 # datrix-codegen-<lang> package is accepted with no edit to this script.
-$installedLanguages = Get-DatrixInstalledLanguages -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe")
+$installedLanguages = Get-DatrixInstalledLanguages -PythonExe (Get-DatrixVenvPython)
 if ($Language -notin $installedLanguages) {
  Write-ErrorMsg "Error: language '$Language' is not an installed datrix.languages target."
  Write-ErrorMsg "Installed languages: $($installedLanguages -join ', ')."

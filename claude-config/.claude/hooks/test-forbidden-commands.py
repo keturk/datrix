@@ -128,6 +128,12 @@ OPEN = transcript("open", [
     tool_result("error: Your local changes would be overwritten by merge"),
 ])
 FOLLOW_UP = transcript("follow-up", [user(INVOKED), user("now fix the other thing")])
+LONG_SESSION = transcript("long-session", [
+    user("first task"),
+    user(INVOKED),
+    *[tool_result("x" * 4096) for _ in range(2500)],
+    user("finish the work"),
+])
 QUOTED = transcript("quoted", [
     user("why did <command-name>/resolve-conflicts</command-name> fail?")])
 MODEL_INVOKED = transcript("model-invoked", [
@@ -176,7 +182,11 @@ check("window still blocks: an allowed call chained to reset --hard",
 check("closed: no transcript", cmd(STASH_PATHS), BLOCK)
 check("closed: unreadable transcript",
       in_window(STASH_PATHS, path=r"D:\datrix\.tmp\no-such-transcript.jsonl"), BLOCK)
-check("closed: a follow-up prompt ends the window", in_window(STASH_PATHS, FOLLOW_UP), BLOCK)
+check("open: a follow-up prompt keeps the window", in_window(STASH_PATHS, FOLLOW_UP), ALLOW)
+check("open: the invocation 10 MB back in the session",
+      in_window("git stash drop", LONG_SESSION), ALLOW)
+check("open, still blocks: reset --hard after a follow-up",
+      in_window("git reset --hard", FOLLOW_UP), BLOCK)
 check("closed: the tag quoted mid-prompt", in_window(STASH_PATHS, QUOTED), BLOCK)
 check("closed: meta text is not Jon's prompt", in_window(STASH_PATHS, MODEL_INVOKED), BLOCK)
 

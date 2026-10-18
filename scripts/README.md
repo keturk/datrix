@@ -6,7 +6,7 @@ PowerShell wrapper scripts and their Python implementations for development, tes
 
 ```
 scripts/
-├── common/       # Shared PowerShell modules, venv.ps1, and lib/datrix_scripts (the shared Python package)
+├── common/       # Shared PowerShell modules, the wrapper template, venv.ps1, and lib/datrix_scripts (the shared Python package)
 ├── config/       # Configuration: test projects, baselines, exemptions, scanner rules
 │   ├── semgrep-rules/      # Individual YAML rule files for the Semgrep anti-pattern scanner
 │   ├── ast-grep-rules/     # Individual YAML rule files for the ast-grep structural scanner
@@ -86,12 +86,16 @@ Every script's forms and parameters live in its folder's quick-reference: start 
 
 ## Virtual Environment
 
-All scripts use a shared virtual environment at `D:\datrix\.venv`. The `common/venv.ps1` module handles:
+All scripts use a shared virtual environment at `D:\datrix\.venv`. `common/venv.ps1` (its POSIX twin
+`common/venv.sh`; the behaviour is `datrix_scripts.venv`) handles:
 
-- Automatic venv creation if missing
-- Activation/deactivation, and `PYTHONPATH` for the shared scripts package
+- Venv creation from a CPython built for the host CPU, when missing or on `-Recreate`
 - Package installation with locking (prevents concurrent pip operations)
-- Editable install management for all datrix-* packages
+- Editable install management for all datrix-* packages, their `[dev]` extras and the scripts group
+
+Every wrapper runs its Python with the venv's interpreter and `PYTHONPATH` pointing at the shared
+scripts package (`common/DatrixPythonScript.psm1`); a wrapper rendered from
+`common/templates/entrypoint.ps1` creates the venv first when it does not exist yet.
 
 ## Prerequisites
 

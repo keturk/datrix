@@ -53,7 +53,8 @@ change. For every file with unstaged modifications, it reads the file's own inde
 (`git show :<path>`, read-only) and rewrites **only the working copy's line terminators** to match
 it. Content is never changed, and nothing is reverted, staged or checked out. Binary files and
 files that already match are skipped. A file whose index copy itself mixes CRLF and LF is named and
-left as is.
+left as is. The committed side (every repo's catch-all `* text=auto eol=lf` attribute rule, and no
+CRLF line in any index blob) is held by `gates\repo-hygiene\line-ending-gate.ps1`.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -152,9 +153,9 @@ The scanner runs its own non-vacuity self-test first; a self-test failure aborts
 
 ### The Python lint-correctness check runs after it, still before anything is staged
 
-Each dirty repo's pending `.py` files (what a `git add -A` would stage; deletions excluded, and the checked-in output under `examples/**/generated/` skipped — that is generator output, held by the generators' own tests and replaced on regeneration; and the repo-root `vulture_whitelist.py` skipped — that is Vulture's input, a list of names nothing binds) are linted with `ruff check --select F`, run from that repo's root so its own `per-file-ignores` apply. Any pyflakes finding — an unused import, an undefined name, a test function silently shadowed by a same-named redefinition — aborts the **whole run** with nothing committed, reported as `repo/path:line:col CODE message`. Checked across all repos up front so a finding in the last repo cannot leave the first four already pushed. This is the per-change form of "lint only the files you edited", enforced rather than remembered. There is **no skip switch** and no baseline: a finding that is genuinely required (an import kept for a documented side effect) is suppressed on its own line with `# noqa: <code>` and the reason.
+Each dirty repo's pending `.py` files (what a `git add -A` would stage; deletions excluded, and the checked-in output under `examples/**/generated/` skipped — that is generator output, held by the generators' own tests and replaced on regeneration; and the repo-root `vulture_whitelist.py` skipped — that is Vulture's input, a list of names nothing binds) are linted with `ruff check --select F` and `ruff check --select E302,E305 --preview`, each run from that repo's root so its own `per-file-ignores` apply. Any finding — an unused import, an undefined name, a test function silently shadowed by a same-named redefinition, a top-level def/class without two blank lines before or after it — aborts the **whole run** with nothing committed, reported as `repo/path:line:col CODE message`. Checked across all repos up front so a finding in the last repo cannot leave the first four already pushed. This is the per-change form of "lint only the files you edited", enforced rather than remembered. There is **no skip switch** and no baseline: a finding that is genuinely required (an import kept for a documented side effect) is suppressed on its own line with `# noqa: <code>` and the reason.
 
-The scanner runs its own non-vacuity self-test first (a planted F401 + F821 must be seen, a clean package must report zero, a fixture `per-file-ignores` must suppress the F401 only); a self-test failure aborts the run. To audit the whole workspace rather than just the pending files, run `gates\repo-hygiene\python-lint-correctness-gate.ps1`.
+The scanner runs its own non-vacuity self-test first (a planted F401 + F821 must be seen, a planted E302 + E305 must be seen, a clean package must report zero, a fixture `per-file-ignores` must suppress the F401 only); a self-test failure aborts the run. To audit the whole workspace rather than just the pending files, run `gates\repo-hygiene\python-lint-correctness-gate.ps1`.
 
 ### How `commit-and-push.ps1` works
 

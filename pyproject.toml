@@ -9,6 +9,28 @@ description = "Datrix showcase repo — docs, examples, and scripts only (not an
 requires-python = ">=3.11"
 dependencies = []
 
+# Third-party tools the scripts tree imports or runs that no datrix-* package declares. This
+# repo is never installed, so they live in a PEP 735 dependency group, which the shared venv
+# installs (scripts/common/venv.ps1 -EnsurePackages, datrix_scripts.venv) after every package's
+# [dev] extras. shared-library-gate's check_scripts_tree_third_party_imports_are_declared
+# refuses a scripts-tree import whose distribution neither this group nor a datrix-* manifest
+# declares.
+#
+# semgrep publishes no Windows ARM64 wheel (only win_amd64, macOS and Linux), and its sdist
+# needs the prebuilt semgrep-core binary, so it is not installable into a native Windows ARM64
+# venv; scan/lib/semgrep_scanner.py names that platform when it refuses there.
+[dependency-groups]
+scripts = [
+    "bandit>=1.9.4",
+    "bowler>=0.9.0",
+    "cognitive_complexity>=1.3.0",
+    "libcst>=1.8.6",
+    "pygount>=3.2.0",
+    "ruamel.yaml>=0.18",
+    "semgrep>=1.153.0; sys_platform != 'win32' or platform_machine != 'ARM64'",
+    "vulture>=2.16",
+]
+
 # Repo-level validation scripts under scripts/test/, scripts/dev/, etc. are
 # real production code (per CLAUDE.md Code Standards: type hints + mypy
 # --strict on everything) even though this repo hosts no pytest suite. This

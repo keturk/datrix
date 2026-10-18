@@ -6,11 +6,11 @@ AST-based refactors for the **Datrix Python code** (datrix-language, datrix-comm
 
 ## Setup
 
-Install Bowler in the Datrix venv (it depends on libCST):
-
-```bash
-pip install bowler
-```
+Bowler and libCST are declared in the `scripts` dependency group of `datrix/pyproject.toml`, which the
+shared venv installs (`scripts/common/venv.ps1 -EnsurePackages`, which `test.ps1` runs),
+so a venv built from the manifests carries them. Do not `pip install` them by hand: an undeclared
+tool is gone after the next rebuild, and `shared-library-gate.ps1 -Only check_scripts_tree` refuses a
+scripts-tree import no manifest declares.
 
 The **run-codemod.ps1** wrapper activates the venv and runs the selected codemod via **lib/run_codemod.py**, which finds the numbered recipe beside it in `lib/`.
 

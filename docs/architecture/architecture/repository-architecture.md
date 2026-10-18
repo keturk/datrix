@@ -422,7 +422,7 @@ Repo tooling **discovers** packages from disk rather than reading a hardcoded li
 | Surface | Joins as soon as the package has… |
 |---|---|
 | `test.ps1 -All`, `status-tests.ps1` | a `tests/` directory |
-| `mypy.ps1 -All`, the shared-venv install set (`Get-DatrixPackages`), `dependency.ps1`, dead-code `--all` | a `pyproject.toml` |
+| `mypy.ps1 -All`, the shared-venv install set (`common\venv.ps1 -ListPackages`), `dependency.ps1`, dead-code `--all` | a `pyproject.toml` |
 | `check-import-boundaries.ps1`, `check-generated-file-ratchet.ps1`, the forbidden-patterns audit, all `--all` scanners (ast-grep, libcst, logic-map) | a `src/` tree |
 | `projects.ps1`, the metrics `-All` scripts, `git/commit-and-push.ps1`, the dev scripts fed by `Get-DatrixDirectories` | the directory existing at all (a `.git` for commit-and-push) |
 | `check-docs-conformance.ps1`'s package/import-name scope tables | the directory existing at all |

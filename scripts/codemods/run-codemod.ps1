@@ -7,7 +7,8 @@
  Activates the Datrix virtual environment and runs the specified codemod script
  from scripts/dev/codemods. All arguments after the codemod name are passed
  through to the codemod (e.g. OLD_NAME NEW_NAME, or path list).
- Requires bowler to be installed in the venv (pip install bowler).
+ Bowler comes from the "scripts" dependency group of datrix/pyproject.toml,
+ which the shared venv installs; never pip-install it by hand.
 
 .PARAMETER CodemodName
  Name of the codemod script without .py (e.g. 01_rename_function, 02_rename_class).

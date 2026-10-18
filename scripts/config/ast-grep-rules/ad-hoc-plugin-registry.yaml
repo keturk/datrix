@@ -1,0 +1,17 @@
+id: datrix.ad-hoc-plugin-registry
+language: Python
+severity: error
+message: >-
+  Production code reads the process registry through plugin_registry() and
+  never constructs PluginRegistry, because each construction rescans every
+  installed distribution's entry points and hides the instance from test
+  swaps. Use `from datrix_common.plugin.registry import plugin_registry`.
+files:
+  - "**/src/**/*.py"
+  - "**/scripts/**/lib/**/*.py"
+ignores:
+  - "**/src/datrix_testing/**"
+  - "**/src/datrix_codegen_common/testkit/**"
+  - "**/src/datrix_common/plugin/registry.py"
+rule:
+  pattern: PluginRegistry()

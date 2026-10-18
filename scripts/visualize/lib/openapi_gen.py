@@ -32,11 +32,17 @@ datrix_root = WORKSPACE_DIR
 
 from datrix_scripts.logging_utils import ColorCodes, colorize  # noqa: E402
 from datrix_scripts.test_projects import get_test_projects  # noqa: E402
+from datrix_scripts.venv import SCRIPTS_DEPENDENCY_GROUP, missing_declared_tool  # noqa: E402
 from datrix_scripts.visualization.application_loader import load_application  # noqa: E402
 from datrix_scripts.visualization.json_schema import (  # noqa: E402
     build_asyncapi_spec,
     build_openapi_spec,
 )
+
+try:
+    from ruamel.yaml import YAML
+except ImportError as exc:
+    raise SystemExit(missing_declared_tool("ruamel.yaml", SCRIPTS_DEPENDENCY_GROUP)) from exc
 
 VALID_TYPES = ("openapi", "asyncapi", "all")
 
@@ -59,26 +65,12 @@ def _clear_owned_spec_dirs(docs_dir: Path, spec_types: list[str]) -> None:
 
 
 def _write_yaml(data: dict[str, object], output_path: Path) -> None:
-    """Write a dict as YAML to file.
-
-    Uses ruamel.yaml if available, falls back to json-as-yaml.
-    """
+    """Write a dict as block-style YAML to file."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        from ruamel.yaml import YAML
-
-        yaml = YAML()
-        yaml.default_flow_style = False
-        with open(output_path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f)
-    except ImportError:
-        # Fallback: write as JSON (valid YAML superset)
-        import json
-
-        output_path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+    yaml = YAML()
+    yaml.default_flow_style = False
+    with open(output_path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f)
 
 
 def _generate_specs(

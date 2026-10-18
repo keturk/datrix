@@ -25,8 +25,9 @@ incoming change.
 ## What this invocation unlocks
 
 `guard-forbidden-commands.py` normally refuses every stash, reset, restore, and path
-checkout. While **Jon's `/resolve-conflicts` is the latest prompt** (it reads this from
-the transcript; a follow-up prompt closes the window), it allows exactly these:
+checkout. Once **Jon has typed `/resolve-conflicts` in the session** (it reads this from
+the transcript; follow-up prompts keep the window open for the rest of the session), it
+allows exactly these:
 
 | Allowed | Use |
 |---|---|

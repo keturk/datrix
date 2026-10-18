@@ -6,10 +6,10 @@
 # a pin (rows were removed without lowering the pin in the same change). A target absent
 # from this file is pinned at zero.
 
-total = 20
+total = 17
 
 [per_target.languages]
-typescript = 16
+typescript = 13
 
 [per_target.client_targets]
 angular = 3

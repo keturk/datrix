@@ -4,11 +4,12 @@
  Rebuild Tree-sitter Parser for Datrix DSL (PowerShell Wrapper)
 
 .DESCRIPTION
- Runs lib\rebuild_parser.py in the shared venv.
- The actual logic is implemented in Python for better cross-platform compatibility.
+ Runs lib\rebuild_parser.py in the shared venv, which builds through the package's own
+ datrix_language.parser.tree_sitter_datrix.build and writes
+ tree_sitter_datrix.<platform>.<ext> plus its staleness record into the package's build\.
 
 .PARAMETER Force
- Force rebuild even if grammar hasn't changed
+ Rebuild even if the parser is fresh
 
 .EXAMPLE
  .\rebuild-parser.ps1

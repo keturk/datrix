@@ -12,7 +12,9 @@ For each named package this AST-parses every ``tests/**/*.py`` (``pytest.mark.ta
 decorators, ``pytestmark`` assignments and ``pytest.param(marks=...)`` alike -- every call whose
 callee ends in ``mark.tag``) and prints the tags in use that the table does not list, with
 where each is first applied. Packages without a pytest ``tests/`` tree (Node suites) are named
-and skipped. Report only: the exit code is 0 unless the vocabulary doc cannot be read (2).
+and skipped. Report only: the exit code is 0 unless the vocabulary doc cannot be read (2). The
+table is read by ``datrix_common.testing.tag_vocabulary``, the one reader the feature-tag plugin
+also uses to refuse an unlisted tag at collection in every ``test.ps1`` session.
 
 Usage:
     python tag_vocabulary.py PACKAGE [PACKAGE ...]
@@ -21,50 +23,19 @@ Usage:
 from __future__ import annotations
 
 import ast
-import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
+from datrix_common.testing.tag_vocabulary import VOCABULARY_DOC, documented_tags
 from datrix_scripts.paths import WORKSPACE_DIR
 
 EXIT_OK: Final[int] = 0
 EXIT_NO_VOCABULARY: Final[int] = 2
-VOCABULARY_DOC: Final[Path] = (
-    WORKSPACE_DIR / "datrix-common" / "docs" / "contributing" / "test-guidelines" / "feature-tags.md"
-)
-VOCABULARY_HEADING: Final[str] = "## Vocabulary"
-TABLE_ROW_PREFIX: Final[str] = "|"
-TAGS_COLUMN: Final[int] = 2  # "| Area | Tags |" -> ["", " Area ", " Tags ", ""]
 TAG_CALL_SUFFIX: Final[tuple[str, str]] = ("mark", "tag")
 TESTS_DIR_NAME: Final[str] = "tests"
 SOURCE_ENCODING: Final[str] = "utf-8-sig"
-_BACKTICKED: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
-
-
-def documented_tags(doc: Path) -> frozenset[str]:
-    """Every tag listed in the Tags column of the ``## Vocabulary`` table.
-
-    Raises:
-        OSError, ValueError: The doc is missing, or has no vocabulary table.
-    """
-    text = doc.read_text(encoding=SOURCE_ENCODING)
-    _, found, section = text.partition(VOCABULARY_HEADING)
-    if not found:
-        raise ValueError(f"{doc} has no '{VOCABULARY_HEADING}' section.")
-    tags: set[str] = set()
-    for line in section.splitlines():
-        if line.startswith("## "):
-            break
-        if not line.startswith(TABLE_ROW_PREFIX):
-            continue
-        cells = line.split(TABLE_ROW_PREFIX)
-        if len(cells) > TAGS_COLUMN:
-            tags.update(_BACKTICKED.findall(cells[TAGS_COLUMN]))
-    if not tags:
-        raise ValueError(f"{doc}: the '{VOCABULARY_HEADING}' section lists no tags.")
-    return frozenset(tags)
 
 
 def _is_tag_call(node: ast.Call) -> bool:
@@ -121,7 +92,7 @@ def main(argv: Sequence[str]) -> int:
         print("Usage: tag_vocabulary.py PACKAGE [PACKAGE ...]", file=sys.stderr)
         return EXIT_NO_VOCABULARY
     try:
-        vocabulary = documented_tags(VOCABULARY_DOC)
+        vocabulary = documented_tags()
     except (OSError, ValueError) as exc:
         print(f"Cannot read the tag vocabulary: {exc}", file=sys.stderr)
         return EXIT_NO_VOCABULARY

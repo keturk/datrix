@@ -1341,11 +1341,12 @@ def enforce_design_task_references(dirty_repos: list[Path]) -> None:
 
 
 def enforce_python_lint_correctness(dirty_repos: list[Path]) -> None:
-    """Refuse the whole run if a pending ``.py`` file carries a pyflakes finding.
+    """Refuse the whole run if a pending ``.py`` file carries a lint finding.
 
     Same seam as the checks above: ``git add -A`` is where an unused import, an
-    undefined name, or a test function shadowed by a same-named redefinition (the
-    first definition never runs) becomes part of a framework package. Only each
+    undefined name, a test function shadowed by a same-named redefinition (the
+    first definition never runs), or a top-level def/class missing its two blank
+    lines (E302/E305) becomes part of a framework package. Only each
     dirty repo's pending ``.py`` files are linted, from that repo's root so its own
     ``per-file-ignores`` apply -- the per-change form of "lint only the files you
     edited", enforced rather than remembered. There is no skip switch: a finding
@@ -1379,9 +1380,10 @@ def enforce_python_lint_correctness(dirty_repos: list[Path]) -> None:
 
     detail = "\n".join(f"  {repo.name}/{finding.render()}" for repo, finding in findings)
     raise ScriptError(
-        f"Python lint-correctness check FAILED: {len(findings)} pyflakes finding(s) in pending "
+        f"Python lint-correctness check FAILED: {len(findings)} lint finding(s) in pending "
         f"files. Nothing was committed or pushed. Fix the code (delete the unused import, "
-        f"import the undefined name, rename the shadowing definition); if a finding is "
+        f"import the undefined name, rename the shadowing definition, put two blank lines "
+        f"before and after each top-level def/class); if a finding is "
         f"genuinely required, suppress it on its own line with `# noqa: <code>` and the "
         f"reason.\n" + detail
     )

@@ -15,14 +15,14 @@ a project itself is `dev\generate.ps1` (see [../dev/quick-reference.md](../dev/q
 
 ### `generation\rebuild-parser.ps1`
 
-Rebuilds the tree-sitter parser from `grammar.js` (`generation\lib\rebuild_parser.py`).
+Rebuilds the tree-sitter parser from `grammar.js` (`generation\lib\rebuild_parser.py`). The script holds no build logic: it builds through `datrix_language.parser.tree_sitter_datrix.build` (`build_if_stale`, or `ensure_grammar_compiled(force=True)` with `-Force`) and writes `tree_sitter_datrix.<platform>.<ext>` and its staleness record `tree_sitter_datrix.<platform>.hash` into the package's `build\`, where `<platform>` is the running interpreter's `sysconfig.get_platform()` (`win-arm64`, `win-amd64`, `linux-x86_64`, …). A record for another platform, or a one-line record without a platform, is stale.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Rebuild** | `.\generation\rebuild-parser.ps1` | Rebuild if grammar changed |
-| **Force rebuild** | `.\generation\rebuild-parser.ps1 -Force` | Rebuild even if unchanged |
+| **Rebuild** | `.\generation\rebuild-parser.ps1` | Rebuild if stale (grammar, generated sources, or platform changed) |
+| **Force rebuild** | `.\generation\rebuild-parser.ps1 -Force` | Rebuild even if fresh |
 
-**Parameters:** `-Force`
+**Parameters:** `-Force`. **Output:** the library path and whether a build ran. **Exit codes:** 0 = built or already fresh, 1 = build failed (the `ParseError` text is printed).
 
 The parser's own build machinery (`datrix_language.parser.tree_sitter_datrix.build`) names this wrapper as the manual rebuild command.
 
