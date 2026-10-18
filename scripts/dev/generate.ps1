@@ -133,14 +133,13 @@ $ErrorActionPreference = "Stop"
 # Script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Import common modules. venv.ps1 supplies the CLI health check and its reinstall, which run
-# the venv's own executables by path; all Python runs through Invoke-DatrixPythonScript.
+# Import common modules. common\venv.ps1 (-TestCommand, -InstallPackage) runs the CLI health check
+# and its reinstall; all other Python runs through Invoke-DatrixPythonScript.
 $commonDir = Join-Path $PSScriptRoot "..\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixRunLog.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
 
 # Get workspace root (the monorepo root; every path this script builds hangs off it)
 $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
@@ -526,28 +525,25 @@ $("=" * 80)
 
  # Verify datrix command works (console script entry point)
  # This catches cases where module imports work but entry point is broken
- $cliDetail = ""
- if (-not (Test-DatrixCommand -Detail ([ref]$cliDetail))) {
+ $venvScript = Join-Path $commonDir "venv.ps1"
+ $cliDetail = (@(& $venvScript -TestCommand 2>&1) | ForEach-Object { "$_" }) -join [Environment]::NewLine
+ if ($LASTEXITCODE -ne 0) {
  # Always surface WHY before doing anything about it. A reinstall that runs on top of a
  # suppressed error turns a one-line diagnosis into an investigation, and the reinstall
  # cannot fix most causes (a blocked or missing native library, a broken import) anyway.
  Write-TeeHost "datrix command verification failed:" -ForegroundColor Red -LogFilePath $logFilePath
  Write-TeeHost $cliDetail -ForegroundColor Red -LogFilePath $logFilePath
- if (Test-DatrixOfflineMode) {
- Write-TeeHost "Offline mode cannot reinstall." -ForegroundColor Red -LogFilePath $logFilePath
- Write-Error "datrix CLI is not working. Unset DATRIX_OFFLINE and reinstall while online.`n$cliDetail"
- exit 1
- }
- # Only attempt reinstall if explicitly needed - use locking to prevent concurrent installs
+ # Only attempt reinstall if explicitly needed. The install holds the package lock against
+ # concurrent installs, and refuses under DATRIX_OFFLINE, naming it.
  Write-TeeHost "Attempting reinstall of datrix-cli..." -ForegroundColor Yellow -LogFilePath $logFilePath
- $reinstalled = Install-DatrixPackage -PackageName "datrix-cli" -NoDev
- if (-not $reinstalled) {
+ & $venvScript -InstallPackage "datrix-cli" -NoDev
+ if ($LASTEXITCODE -ne 0) {
  Write-Error "Failed to reinstall datrix-cli`n$cliDetail"
  exit 1
  }
  # Verify again after reinstall
- $cliDetailAfter = ""
- if (-not (Test-DatrixCommand -Detail ([ref]$cliDetailAfter))) {
+ $cliDetailAfter = (@(& $venvScript -TestCommand 2>&1) | ForEach-Object { "$_" }) -join [Environment]::NewLine
+ if ($LASTEXITCODE -ne 0) {
  Write-TeeHost "datrix command still not working after reinstall:" -ForegroundColor Red -LogFilePath $logFilePath
  Write-TeeHost $cliDetailAfter -ForegroundColor Red -LogFilePath $logFilePath
  Write-Error "datrix command still not working after reinstall`n$cliDetailAfter"
@@ -559,7 +555,7 @@ $("=" * 80)
  # Validate -Language against the installed datrix.languages set (runtime discovery,
  # never a hardcoded python/typescript literal) so a newly installed
  # datrix-codegen-<lang> package is accepted with no edit to this script.
- $installedLanguages = Get-DatrixInstalledLanguages -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe")
+ $installedLanguages = Get-DatrixInstalledLanguages -PythonExe (Get-DatrixVenvPython)
  if ($Language -notin $installedLanguages) {
  Write-TeeHost "Error: language '$Language' is not an installed datrix.languages target. Installed: $($installedLanguages -join ', '). Install the corresponding datrix-codegen-<language> package to add it." -ForegroundColor Red -LogFilePath $logFilePath
  exit 1

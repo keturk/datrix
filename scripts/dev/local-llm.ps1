@@ -93,9 +93,8 @@ if ($Setup) {
     # runs no Python itself.
     Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1")
     Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-    . (Join-Path $PSScriptRoot "..\common\venv.ps1")
     $workspace = Get-DatrixWorkspaceRoot
-    Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe") `
+    Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe (Get-DatrixVenvPython) `
         -ServerScript (Join-Path $PSScriptRoot "lib\local_llm_mcp.py") -PythonPath (Get-DatrixScriptsPythonPath) `
         -Workspace $workspace -SetupCommand "local-llm.ps1 -Setup"
     exit 0

@@ -42,7 +42,7 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **manda
 
 Every run writes `generate-results-<timestamp>-<language>[-<profile>].log` to `<workspace>\.generated\.results`, whatever the output path; product repos' generate scripts call this script to get that log.
 
-Before generating, the script checks the editable installs and that every installed plugin loads (`datrix_scripts.plugin_discovery`, run through `Invoke-DatrixPythonScript -RequirePackages`, over the `datrix.languages`, `datrix.generators`, `datrix.platforms` and `datrix.extensions` groups), and then verifies the `datrix` CLI (`Test-DatrixCommand`). `datrix --version` loads no plugin, so a package whose plugin fails to register is named here, with the registry's own error, instead of failing deep inside the pipeline.
+Before generating, the script checks the editable installs and that every installed plugin loads (`datrix_scripts.plugin_discovery`, run through `Invoke-DatrixPythonScript -RequirePackages`, over the `datrix.languages`, `datrix.generators`, `datrix.platforms` and `datrix.extensions` groups), and then verifies the `datrix` CLI (`common\venv.ps1 -TestCommand`; on failure it prints why, then reinstalls `datrix-cli` with `common\venv.ps1 -InstallPackage datrix-cli -NoDev`, which refuses under `DATRIX_OFFLINE`, and checks again). `datrix --version` loads no plugin, so a package whose plugin fails to register is named here, with the registry's own error, instead of failing deep inside the pipeline.
 
 **Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, **mandatory**, the real generation target — also selects the output-path language segment), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path only), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-ValidationLevel` (none\|fast\|standard, validated by the CLI; omitted = CLI default, standard), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
@@ -400,7 +400,7 @@ It is a repo-level validation **script**, not a pytest suite.
 
 **Exit codes:** 0 = digest written, or nothing changed since the last scan; 1 = the scan could not run (a missing tool such as Vulture, an unknown package, an unreadable scan state).
 
-**Needs** `vulture`, `pylint`, `radon` and `cognitive_complexity` in the shared venv. None is declared by any manifest, so install any that are missing with `D:\datrix\.venv\Scripts\python.exe -m pip install <name>`. A missing Vulture fails the scan instead of reporting no dead code.
+**Needs** `vulture`, `pylint`, `radon` and `cognitive_complexity` in the shared venv. `radon` (the datrix-* packages' `[dev]` extras), `pylint` (`datrix-codegen-python`'s `[dev]` extra) and `cognitive_complexity` (the `scripts` dependency group of `datrix/pyproject.toml`) are installed with the venv: a missing one means the venv is broken, and the scan refuses with the repair (`common\venv.ps1 -EnsurePackages`) instead of checking less. `vulture` is declared by no manifest; install it with `D:\datrix\.venv\Scripts\python.exe -m pip install vulture`. A missing Vulture fails the scan instead of reporting no dead code.
 
 ### `dev\generate-test-rules.ps1`
 

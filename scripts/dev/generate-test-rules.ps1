@@ -100,7 +100,7 @@ if ($Projects.Count -eq 0 -and -not $All -and -not $Path) {
 $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pyArgs = if ($All) { @("--all") } else { @($Projects) }
+$pyArgs = @(if ($All) { "--all" } else { $Projects })
 if ($Apply) { $pyArgs += "--apply" }
 if ($Review) { $pyArgs += "--review" }
 if ($Model) { $pyArgs += @("--model", $Model) }

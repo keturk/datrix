@@ -44,7 +44,7 @@ $ErrorActionPreference = "Stop"
 
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
-$pythonArgs = if ($PSCmdlet.ParameterSetName -eq "Text") { @("--text", $Text) } else { @($Path) }
+$pythonArgs = @(if ($PSCmdlet.ParameterSetName -eq "Text") { "--text", $Text } else { $Path })
 if ($All) { $pythonArgs += "--all" }
 
 exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\print_sexp.py") -Arguments $pythonArgs -RequirePackages)

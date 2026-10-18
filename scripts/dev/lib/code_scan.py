@@ -46,7 +46,6 @@ from datrix_scripts.code_index.sources import CodeIndexError, discover_repos, in
 from datrix_scripts.complexity import (
     DEFAULT_IGNORE_DIRS,
     DEFAULT_MAX_COMPLEXITY,
-    get_cognitive_complexity,
     run_check,
     run_check_cognitive,
 )
@@ -69,7 +68,6 @@ VERDICT_REFUTED = "refuted"
 VERDICT_TEST_SUPPORT = "test support used by tests"
 # The index has no definition at Vulture's file:line; Vulture's own classification stands.
 VERDICT_UNMATCHED = "unmatched"
-COGNITIVE_MISSING_NOTE = "cognitive_complexity is not installed, so only cyclomatic complexity was checked."
 # Names used through strings, where neither Vulture nor the index looks: Jinja files,
 # DAL generator/Jinja source kept in Python string literals, getattr names and dotted resolver
 # paths, and manifest entry points. A finding named in any of them is dropped.
@@ -181,7 +179,6 @@ class ScanDigest:
     complexity: list[ComplexItem] = field(default_factory=list)
     duplicates: list[DuplicateItem] = field(default_factory=list)
     docs: list[DocsItem] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
 
     def sections(self) -> list[tuple[str, list[ScanItem]]]:
         return [
@@ -193,13 +190,11 @@ class ScanDigest:
         ]
 
     def _footer(self) -> list[str]:
-        lines = [
+        return [
             f"Vulture findings the index refuted (used elsewhere in the workspace): {self.refuted}",
             f"Vulture findings in test-support code that tests use (its purpose): {self.test_support}",
             f"Vulture findings dropped because a template, string or manifest names them: {self.named_in_strings}",
         ]
-        lines.extend(f"Note: {note}" for note in self.notes)
-        return lines
 
     def _package_table(self) -> list[str]:
         counts = [(title, Counter(item.package for item in items)) for title, items in self.sections()]
@@ -427,12 +422,8 @@ def scan_complexity(workspace: Path, digest: ScanDigest, package: str) -> None:
     root = workspace / package
     found = [(p, n, ln, v, "cyclomatic") for p, n, ln, v in run_check(root, DEFAULT_MAX_COMPLEXITY,
                                                                        DEFAULT_IGNORE_DIRS, False)]
-    if get_cognitive_complexity is None:
-        if COGNITIVE_MISSING_NOTE not in digest.notes:
-            digest.notes.append(COGNITIVE_MISSING_NOTE)
-    else:
-        found += [(p, n, ln, v, "cognitive") for p, n, ln, v in run_check_cognitive(
-            root, DEFAULT_MAX_COMPLEXITY, DEFAULT_IGNORE_DIRS, False)]
+    found += [(p, n, ln, v, "cognitive") for p, n, ln, v in run_check_cognitive(
+        root, DEFAULT_MAX_COMPLEXITY, DEFAULT_IGNORE_DIRS, False)]
     seen: set[tuple[str, str, int]] = set()
     for path, name, line, value, measure in sorted(found, key=lambda v: -v[3]):
         if (path, name, line) not in seen:

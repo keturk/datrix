@@ -136,7 +136,6 @@ $commonDir = Join-Path $PSScriptRoot "..\common"
 Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
 Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
-. (Join-Path $commonDir "venv.ps1")
 
 $McpServerName = "datrix-code-index"
 
@@ -168,7 +167,7 @@ if ($Setup) {
         exit $refreshExit
     }
     # The MCP server entry names the venv interpreter by path; Claude Code starts it directly.
-    Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe (Join-Path (Get-DatrixVenvPath) "Scripts\python.exe") -ServerScript $mcpScript `
+    Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe (Get-DatrixVenvPython) -ServerScript $mcpScript `
         -PythonPath (Get-DatrixScriptsPythonPath) -Workspace (Get-DatrixWorkspaceRoot) -SetupCommand "code-index.ps1 -Setup"
     exit 0
 }

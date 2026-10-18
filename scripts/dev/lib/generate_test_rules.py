@@ -92,6 +92,7 @@ def _output_dir(datrix_root: Path, model: str) -> Path:
     """Per-model proposal directory so different models' runs don't clobber each other."""
     return datrix_root / _OUTPUT_BASE / _model_slug(model)
 
+
 # JSON schema constraining the model's response (Ollama grammar-constrained output).
 _RESPONSE_SCHEMA = {
     "type": "object",
