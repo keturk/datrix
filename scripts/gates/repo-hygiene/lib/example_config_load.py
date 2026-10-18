@@ -43,7 +43,7 @@ from datrix_common.config.unified_loader import (
     load_system_config,
 )
 from datrix_common.errors.configuration import ConfigValidationError
-from datrix_common.protocols.parser import ConfigDocumentSourceProtocol
+from datrix_common.protocols.config_documents import ConfigDocumentSourceProtocol
 from datrix_language.parser.dcfg_documents import disk_config_documents
 
 from datrix_scripts.paths import SHOWCASE_DIR

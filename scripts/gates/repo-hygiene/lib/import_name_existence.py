@@ -72,6 +72,7 @@ from pathlib import Path
 
 from datrix_scripts.gate_harness import write_files
 from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.test_projects import normalize_path
 
 #: Directories never walked -- caches, build output, virtualenvs, and the
 #: gitignored orchestration trees.
@@ -141,13 +142,9 @@ class ScanReport:
     expected_to_fail: int
 
 
-def _norm(path: str) -> str:
-    return path.replace("\\", "/")
-
-
 def workspace_root() -> str:
     """The directory holding every `datrix*` package repo."""
-    return _norm(str(WORKSPACE_DIR))
+    return normalize_path(str(WORKSPACE_DIR))
 
 
 def _package_subtrees(package_name: str) -> tuple[str, ...]:
@@ -168,7 +165,7 @@ def default_roots(workspace: str) -> list[str]:
         for subtree in _package_subtrees(name):
             candidate = os.path.join(package_dir, subtree)
             if os.path.isdir(candidate):
-                roots.append(_norm(candidate))
+                roots.append(normalize_path(candidate))
     return roots
 
 
@@ -184,7 +181,7 @@ def build_source_index(workspace: str) -> dict[str, str]:
         src_root = os.path.join(workspace, name, "src")
         if not name.startswith("datrix") or not os.path.isdir(src_root):
             continue
-        _index_src_tree(_norm(src_root), index)
+        _index_src_tree(normalize_path(src_root), index)
     return index
 
 
@@ -194,7 +191,7 @@ def _index_src_tree(src_root: str, index: dict[str, str]) -> None:
         for filename in filenames:
             if not filename.endswith(".py"):
                 continue
-            path = _norm(os.path.join(dirpath, filename))
+            path = normalize_path(os.path.join(dirpath, filename))
             relative = path[len(src_root) + 1 :]
             parts = relative[: -len(".py")].split("/")
             if parts[-1] == "__init__":
@@ -432,7 +429,7 @@ def _nested_bodies(node: ast.stmt) -> list[list[ast.stmt]]:
 
 
 def _dotted_name_for_src_file(path: str, src_root: str) -> str:
-    relative = _norm(path)[len(_norm(src_root)) + 1 :]
+    relative = normalize_path(path)[len(normalize_path(src_root)) + 1 :]
     parts = relative[: -len(".py")].split("/")
     if parts[-1] == "__init__":
         parts = parts[:-1]
@@ -492,7 +489,7 @@ def collect_import_sites(root: str, src_root: str) -> tuple[list[ImportSite], in
         for filename in sorted(filenames):
             if not filename.endswith(".py"):
                 continue
-            harvest = _collect_file_sites(_norm(os.path.join(dirpath, filename)), src_root)
+            harvest = _collect_file_sites(normalize_path(os.path.join(dirpath, filename)), src_root)
             sites.extend(harvest.sites)
             unresolvable_relative += harvest.unresolvable_relative
             expected_to_fail += harvest.expected_to_fail
@@ -668,7 +665,7 @@ from ..target import real_function
 
 
 def _build_self_test_tree(tmp: str) -> tuple[list[str], dict[str, str]]:
-    src_root = _norm(os.path.join(tmp, "src"))
+    src_root = normalize_path(os.path.join(tmp, "src"))
     write_files(
         Path(src_root),
         {
@@ -683,7 +680,7 @@ def _build_self_test_tree(tmp: str) -> tuple[list[str], dict[str, str]]:
     )
     index: dict[str, str] = {}
     _index_src_tree(src_root, index)
-    tests_root = _norm(os.path.join(tmp, "tests"))
+    tests_root = normalize_path(os.path.join(tmp, "tests"))
     write_files(Path(tests_root), {"test_negative_existence.py": _SELF_TEST_NEGATIVE_SUITE})
     return [src_root, tests_root], index
 
@@ -788,7 +785,7 @@ def main() -> int:
         print(f"ERROR: no datrix `src/` tree found under {workspace} -- nothing to resolve against.")
         return 2
     resolver = NameResolver(index, module_prefixes=DEFAULT_MODULE_PREFIXES)
-    roots = [_norm(os.path.abspath(r)) for r in args.roots] or default_roots(workspace)
+    roots = [normalize_path(os.path.abspath(r)) for r in args.roots] or default_roots(workspace)
     report = scan(roots, resolver)
 
     print(

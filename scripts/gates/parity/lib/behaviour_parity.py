@@ -249,6 +249,7 @@ from datrix_scripts.behaviour_skeleton import (
     behaviour_arity,
     behaviour_skeleton,
     build_import_table,
+    build_local_class_table,
     is_pre_binding_adapter,
     is_rendering_leaf,
     model_attribute_names,
@@ -262,6 +263,7 @@ from datrix_scripts.function_sources import (
     collect_function_sources,
     collect_module_and_method_defs,
     decorated_source_segment,
+    dotted_module_for_file,
     dotted_package_for_file,
     qualified_def_name,
 )
@@ -838,7 +840,6 @@ _SELF_RECEIVER_NAMES: Final[frozenset[str]] = frozenset({"self", "cls"})
 _SUPER_NAME: Final[str] = "super"
 #: The entry-point group each platform registers its generator under.
 _PLATFORM_ENTRY_POINT_GROUP: Final[str] = "datrix.platforms"
-_PACKAGE_INIT_STEM: Final[str] = "__init__"
 
 
 def _function_identity(function: FunctionType) -> BuilderIdentity:
@@ -957,11 +958,6 @@ def coordinate_index_from_seeds(
     }
 
 
-def _module_name_for(src_dir: Path, py_file: Path) -> str:
-    package = dotted_package_for_file(src_dir, py_file)
-    return package if py_file.stem == _PACKAGE_INIT_STEM else f"{package}.{py_file.stem}"
-
-
 def _is_loader_call(node: ast.AST) -> bool:
     if not isinstance(node, ast.Call):
         return False
@@ -1047,7 +1043,7 @@ def platform_realization_tables(platform_label: str, src_dirs: Sequence[Path]) -
     for src_dir in src_dirs:
         for py_file in sorted(src_dir.rglob("*.py")):
             for name in _table_names_in(parse_module_or_raise(py_file), py_file):
-                tables.extend(_import_tables(_module_name_for(src_dir, py_file), name, platform_label))
+                tables.extend(_import_tables(dotted_module_for_file(src_dir, py_file), name, platform_label))
     if not tables:
         raise ValueError(
             f"behaviour_parity:platform {platform_label!r} builds no RealizationTable under "
@@ -1253,7 +1249,7 @@ def platform_reference_graph(src_dirs: Sequence[Path]) -> ReferenceGraph:
     for src_dir in src_dirs:
         for py_file in sorted(src_dir.rglob("*.py")):
             module = parse_module_or_raise(py_file)
-            module_name = _module_name_for(src_dir, py_file)
+            module_name = dotted_module_for_file(src_dir, py_file)
             import_table = build_import_table(module, dotted_package_for_file(src_dir, py_file))
             info, defs = _module_info(module_name, py_file, module, import_table)
             modules[module_name] = info
@@ -3204,6 +3200,7 @@ def _function_source(code: str, *, package: str, file_path: Path) -> FunctionSou
         node=node,
         source_text=decorated_source_segment(dedented.splitlines(keepends=True), node),
         import_table=build_import_table(module, package),
+        local_classes=build_local_class_table(module, f"{package}.{file_path.stem}"),
     )
 
 

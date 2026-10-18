@@ -21,8 +21,12 @@ generated-project example paths, not real repo-path claims, and scanning
 them would drown real drift in noise. A NEW architecture doc file added
 later is a deliberate, reviewed addition to this constant.
 
-Beyond path and module spans, two claim families are checked whose rot no
-path check can see. **Anchor links** (``[text](<doc>.md#anchor)`` and
+Beyond path and module spans, three claim families are checked whose rot no
+path check can see. **Class members**: a doc that binds a class name to a
+workspace class (a ``from <module> import Name`` line or a qualified
+``package.module.Name`` span) and writes ``Name.member`` in a span or a code
+fence claims the member exists; the class's source, its re-exports and its
+bases must declare it. **Anchor links** (``[text](<doc>.md#anchor)`` and
 ``[text](#anchor)``) must name a heading that exists in the target doc, by
 the GitHub-flavoured slug the heading produces -- a heading gaining a status
 suffix silently breaks every link to it. **Decision status**: every
@@ -60,6 +64,8 @@ Exit codes:
 from __future__ import annotations
 
 import ast
+import builtins
+import importlib
 import json
 import re
 import sys
@@ -78,6 +84,12 @@ from datrix_scripts.gate_harness import (
     run_checks,
 )
 from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.pyproject_deps import (
+    DATRIX_PREFIX,
+    discover_packages,
+    parse_package_name,
+    read_project_dependencies,
+)
 
 # ---------------------------------------------------------------------------
 # The curated 38-file architecture-doc set (see module docstring for why this
@@ -541,14 +553,18 @@ class UnresolvedReference:
     """One documentation claim that failed resolution against the live tree.
 
     ``kind`` names the check family: a backtick path or module span, a
-    Markdown anchor link whose target heading does not exist, or a decision
-    whose heading status, status paragraph, and named checks disagree.
+    Markdown anchor link whose target heading does not exist, a
+    ``Class.member`` claim naming a member the class does not have, a
+    decision whose heading status, status paragraph, and named checks disagree,
+    a dependency-graph edge the manifests do not declare (or a declared one not
+    drawn), a numeric package or repository count, or a Code Quality tool no
+    scripts quick-reference documents.
     """
 
     doc: str
     line: int
     span: str
-    kind: Literal["path", "module", "anchor", "decision"]
+    kind: Literal["path", "module", "anchor", "member", "decision", "graph", "count", "tooling"]
 
 
 # ---------------------------------------------------------------------------
@@ -638,6 +654,342 @@ def check_anchor_links(doc_rel: str, doc_text: str, monorepo_root: Path) -> list
             failures.append(
                 UnresolvedReference(doc=doc_rel, line=line_number, span=span, kind="anchor")
             )
+    return failures
+
+
+# ---------------------------------------------------------------------------
+# Class member claims: a doc that binds a short class name to a workspace class
+# -- a ``from <package module> import Name`` line, or a fully qualified
+# ``package.module.Name`` span -- and then writes ``Name.member`` in a backtick
+# span or a code-fence line claims that the class has that member. A module span
+# only proves the module exists; this family is what catches a method removed
+# from a class the docs still call (a ``TypeRegistry.get_python_type`` example
+# outlived the method, and a script copied from it crashed on the call).
+#
+# Members are read from the source, never by importing a workspace module: the
+# class body's functions, nested classes and assignments, every ``self.x`` /
+# ``cls.x`` assignment in it, and everything its bases contribute. A base outside
+# the workspace is introspected (``dir()``); a class whose members cannot be
+# enumerated (a ``__getattr__``, an unresolvable or non-class base, a
+# module-level name that is not a class) is open, and every claim on it holds.
+# ---------------------------------------------------------------------------
+
+_FENCE_DELIMITER = "```"
+_FROM_IMPORT_RE = re.compile(r"^\s*from\s+([a-z_][\w.]*)\s+import\s+\(?([^()#]+?)\)?\s*(?:#.*)?$")
+_QUALIFIED_CLASS_SPAN_RE = re.compile(r"^([a-z][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)+)\.([A-Z]\w*)$")
+#: The member must end the identifier: ``Transpiler.visit_<kind>`` and
+#: ``Transpiler.visit_*`` name a family of members, not a member.
+_MEMBER_CLAIM_RE = re.compile(r"(?<![\w.])([A-Z]\w*)\.([A-Za-z_]\w*)(?![\w*<])")
+_IMPORT_ALIAS_WORD = "as"
+_SELF_NAMES: frozenset[str] = frozenset({"self", "cls"})
+_DYNAMIC_MEMBER_HOOK = "__getattr__"
+_BUILTINS_MODULE = "builtins"
+#: Base-class chains are short; the bound only stops a cyclic re-export.
+_MAX_CLASS_RESOLUTION_DEPTH = 32
+
+
+@dataclass(frozen=True)
+class ClassMembers:
+    """The members a class is known to have; ``is_open`` when that set is incomplete."""
+
+    names: frozenset[str]
+    is_open: bool
+
+
+_OPEN_MEMBERS = ClassMembers(names=frozenset(), is_open=True)
+
+
+class UnresolvedClassError(LookupError):
+    """A doc binds a name to a workspace module that does not define or re-export it."""
+
+
+@dataclass(frozen=True)
+class _ModuleNamespace:
+    """The module-level names of one workspace module that a class lookup reads."""
+
+    module: str
+    classes: dict[str, ast.ClassDef]
+    imported_names: dict[str, tuple[str, str]]
+    imported_modules: dict[str, str]
+    other_names: frozenset[str]
+
+
+def _doc_code_texts(doc_text: str) -> list[tuple[int, str]]:
+    """Every ``(line, code text)`` of *doc_text*: each code-fence line whole, and
+    each backtick span of a prose line."""
+    texts: list[tuple[int, str]] = []
+    in_fence = False
+    for line_number, line in enumerate(doc_text.splitlines(), start=1):
+        if line.lstrip().startswith(_FENCE_DELIMITER):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            texts.append((line_number, line))
+            continue
+        texts.extend(
+            (line_number, match.group(1).strip()) for match in _INLINE_CODE_SPAN_RE.finditer(line)
+        )
+    return texts
+
+
+def _bound_names(text: str) -> list[tuple[str, str, str]]:
+    """``(local name, module, imported name)`` for each name *text* binds: a qualified
+    ``package.module.Class`` span, or a single-line ``from module import ...``."""
+    span_match = _QUALIFIED_CLASS_SPAN_RE.match(text.removesuffix(_CALL_SPAN_SUFFIX))
+    if span_match is not None:
+        return [(span_match.group(2), span_match.group(1), span_match.group(2))]
+    import_match = _FROM_IMPORT_RE.match(text)
+    if import_match is None:
+        return []
+    bound: list[tuple[str, str, str]] = []
+    for item in import_match.group(2).split(","):
+        words = item.split()
+        if len(words) == 1:
+            bound.append((words[0], import_match.group(1), words[0]))
+        elif len(words) == 3 and words[1] == _IMPORT_ALIAS_WORD:
+            bound.append((words[2], import_match.group(1), words[0]))
+    return bound
+
+
+def extract_class_bindings(code_texts: list[tuple[int, str]]) -> dict[str, set[tuple[str, str]]]:
+    """Map each capitalized name the doc binds to a workspace module onto every
+    ``(module, imported name)`` it is bound to; a name bound twice differently is
+    ambiguous and its claims are never checked."""
+    bindings: dict[str, set[tuple[str, str]]] = {}
+    for _, text in code_texts:
+        for local, module, imported in _bound_names(text):
+            if not local[:1].isupper():
+                continue
+            if module.split(".", 1)[0] not in _IMPORT_NAME_TO_PACKAGE_DIR:
+                continue
+            bindings.setdefault(local, set()).add((module, imported))
+    return bindings
+
+
+def _workspace_module_file(module: str, monorepo_root: Path) -> Path | None:
+    """The source file of workspace *module*, or ``None`` when it is not a workspace module file."""
+    segments = module.split(".")
+    if segments[0] not in _IMPORT_NAME_TO_PACKAGE_DIR:
+        return None
+    base = monorepo_root / _IMPORT_NAME_TO_PACKAGE_DIR[segments[0]] / "src" / Path(*segments)
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _absolute_import_source(stmt: ast.ImportFrom, module: str, is_package: bool) -> str:
+    """The absolute module a (possibly relative) ``from ... import`` in *module* reads."""
+    if stmt.level == 0:
+        return stmt.module or ""
+    parts = module.split(".") if is_package else module.split(".")[:-1]
+    anchor = parts[: len(parts) - (stmt.level - 1)]
+    return ".".join([*anchor, stmt.module] if stmt.module else anchor)
+
+
+def _module_namespace(tree: ast.Module, module: str, is_package: bool) -> _ModuleNamespace:
+    classes: dict[str, ast.ClassDef] = {}
+    imported_names: dict[str, tuple[str, str]] = {}
+    imported_modules: dict[str, str] = {}
+    other_names: set[str] = set()
+    for stmt in tree.body:
+        if isinstance(stmt, ast.ClassDef):
+            classes[stmt.name] = stmt
+        elif isinstance(stmt, ast.ImportFrom):
+            source = _absolute_import_source(stmt, module, is_package)
+            for alias in stmt.names:
+                imported_names[alias.asname or alias.name] = (source, alias.name)
+        elif isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                imported_modules[alias.asname or alias.name.split(".")[0]] = (
+                    alias.name if alias.asname else alias.name.split(".")[0]
+                )
+        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            other_names.add(stmt.name)
+        elif isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+            other_names.update(t.id for t in targets if isinstance(t, ast.Name))
+    return _ModuleNamespace(module, classes, imported_names, imported_modules, frozenset(other_names))
+
+
+def _self_assigned_names(node: ast.ClassDef) -> set[str]:
+    """Every ``self.x`` / ``cls.x`` the class body assigns, at any depth."""
+    names: set[str] = set()
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Assign):
+            targets = sub.targets
+        elif isinstance(sub, (ast.AnnAssign, ast.AugAssign)):
+            targets = [sub.target]
+        else:
+            continue
+        for target in targets:
+            names.update(
+                element.attr
+                for element in ast.walk(target)
+                if isinstance(element, ast.Attribute)
+                and isinstance(element.value, ast.Name)
+                and element.value.id in _SELF_NAMES
+            )
+    return names
+
+
+def _class_level_statements(body: list[ast.stmt]) -> list[ast.stmt]:
+    """The statements of a class body, including those nested in its ``if``
+    (``if TYPE_CHECKING:``), ``try`` and ``with`` blocks."""
+    statements: list[ast.stmt] = []
+    for stmt in body:
+        statements.append(stmt)
+        if isinstance(stmt, ast.If):
+            statements.extend(_class_level_statements(stmt.body + stmt.orelse))
+        elif isinstance(stmt, ast.Try):
+            nested = stmt.body + stmt.orelse + stmt.finalbody
+            nested.extend(inner for handler in stmt.handlers for inner in handler.body)
+            statements.extend(_class_level_statements(nested))
+        elif isinstance(stmt, ast.With):
+            statements.extend(_class_level_statements(stmt.body))
+    return statements
+
+
+def _class_body_names(node: ast.ClassDef) -> set[str]:
+    """The members the class body itself declares."""
+    names = _self_assigned_names(node)
+    for stmt in _class_level_statements(node.body):
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(stmt.name)
+        elif isinstance(stmt, ast.Assign):
+            names.update(t.id for t in stmt.targets if isinstance(t, ast.Name))
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            names.add(stmt.target.id)
+    return names
+
+
+def _external_class_members(module: str, name: str) -> ClassMembers:
+    """Members of a class outside the workspace, by introspection; open when it cannot be loaded."""
+    try:
+        loaded = importlib.import_module(module)
+    except ImportError:
+        return _OPEN_MEMBERS
+    if not hasattr(loaded, name):
+        return _OPEN_MEMBERS
+    candidate = getattr(loaded, name)
+    if not isinstance(candidate, type):
+        return _OPEN_MEMBERS
+    return ClassMembers(names=frozenset(dir(candidate)), is_open=False)
+
+
+class ClassMemberIndex:
+    """Resolves ``(module, class name)`` to its members, caching parsed workspace modules."""
+
+    def __init__(self, monorepo_root: Path) -> None:
+        self._monorepo_root = monorepo_root
+        self._namespaces: dict[str, _ModuleNamespace] = {}
+
+    def _namespace(self, module: str, source_file: Path) -> _ModuleNamespace:
+        if module not in self._namespaces:
+            try:
+                tree = ast.parse(source_file.read_text(encoding="utf-8-sig"), filename=str(source_file))
+            except (OSError, SyntaxError, ValueError) as error:
+                raise UnresolvedClassError(
+                    f"cannot read {source_file} to resolve a class of module {module}: {error}"
+                ) from error
+            is_package = source_file.name == "__init__.py"
+            self._namespaces[module] = _module_namespace(tree, module, is_package)
+        return self._namespaces[module]
+
+    def members(self, module: str, name: str, depth: int = 0) -> ClassMembers:
+        """The members of class *name* as module *module* exposes it.
+
+        Raises:
+            UnresolvedClassError: *module* is a workspace module that neither
+                defines nor re-exports *name*.
+        """
+        if depth > _MAX_CLASS_RESOLUTION_DEPTH:
+            return _OPEN_MEMBERS
+        source_file = _workspace_module_file(module, self._monorepo_root)
+        if source_file is None:
+            if module.split(".", 1)[0] in _IMPORT_NAME_TO_PACKAGE_DIR:
+                raise UnresolvedClassError(f"workspace module {module} does not exist")
+            return _external_class_members(module, name)
+        namespace = self._namespace(module, source_file)
+        if name in namespace.classes:
+            return self._declared_class_members(namespace, namespace.classes[name], depth)
+        if name in namespace.imported_names:
+            source_module, source_name = namespace.imported_names[name]
+            return self.members(source_module, source_name, depth + 1)
+        if name in namespace.other_names:
+            return _OPEN_MEMBERS
+        raise UnresolvedClassError(f"{module} defines no {name}")
+
+    def _base_target(self, base: ast.expr, namespace: _ModuleNamespace) -> tuple[str, str] | None:
+        """The ``(module, name)`` a base-class expression names, or ``None`` when it is not a plain name."""
+        if isinstance(base, ast.Subscript):
+            return self._base_target(base.value, namespace)
+        if isinstance(base, ast.Name):
+            if base.id in namespace.classes:
+                return (namespace.module, base.id)
+            if base.id in namespace.imported_names:
+                return namespace.imported_names[base.id]
+            if hasattr(builtins, base.id):
+                return (_BUILTINS_MODULE, base.id)
+            return None
+        if isinstance(base, ast.Attribute):
+            head, _, rest = ast.unparse(base).partition(".")
+            if head not in namespace.imported_modules:
+                return None
+            module_path, _, class_name = f"{namespace.imported_modules[head]}.{rest}".rpartition(".")
+            return (module_path, class_name)
+        return None
+
+    def _declared_class_members(
+        self, namespace: _ModuleNamespace, node: ast.ClassDef, depth: int
+    ) -> ClassMembers:
+        names = _class_body_names(node)
+        is_open = _DYNAMIC_MEMBER_HOOK in names
+        for base in node.bases:
+            target = self._base_target(base, namespace)
+            if target is None:
+                is_open = True
+                continue
+            try:
+                inherited = self.members(target[0], target[1], depth + 1)
+            except UnresolvedClassError:
+                is_open = True
+                continue
+            names |= inherited.names
+            is_open = is_open or inherited.is_open
+        return ClassMembers(names=frozenset(names), is_open=is_open)
+
+    def has_member(self, module: str, name: str, member: str) -> bool:
+        """Whether class *name* of *module* has *member* (always, when its members are open)."""
+        try:
+            resolved = self.members(module, name)
+        except UnresolvedClassError:
+            return False
+        return resolved.is_open or member in resolved.names
+
+
+def check_member_claims(
+    doc_rel: str, doc_text: str, member_index: ClassMemberIndex
+) -> list[UnresolvedReference]:
+    """``Class.member`` claims in *doc_text* naming a member the bound class does not have."""
+    code_texts = _doc_code_texts(doc_text)
+    bindings = extract_class_bindings(code_texts)
+    failures: list[UnresolvedReference] = []
+    seen: set[tuple[int, str]] = set()
+    for line_number, text in code_texts:
+        for match in _MEMBER_CLAIM_RE.finditer(text):
+            local, member = match.group(1), match.group(2)
+            if local not in bindings or len(bindings[local]) != 1:
+                continue
+            claim = f"{local}.{member}"
+            if (line_number, claim) in seen:
+                continue
+            seen.add((line_number, claim))
+            module, name = next(iter(bindings[local]))
+            if not member_index.has_member(module, name, member):
+                failures.append(
+                    UnresolvedReference(doc=doc_rel, line=line_number, span=claim, kind="member")
+                )
     return failures
 
 
@@ -778,19 +1130,326 @@ def check_decision_status(
     return failures
 
 
-def scan_docs(
-    monorepo_root: Path, doc_files: tuple[str, ...], *, check_decisions: bool
+# ---------------------------------------------------------------------------
+# Numeric package counts: a curated architecture doc states no count of the
+# packages or repositories. A count is a second copy of the list in
+# ``.claude/rules/repo-boundaries.md``, and three copies of it disagreed with
+# each other and with the disk. A number (digits or an English number word)
+# directly before ``packages`` / ``repos`` / ``repositories``, optionally through
+# up to two qualifiers (``installable``, ``core``, ``package``, ``toolchain``), in a
+# prose line is a claim; Markdown emphasis around the number (``**nineteen**``)
+# does not hide it. Code fences are not prose. A count of something other
+# than the package set (a measurement, "two packages share a group") is an
+# exceptions-baseline entry keyed by the claim's context span.
+# ---------------------------------------------------------------------------
+
+_NUMBER_UNIT_WORDS = (
+    "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|"
+    "fourteen|fifteen|sixteen|seventeen|eighteen|nineteen"
+)
+_NUMBER_TENS_WORDS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+_NUMBER_RE = (
+    rf"(?:\d+|(?:{_NUMBER_TENS_WORDS})(?:[- ](?:{_NUMBER_UNIT_WORDS}))?|{_NUMBER_UNIT_WORDS})"
+)
+_MARKDOWN_EMPHASIS_RE = r"(?:\*\*|__|\*|_)?"
+_MAX_COUNT_QUALIFIERS = 2
+_PACKAGE_COUNT_RE = re.compile(
+    rf"(?<!\w){_MARKDOWN_EMPHASIS_RE}\b{_NUMBER_RE}\b{_MARKDOWN_EMPHASIS_RE}\s+"
+    rf"(?:(?:installable|core|package|toolchain)\s+){{0,{_MAX_COUNT_QUALIFIERS}}}"
+    r"(?:packages|repos|repositories)\b",
+    re.IGNORECASE,
+)
+#: Words of the line kept on each side of a count claim in its span, so a baseline entry
+#: excuses that one sentence and not every "two packages" a later edit writes.
+_COUNT_CONTEXT_WORDS = 5
+_COUNT_SPAN_PREFIX = "package count: "
+
+
+def _prose_lines(doc_text: str) -> list[tuple[int, str]]:
+    """Every ``(line, text)`` of *doc_text* outside a code fence (fence delimiters excluded)."""
+    lines: list[tuple[int, str]] = []
+    in_fence = False
+    for line_number, line in enumerate(doc_text.splitlines(), start=1):
+        if line.lstrip().startswith(_FENCE_DELIMITER):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            lines.append((line_number, line))
+    return lines
+
+
+_COUNT_CONTEXT_BEFORE_RE = re.compile(rf"(?<!\S)(?:\S+\s+){{0,{_COUNT_CONTEXT_WORDS}}}$")
+_COUNT_CONTEXT_AFTER_RE = re.compile(rf"^(?:\s*\S+){{0,{_COUNT_CONTEXT_WORDS}}}")
+
+
+def _count_claim_span(line: str, match: re.Match[str]) -> str:
+    """The claim with up to five words of its line on each side, whitespace collapsed."""
+    before = _COUNT_CONTEXT_BEFORE_RE.search(line[: match.start()])
+    after = _COUNT_CONTEXT_AFTER_RE.match(line[match.end() :])
+    context = (before.group(0) if before else "") + match.group(0) + (after.group(0) if after else "")
+    return _COUNT_SPAN_PREFIX + " ".join(context.split())
+
+
+def check_package_counts(doc_rel: str, doc_text: str) -> list[UnresolvedReference]:
+    """Prose lines of *doc_text* stating a numeric package or repository count."""
+    return [
+        UnresolvedReference(
+            doc=doc_rel, line=line_number, span=_count_claim_span(line, match), kind="count"
+        )
+        for line_number, line in _prose_lines(doc_text)
+        for match in _PACKAGE_COUNT_RE.finditer(line)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Overview claims: the dependency graph and the tooling lines of the overview are
+# the claims readers act on most, and both had drifted -- the graph drew most edges
+# backwards and invented the generator -> CLI edges, and the tooling lines named a
+# type checker as if a script ran it for everyone. Both are read from the one doc
+# that makes them; a missing section fails rather than checking nothing.
+# ---------------------------------------------------------------------------
+
+OVERVIEW_DOC: str = "datrix/docs/architecture/architecture-overview.md"
+_GRAPH_HEADING = "## Dependency Graph"
+_MERMAID_FENCE = "```mermaid"
+_MERMAID_HEADER_RE = re.compile(r"^graph\s+(?:TD|TB|BT|LR|RL)$")
+_MERMAID_NODE_RE = re.compile(r"^([A-Za-z_]\w*)(?:\[([^\[\]]+)\])?$")
+_MERMAID_ARROW = "-->"
+_GRAPH_SPAN_PREFIX = "dependency graph: "
+_TOOLING_SECTION_HEADING = "## Technology Stack"
+_TOOLING_SUBSECTION_HEADING = "### Code Quality"
+_TOOL_BULLET_RE = re.compile(r"^- \*\*([^*]+)\*\*")
+_TOOLING_SPAN_PREFIX = "tooling: "
+_QUICK_REFERENCE_NAME = "quick-reference.md"
+_PYPROJECT_FILE = "pyproject.toml"
+_DISTRIBUTION_NAME_SEPARATORS_RE = re.compile(r"[-_.]+")
+_SECTION_STOP_MARKERS: frozenset[str] = frozenset({"#", "##"})
+_SUBSECTION_STOP_MARKERS: frozenset[str] = frozenset({"#", "##", "###"})
+
+
+def _normalized_distribution_name(name: str) -> str:
+    """The PEP 503 normalized form of a distribution name (``Datrix_Common`` -> ``datrix-common``)."""
+    return _DISTRIBUTION_NAME_SEPARATORS_RE.sub("-", name).lower()
+
+
+def manifest_dependency_edges(monorepo_root: Path) -> frozenset[tuple[str, str]]:
+    """Every ``(dependent, dependency)`` pair a package's ``[project] dependencies`` declares
+    between Datrix packages. An unreadable manifest propagates: a package silently dropped
+    would make the graph check pass against a smaller set."""
+    edges: set[tuple[str, str]] = set()
+    for name, project_root in discover_packages(monorepo_root).items():
+        for spec in read_project_dependencies(project_root / _PYPROJECT_FILE):
+            dependency = _normalized_distribution_name(parse_package_name(spec))
+            if dependency.startswith(DATRIX_PREFIX):
+                edges.add((name, dependency))
+    return frozenset(edges)
+
+
+def _numbered_lines(doc_text: str) -> list[tuple[int, str]]:
+    return list(enumerate(doc_text.splitlines(), start=1))
+
+
+def _section_lines(
+    lines: list[tuple[int, str]], heading: str, stop_markers: frozenset[str]
+) -> list[tuple[int, str]] | None:
+    """The ``(line, text)`` pairs under the exact *heading*, up to the next heading whose
+    ``#`` marker is in *stop_markers*; ``None`` when there is no such heading."""
+    for index, (_, line) in enumerate(lines):
+        if line.strip() != heading:
+            continue
+        section: list[tuple[int, str]] = []
+        for line_number, body_line in lines[index + 1 :]:
+            if body_line.startswith("#") and body_line.split(" ", 1)[0] in stop_markers:
+                break
+            section.append((line_number, body_line))
+        return section
+    return None
+
+
+def _mermaid_block(section: list[tuple[int, str]]) -> tuple[int, list[tuple[int, str]]] | None:
+    """``(fence line, stripped lines)`` of the first ```` ```mermaid ```` fence of *section*;
+    ``None`` when there is none or it is never closed."""
+    fence_line: int | None = None
+    block: list[tuple[int, str]] = []
+    for line_number, line in section:
+        stripped = line.strip()
+        if fence_line is None:
+            if stripped == _MERMAID_FENCE:
+                fence_line = line_number
+            continue
+        if stripped.startswith(_FENCE_DELIMITER):
+            return fence_line, block
+        block.append((line_number, stripped))
+    return None
+
+
+@dataclass(frozen=True)
+class DrawnGraph:
+    """The edges a mermaid ``graph`` draws, by node label, and the lines it could not read."""
+
+    edges: dict[tuple[str, str], int]
+    problems: list[tuple[int, str]]
+
+
+def _record_node(
+    match: re.Match[str], line_number: int, labels: dict[str, str], problems: list[tuple[int, str]]
+) -> str:
+    node_id, label = match.group(1), match.group(2)
+    if label is not None:
+        label = label.strip()
+        if labels.setdefault(node_id, label) != label:
+            problems.append(
+                (line_number, f"node {node_id} is labelled both {labels[node_id]!r} and {label!r}")
+            )
+    return node_id
+
+
+def parse_mermaid_graph(block: list[tuple[int, str]]) -> DrawnGraph:
+    """Read a ``graph TD`` block of ``Id[label]`` nodes and ``A --> B`` edges.
+
+    A line of any other shape (another arrow form, a subgraph, a style line) is a
+    problem, never skipped: an edge the parser cannot read would be an edge the
+    comparison silently loses.
+    """
+    labels: dict[str, str] = {}
+    problems: list[tuple[int, str]] = []
+    id_edges: list[tuple[int, str, str]] = []
+    for line_number, line in block:
+        if not line or _MERMAID_HEADER_RE.match(line):
+            continue
+        matches = [_MERMAID_NODE_RE.match(part.strip()) for part in line.split(_MERMAID_ARROW)]
+        nodes = [match for match in matches if match is not None]
+        if len(nodes) != len(matches):
+            problems.append(
+                (line_number, f"unreadable mermaid line {line!r}; expected `Id[label]` nodes joined by `-->`")
+            )
+            continue
+        ids = [_record_node(match, line_number, labels, problems) for match in nodes]
+        id_edges.extend((line_number, source, target) for source, target in zip(ids, ids[1:]))
+    edges: dict[tuple[str, str], int] = {}
+    for line_number, source, target in id_edges:
+        unlabelled = [node_id for node_id in (source, target) if node_id not in labels]
+        if unlabelled:
+            problems.append((line_number, f"node {unlabelled[0]} has no [label] naming its package"))
+            continue
+        edges.setdefault((labels[source], labels[target]), line_number)
+    return DrawnGraph(edges=edges, problems=problems)
+
+
+def check_dependency_graph(
+    doc_rel: str, doc_text: str, declared: frozenset[tuple[str, str]]
 ) -> list[UnresolvedReference]:
-    """Scan every doc in *doc_files* for unresolved path/module/anchor references.
+    """The dependency graph's edges, drawn dependent --> dependency, against *declared*.
+
+    Every drawn edge must be a declared dependency and every declared dependency must be
+    drawn; a reversed edge fails both ways.
+    """
+
+    def fail(line: int, message: str) -> UnresolvedReference:
+        return UnresolvedReference(doc=doc_rel, line=line, span=_GRAPH_SPAN_PREFIX + message, kind="graph")
+
+    section = _section_lines(_numbered_lines(doc_text), _GRAPH_HEADING, _SECTION_STOP_MARKERS)
+    found = _mermaid_block(section) if section is not None else None
+    if found is None:
+        return [fail(1, f"no closed ```mermaid block under {_GRAPH_HEADING!r}")]
+    heading_line, block = found
+    drawn = parse_mermaid_graph(block)
+    failures = [fail(line, message) for line, message in drawn.problems]
+    for dependent, dependency in sorted(set(drawn.edges) - declared):
+        failures.append(
+            fail(
+                drawn.edges[(dependent, dependency)],
+                f"{dependent} --> {dependency} is drawn, but {dependent}'s [project] "
+                f"dependencies do not name {dependency} (edges point dependent --> dependency)",
+            )
+        )
+    for dependent, dependency in sorted(declared - set(drawn.edges)):
+        failures.append(
+            fail(
+                heading_line,
+                f"{dependent} --> {dependency} is declared in {dependent}/{_PYPROJECT_FILE} "
+                "but not drawn",
+            )
+        )
+    return failures
+
+
+def documented_tool_text(monorepo_root: Path) -> str:
+    """The lower-cased text of every ``quick-reference.md`` under the scripts tree."""
+    scripts_root = monorepo_root / _SCRIPTS_ROOT
+    return "\n".join(
+        path.read_text(encoding="utf-8-sig").lower()
+        for path in sorted(scripts_root.rglob(_QUICK_REFERENCE_NAME))
+    )
+
+
+def check_tooling_claims(
+    doc_rel: str, doc_text: str, documented_text: str
+) -> list[UnresolvedReference]:
+    """Tools the Technology Stack's Code Quality lines name that no scripts quick-reference
+    documents. *documented_text* is :func:`documented_tool_text`."""
+
+    def fail(line: int, message: str) -> UnresolvedReference:
+        return UnresolvedReference(doc=doc_rel, line=line, span=_TOOLING_SPAN_PREFIX + message, kind="tooling")
+
+    stack = _section_lines(_numbered_lines(doc_text), _TOOLING_SECTION_HEADING, _SECTION_STOP_MARKERS)
+    tooling = (
+        _section_lines(stack, _TOOLING_SUBSECTION_HEADING, _SUBSECTION_STOP_MARKERS)
+        if stack is not None
+        else None
+    )
+    if tooling is None:
+        return [fail(1, f"no {_TOOLING_SUBSECTION_HEADING!r} under {_TOOLING_SECTION_HEADING!r}")]
+    tools = [
+        (line_number, match.group(1).strip())
+        for line_number, line in tooling
+        for match in [_TOOL_BULLET_RE.match(line)]
+        if match is not None
+    ]
+    if not tools:
+        return [fail(1, f"{_TOOLING_SUBSECTION_HEADING!r} names no `- **tool**` line")]
+    return [
+        fail(line_number, f"{tool} is named, but no {_SCRIPTS_ROOT}/**/{_QUICK_REFERENCE_NAME} documents it")
+        for line_number, tool in tools
+        if re.search(rf"(?<![\w-]){re.escape(tool.lower())}(?![\w-])", documented_text) is None
+    ]
+
+
+def check_overview_claims(monorepo_root: Path) -> list[UnresolvedReference]:
+    """The overview's dependency graph and tooling lines, against the manifests and the
+    scripts' quick-references.
+
+    Raises:
+        FileNotFoundError: If the overview no longer exists.
+    """
+    doc_path = monorepo_root / OVERVIEW_DOC
+    if not doc_path.is_file():
+        raise FileNotFoundError(
+            f"The architecture overview {OVERVIEW_DOC} no longer exists at {doc_path}; the "
+            "dependency-graph and tooling checks read it. Update OVERVIEW_DOC in "
+            "check_docs_conformance.py to the doc that carries them."
+        )
+    doc_text = doc_path.read_text(encoding="utf-8-sig")
+    return [
+        *check_dependency_graph(OVERVIEW_DOC, doc_text, manifest_dependency_edges(monorepo_root)),
+        *check_tooling_claims(OVERVIEW_DOC, doc_text, documented_tool_text(monorepo_root)),
+    ]
+
+
+def scan_docs(
+    monorepo_root: Path, doc_files: tuple[str, ...], *, architecture_docs: bool
+) -> list[UnresolvedReference]:
+    """Scan every doc in *doc_files* for unresolved path/module/anchor/member references.
 
     Args:
         monorepo_root: Monorepo root directory.
         doc_files: Repo-relative paths of docs to scan (the curated
             ``ARCHITECTURE_DOC_FILES`` or ``REFERENCE_DOC_FILES`` constant in
             normal use).
-        check_decisions: Whether the Decision-status check also runs. It
-            belongs to the architecture docs only: reference docs carry no
-            decision sections.
+        architecture_docs: Whether the architecture-only checks also run: the
+            Decision-status check and the numeric package-count check.
+            Reference docs carry no decision sections and are not curated
+            architecture prose.
 
     Returns:
         Every unresolved reference found, across all docs, in doc-then-line
@@ -803,6 +1462,7 @@ def scan_docs(
             silently-skipped file.
     """
     unresolved: list[UnresolvedReference] = []
+    member_index = ClassMemberIndex(monorepo_root)
     for doc_rel in doc_files:
         doc_path = monorepo_root / doc_rel
         if not doc_path.exists():
@@ -827,8 +1487,10 @@ def scan_docs(
                 )
 
         unresolved.extend(check_anchor_links(doc_rel, doc_text, monorepo_root))
-        if check_decisions:
+        unresolved.extend(check_member_claims(doc_rel, doc_text, member_index))
+        if architecture_docs:
             unresolved.extend(check_decision_status(doc_rel, doc_text, monorepo_root))
+            unresolved.extend(check_package_counts(doc_rel, doc_text))
 
     return unresolved
 
@@ -1222,8 +1884,128 @@ def _self_test_checks() -> list[NamedCheck]:
             _check_import_name_path_that_does_not_exist_stays_unresolved,
             _check_call_suffixed_module_span_is_extracted_and_resolved,
             _check_reference_doc_is_scanned_without_the_decision_check,
+            _check_member_claim_on_missing_method_fails_and_real_members_resolve,
+            _check_member_claim_follows_reexports_and_inherited_members,
+            _check_member_claim_on_open_or_unbound_name_is_not_checked,
+            _check_member_claim_on_name_the_module_does_not_define_fails,
+            _check_graph_drawing_exactly_the_manifest_edges_passes,
+            _check_reversed_graph_edge_fails,
+            _check_missing_graph_edge_fails,
+            _check_unreadable_graph_line_or_missing_graph_fails,
+            _check_numeric_package_count_fails,
+            _check_count_of_another_noun_or_in_a_fence_is_not_a_claim,
+            _check_documented_tools_pass_and_only_code_quality_is_read,
+            _check_undocumented_tool_fails,
+            _check_missing_or_empty_tooling_section_fails,
         ]
     )
+
+
+_MEMBER_FIXTURE_REGISTRY = (
+    "from typing import TYPE_CHECKING\n"
+    "\n"
+    "class Registry:\n"
+    "    LIMIT = 3\n"
+    "    kind: str\n"
+    "\n"
+    "    def __init__(self) -> None:\n"
+    "        self.count = 0\n"
+    "\n"
+    "    @classmethod\n"
+    "    def resolve_name(cls, name: str) -> str:\n"
+    "        return name\n"
+    "\n"
+    "    if TYPE_CHECKING:\n"
+    "        def typed_only(self) -> None: ...\n"
+    "\n"
+    "class Failure(Exception):\n"
+    "    pass\n"
+    "\n"
+    "class Dynamic:\n"
+    "    def __getattr__(self, name: str) -> str:\n"
+    "        return name\n"
+    "\n"
+    "class Unknowable(SomethingUndefined):\n"
+    "    pass\n"
+    "\n"
+    "TABLE = {}\n"
+)
+
+
+def _write_member_fixture(root: Path) -> None:
+    """A fake ``datrix_common`` with a class module, a subclass module and a re-exporting package."""
+    package = root / "datrix-common" / "src" / "datrix_common" / "types"
+    package.mkdir(parents=True)
+    (package / "registry.py").write_text(_MEMBER_FIXTURE_REGISTRY, encoding="utf-8")
+    (package / "child.py").write_text(
+        "from .registry import Registry\n\nclass Child(Registry):\n    def own(self) -> None: ...\n",
+        encoding="utf-8",
+    )
+    (package / "__init__.py").write_text("from .child import Child as Child\n", encoding="utf-8")
+
+
+def _member_claim_spans(root: Path, doc_text: str) -> list[str]:
+    return [ref.span for ref in check_member_claims("d.md", doc_text, ClassMemberIndex(root))]
+
+
+def _check_member_claim_on_missing_method_fails_and_real_members_resolve() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        _write_member_fixture(root)
+        doc_text = (
+            "```python\n"
+            "from datrix_common.types.registry import Registry\n"
+            "Registry.resolve_name('x'); Registry.LIMIT; Registry.kind; Registry.typed_only\n"
+            "```\n"
+            "Raised by `Registry.count` and by `Registry.get_python_type`.\n"
+        )
+        assert _member_claim_spans(root, doc_text) == ["Registry.get_python_type"]
+        qualified = "See `datrix_common.types.registry.Registry`; call `Registry.gone()`, `Registry.visit_<kind>`.\n"
+        failures = check_member_claims("d.md", qualified, ClassMemberIndex(root))
+        assert [(f.span, f.line, f.kind) for f in failures] == [("Registry.gone", 1, "member")], failures
+
+
+def _check_member_claim_follows_reexports_and_inherited_members() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        _write_member_fixture(root)
+        doc_text = (
+            "```python\n"
+            "from datrix_common.types import Child\n"
+            "from datrix_common.types.registry import Failure as Raised\n"
+            "Child.own(); Child.resolve_name('x'); Child.count; Child.missing\n"
+            "Raised.args; Raised.with_traceback; Raised.nonexistent\n"
+            "```\n"
+        )
+        assert _member_claim_spans(root, doc_text) == ["Child.missing", "Raised.nonexistent"]
+
+
+def _check_member_claim_on_open_or_unbound_name_is_not_checked() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        _write_member_fixture(root)
+        doc_text = (
+            "```python\n"
+            "from datrix_common.types.registry import Dynamic, Unknowable, TABLE\n"
+            "from pathlib import Path\n"
+            "Dynamic.anything; Unknowable.anything; TABLE.keys(); Path.no_such; Other.no_such\n"
+            "```\n"
+        )
+        assert _member_claim_spans(root, doc_text) == []
+
+
+def _check_member_claim_on_name_the_module_does_not_define_fails() -> None:
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        _write_member_fixture(root)
+        doc_text = (
+            "```python\n"
+            "from datrix_common.types.registry import Removed\n"
+            "from datrix_common.types.gone import Vanished\n"
+            "Removed.attr; Vanished.attr\n"
+            "```\n"
+        )
+        assert _member_claim_spans(root, doc_text) == ["Removed.attr", "Vanished.attr"]
 
 
 def _check_heading_slug_matches_github_for_punctuated_headings() -> None:
@@ -1373,10 +2155,133 @@ def _check_reference_doc_is_scanned_without_the_decision_check() -> None:
             encoding="utf-8",
         )
         rel = ("datrix-language/docs/ref.md",)
-        reference = scan_docs(root, rel, check_decisions=False)
+        reference = scan_docs(root, rel, architecture_docs=False)
         assert [(r.kind, r.span) for r in reference] == [("path", "datrix_language/stdlib/auth.dtrx")], reference
-        architecture = scan_docs(root, rel, check_decisions=True)
+        architecture = scan_docs(root, rel, architecture_docs=True)
         assert any(r.kind == "decision" for r in architecture), architecture
+
+
+def _write_manifest(root: Path, package: str, dependencies: list[str]) -> None:
+    project = root / package
+    project.mkdir(parents=True, exist_ok=True)
+    declared = ", ".join(f'"{dependency}"' for dependency in dependencies)
+    (project / "pyproject.toml").write_text(
+        f'[project]\nname = "{package}"\ndependencies = [{declared}]\n', encoding="utf-8"
+    )
+
+
+def _graph_failure_spans(*edge_lines: str) -> list[str]:
+    """The graph check's spans for a doc drawing *edge_lines*, against three fake manifests:
+    datrix-language -> datrix-common, datrix-cli -> datrix-common and datrix-cli ->
+    datrix-language (written un-normalized, with an extra and a bound)."""
+    with tempfile.TemporaryDirectory(prefix="docs-conformance-selftest-") as tmp:
+        root = Path(tmp)
+        _write_manifest(root, "datrix-common", ["pydantic>=2"])
+        _write_manifest(root, "datrix-language", ["datrix-common>=0.1.0"])
+        _write_manifest(root, "datrix-cli", ["datrix-common", "Datrix_Language[lsp]>=0.1.0"])
+        doc = "\n".join(
+            ["# Overview", "", _GRAPH_HEADING, "", _MERMAID_FENCE, "graph TD", *edge_lines, "```", "", "## Next"]
+        )
+        return [f.span for f in check_dependency_graph("o.md", doc, manifest_dependency_edges(root))]
+
+
+_CORRECT_GRAPH_LINES = (
+    " A[datrix-common]",
+    " B[datrix-language] --> A",
+    " C[datrix-cli] --> B",
+    " C --> A",
+)
+
+
+def _check_graph_drawing_exactly_the_manifest_edges_passes() -> None:
+    assert _graph_failure_spans(*_CORRECT_GRAPH_LINES) == []
+    assert _graph_failure_spans(" A[datrix-common]", " C[datrix-cli] --> B[datrix-language] --> A", " C --> A") == []
+
+
+def _check_reversed_graph_edge_fails() -> None:
+    spans = _graph_failure_spans(" A[datrix-common] --> B[datrix-language]", " C[datrix-cli] --> B", " C --> A")
+    assert len(spans) == 2, spans
+    assert "datrix-common --> datrix-language is drawn, but" in spans[0], spans
+    assert "datrix-language --> datrix-common is declared in datrix-language/pyproject.toml" in spans[1], spans
+
+
+def _check_missing_graph_edge_fails() -> None:
+    spans = _graph_failure_spans(*_CORRECT_GRAPH_LINES[:3])
+    assert spans == [
+        _GRAPH_SPAN_PREFIX + "datrix-cli --> datrix-common is declared in datrix-cli/pyproject.toml but not drawn"
+    ], spans
+
+
+def _check_unreadable_graph_line_or_missing_graph_fails() -> None:
+    spans = _graph_failure_spans(*_CORRECT_GRAPH_LINES, " C -.-> A", " D --> A")
+    assert len(spans) == 2, spans
+    assert "unreadable mermaid line" in spans[0] and "node D has no [label]" in spans[1], spans
+    missing = check_dependency_graph("o.md", "## Dependency Graph\n\nNo block.\n", frozenset())
+    assert len(missing) == 1 and "no closed ```mermaid block" in missing[0].span, missing
+
+
+def _check_numeric_package_count_fails() -> None:
+    doc = (
+        "The toolchain ships as 17 packages today.\n"
+        "Eighteen core packages plus extensions; 19 repos and twenty-one package repos.\n"
+        "Split into **nineteen** installable packages (seventeen core toolchain packages).\n"
+    )
+    failures = check_package_counts("d.md", doc)
+    assert [f.span for f in failures] == [
+        "package count: The toolchain ships as 17 packages today.",
+        "package count: Eighteen core packages plus extensions; 19 repos and",
+        "package count: Eighteen core packages plus extensions; 19 repos and twenty-one package repos.",
+        "package count: plus extensions; 19 repos and twenty-one package repos.",
+        "package count: Split into **nineteen** installable packages (seventeen core toolchain packages).",
+        "package count: seventeen core toolchain packages).",
+    ], failures
+    assert [f.line for f in failures] == [1, 2, 2, 2, 3, 3] and all(f.kind == "count" for f in failures)
+
+
+def _check_count_of_another_noun_or_in_a_fence_is_not_a_claim() -> None:
+    doc = "Two generator packages share a group; each package is one repo.\n```\n17 packages\n```\n"
+    assert check_package_counts("d.md", doc) == []
+
+
+def _tooling_doc(*quality_lines: str) -> str:
+    return "\n".join(
+        [
+            _TOOLING_SECTION_HEADING,
+            "",
+            "### Code Generation",
+            "- **Jinja2** - templates",
+            "",
+            _TOOLING_SUBSECTION_HEADING,
+            *quality_lines,
+            "",
+            "### CLI",
+            "- **Rich** - terminal UI",
+            "",
+            "## Next",
+        ]
+    )
+
+
+_DOCUMENTED_TOOLS = "runs `ruff check` over the tree; pytest runs the suite."
+
+
+def _check_documented_tools_pass_and_only_code_quality_is_read() -> None:
+    doc = _tooling_doc("- **ruff** - lint", "- **pytest** - tests")
+    assert check_tooling_claims("o.md", doc, _DOCUMENTED_TOOLS) == []
+
+
+def _check_undocumented_tool_fails() -> None:
+    doc = _tooling_doc("- **ruff** - lint", "- **flake9** - lint", "- **ruf** - a prefix of ruff")
+    failures = check_tooling_claims("o.md", doc, _DOCUMENTED_TOOLS)
+    assert [f.span.split(" is named")[0] for f in failures] == ["tooling: flake9", "tooling: ruf"], failures
+    assert [f.line for f in failures] == [8, 9] and all(f.kind == "tooling" for f in failures), failures
+
+
+def _check_missing_or_empty_tooling_section_fails() -> None:
+    missing = check_tooling_claims("o.md", "## Technology Stack\n\n### CLI\n- **Rich** - UI\n", _DOCUMENTED_TOOLS)
+    assert len(missing) == 1 and "no '### Code Quality'" in missing[0].span, missing
+    empty = check_tooling_claims("o.md", _tooling_doc("Linting happens."), _DOCUMENTED_TOOLS)
+    assert len(empty) == 1 and "names no" in empty[0].span, empty
 
 
 def main() -> int:
@@ -1386,6 +2291,9 @@ def main() -> int:
         Exit code (0 = clean/warn mode, 1 = unresolved references found,
         2 = usage error / missing baseline / missing architecture doc).
     """
+    # A package-count span quotes prose; a console codepage that cannot encode one of its
+    # characters must not abort the report half-way.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = gate_argument_parser("Docs-conformance gate for Datrix architecture documentation")
     parser.add_argument(
         "-w",
@@ -1449,8 +2357,9 @@ def main() -> int:
         print("", file=sys.stderr)
 
     try:
-        unresolved = scan_docs(monorepo_root, ARCHITECTURE_DOC_FILES, check_decisions=True)
-        unresolved.extend(scan_docs(monorepo_root, REFERENCE_DOC_FILES, check_decisions=False))
+        unresolved = scan_docs(monorepo_root, ARCHITECTURE_DOC_FILES, architecture_docs=True)
+        unresolved.extend(scan_docs(monorepo_root, REFERENCE_DOC_FILES, architecture_docs=False))
+        unresolved.extend(check_overview_claims(monorepo_root))
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2

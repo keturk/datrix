@@ -203,32 +203,19 @@ def extract_fragments(markdown_text: str) -> list[CodeFragment]:
 # ---------------------------------------------------------------------------
 
 
-#: Characters that may legitimately open a tail immediately after the script name --
-#: whitespace (the ordinary argument separator) or the closing quote of a quoted script
-#: path (`"...test.ps1" {PACKAGE}`). Anything else immediately adjacent (a colon, a
-#: comma) is never a real invocation boundary -- it is a `file.py:123` line citation or
-#: similar, not an argument.
-_TAIL_LEAD_QUOTES = frozenset({'"', "'"})
-
-
-def _looks_like_invocation_boundary(tail: str) -> bool:
-    """True when `tail` opens the way a real command's argument list would."""
-    if not tail:
-        return True
-    first = tail[0]
-    return first.isspace() or first in _TAIL_LEAD_QUOTES
-
-
 def classify_fragment(text: str, suite_invocation: ModuleType) -> list[str]:
     """Every whole-suite `test.ps1`/`affected-gate.ps1` invocation TAIL in one fragment.
 
     Tails come from `_suite_invocation.invocation_tails` and whole-suite-ness from its
     `runs_no_test`/`is_targeted` -- never a private regex here, so this gate and
     `guard-full-suite-runs.py` share one notion of "whole-suite": whatever the hook
-    blocks, this gate flags when a document prescribes it.
+    blocks, this gate flags when a document prescribes it. A tail exists only where the
+    fragment EXECUTES the runner (its statement starts with the script, a PowerShell
+    host or a call operator running it), so a `test.ps1:529` line citation or a prose
+    line inside a fence that merely names the runner is no invocation.
 
-    A VACUOUS tail (nothing but whitespace after the script name -- the entire fragment
-    is just the bare word `test.ps1`) is never a hit. A prescription to run a whole
+    A VACUOUS tail (no argument after the script -- the entire fragment is just the
+    bare word `test.ps1`) is never a hit. A prescription to run a whole
     suite must name enough to actually run -- at least a package, `-All`, or a tier
     switch; a prose reference to the script's own NAME, with nothing after it (e.g.
     "the `test.ps1` script", "never invoke `affected-gate.ps1`"), is not an invocation
@@ -238,8 +225,6 @@ def classify_fragment(text: str, suite_invocation: ModuleType) -> list[str]:
     hits: list[str] = []
     for tail in suite_invocation.invocation_tails(text):
         if not tail.strip():
-            continue
-        if not _looks_like_invocation_boundary(tail):
             continue
         if suite_invocation.runs_no_test(tail):
             continue
@@ -472,9 +457,28 @@ def _check_line_citation_form(root: Path, suite_invocation: ModuleType) -> str |
     result = scan_file(doc, suite_invocation)
     if result.hits:
         return (
-            f"self-test: a `file.py:123`-shaped line citation immediately after the "
-            f"script name (no argument-separating whitespace/quote) expected 0 hits, "
-            f"got {len(result.hits)}"
+            f"self-test: a `test.ps1:529`-shaped line citation names the runner and "
+            f"executes nothing, expected 0 hits, got {len(result.hits)}"
+        )
+    return None
+
+
+def _check_named_not_run_form(root: Path, suite_invocation: ModuleType) -> str | None:
+    """A runner command held as data by another program -- a `python -c` source string,
+    an `echo` -- or inside a `#` comment runs no suite; the hook allows it, so the gate
+    must not flag it."""
+    doc = _write_fixture(
+        root,
+        "named-not-run.md",
+        f"# Example\n\n```\npython -c \"print('{_PLANT_BARE.strip()}')\"\n"
+        f"echo '{_PLANT_BARE.strip()}'\n"
+        "# A bare `test.ps1 {package-name}` is a whole suite.\n```\n",
+    )
+    result = scan_file(doc, suite_invocation)
+    if result.hits:
+        return (
+            f"self-test: a whole-suite command held as another program's argument "
+            f"executes nothing, expected 0 hits, got {len(result.hits)}"
         )
     return None
 
@@ -489,11 +493,12 @@ _SELF_TEST_CHECKS = (
     _check_inline_span_form,
     _check_bare_word_form,
     _check_line_citation_form,
+    _check_named_not_run_form,
 )
 
 
 def self_test(suite_invocation: ModuleType) -> list[str]:
-    """Plant nine fixtures and prove the gate finds exactly what each demands."""
+    """Plant ten fixtures and prove the gate finds exactly what each demands."""
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="instruction-surface-selftest-") as tmp:
         root = Path(tmp)

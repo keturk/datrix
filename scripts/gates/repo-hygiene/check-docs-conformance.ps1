@@ -10,6 +10,11 @@
  in the committed exceptions baseline at
  scripts/config/docs-conformance-exceptions.json.
 
+ It also holds the overview's dependency graph to the edges the package
+ manifests declare (both directions), fails on any numeric package or
+ repository count in an architecture doc, and fails on a Code Quality tool
+ that no scripts quick-reference documents.
+
  Exit codes:
    0 = clean (no unresolved references), or -Warn mode
    1 = at least one unresolved, non-excepted reference found

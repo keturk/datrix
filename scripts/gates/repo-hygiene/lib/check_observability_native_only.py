@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datrix_common.errors.generation import GenerationError
-from datrix_common.protocols.parser import ConfigDocumentSourceProtocol
+from datrix_common.protocols.config_documents import ConfigDocumentSourceProtocol
 
 from datrix_scripts.gate_harness import (
     EXIT_PASS,

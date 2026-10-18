@@ -229,8 +229,8 @@ _PROPOSED_EXCLUSIONS: Final[list[str]] = ["dependency_response"]
 def _measured(result: object, selector: Selector) -> list[ResponseBodyWireField]:
     """The fields of every schema kind the selector does not exclude.
 
-    A row never selects by schema kind: how a probe classifies a response class is the probe's
-    detail and differs per language, while the wire key a field emits is the fact.
+    A row never selects by schema kind, only excludes one: the kind is a response class's role on
+    the wire, the same on every language, and the wire key a field emits is the fact.
     """
     excluded = _texts(selector, "excluding")
     return [item for item in _fields(result) if item.schema_kind not in excluded]
