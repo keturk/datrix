@@ -26,8 +26,7 @@ config service credentials.CertificateService {
       database = "credentials_intake";
       poolSize = 20;
       maxOverflow = 20;
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
+      ssl = false;
       healthCheckSql = "SELECT 1";
       dockerImage = "postgres:17-alpine";
       volumePath = "/var/lib/postgresql/data";
@@ -255,8 +254,6 @@ config service credentials.CertificateService {
       maxOverflow = 20;
       ssl = true;
       instanceClass = "db.t3.medium";
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
     replace storage scans {
@@ -326,8 +323,6 @@ config service credentials.CertificateService {
       sku = "Standard_B1ms";
       tier = "Burstable";
       storageGb = 32;
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
     replace storage scans {

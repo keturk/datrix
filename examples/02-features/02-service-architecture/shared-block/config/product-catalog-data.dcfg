@@ -9,8 +9,7 @@ config shared ProductCatalogData {
       database = "catalog_db";
       poolSize = 20;
       maxOverflow = 20;
-      asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
+      ssl = false;
       healthCheckSql = "SELECT 1";
       dockerImage = "postgres:17-alpine";
       volumePath = "/var/lib/postgresql/data";
