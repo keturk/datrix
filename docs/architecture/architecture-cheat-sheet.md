@@ -26,7 +26,7 @@
 
 ## Packages
 
-Eighteen core packages plus optional **datrix-extensions**. Dependencies point downward only.
+The core packages plus optional **datrix-extensions**; `.claude/rules/repo-boundaries.md` holds the list. Dependencies point downward only.
 
 | Package | Role |
 |---------|------|

@@ -1079,7 +1079,6 @@ service orderService {
     maxCapacity = 16;
     readerInstances = 1;
     ssl = true;
-    asyncDriver = "postgresql+asyncpg";
   }
 }
 ```

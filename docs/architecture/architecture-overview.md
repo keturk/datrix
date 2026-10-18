@@ -1,8 +1,5 @@
 # Datrix Architecture Overview
 
-**Version:** 2.1
-**Last Updated:** June 23, 2026
-
 ---
 
 ## Introduction
@@ -16,7 +13,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 ✅ **Multi-Language Support** - Python, TypeScript, SQL — the language set is open
 ✅ **Multi-Platform Support** - Docker, AWS, Azure
 ✅ **Type-Safe** - Exhaustive type mappings with validation
-✅ **Modular Architecture** - 18 installable packages (16 core toolchain, including the **datrix-codegen-kernel** generation framework, the **datrix-migration** RDBMS migration package and the **datrix-semantic** semantic-analysis package, + the **datrix-testing** test harness + optional **datrix-extensions**) plus showcase and projects repos
+✅ **Modular Architecture** - one repository per installable package (the core toolchain, including the **datrix-codegen-kernel** generation framework, the **datrix-migration** RDBMS migration package and the **datrix-semantic** semantic-analysis package, plus the **datrix-testing** test harness and the optional **datrix-extensions**), plus the showcase and projects repos; `.claude/rules/repo-boundaries.md` holds the list
 ✅ **Specification-Level Testing** - DSL `test` blocks transpile to pytest under `tests/spec/` (Python) and Jest under `test/spec/` (TypeScript); see the [spec testing documentation](../guide/spec-testing.md)
 ✅ **Event contracts** - `ensure` clauses on `publish` events enforce publisher-side validation before `dispatch`
 ✅ **External library interfacing** - `extern service` declarations generate typed HTTP clients and deployment wiring for user-built services
@@ -31,7 +28,7 @@ Datrix is a code generation system that transforms `.dtrx` domain specifications
 This overview was split into focused sub-documents for easier navigation. Each sub-document preserves the original section headings.
 
 - **[Pipeline Flow & Capabilities](architecture/pipeline-and-capabilities.md)** — System architecture, pipeline stages, standard library, phase 01/02/03 capabilities, search engine integration, CDN / content delivery, managed API gateway
-- **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — 19 repos (18 installable packages + the showcase repo), plugin system, domain extension system, extern services, application containers, adding a new language
+- **[Repository Architecture & Plugins](architecture/repository-architecture.md)** — the repositories (one per installable package, plus the showcase repo; listed in `.claude/rules/repo-boundaries.md`), plugin system, domain extension system, extern services, application containers, adding a new language
 - **[Builtin Traits & Enums](architecture/builtin-traits-enums.md)** — 10 builtin traits, 2 builtin enums, injection mechanism
 
 Related:
@@ -65,64 +62,60 @@ The following anchors previously lived in this file and are now in sub-documents
 
 ## Dependency Graph
 
+Each arrow points from a package to a Datrix package its `pyproject.toml` `[project] dependencies` declares (dependent --> dependency). `datrix-cli` declares no generator, platform or client target: it discovers them by entry point, so none of them has an edge to it. `datrix/scripts/gates/repo-hygiene/check-docs-conformance.ps1` compares this graph's edge set with the union of every package's declared Datrix runtime dependencies, in both directions.
+
 ```mermaid
 graph TD
  A[datrix-common]
+ M[datrix-migration] --> A
+ S[datrix-semantic] --> A
  B[datrix-language] --> A
+ B --> S
  L[datrix-extensions] --> A
+ KN[datrix-codegen-kernel] --> A
+ KN --> M
  T[datrix-testing] --> A
+ T --> S
  T --> KN
- A --> M[datrix-migration]
- A --> S[datrix-semantic]
- A --> KN[datrix-codegen-kernel]
- M --> KN
- KN --> CGC
- KN --> CC
- KN --> D
- KN --> E
- KN --> F
- KN --> G
- KN --> ANG
- KN --> FL
- KN --> I
- KN --> J
- KN --> K
- S --> B
- S --> K
- A --> CC[datrix-codegen-component]
- A --> CGC[datrix-codegen-common]
- M --> CGC
- CGC --> D[datrix-codegen-python]
- M --> D
- CGC --> E[datrix-codegen-typescript]
- M --> E
- A --> TSC[datrix-codegen-typescript-core]
- KN --> TSC
- CGC --> TSC
- TSC --> E
- TSC --> ANG
- A --> F[datrix-codegen-sql]
- M --> F
- A --> G[datrix-codegen-docker]
- A --> ANG[datrix-codegen-angular]
- CGC --> ANG
- ANG --> K
- A --> FL[datrix-codegen-flutter]
- CGC --> FL
- FL --> K
- A --> I[datrix-codegen-aws]
- A --> J[datrix-codegen-azure]
- B --> K[datrix-cli]
- A --> K
- M --> K
- CGC --> K
- CC --> K
- D --> K
- E --> K
- F --> K
- G --> K
- I --> K
- J --> K
+ CGC[datrix-codegen-common] --> A
+ CGC --> KN
+ CGC --> M
+ TSC[datrix-codegen-typescript-core] --> A
+ TSC --> KN
+ TSC --> CGC
+ D[datrix-codegen-python] --> A
+ D --> KN
+ D --> M
+ D --> CGC
+ E[datrix-codegen-typescript] --> A
+ E --> KN
+ E --> M
+ E --> CGC
+ E --> TSC
+ F[datrix-codegen-sql] --> A
+ F --> KN
+ F --> M
+ CC[datrix-codegen-component] --> A
+ CC --> KN
+ G[datrix-codegen-docker] --> A
+ G --> KN
+ I[datrix-codegen-aws] --> A
+ I --> KN
+ J[datrix-codegen-azure] --> A
+ J --> KN
+ ANG[datrix-codegen-angular] --> A
+ ANG --> KN
+ ANG --> CGC
+ ANG --> TSC
+ FL[datrix-codegen-flutter] --> A
+ FL --> KN
+ FL --> CGC
+ K[datrix-cli] --> A
+ K --> KN
+ K --> M
+ K --> S
+ K --> B
+ K --> CGC
 ```
 
 **Legend:**
@@ -174,7 +167,7 @@ graph TD
 
 ### Code Quality
 - **ruff** - Python linting and formatting
-- **mypy** - Type checking (strict mode)
+- **mypy** - configuration (strict) in every package; run by `datrix/scripts/test/mypy.ps1`, a human-only tool (no agent, skill or gate runs a type checker)
 - **pytest** - Testing
 
 ### CLI
@@ -250,10 +243,10 @@ graph TD
 - Platform generators cannot reuse the language-generator registry model
 
 **Result:**
-- A constrained generator-definition DSL (DAL generator) embedded in Python docstrings declares generator structure: identity, domains, feature gates, semantic requirements, iteration scopes, context models, file declarations, and cross-domain contributions
+- A constrained generator-definition DSL (DAL generator), written as `.dal` package resources (each generator package's `dgen/generator.dal`, for example `datrix-codegen-python/src/datrix_codegen_python/dgen/generator.dal`), declares generator structure: identity, domains, feature gates, semantic requirements, iteration scopes, context models, file declarations, and cross-domain contributions
 - The DAL generator compiles in memory at import time into Python IR objects (`GeneratorDefinition`, `DomainDefinition`, `FileDefinition`, etc.) consumed by the existing generator runtime — no generated source files, no checked-in artifacts
 - Python remains the implementation language for context builders, type resolvers, transpilers, and complex algorithms; the DAL generator declares structure, Python implements computation
-- IR foundation types live in `datrix-common`; the parser, validator, and runtime live in `datrix-codegen-common`; each generator package embeds its own DAL generator definitions
+- The engine lives in `datrix-codegen-kernel`: the DAL front end every DAL document kind shares (`datrix_codegen_kernel.dal`, see [Decision 60](#decision-60-datrixs-internal-dsls-are-one-language-dal-parsed-by-lark-adopted)), the generator-definition parser, validator, compiler and executor (`datrix_codegen_kernel.dgen`), and the IR types (`datrix_codegen_kernel.generation.dgen_ir`); each generator package ships its own `generator.dal` beside the module that loads it
 - When a generator migrates to DAL generator, the entire registry moves at once — no partial migration, no mixed sources, no backward compatibility wrappers
 - **DAL generator 2 hardening (adopted and complete, 2026-07-08):** compilation closed — `where`/`when` resolve against typed context models and builder references resolve eagerly at registration, so an unknown property or reference is a load-time error instead of a silent `False`; a `FeatureCatalog` derived from AST block presence and plugin capability declarations replaced the hardcoded `_app_feature_*` executor predicates; declared-file rendering became the only render path, with the `render_declared_files` escape hatch removed and each consumer's hand-coded iteration loop deleted; and parity collapsed to a single derived mechanism (`parity/generated_parity_table.py`), retiring the hand-maintained exemptions, feature-gate, and per-package declaration lists.
 
@@ -528,7 +521,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 - **Security-sensitive defaults fail closed.** Auth/JWKS-refresh failures and authorization-bearing cache reads/deletes (role mappings, identity links) reuse the existing `dependencyPolicy` model with `onFailure="raise"`/`"deny"` only (the model has no `fallback`). Token revocation takes no `dependencyPolicy` at all: a revocation status that cannot be determined refuses the request, and no setting can turn it into an allow ([Decision 52](#decision-52-token-revocation--one-check-per-auth-chain-realized-on-every-language-approved--implementation-in-progress)). Error bodies are opaque (RFC 7807) and never leak issuer/audience/client/role/claim detail; structured reason codes go to logs only. WebSocket auth uses fixed close codes (4401 auth-failed/expired, 4403 forbidden) and clears membership/`Auth.*` state on expiry.
 - **Decision-13 amendment (inbound API-key credential — approved, implementation in progress):** An application-issued API key is an ordinary identity-block provider (`provider = "apiKey"`, `mode = "self"`), declared like any other, named in `auth(..., providers: […])`, and bound by the same allow-list, role and principal-type rules — there is no separate opt-in surface. Exactly one service owns the key entity; every other service verifies a presented key by asking the owner, over the existing authenticated service-to-service channel, for a SHA-256 hash match — the raw key never leaves the service that received it, and no verifying service caches a result, so revocation and the per-key rate limit are exact on every request. `ProviderPlanEntry` becomes a discriminated union on a new `credential` field (`"jwt"` | `"apiKey"`) at schema version 4, with no backward-compatible reader for version 3; the JWT variant is unchanged. Every verification failure path — the owner unreachable, its rate-limit store unavailable, an ambiguous or malformed credential — denies. Each gateway realizes a **per-route edge credential policy**: a route admitting an API-key provider accepts a validated bearer JWT or, absent `Authorization`, a bounds-checked key header, and the edge never validates the key itself — nginx through a renamed second internal auth location (`/internal/credential-verify`), Azure APIM through an extended `validate-jwt` gate condition, and AWS through a new Lambda REQUEST authorizer (payload format 2.0, simple responses, no identity sources, so it runs on every request and never caches) admitting the same two shapes; the owning service's hash lookup remains the sole verification point on every platform. Security posture: 256-bit CSPRNG keys stored only as an unsalted SHA-256 hash (a slow KDF was rejected — the secret is already unguessable, and a KDF would defeat the indexed equality lookup the verification query depends on), opaque failure responses, roles taken only from declared scope mappings, and the key header excluded from every CORS allow-list. Rejected alternatives: a shared cache as the verification source (caches are per-service, and cross-service cache access is already rejected); positive-result caching at verifying services (lags revocation by the cache TTL and cannot count the rate limit exactly); reusing the managed gateway's usage-plan API keys (a distinct, platform-issued and platform-validated mechanism, unavailable on `nginx`, whose service-side extractor validates nothing); full key verification at the edge (doubles the owning service's load for an identical security outcome); and a new `.dtrx` keyword or config kind for keys (the identity block, provider allow-list, role mappings and declaration checks already express everything a key needs).
 
-**Enforcement (managed-only):** Authentication issuance is provider-owned, end to end. The `Auth` issuance builtin (`generateToken`/`verifyToken`/`hashPassword`/`verifyPassword`/`generateOtp`/`generateApiKey`/…) is **removed wholesale** — the only recognized authentication is a provider-issued token validated through `auth(...)`, and a provider (external *or* `provider self`) owns issuance. The Decision-13 `Auth.*` context views (`Auth.userId`/`user`/`token`/`hasRole`/`subject`/`profile`/`identity`) are generated runtime, not that builtin, and stay. Non-authentication cryptography (signing, hashing, HMAC, secure random, opaque keys) belongs to the pre-existing `Crypto` builtin — the sanctioned non-auth surface, which produces signed/hashed data and never confers an `Auth.*` principal. Enforcement extends the existing legacy-auth-conflict and identity validators (`LegacyAuthManagedOnlyValidator`, `IdentityDanglingProviderValidator`, etc. — removed-issuance-builtin diagnostics, dangling-provider checks, a best-effort hand-rolled-auth heuristic) — no new validator class. The Python first-party local-validation short-circuit (`_validate_local_issuer_token`, the `iss == JWT_ISSUER` path) is removed; `provider self` tokens validate through the standard provider-plan/JWKS path like any provider (TypeScript never had such a path).
+**Enforcement (managed-only):** Authentication issuance is provider-owned, end to end. The `Auth` issuance builtin (`generateToken`/`verifyToken`/`hashPassword`/`verifyPassword`/`generateOtp`/`generateApiKey`/…) is **removed wholesale** — the only recognized authentication is a provider-issued token validated through `auth(...)`, and a provider (external *or* `provider self`) owns issuance. The Decision-13 `Auth.*` context views (`Auth.userId`/`user`/`token`/`hasRole`/`subject`/`profile`/`identity`) are generated runtime, not that builtin, and stay. Non-authentication cryptography (signing, hashing, HMAC, secure random, opaque keys) belongs to the pre-existing `Crypto` builtin — the sanctioned non-auth surface, which produces signed/hashed data and never confers an `Auth.*` principal. Enforcement extends the existing managed-identity refusal and identity validators (`RemovedAuthIssuanceValidator`, `IdentityDanglingProviderValidator`, etc. — removed-issuance-builtin diagnostics, dangling-provider checks, a best-effort hand-rolled-auth heuristic) — no new validator class. The Python first-party local-validation short-circuit (`_validate_local_issuer_token`, the `iss == JWT_ISSUER` path) is removed; `provider self` tokens validate through the standard provider-plan/JWKS path like any provider (TypeScript never had such a path).
 
 **Runtime libraries (defaults, behavior is the contract):** Python (FastAPI) uses `pyjwt[crypto]` + `PyJWKClient` + `httpx`; TypeScript (NestJS) uses `jose` (`createRemoteJWKSet` + `jwtVerify`). The current Python template already uses PyJWT, so the change is JWKS-based validation with `kid` rotation, not a library swap. Symmetric algorithms and `alg: none` are always rejected.
 
@@ -651,7 +644,7 @@ Service startup
 - **Conformance derived, never hand-authored:** the hand-authored `DomainContract`/`DOMAIN_CONTRACTS` registry is deleted; conformance is derived from per-plugin declarations instead — an absent declaration is an error, and a per-package self-consistency gate verifies declaration ↔ registration ↔ fixture output (see [datrix-codegen-common architecture — Derived Domain Parity Table](../../../datrix-codegen-common/docs/architecture.md#derived-domain-parity-table-structural-verification)); platform `block_realizations` are validated the same way, giving cross-provider drift detection that did not exist before
 - The conformance kit ships as `datrix_codegen_common.testkit` behind a `[testkit]` extra, consumed as a dev-dependency by language and frontend target packages (a target package is "integrated" when the kit passes in its own repo); platform, SQL and component targets instead reach the target-neutral conformance kit in `datrix_testing.conformance`, since they never depend on `datrix-codegen-common` at all
 - `datrix-codegen-sql` is an independent artifact plugin activated by the presence of declared `rdbms` blocks regardless of target language; `python_http_contract_overlay` has its own activation predicate under the same activation-by-declared-need pattern
-- Repo topology is unchanged — the one-repo-per-package split stays (fifteen installable packages, the `datrix-vscode` client, and the showcase repo at the time of writing; the count grows with each target); shared-layer changes affecting multiple packages remain coordinated multi-repo trains under the existing cross-surface impact rule
+- Repo topology is unchanged — the one-repo-per-package split stays (one repository per installable package, the `datrix-vscode` client, and the showcase repo; the set grows with each target and is listed in `.claude/rules/repo-boundaries.md`); shared-layer changes affecting multiple packages remain coordinated multi-repo trains under the existing cross-surface impact rule
 
 The design's seven end-state invariants (I1–I7) hold today as executable gates — see [Target Plugins pack — Multi-Target Plugin Architecture](packs/target-plugins.md#multi-target-plugin-architecture) for the invariant table and the exact check commands.
 
@@ -681,6 +674,7 @@ The design's seven end-state invariants (I1–I7) hold today as executable gates
 
 **Result:**
 - **Two claim families no path check can see are gated too.** Every Markdown anchor link in the curated docs must name a heading that exists in its target doc (by the GitHub slug the heading produces — a heading gaining a status suffix silently breaks every link to it, which is exactly how links to several decisions rotted); and every `### Decision N:` heading carries a status from a closed vocabulary, its `**Status:**` paragraph agrees with the heading when present, an in-progress decision must carry one, and every gate script a decision names exists on disk. A heading that said "in progress" over a paragraph that said everything had landed, and a decision with no status paragraph at all, both shipped before this check existed.
+- **Three claims readers act on most are gated too.** The [dependency graph](#dependency-graph) must draw exactly the edges the package manifests declare (`[project] dependencies`, drawn dependent --> dependency), in both directions; a curated architecture doc states no numeric package or repository count (the list lives in `.claude/rules/repo-boundaries.md`, and every copy of a count had disagreed with it); and every tool the Technology Stack's Code Quality lines name is documented in a scripts quick-reference. Before this check the graph drew most edges backwards and an edge from every generator to the CLI, which declares none of them.
 - **Documentation conformance is an executable gate.** A repo-level validation script — of the same class as the other repo-level gate scripts under `datrix/scripts/test/` — extracts repo-path references from the permanent architecture documentation trees and fails when a reference no longer resolves, checked against a committed exceptions baseline for references that are intentionally external or not yet resolvable
 
 ---
@@ -1305,7 +1299,7 @@ Mapping an external string to an enum is written today as a linear `if`-ladder i
 
 A new enum-value attribute `keywords('K1', 'K2', …)` sits alongside the existing `value('…')`. The grammar already admits it — `enum_value_attrs` is a generic modifier list — so there is no grammar change. Every enum that declares keywords gains two generated static classifiers, `E.equalsKeyword(s[, fallback])` (exact match) and `E.containsKeyword(s[, fallback])` (the first value in declaration order whose keyword is a substring of `s`). They are generated members of the enum type rather than `BUILTIN_REGISTRY` entries, because that registry is keyed by fixed category names (`String`, `Validator`, `Array`) and a user enum is not a category. Omitting the fallback selects fail-loud behaviour; the fallback is a call-site argument rather than an enum-level default marker, because the surveyed no-match value varies by call site and a single marker would bake one policy into the type.
 
-Two facts shape the realization. First, the classifier is emitted by a template into the enum's own file, so it never passes through the transpiler's `throw` lowering — and the DSL's `ValidationError` has no single realization across targets (python raises a generated `ValidationError`, typescript a NestJS `BadRequestException`). The exception a generated classifier raises is therefore a **required per-language declaration** on `LanguageProfile`, following the precedent of the required `docs: DocProfile` sub-profile, and a generation-time validator fails closed when a language declares none or declares one its own generator does not emit. Second, the thrown message is a constant naming only the enum type: the generated exception handler serializes the message into the RFC 7807 `detail` field of the HTTP response, so echoing the received value or enumerating the declared keywords would reflect untrusted input back to the caller and publish that field's complete accepted-input set.
+Two facts shape the realization. First, the classifier is emitted by a template into the enum's own file, so it never passes through the transpiler's `throw` lowering — and the DSL's `ValidationError` has no single realization across targets (python raises a generated `ValidationError`, typescript a NestJS `HttpException` carrying the status `DSL_EXCEPTION_HTTP_STATUS` gives it). The exception a generated classifier raises is therefore a **required per-language declaration** on `LanguageProfile`, following the precedent of the required `docs: DocProfile` sub-profile, and a generation-time validator fails closed when a language declares none or declares one its own generator does not emit. Second, the thrown message is a constant naming only the enum type: the generated exception handler serializes the message into the RFC 7807 `detail` field of the HTTP response, so echoing the received value or enumerating the declared keywords would reflect untrusted input back to the caller and publish that field's complete accepted-input set.
 
 | # | Invariant | Enforcement mechanism |
 |---|---|---|

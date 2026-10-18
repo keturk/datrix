@@ -53,9 +53,9 @@ Usage: datrix generate [OPTIONS]
 │                                                 development, production).   │
 │                                                 Default: test               │
 │                                                 [default: test]             │
-│    --incremental                                Only generate changed       │
-│                                                 services (requires prior    │
-│                                                 snapshot)                   │
+│    --incremental                                Skip generation when        │
+│                                                 nothing changed since the   │
+│                                                 last snapshot               │
 │    --service                            <str>   Generate only for this      │
 │                                                 service                     │
 │    --assert-client-profile-in…                  Regenerate the client tree  │
