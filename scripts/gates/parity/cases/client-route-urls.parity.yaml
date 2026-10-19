@@ -1,0 +1,42 @@
+- id: client-route-urls.path-parameter-and-query
+  tags:
+  - parity
+  - frontend-client
+  input: ecommerce
+  stage: parity
+  observer: route_url_builders
+  selector:
+    facet: url
+    route: product-api.get_category_by_category_id
+  expectation:
+    path: /api/v1/products/category/{}
+    query: limit
+  reason: 'Every client target builds a route''s URL from the one shared route URL derivation: the path parameter fills its piece and the optional query parameter keeps its wire key.'
+- id: client-route-urls.query-keys-in-order
+  tags:
+  - parity
+  - frontend-client
+  input: ecommerce
+  stage: parity
+  observer: route_url_builders
+  selector:
+    facet: url
+    route: product-api.get_search
+  expectation:
+    path: /api/v1/products/search
+    query: query,skip,limit
+  reason: Every client target writes a route's required query parameter and its injected pagination pair under their wire keys, in the shared derivation's order.
+- id: client-route-urls.parameter-between-literals
+  tags:
+  - parity
+  - frontend-client
+  input: ecommerce
+  stage: parity
+  observer: route_url_builders
+  selector:
+    facet: url
+    route: product-api.put_by_id_inventory
+  expectation:
+    path: /api/v1/products/{}/inventory
+    query: ''
+  reason: Every client target keeps the literal run after a path parameter, and a route with no query parameter writes no query key.

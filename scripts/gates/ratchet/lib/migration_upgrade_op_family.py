@@ -13,20 +13,20 @@ reached two conclusions worth pinning:
 * **One genuinely shared fact was found and hoisted.** The targets reassembled
   the ``INDEX_ADDED`` JSON detail payload into its ``SnapshotIndex`` with
   byte-identical semantics and byte-identical error text. That parse now lives
-  once, in ``datrix_codegen_common.algorithms.migration_upgrade_op_index``, and
+  once, in ``datrix_codegen_kernel.sql_facts.snapshot.migration_upgrade_op_index``, and
   this gate holds it there: each target must CALL the shared parser the exact
   number of times its own paths need, and none may redefine it.
 
 **Why this is a script and not a pytest module.** Every check above reads a
 generator package's sources against a module that lives in
-``datrix-codegen-common``, and adding a target to the family makes it a
+``datrix-codegen-kernel``, and adding a target to the family makes it a
 comparison across generator packages. A unit test that imports several
 generator packages to compare their bodies is the exact shape the repo
 boundary forbids -- each ``datrix-*`` package tests only its own surface -- and
 repo-level validation belongs as a script under ``datrix/scripts/test/``. The
 shared parser's own behaviour (input -> ``SnapshotIndex``) is a different
 question and stays where it belongs, as a unit test in
-``datrix-codegen-common``, which owns the function.
+``datrix-codegen-kernel``, which owns the function.
 
 **The gate names no target.** Every registered ``datrix.languages`` package
 is scanned -- its backend and each language core it requires -- resolved
@@ -117,7 +117,7 @@ DIVERGENT_SYMBOLS: Final[tuple[str, ...]] = (
 )
 
 #: The one symbol the census DID hoist, and its new single home.
-SHARED_MODULE: Final[str] = "datrix_codegen_common.algorithms.migration_upgrade_op_index"
+SHARED_MODULE: Final[str] = "datrix_codegen_kernel.sql_facts.snapshot.migration_upgrade_op_index"
 SHARED_SYMBOL: Final[str] = "parse_index_added_detail"
 
 #: The pre-hoist private name, which must not survive in any target.

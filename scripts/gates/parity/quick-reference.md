@@ -22,8 +22,9 @@ check that reads package source or declarations, and imports no probe).
 Reads every parity row on every registered target of its axis and compares each reading with the
 row's authored expectation. A **parity row** is a case row (`datrix_testing.cases.model.Case`,
 the row kind `datrix_testing.cases.parity`): `stage: parity`, `observer` a method of
-`LanguageConformanceProbes` (read on every registered language) or `PlatformConformanceProbes`
-(read on every registered platform), `input` the fixture, `selector` the facet of the probe's
+`LanguageConformanceProbes` (read on every registered language), `PlatformConformanceProbes`
+(read on every registered platform) or `ClientTargetConformanceProbes` (read on every registered
+client target, from its generator class's `declared_conformance_probes()`), `input` the fixture, `selector` the facet of the probe's
 return and its keys, `expectation` the authored value, `tags` (`parity` plus the behaviour tag),
 `reason`. The rows live in `gates\parity\cases\*.parity.yaml`; the probes a row may name, their
 facets and the reading of each are `gates\parity\lib\parity_observers.py` (`PROBE_READINGS`).
@@ -35,6 +36,8 @@ facets and the reading of each are `gates\parity\lib\parity_observers.py` (`PROB
 | `event_envelopes` | a registered example, generated per language | `envelope-keys` (`event`), `payload-keys` (`event`), `published-events`, `unwritten-consumed-keys` |
 | `render_enum_classifier` | a registered example; the `enum` key names one of its enums, rendered by each language | `classifiers` (`enum`): the keyword classifiers defined; `no-match-raise` (`enum`): `{exception: declared or the name raised, message}` |
 | `realized_web_security_headers` | a header-set fixture: `web-security-domain` or `web-security-loopback` (the shared builder's set for neutral origins), rendered by each platform | `header` (`name`): the emitted value; `headers`: every emitted name |
+| `realized_gateway_problems` | `system-gateway`: each platform's own system-gateway artifact, rendered with no example | `problem` (`status`): `{type, title, status, detail, content-type}` of the problem document the gateway answers that status with itself; `statuses`: every status it answers itself |
+| `route_url_builders` | a registered example, generated once (under the first registered language: a client tree is rendered from the client contract, which no backend language changes); each client target reads its own `clients/<target>/` tree in it | `url` (`route`): `{path, query}` of one route key's URL builder entry, each path parameter written `{}` and the query wire keys comma-joined in builder order; `routes`: every route key the builder takes |
 
 A registered example is a project name of `scripts\config\test-projects.json`. The web-security
 probe takes a header set rather than a generated tree, so its rows name one of the two header-set

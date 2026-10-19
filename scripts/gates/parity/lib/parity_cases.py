@@ -6,9 +6,11 @@ A parity row (``cases/<area>.parity.yaml``; the row kind is
 return and the value every target must produce. This gate holds the one runner every row
 shares: it discovers the targets from the installed entry points (a row whose probe
 ``LanguageConformanceProbes`` declares is read on every registered language, one
-``PlatformConformanceProbes`` declares on every registered platform), builds each fixture
-once per target (an example generated through the real pipeline, an enum the example
-declares, or a web-security header-set fixture), resolves each target's own probes through
+``PlatformConformanceProbes`` declares on every registered platform, one
+``ClientTargetConformanceProbes`` declares on every registered client target), builds each
+fixture once per target (an example generated through the real pipeline -- once for every
+client target, which each read their own client tree in it -- an enum the example declares,
+or a web-security header-set fixture), resolves each target's own probes through
 the kernel's accessors (fail closed: a target with no probe member, or one missing a method,
 stops the run), narrows each probe's return with the facet the row selects
 (``parity_observers.PROBE_READINGS``), and compares every reading with the expectation.
@@ -50,8 +52,11 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
+    RealizedRouteUrl,
     ResponseBodyWireField,
     RouteWireContract,
+    client_target_conformance_probes,
+    conformance_probes_of_client_target_class,
     conformance_probes_of_language_plugin,
     platform_conformance_probes,
 )
@@ -59,6 +64,7 @@ from datrix_common.datrix_model.containers import Application
 from datrix_common.errors.plugin import PluginValidationError
 from datrix_common.paths import ServicePaths
 from datrix_common.plugin.capability_resolution import declaration_for_language, declaration_for_provider
+from datrix_common.plugin.registry import plugin_registry
 from datrix_common.testing.tag_vocabulary import documented_tags
 from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
 from datrix_language.registration import register_all
@@ -66,6 +72,7 @@ from datrix_testing.cases.compare import Observation, flow_text, verdict
 from datrix_testing.cases.errors import SelectorError
 from datrix_testing.cases.model import Case, CaseFileError
 from datrix_testing.cases.parity import (
+    AXIS_CLIENT_TARGETS,
     AXIS_LANGUAGES,
     CAPABILITY_KEY,
     PARITY_STAGE,
@@ -81,6 +88,7 @@ from datrix_scripts.generated_example import generate_example
 from datrix_scripts.hook_modules import HookModuleError, load_suite_invocation
 from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
 from datrix_scripts.registered_targets import (
+    registered_client_target_generator_names,
     registered_language_names,
     registered_platform_names,
     self_test_gate_names_no_target,
@@ -89,6 +97,7 @@ from datrix_scripts.test_projects import get_project_by_name, list_projects
 from parity_observers import (
     ENUM_KEY,
     PROBE_READINGS,
+    ROUTE_URL_BUILDERS,
     ROUTE_WIRE_CONTRACTS,
     ProbeArgument,
     ProbeReadings,
@@ -350,6 +359,22 @@ def _registered_domains(language: str) -> frozenset[str]:
     return frozenset(domain for domain in map(spec_domain_id, specs) if domain is not None)
 
 
+def _client_tree_language() -> str:
+    """The backend language the one example a client-target row reads is generated under.
+
+    Every client target renders its tree from the application's client contract, which no
+    backend language changes, so one generation serves every client target; the first
+    registered language is chosen only so the choice is stable from run to run.
+
+    Raises:
+        CannotCompare: No language is registered, so no example can be generated.
+    """
+    languages = sorted(registered_language_names())
+    if not languages:
+        raise CannotCompare("no language is registered, so no example can be generated for the client targets to read")
+    return languages[0]
+
+
 def example_source(name: str) -> Path:
     """The ``system.dtrx`` of the registered example *name*.
 
@@ -371,14 +396,19 @@ class LiveTargets:
     _applications: dict[str, Application] = field(default_factory=dict)
 
     def targets(self, axis: Axis) -> tuple[str, ...]:
-        """The registered languages or platforms, from the installed entry points."""
-        names = registered_language_names() if axis == AXIS_LANGUAGES else registered_platform_names()
-        return tuple(sorted(names))
+        """The registered languages, platforms or client targets, from the installed entry points."""
+        if axis == AXIS_LANGUAGES:
+            return tuple(sorted(registered_language_names()))
+        if axis == AXIS_CLIENT_TARGETS:
+            return tuple(sorted(registered_client_target_generator_names()))
+        return tuple(sorted(registered_platform_names()))
 
     def plugin_probes(self, target: str, axis: Axis) -> object:
         """*target*'s probes through the kernel accessor, which fails closed."""
         if axis == AXIS_LANGUAGES:
             return conformance_probes_of_language_plugin(target, get_language_plugin(target))
+        if axis == AXIS_CLIENT_TARGETS:
+            return client_target_conformance_probes(target)
         return platform_conformance_probes(target)
 
     def not_applicable(self, target: str, readings: ProbeReadings) -> str:
@@ -391,15 +421,25 @@ class LiveTargets:
 
     def gap_surfaces(self, target: str, axis: Axis) -> frozenset[str]:
         """The surfaces of *target*'s declared ``capability_gaps``."""
-        declaration = declaration_for_language(target) if axis == AXIS_LANGUAGES else declaration_for_provider(target)
-        return frozenset(gap.surface for gap in declaration.capability_gaps)
+        if axis == AXIS_LANGUAGES:
+            gaps = declaration_for_language(target).capability_gaps
+        elif axis == AXIS_CLIENT_TARGETS:
+            gaps = plugin_registry().get_client_target_capabilities(target).capability_gaps
+        else:
+            gaps = declaration_for_provider(target).capability_gaps
+        return frozenset(gap.surface for gap in gaps)
 
     def probe_arguments(self, target: str, readings: ProbeReadings, row: Case) -> tuple[object, ...]:
-        """The generated tree, the example's enum with its service paths, or the header set."""
+        """The generated tree, the example's enum with its service paths, the header set, or
+        nothing (a probe rendering the target's own system gateway)."""
         if readings.argument is ProbeArgument.HEADER_SET:
             return (header_set_fixture(row.input),)
+        if readings.argument is ProbeArgument.SYSTEM_GATEWAY:
+            return ()
         if readings.argument is ProbeArgument.EXAMPLE_ENUM:
             return self._enum_arguments(row.input, str(row.selector[ENUM_KEY]))
+        if readings.argument is ProbeArgument.CLIENT_TREE:
+            return (self._generated_tree(_client_tree_language(), row.input),)
         if probe_axis(readings.probe) != AXIS_LANGUAGES:
             raise CannotCompare(f"{readings.probe!r} reads a generated tree, which is generated per language only")
         return (self._generated_tree(target, row.input),)
@@ -459,6 +499,8 @@ def select_parity_rows(rows: Sequence[Case], tags: Sequence[str]) -> tuple[Case,
 #: Fixture targets of the self-test -- never registered names.
 _PLANTED_A: Final[str] = "self_test_lang_a"
 _PLANTED_B: Final[str] = "self_test_lang_b"
+_PLANTED_CLIENT_A: Final[str] = "self_test_client_a"
+_PLANTED_CLIENT_B: Final[str] = "self_test_client_b"
 #: Planted in every fixture path and probe error; the report must never carry it.
 _CANARY: Final[str] = "CANARY-5e0c2b-never-reported"
 _PLANTED_GAP: Final[str] = "domain:rest_api"
@@ -520,11 +562,18 @@ class _PlantedTargets:
 
     plugins: Mapping[str, _PlantedPlugin]
     gaps: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    client_classes: Mapping[str, type] = field(default_factory=dict)
 
     def targets(self, axis: Axis) -> tuple[str, ...]:
-        return tuple(sorted(self.plugins)) if axis == AXIS_LANGUAGES else ()
+        if axis == AXIS_LANGUAGES:
+            return tuple(sorted(self.plugins))
+        if axis == AXIS_CLIENT_TARGETS:
+            return tuple(sorted(self.client_classes))
+        return ()
 
     def plugin_probes(self, target: str, axis: Axis) -> object:
+        if axis == AXIS_CLIENT_TARGETS:
+            return conformance_probes_of_client_target_class(target, self.client_classes[target])
         return conformance_probes_of_language_plugin(target, self.plugins[target])
 
     def not_applicable(self, target: str, readings: ProbeReadings) -> str:
@@ -572,6 +621,52 @@ def _planted(status_a: int, status_b: int, gaps: Mapping[str, frozenset[str]] | 
             _PLANTED_B: _PlantedPlugin(_PlantedProbes([_contract(status_b)])),
         },
         gaps or {},
+    )
+
+
+class _PlantedClientProbes:
+    """A fixture client target whose URL builder declares one route."""
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+
+    def route_url_builders(self, generated_root: Path) -> tuple[RealizedRouteUrl, ...]:
+        return (RealizedRouteUrl("book-api.get_book", self._path, ("expand",), Path(_CANARY) / "route-url.src"),)
+
+
+def _planted_client_class(probes: object) -> type:
+    """A fixture client-target generator class declaring *probes* on the member the kernel accessor reads."""
+
+    class _PlantedClientTarget:
+        @classmethod
+        def declared_conformance_probes(cls) -> object:
+            return probes
+
+    return _PlantedClientTarget
+
+
+def _planted_client_row() -> Case:
+    return Case.model_validate(
+        {
+            "id": "self-test.book-url",
+            "tags": ["parity", "frontend-client"],
+            "input": "self-test-example",
+            "stage": PARITY_STAGE,
+            "observer": ROUTE_URL_BUILDERS,
+            "selector": {"facet": "url", "route": "book-api.get_book"},
+            "expectation": {"path": "/api/v1/books/{}", "query": "expand"},
+            "reason": "The self-test's planted route URL.",
+        }
+    )
+
+
+def _planted_clients(path_a: str, path_b: str) -> _PlantedTargets:
+    return _PlantedTargets(
+        {_PLANTED_A: _PlantedPlugin(_PlantedProbes([_contract()]))},
+        client_classes={
+            _PLANTED_CLIENT_A: _planted_client_class(_PlantedClientProbes(path_a)),
+            _PLANTED_CLIENT_B: _planted_client_class(_PlantedClientProbes(path_b)),
+        },
     )
 
 
@@ -648,6 +743,26 @@ def _self_test_no_disclosure() -> list[str]:
     return []
 
 
+def _self_test_client_axis() -> list[str]:
+    """A client-target row is read on the client targets alone, and judged like any other row."""
+    problems: list[str] = []
+    row = _planted_client_row()
+    agreed = read_row(row, _planted_clients("/api/v1/books/{}", "/api/v1/books/{}"), ProbeCache())
+    if sorted(agreed.readings) != [_PLANTED_CLIENT_A, _PLANTED_CLIENT_B]:
+        problems.append(f"a client-target row was not read on exactly the client targets: {sorted(agreed.readings)}")
+    divergent = run_rows([row], _planted_clients("/api/v1/books/{}", "/api/v1/book/{}"))
+    failures = [line for line in divergent.lines if line.startswith("DIVERGENCE")]
+    if divergent.exit_code != EXIT_DIVERGENCE or len(failures) != 1 or _PLANTED_CLIENT_B not in failures[0]:
+        problems.append(f"one divergent client target did not produce exactly one failure naming it: {divergent.lines}")
+    lacking = _planted_clients("/api/v1/books/{}", "/api/v1/books/{}")
+    lacking.client_classes = {**lacking.client_classes, _PLANTED_CLIENT_B: _planted_client_class(object())}
+    missing = run_rows([row], lacking)
+    named = missing.lines[0] if missing.lines else ""
+    if missing.exit_code != EXIT_CANNOT_COMPARE or _PLANTED_CLIENT_B not in named:
+        problems.append(f"a client target lacking the row's probe method did not stop the run naming it: {missing.lines}")
+    return problems
+
+
 def _self_test_tag_selection() -> list[str]:
     """The tag selection obeys test.ps1 -Tag's ceiling and its must-exist rule."""
     rows = [_planted_row(), _planted_row("self-test.other").model_copy(update={"tags": ["parity", "pubsub"]})]
@@ -673,7 +788,8 @@ def run_self_test() -> list[str]:
     problems = [problem for module in _GATE_MODULES for problem in self_test_gate_names_no_target(str(lib / module))]
     if problems:
         return problems
-    for check in (_self_test_verdicts, _self_test_refusals, _self_test_no_disclosure, _self_test_tag_selection):
+    checks = (_self_test_verdicts, _self_test_refusals, _self_test_no_disclosure, _self_test_client_axis, _self_test_tag_selection)
+    for check in checks:
         problems.extend(f"self-test: {problem}" for problem in check())
     return problems
 

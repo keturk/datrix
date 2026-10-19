@@ -15,7 +15,7 @@
    * One genuinely shared fact WAS hoisted: the targets reassembled the
      INDEX_ADDED JSON detail into its SnapshotIndex with byte-identical
      semantics and error text. That parse now lives once, in
-     datrix_codegen_common.algorithms.migration_upgrade_op_index; each target
+     datrix_codegen_kernel.sql_facts.snapshot.migration_upgrade_op_index; each target
      must call it the exact number of times its own paths need, and none may
      redefine it.
 

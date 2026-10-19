@@ -3,8 +3,8 @@ and the reading of each.
 
 A parity row (``datrix_testing.cases.parity``) names a probe and a facet. This module is the
 table the gate and its authoring tool share: for every probe a row may name, the fixture its
-argument is built from (a generated example tree, an enum the example declares, or a
-web-security header-set fixture), and per facet the selector keys, the shape of the reading,
+argument is built from (a generated example tree, the client trees of one example generated
+for the run, an enum the example declares, or a web-security header-set fixture), and per facet the selector keys, the shape of the reading,
 and the function that narrows the probe's return to that one value. A probe with no entry
 here is refused by ``check`` -- a new reading is added as a facet here, and a new kind of
 value as a Protocol method first.
@@ -22,18 +22,21 @@ platform, and how a target's artifact is read stays in that target's own probe.
 from __future__ import annotations
 
 import enum
+import json
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, TypeVar
 
-from datrix_codegen_common.generation.wire_naming import body_wire_name
+from datrix_common.datrix_model.wire_naming import body_wire_name
 from datrix_common.utils.text import to_camel_case
 from datrix_codegen_kernel.parity.conformance_probes import (
     EnumClassifierRender,
     EventEnvelopeCensus,
     PublishedEventEnvelope,
+    RealizedGatewayProblem,
+    RealizedRouteUrl,
     ResponseBodyWireField,
     RouteWireContract,
     route_key,
@@ -58,6 +61,10 @@ class ProbeArgument(enum.Enum):
     EXAMPLE_ENUM = "example-enum"
     #: A web-security header-set fixture, rendered through the target's static-site artifact.
     HEADER_SET = "header-set"
+    #: Nothing: the probe renders the target's own system-gateway artifact.
+    SYSTEM_GATEWAY = "system-gateway"
+    #: The example generated once for the run; each client target reads its own client tree in it.
+    CLIENT_TREE = "client-tree"
 
 
 @dataclass(frozen=True)
@@ -393,6 +400,80 @@ def _offer_headers(result: object) -> Iterable[dict[str, SelectorValue]]:
 
 
 # ---------------------------------------------------------------------------
+# Gateway problem documents: realized_gateway_problems
+# ---------------------------------------------------------------------------
+
+REALIZED_GATEWAY_PROBLEMS: Final[str] = "realized_gateway_problems"
+#: The one fixture a gateway-problem row names: the target's own system gateway.
+SYSTEM_GATEWAY_FIXTURE: Final[str] = "system-gateway"
+#: The problem document members a reading carries (the body's own keys).
+_PROBLEM_MEMBERS: Final[tuple[str, ...]] = ("type", "title", "status", "detail")
+
+
+def _gateway_problems(result: object) -> dict[str, RealizedGatewayProblem]:
+    problems = _items(result, RealizedGatewayProblem, REALIZED_GATEWAY_PROBLEMS)
+    return {str(problem.status): problem for problem in problems}
+
+
+def _read_gateway_problem(result: object, selector: Selector) -> Observation:
+    status = _text(selector, "status")
+    problems = _gateway_problems(result)
+    if status not in problems:
+        raise SelectorError(f"the gateway answers no status {status} itself")
+    problem = problems[status]
+    try:
+        document = json.loads(problem.body)
+    except json.JSONDecodeError as error:
+        raise SelectorError(f"the gateway's {status} body is not a JSON document") from error
+    if not isinstance(document, dict) or set(document) != set(_PROBLEM_MEMBERS):
+        raise SelectorError(f"the gateway's {status} body is not a problem document with members {list(_PROBLEM_MEMBERS)}")
+    reading = {member: stringify(document[member]) for member in _PROBLEM_MEMBERS}
+    reading["content-type"] = problem.content_type
+    return Observation(Shape.MAPPING, reading)
+
+
+def _read_gateway_statuses(result: object, selector: Selector) -> Observation:
+    return _set(_gateway_problems(result))
+
+
+def _offer_gateway_statuses(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{"status": status} for status in sorted(_gateway_problems(result))]
+
+
+# ---------------------------------------------------------------------------
+# Client route URL builders: route_url_builders
+# ---------------------------------------------------------------------------
+
+ROUTE_URL_BUILDERS: Final[str] = "route_url_builders"
+#: How a reading joins a route's query keys: in the order the builder writes them.
+_QUERY_KEY_SEPARATOR: Final[str] = ","
+
+
+def _route_urls(result: object) -> tuple[RealizedRouteUrl, ...]:
+    return _items(result, RealizedRouteUrl, ROUTE_URL_BUILDERS)
+
+
+def _read_route_url(result: object, selector: Selector) -> Observation:
+    """The path a route's URL is built on (each path parameter ``{}``) and its query keys in order."""
+    wanted = _text(selector, "route")
+    matches = [builder for builder in _route_urls(result) if builder.route_key == wanted]
+    if len(matches) != 1:
+        raise SelectorError(f"route {wanted} has {len(matches)} URL builder entries")
+    builder = matches[0]
+    return Observation(
+        Shape.MAPPING, {"path": builder.path, "query": _QUERY_KEY_SEPARATOR.join(builder.query_keys)}
+    )
+
+
+def _read_route_url_keys(result: object, selector: Selector) -> Observation:
+    return _set(builder.route_key for builder in _route_urls(result))
+
+
+def _offer_route_urls(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{"route": builder.route_key} for builder in _route_urls(result)]
+
+
+# ---------------------------------------------------------------------------
 # The table
 # ---------------------------------------------------------------------------
 
@@ -501,6 +582,45 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
                 FacetReading(ParityFacet("headers", Shape.SET, summary="every header name the artifact emits"), _read_header_names),
             ),
         ),
+        ProbeReadings(
+            REALIZED_GATEWAY_PROBLEMS,
+            ProbeArgument.SYSTEM_GATEWAY,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "problem",
+                        Shape.MAPPING,
+                        ("status",),
+                        summary="content type and problem document members of one status the gateway answers itself",
+                    ),
+                    _read_gateway_problem,
+                    _offer_gateway_statuses,
+                ),
+                FacetReading(
+                    ParityFacet("statuses", Shape.SET, summary="every status the gateway answers itself"), _read_gateway_statuses
+                ),
+            ),
+        ),
+        ProbeReadings(
+            ROUTE_URL_BUILDERS,
+            ProbeArgument.CLIENT_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "url",
+                        Shape.MAPPING,
+                        ("route",),
+                        summary="the path one route's URL is built on (each path parameter '{}') and its query keys, in order",
+                    ),
+                    _read_route_url,
+                    _offer_route_urls,
+                ),
+                FacetReading(
+                    ParityFacet("routes", Shape.SET, summary="every route key the client's URL builder takes"),
+                    _read_route_url_keys,
+                ),
+            ),
+        ),
     )
 }
 
@@ -509,6 +629,8 @@ def accepted_inputs(readings: ProbeReadings, example_names: Sequence[str]) -> fr
     """The fixtures a row of *readings*' probe may name: the registered examples, or the header-set fixtures."""
     if readings.argument is ProbeArgument.HEADER_SET:
         return frozenset(HEADER_SET_FIXTURES)
+    if readings.argument is ProbeArgument.SYSTEM_GATEWAY:
+        return frozenset({SYSTEM_GATEWAY_FIXTURE})
     return frozenset(example_names)
 
 
@@ -530,9 +652,12 @@ __all__ = [
     "EVENT_ENVELOPES",
     "HEADER_SET_FIXTURES",
     "PROBE_READINGS",
+    "REALIZED_GATEWAY_PROBLEMS",
     "REALIZED_WEB_SECURITY_HEADERS",
+    "SYSTEM_GATEWAY_FIXTURE",
     "RENDER_ENUM_CLASSIFIER",
     "RESPONSE_BODY_WIRE_FIELDS",
+    "ROUTE_URL_BUILDERS",
     "ROUTE_WIRE_CONTRACTS",
     "FacetReading",
     "ProbeArgument",

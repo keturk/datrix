@@ -1,0 +1,48 @@
+- id: gateway-problems.statuses
+  tags: [parity, problem-types]
+  input: system-gateway
+  stage: parity
+  observer: realized_gateway_problems
+  selector: {facet: statuses, capability: "problem_type:gateway-problem-document"}
+  expectation: ["400", "401", "403", "404", "429", "500", "502", "503", "504"]
+  reason: Every platform's gateway answers each status it generates itself with a problem document, so no gateway refusal reaches a client as the gateway product's own body.
+- id: gateway-problems.route-not-found
+  tags: [parity, problem-types]
+  input: system-gateway
+  stage: parity
+  observer: realized_gateway_problems
+  selector: {facet: problem, status: "404", capability: "problem_type:gateway-problem-document"}
+  expectation: {content-type: application/problem+json, type: "urn:datrix:error:route-not-found", title: Route Not Found, status: "404", detail: No route matches the request path.}
+  reason: A request no route matches is the gateway's route-not-found problem on every platform, which a client decodes as a not-found and tells apart from a service's own not-found.
+- id: gateway-problems.unauthorized
+  tags: [parity, problem-types]
+  input: system-gateway
+  stage: parity
+  observer: realized_gateway_problems
+  selector: {facet: problem, status: "401", capability: "problem_type:gateway-problem-document"}
+  expectation: {content-type: application/problem+json, type: "urn:datrix:error:unauthorized", title: Unauthorized, status: "401", detail: Unauthorized}
+  reason: An edge credential refusal is the same unauthorized problem a service answers, on every platform.
+- id: gateway-problems.rate-limit-exceeded
+  tags: [parity, problem-types]
+  input: system-gateway
+  stage: parity
+  observer: realized_gateway_problems
+  selector: {facet: problem, status: "429", capability: "problem_type:gateway-problem-document"}
+  expectation: {content-type: application/problem+json, type: "urn:datrix:error:rate-limit-exceeded", title: Too Many Requests, status: "429", detail: Too Many Requests}
+  reason: A gateway rate-limit rejection is the rate-limit-exceeded problem on every platform, so a client branching on it backs off the same way.
+- id: gateway-problems.bad-gateway
+  tags: [parity, problem-types]
+  input: system-gateway
+  stage: parity
+  observer: realized_gateway_problems
+  selector: {facet: problem, status: "502", capability: "problem_type:gateway-problem-document"}
+  expectation: {content-type: application/problem+json, type: "urn:datrix:error:bad-gateway", title: Bad Gateway, status: "502", detail: The upstream service could not be reached.}
+  reason: An unreachable upstream is the gateway's bad-gateway problem on every platform, never the gateway product's own error page.
+- id: gateway-problems.malformed-request
+  tags: [parity, problem-types]
+  input: system-gateway
+  stage: parity
+  observer: realized_gateway_problems
+  selector: {facet: problem, status: "400", capability: "problem_type:gateway-problem-document"}
+  expectation: {content-type: application/problem+json, type: "urn:datrix:error:malformed-request", title: Bad Request, status: "400", detail: The request could not be read.}
+  reason: A request the gateway refuses before any service reads it is the malformed-request problem on every platform, never the body-decoding detail a service answers with.
