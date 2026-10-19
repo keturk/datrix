@@ -35,9 +35,12 @@
  Write-DatrixGateLog, and prints the same last line with Write-DatrixGateVerdict.
 #>
 
-# No -Force: a forced nested import unloads the caller's own import of the same module.
-Import-Module (Join-Path $PSScriptRoot "DatrixPaths.psm1")
-Import-Module (Join-Path $PSScriptRoot "DatrixRunLog.psm1")
+# -Force: without it, a copy an earlier command loaded into this session is reused even after the
+# file changed on disk (a pull), so a function added since is missing. -Global: a forced import
+# replaces the session's copy, and importing the new one into the global scope keeps a caller that
+# imported the same module itself working.
+Import-Module (Join-Path $PSScriptRoot "DatrixPaths.psm1") -Force -Global
+Import-Module (Join-Path $PSScriptRoot "DatrixRunLog.psm1") -Force -Global
 
 $script:GateLogFolder = "gates"
 $script:GateVerdictPrefix = "[GATE]"
