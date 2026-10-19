@@ -96,16 +96,48 @@ in one session, say so and propose a split.
 **Growth mid-task needs approval.** When the job turns out bigger than estimated, or the correct
 fix needs broader changes than the request states, stop that part and ask:
 
-- "Broader" means changes the request does not name: new model fields, phases, diagnostics,
-  modules or abstractions; packages it does not name; or a multiple of the expected size.
-- Ask in one line starting `APPROVAL_REQUIRED:` — what the expansion is, why the task needs it
-  (evidence, `file:line`), and its measured size (below). A subagent returns status
-  `APPROVAL_REQUIRED` with the same content; the orchestrator puts it to Jon and does not
+- "Broader" means more or different **behaviour** than the request asks for: a capability, model
+  field, phase or diagnostic its requirements do not need; work on a behaviour it does not cover;
+  or a measured size (below) that is a multiple of what the request names. Where the code lands
+  is never, by itself, broader (see "Implementation decisions" below).
+- Put it to the decision advisor first: dispatch the `decision-advisor` agent (Fable 5.1, high
+  effort) with what the expansion is, why the task needs it (evidence, `file:line`), its measured
+  size (below) and your recommendation (`decision-adjudication-protocol.md` §5). On
+  `VERDICT: RECOMMEND`, act on it (a recommended expansion is approved), record it with the
+  advisor's rationale, and carry on. Only on `VERDICT: ASK_JON` ask Jon, in one line starting
+  `APPROVAL_REQUIRED:` with the same content. A subagent consults the advisor itself and returns
+  status `APPROVAL_REQUIRED` only on `ASK_JON`; the orchestrator puts it to Jon and does not
   re-dispatch it until he answers.
 - Keep working everything that does not depend on the answer. If nothing does, end the turn on
   the question. That is a legitimate exit.
 - **Never answer it yourself by shipping a smaller fix (§14).** Unapproved expansion and a
   cut-down fix are both wrong; the question is the only right move.
+
+**Implementation decisions are yours: decide, record, continue.** How and where to realize what
+was asked is not growth, whichever package or module it lands in, and it is never put to Jon —
+not as `APPROVAL_REQUIRED`, not as B2, not as an "open item". Decide it from the design, the
+architecture docs and the security ranking (§13), record the decision and its evidence
+(`file:line`, the rule it follows) in the ledger or report, and keep going. This covers:
+
+- **Placement.** Putting new code at, or moving existing code to, the layer the architecture
+  assigns it (shared layer first; one fact, one home; no upward imports), cutting the imports the
+  move makes illegal, and updating every importer of what moved.
+- **Dependencies a required behaviour needs.** A maintained library for a standard protocol,
+  format or crypto primitive is the secure default (never hand-roll it); add it where the code
+  that uses it is built.
+- **Internal shape.** Names, signatures, data structures, fixture shapes, test carriers, and the
+  emitted spelling of a value when the docs or the design's invariants settle it.
+- **Choosing between ways to meet a requirement** when correctness, a doc, a design invariant or
+  the more secure option settles it.
+
+The test: if your question would carry "(I recommend X)" and X follows from a rule, a doc, the
+design or the security ranking, it is not a question — do X. A real question — the answer changes
+*what* gets built (growth, above), or a genuine B2 tie the docs do not settle — goes to the
+decision advisor, and to Jon only when the advisor returns `VERDICT: ASK_JON`.
+
+**An option that narrows a check is not an option.** Limiting a test, a fixture set or an
+invariant so that a requirement holds on fewer cases is the cut-down fix (§14). Meet the
+requirement on the full set, and never offer the narrowing to Jon as an alternative.
 
 **Sizing an expansion: measured, in agent terms.** The size in an `APPROVAL_REQUIRED` request
 is what the agent doing the work would spend, computed from counts. It is never a guess and
@@ -221,8 +253,8 @@ never the thing you do *instead of* finishing it.
 - **This binds single continuous tasks, not only numbered lists.** "Fix every error in X" is
   finished at **zero** errors on X. "Most of them, and here is the rest" is an unfinished task with
   a summary attached.
-- **Need a decision only the user can make?** Ask in one line and keep working everything that does
-  not depend on the answer (§6 — escalate to keep going, never to stop). Drifting to a stop instead
+- **Need a decision?** Put it to the decision advisor (§4); ask Jon in one line only when it returns
+  `VERDICT: ASK_JON`, and keep working everything that does not depend on the answer (§6 — escalate to keep going, never to stop). Drifting to a stop instead
   of asking is the worst of both.
 
 ## 9. Report tightly

@@ -68,13 +68,22 @@ asked for (or the design doc / task file you were given). Do that, completely.
   pre-existing failure your change did not cause, another instance of the defect you are fixing,
   anything unrelated — is **not fixed**. It gets a findings file (below), and you carry on.
 - **The task turns out bigger than estimated, or the correct fix needs broader changes** than the
-  request states (new model fields, phases, diagnostics or modules the request does not name;
-  packages it does not name; a multiple of the expected size) → **stop that part and ask for
-  approval**: one line starting `APPROVAL_REQUIRED:` saying what, why, and its measured size —
-  a counted census × this run's measured rate, in tokens and agent minutes, never human
-  hours/days and never scaled from a design's effort figure (execution-contract §4). Keep
-  working everything that does not depend on the answer; if nothing does, end the turn on the
-  question. A subagent returns status `APPROVAL_REQUIRED` with the same content.
+  request states — more or different *behaviour* than it asks for (a capability, model field,
+  phase or diagnostic its requirements do not need), or a measured size that is a multiple of
+  what it names → **stop that part and put it to the decision advisor** (below); if it returns
+  `ASK_JON`, ask Jon in one line starting `APPROVAL_REQUIRED:` saying what, why, and its measured size — a counted census × this run's
+  measured rate, in tokens and agent minutes, never human hours/days and never scaled from a
+  design's effort figure (execution-contract §4). Keep working everything that does not depend
+  on the answer; if nothing does, end the turn on the question. A subagent returns status
+  `APPROVAL_REQUIRED` with the same content.
+- **How and where you build what was asked is yours to decide — never a question.** Which
+  package or module the code lands in (including moving existing code to the layer the
+  architecture assigns it and updating its importers), the library a required behaviour needs,
+  names, signatures, fixtures: decide by the docs, the design and the security ranking, record
+  the decision with its evidence, and carry on. If you would write "(I recommend X)" and X
+  follows from a rule, a doc or the design, do X. An option that narrows a test or acceptance
+  check is not an option (§14). Approval is for growth in *what* is built, never *how*
+  (execution-contract §4).
 - Never resolve it by shipping a smaller version instead: an unapproved expansion and a cut-down
   fix are both wrong. Approved work then follows every rule here.
 
@@ -108,9 +117,16 @@ harden it later" are all banned, and remain banned when you say them honestly. *
 no later.** If the correct fix is larger than what was approved, ask (`APPROVAL_REQUIRED:`, §4) —
 never ship the small version (§14).
 
-**The only interruption is Jon.** A decision genuinely reserved to him (a true B2, an
-`APPROVAL_REQUIRED` expansion, or something he said to check with him on) → ask in one line, and
-keep working everything that does not depend on the answer.
+**A question goes to the decision advisor before it goes to Jon.** Any agent, subagents
+included, with a question it cannot settle from the code, the docs and the rules (a B2, an
+`APPROVAL_REQUIRED` growth, an open design item, anything it would otherwise ask Jon) dispatches
+the `decision-advisor` agent (Fable 5.1, high effort; `.claude/agents/decision-advisor.md`) with
+the question, its evidence, the options and its own recommendation. On `VERDICT: RECOMMEND` it
+acts on the recommendation (approved growth included), records it with the advisor's rationale,
+and keeps working. Only on `VERDICT: ASK_JON` does it ask Jon: the advisor's question and
+options, in one line, while it keeps working everything that does not depend on the answer. The
+stop gate and the `AskUserQuestion` gate refuse a question to Jon that no advisor handed over
+since his last message. Ladder: `_shared/decision-adjudication-protocol.md`.
 
 **Parallel waves.** An explicit `PARALLEL_WAVE: files are exclusive` dispatch whose fix needs a
 file outside its list returns `EXPANSION_REQUIRED` naming the files (a lock request inside
@@ -120,8 +136,10 @@ approved scope, not BLOCKED).
 
 **Only `/task-orchestrator` dispatches subagents** (sized per `execution-contract-spend.md` §10).
 Planning and design skills (`/operationalize-design`, `/generate-tasks`) never do. **A subagent never
-spawns subagents** — depth is one; do the work yourself, sequentially, and return
-`APPROVAL_REQUIRED` to the dispatcher for anything beyond your task. `guard-no-nested-agents.py` refuses it, with no override.
+spawns subagents** — depth is one; do the work yourself, sequentially. The one agent any agent
+may dispatch is the `decision-advisor` (a read-only leaf that dispatches nothing) for a question;
+a subagent acts on its recommendation and returns `APPROVAL_REQUIRED` to the dispatcher only on
+`ASK_JON`. `guard-no-nested-agents.py` refuses every other dispatch from a subagent, with no override.
 
 ## Enforced by the Harness
 

@@ -6,14 +6,20 @@ gate reads it before every stop and refuses unless:
   - no `- [ ]` step is left unticked;
   - the Verification section records what was run and what it printed;
 or the file carries an explicit exit line (`Status: STOPPED_BY_JON`, `Status: BLOCKED B<1-4>`),
-or the reply asks Jon to approve growing the task: a line starting `APPROVAL_REQUIRED:` outside
-quotes and code. CLAUDE.md makes that the third legitimate turn end ("everything left waits on an
+or the reply puts a question to Jon: a line starting `APPROVAL_REQUIRED:` outside quotes and
+code. CLAUDE.md makes that the third legitimate turn end ("everything left waits on an
 APPROVAL_REQUIRED question to Jon"); refusing it leaves an unattended session only the unapproved
 expansion to do. The exit is read from the reply, not the plan file, so it holds only when the
 question is actually put to Jon.
 
-Fails open: an unreadable payload, or `_MAX_BLOCKS` consecutive refusals in one session,
-lets the stop through so this hook can never wedge a session.
+That exit is open only after the decision advisor has handed the question over: Jon's order is
+that an agent with a question asks the `decision-advisor` agent first and acts on its
+recommendation, asking Jon only when the advisor returned `VERDICT: ASK_JON` (`_advisor.py`).
+A question to Jon with no such verdict since Jon's last message is refused, whatever the plan
+says.
+
+Fails open: an unreadable payload or transcript, or `_MAX_BLOCKS` consecutive refusals in one
+session, lets the stop through so this hook can never wedge a session.
 
 Exit codes:
   0 — allow (or block, expressed as JSON on stdout)
@@ -30,6 +36,7 @@ from typing import Final
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import _agent_plan as plan  # noqa: E402
+from _advisor import ADVISOR_REMEDY, Verdict, advisor_verdict  # noqa: E402
 from _report_language import stop_reply, strip_quoted  # noqa: E402
 
 _MAX_BLOCKS: Final = 5
@@ -92,6 +99,17 @@ def _record_blocks(session_id: str, blocks: int) -> None:
         pass
 
 
+def _refuse(session_id: str, reason: str) -> None:
+    """Block the stop with `reason`, unless this session already hit `_MAX_BLOCKS` in a row."""
+    blocks = _consecutive_blocks(session_id)
+    if blocks >= _MAX_BLOCKS:
+        _record_blocks(session_id, 0)
+        sys.exit(0)
+    _record_blocks(session_id, blocks + 1)
+    json.dump({"decision": "block", "reason": reason}, sys.stdout)
+    sys.exit(0)
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
@@ -100,8 +118,14 @@ def main() -> None:
 
     session_id = data.get("session_id") or ""
     if _APPROVAL_LINE_RE.search(strip_quoted(stop_reply(data))):
-        _record_blocks(session_id, 0)
-        sys.exit(0)
+        if advisor_verdict(str(data.get("transcript_path", ""))) is not Verdict.NOT_ASK_JON:
+            _record_blocks(session_id, 0)
+            sys.exit(0)
+        _refuse(
+            session_id,
+            "You may not end on a question to Jon yet: the decision advisor has not handed it to "
+            "him. " + ADVISOR_REMEDY,
+        )
 
     path = plan.plan_path(session_id).replace("\\", "/")
     try:
@@ -113,25 +137,23 @@ def main() -> None:
         _record_blocks(session_id, 0)
         sys.exit(0)
 
-    blocks = _consecutive_blocks(session_id)
-    if blocks >= _MAX_BLOCKS:
-        _record_blocks(session_id, 0)
-        sys.exit(0)
-    _record_blocks(session_id, blocks + 1)
+    _refuse(session_id, _plan_reason(path, problems))
 
-    reason = (
+
+def _plan_reason(path: str, problems: list[str]) -> str:
+    return (
         f"You may not stop yet: re-read `{path}` and make the goal true.\n- "
         + "\n- ".join(problems)
         + "\nFinish the unticked steps (or add the real ones you discovered), run the "
         "completion criteria, tick the steps, and write the evidence under "
         f"`{plan.VERIFICATION_HEADING}`. If Jon told you to stop, or a B1-B4 blocker with "
         "proof applies, add `Status: STOPPED_BY_JON` / `Status: BLOCKED B<n>` to the file. "
-        "If everything left needs Jon to approve growing the task, end the reply on one line "
-        "starting `APPROVAL_REQUIRED:` (what, why, measured size in tokens and agent minutes per execution-contract §4) and the stop is allowed; "
-        "never do the unapproved work instead."
+        "If everything left waits on a question, put it to the decision advisor first "
+        "(Agent tool, subagent_type \"decision-advisor\") and act on its recommendation; only "
+        "when it returns `VERDICT: ASK_JON` end the reply on one line starting "
+        "`APPROVAL_REQUIRED:` (what, why, measured size in tokens and agent minutes per "
+        "execution-contract §4), and the stop is allowed. Never do unapproved work instead."
     )
-    json.dump({"decision": "block", "reason": reason}, sys.stdout)
-    sys.exit(0)
 
 
 if __name__ == "__main__":

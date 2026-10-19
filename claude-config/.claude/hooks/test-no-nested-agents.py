@@ -1,7 +1,8 @@
 """Self-test for guard-no-nested-agents.py.
 
 A dispatch from inside a subagent (hook input carries `agent_id`) must be refused for
-every spelling of the tool; a dispatch from the main session (no `agent_id`) must pass.
+every spelling of the tool, unless it dispatches the `decision-advisor` agent type; a
+dispatch from the main session (no `agent_id`) must pass.
 The hook must also be wired in settings.json for exactly the Agent and Task tool names.
 
 Run: D:\\datrix\\.venv\\Scripts\\python.exe .claude/hooks/test-no-nested-agents.py
@@ -24,6 +25,9 @@ _CASES: tuple[tuple[str, dict[str, object], int], ...] = (
     ("subagent -> background", {"tool_name": "Agent", "agent_id": "a1", "tool_input": {"prompt": "x", "run_in_background": True}}, _BLOCK_EXIT),
     ("subagent -> legacy Task name", {"tool_name": "Task", "agent_id": "a1", "tool_input": {"prompt": "x"}}, _BLOCK_EXIT),
     ("subagent -> empty input", {"tool_name": "Agent", "agent_id": "a1", "tool_input": {}}, _BLOCK_EXIT),
+    ("subagent -> decision-advisor", {"tool_name": "Agent", "agent_id": "a1", "tool_input": {"subagent_type": "decision-advisor", "prompt": "x"}}, _ALLOW_EXIT),
+    ("subagent -> decision-advisor via Task", {"tool_name": "Task", "agent_id": "a1", "tool_input": {"subagent_type": "decision-advisor", "prompt": "x"}}, _ALLOW_EXIT),
+    ("subagent -> advisor name in prompt only", {"tool_name": "Agent", "agent_id": "a1", "tool_input": {"subagent_type": "general-purpose", "prompt": "act as decision-advisor"}}, _BLOCK_EXIT),
     ("main session -> general-purpose", {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "x"}}, _ALLOW_EXIT),
     ("main session -> background", {"tool_name": "Agent", "tool_input": {"prompt": "x", "run_in_background": True}}, _ALLOW_EXIT),
     ("main session -> empty agent_id", {"tool_name": "Agent", "agent_id": "", "tool_input": {"prompt": "x"}}, _ALLOW_EXIT),

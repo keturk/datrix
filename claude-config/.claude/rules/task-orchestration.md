@@ -56,7 +56,7 @@ itself if the agent did not, and names it to Jon. If an agent filed such a task,
 the phase and move its text into a findings file.
 
 **Growing a task needs Jon's approval.** An agent that returns `APPROVAL_REQUIRED` (its task
-needs changes it does not name, or a multiple of its estimate) is not re-dispatched until Jon
+needs behaviour it does not ask for, or a multiple of its estimate) is not re-dispatched until Jon
 answers; the orchestrator puts the request to him and keeps the rest of the run moving
 (execution-contract §4).
 

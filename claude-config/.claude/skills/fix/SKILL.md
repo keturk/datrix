@@ -33,7 +33,7 @@ Follow this phased approach.
 
 - Make the changes identified in Phase 1
 - **Check for logic map markers:** Before modifying any function or class, look for `# @canonical`, `# @pattern`, `# @boundary`, or `# @invariant` comments above it. If a marker exists, update it. If deleting marked code, remove the marker.
-- **Scope: what was asked; growth needs approval** (execution-contract §4). If the root cause of the defect you are fixing lies in a neighbouring file or package, follow it and fix it there (patching at the boundary is a workaround — see Anti-Patterns). If the fix grows bigger or broader than the request (new fields, phases, modules, packages it does not name, a multiple of the expected size), ask Jon in one line starting `APPROVAL_REQUIRED:` and keep working what does not depend on it. Anything you find that the fix does not need goes in a findings file (§5).
+- **Scope: what was asked; growth needs approval** (execution-contract §4). If the root cause of the defect you are fixing lies in a neighbouring file or package, follow it and fix it there (patching at the boundary is a workaround — see Anti-Patterns). If the fix grows bigger or broader than the request (behaviour it does not ask for — a capability, field, phase or diagnostic the fix does not need — or a multiple of the expected size; where the code lands is an implementation decision you make and record, execution-contract §4), ask Jon in one line starting `APPROVAL_REQUIRED:` and keep working what does not depend on it. Anything you find that the fix does not need goes in a findings file (§5).
 - **End-of-phase assessment:**
   - What was changed (file:line summary)
   - Any unexpected complications

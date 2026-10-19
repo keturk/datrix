@@ -182,22 +182,60 @@ arm()
 check("re-invoking the skill RE-ARMS", state().get("status"), "running")
 
 print("\n== gate-decision-escalation ==")
-reset()
-rc, _ = run("gate-decision-escalation.py", {"session_id": SID,
-            "tool_input": {"questions": [{"question": "Which typing for gateway_terminates_tls?"}]}})
-check("not armed -> allowed", rc, 0)
-arm()
-rc, err = run("gate-decision-escalation.py", {"session_id": SID,
-              "tool_input": {"questions": [{"question": "Which typing for gateway_terminates_tls?"}]}})
-check("armed -> DENIED", rc, 2)
-check("  names rung 3", "Fable adjudicator" in err, True)
-rc, _ = run("gate-decision-escalation.py", {"session_id": SID,
-            "tool_input": {"questions": [{"question": "Fable returned ASK_USER on the axis choice."}]}})
-check("armed + Fable ASK_USER -> allowed", rc, 0)
-rc, _ = run("gate-decision-escalation.py", {"session_id": SID,
-            "tool_input": {"questions": [{"question": "APPROVAL_REQUIRED: the fix needs a new "
-                                                      "semantic phase the task does not name."}]}})
-check("armed + APPROVAL_REQUIRED -> allowed", rc, 0)
+ASK_STATE = os.path.join(STATE, f"ask-blocks-{SID}.json")
+
+
+def ask(question, *entries):
+    if os.path.isfile(ASK_STATE):
+        os.remove(ASK_STATE)
+    os.makedirs(os.path.dirname(TRANSCRIPT), exist_ok=True)
+    with open(TRANSCRIPT, "w", encoding="utf-8") as f:
+        for entry in entries:
+            f.write(json.dumps(entry) + "\n")
+    return run("gate-decision-escalation.py", {"session_id": SID, "transcript_path": TRANSCRIPT,
+               "tool_input": {"questions": [{"question": question}]}})
+
+
+def user_says(text):
+    return {"type": "user", "message": {"content": [{"type": "text", "text": text}]}}
+
+
+def advisor_call(tool_id, subagent_type="decision-advisor"):
+    return {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tool_id,
+            "name": "Agent", "input": {"subagent_type": subagent_type, "prompt": "q"}}]}}
+
+
+def advisor_answer(tool_id, text):
+    return {"type": "user", "message": {"content": [{"type": "tool_result",
+            "tool_use_id": tool_id, "content": [{"type": "text", "text": text}]}]}}
+
+
+TYPING_Q = "Which typing for gateway_terminates_tls?"
+rc, err = ask(TYPING_Q, user_says("implement the design"))
+check("no advisor -> DENIED", rc, 2)
+check("  names the advisor", "decision-advisor" in err, True)
+rc, _ = ask("Fable returned ASK_USER on the axis choice.", user_says("go"))
+check("verdict claimed in the payload only -> DENIED", rc, 2)
+rc, _ = ask("APPROVAL_REQUIRED: the fix needs a new semantic phase the task does not ask for.",
+            user_says("go"))
+check("APPROVAL_REQUIRED without advisor -> DENIED", rc, 2)
+rc, _ = ask(TYPING_Q, user_says("go"), advisor_call("t1"),
+            advisor_answer("t1", "VERDICT: RECOMMEND\n**Decision:** bool"))
+check("advisor RECOMMEND -> DENIED", rc, 2)
+rc, _ = ask(TYPING_Q, user_says("go"), advisor_call("t1"),
+            advisor_answer("t1", "VERDICT: ASK_JON\n**Question:** which typing?"))
+check("advisor ASK_JON -> allowed", rc, 0)
+rc, _ = ask(TYPING_Q, user_says("go"), advisor_call("t1"),
+            advisor_answer("t1", "VERDICT: ASK_JON"), user_says("next question"))
+check("ASK_JON before Jon's latest message -> DENIED", rc, 2)
+rc, _ = ask(TYPING_Q, user_says("go"), advisor_call("t1", "general-purpose"),
+            advisor_answer("t1", "VERDICT: ASK_JON"))
+check("ASK_JON from another agent type -> DENIED", rc, 2)
+rc, _ = run("gate-decision-escalation.py", {"session_id": SID, "transcript_path": MISSING_TRANSCRIPT,
+            "tool_input": {"questions": [{"question": TYPING_Q}]}})
+check("unreadable transcript fails open -> allowed", rc, 0)
+if os.path.isfile(ASK_STATE):
+    os.remove(ASK_STATE)
 
 print("\n== gate-orchestration-stop: counts the ledger, not the summary ==")
 PENDING = task_file("task-999-01.md", "# Task 999-01: Pending\n\nNo How Solved yet.\n")

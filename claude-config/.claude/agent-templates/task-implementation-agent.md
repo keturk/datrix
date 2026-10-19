@@ -146,6 +146,8 @@ Return a JSON report as the LAST thing in your output:
 }
 ```
 
+**Before you return APPROVAL_REQUIRED or NEEDS_CONTEXT, put the question to the decision advisor** (Agent tool, `subagent_type: "decision-advisor"` — the one agent you may dispatch; `_shared/decision-adjudication-protocol.md` §5). On `VERDICT: RECOMMEND`, act on it and record it in `## How Solved`; return APPROVAL_REQUIRED only with its `VERDICT: ASK_JON` question.
+
 **`approval_request` is null for every status except APPROVAL_REQUIRED. `blocker_proof` is null for every status except BLOCKED.** If you set `status: "BLOCKED"` and cannot fill all four fields honestly, then **you are not blocked — you are unfinished.** Go back to Step 2 and fix the problem.
 
 **Evidence rule:** every claimed check in this report must carry the exact command + its actual output (or index.json counts), and every test claim must carry its `run_folder`. A bare "passed"/"green" claim — or a missing run folder — is treated as unverified and re-run by the orchestrator at your task's expense; verifiable evidence is what lets the orchestrator accept your result from the saved artifacts without redoing your work. (Design-acceptance checks: the orchestrator verifies your pasted evidence at the completion gate and executes every invariant's check itself once at the phase boundary.)
@@ -175,7 +177,7 @@ not the task: form a new one, grounded in the error text, and continue.
 
 **The file list in your task is the expected surface.**
 - If the root cause of the task's own defect is in a neighbouring file or package, follow it and fix it there, as long as the change stays the size and kind the task describes. List the added files under `scope_expansion`.
-- **If the task turns out bigger or broader than it states** — new model fields, phases, diagnostics, modules or packages it does not name, or a multiple of its estimate — **do not grow it.** Return status `APPROVAL_REQUIRED` with what the expansion is, why the task needs it (`file:line`), and its measured size (execution-contract §4: counted census × measured rate, in tokens and agent minutes, never human hours/days). The orchestrator puts it to Jon. This is **not** BLOCKED, and shipping a smaller fix instead is never the answer.
+- **If the task turns out bigger or broader than it states** — behaviour it does not ask for (a capability, model field, phase or diagnostic its requirements do not need), or a multiple of its estimate; never merely where the code lands, which is an implementation decision you make and record (execution-contract §4) — **do not grow it.** Return status `APPROVAL_REQUIRED` with what the expansion is, why the task needs it (`file:line`), and its measured size (execution-contract §4: counted census × measured rate, in tokens and agent minutes, never human hours/days). The orchestrator puts it to Jon. This is **not** BLOCKED, and shipping a smaller fix instead is never the answer.
 - **Only if your dispatch carries `PARALLEL_WAVE: files are exclusive`:** another agent may hold files outside your list. Do not edit them. Return status `EXPANSION_REQUIRED` with the exact files + root cause. This is **not** BLOCKED — it means "I know the fix and need the lock," and the orchestrator will re-dispatch you serially.
 
 ### What you find that the task does not need

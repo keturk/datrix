@@ -35,7 +35,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 - Registered as an artifact-phase **`datrix.generators`** plugin (`angular = datrix_codegen_angular.plugin:AngularClientGenerator`), **not** a `datrix.languages` plugin. It never appears in `registered_language_names()`, and `--language` never selects it — `--language` selects the *backend*.
 - Activation is a declared config fact: `active_for_angular_client()` returns true only when the application declares a `clients { angular { … } }` block. A test asserting "nothing was emitted" for an app without that block is asserting activation, not a bug.
 - It emits **TypeScript** (`_ANGULAR_OUTPUT_LANGUAGE = "typescript"` in `plugin.py`), declares its own file language and type map, and **must never import `datrix_codegen_typescript`**. `tests/unit/test_import_isolation.py` is a static AST scan proving that; `tests/integration/test_generation_without_typescript.py` (with `no_typescript_generation_probe.py`) proves it at generation time. Never "fix" a failure by importing the backend TypeScript package.
-- The run's resolved **backend** language is load-bearing in exactly one place: query-parameter wire-name casing and the offset-pagination parameter pair, both read from the backend's `LanguageCapabilityDeclaration` via `build_client_contract`. Never hardcode `skip`/`limit` or a casing rule.
+- The run's resolved **backend** language is load-bearing in exactly one place: the offset-pagination parameter pair, read from the backend's `LanguageCapabilityDeclaration` via `build_client_contract`. A query-parameter key is the one declared rule on every backend (`datrix_common.datrix_model.wire_naming.query_wire_name`), never a backend's casing. Never hardcode `skip`/`limit` or a casing rule.
 
 ### Key Entry Points
 
@@ -63,7 +63,7 @@ The argument is the absolute path to an `index.json` inside a `.test_results/tes
 ```
 per library (shared first, then each service):
 domain library_models      → libs/{library}/src/lib/models/{container}/…
-domain common_core         → libs/{system}-api-common/src/lib/core/{branded,page,query-params,request-options,api-base-url.token}.ts
+domain common_core         → libs/{system}-api-common/src/lib/core/{branded,page,query-params,request-options,api-base-url.token,http-auth}.ts
                              + libs/{system}-api-common/src/lib/problem/problem.ts
 domain common_exceptions   → libs/{system}-api-common/src/lib/problem/exceptions.ts
 domain common_domain_errors→ libs/{system}-api-common/src/lib/problem/domain-errors.ts
@@ -123,4 +123,4 @@ These are gated by this package's own tests; a change that turns a test green by
 
 ### Shared-layer boundary
 
-The framework-neutral **client contract** — routes, params (DSL name *and* wire name), response type refs, provider sets, body encoding, pagination flags — lives in `datrix-codegen-common` (`generation/client_contract.py`), and the DAL generator compiler/executor and parity declarations live there too. A defect in any of those is fixed **there**, not worked around here — but that layer is consumed by EVERY generator, so a change to it must keep the changed behaviour's tagged tests green in every consuming package it reaches (CLAUDE.md's cross-surface impact rule). A per-frontend-target difference is a declared parameter or a renderer-local rendering step, never a target-name conditional in the shared layer — no frontend-target name may appear in a shared type, field, or alias.
+The framework-neutral **client contract** — routes, params (DSL name *and* wire name), response type refs, provider sets, body encoding, pagination flags — lives in `datrix-codegen-kernel` (`generation/client_contract.py`); the DAL generator compiler/executor and parity declarations live in `datrix-codegen-common`. A defect in any of those is fixed **there**, not worked around here — but that layer is consumed by EVERY generator, so a change to it must keep the changed behaviour's tagged tests green in every consuming package it reaches (CLAUDE.md's cross-surface impact rule). A per-frontend-target difference is a declared parameter or a renderer-local rendering step, never a target-name conditional in the shared layer — no frontend-target name may appear in a shared type, field, or alias.

@@ -1,5 +1,9 @@
 """Exercise gate-agent-plan-stop.py end to end with synthetic payloads.
 
+An approval request ends the turn only after the decision advisor returned
+`VERDICT: ASK_JON` since Jon's last message (Jon's order: a question goes to the Fable
+advisor first, and to Jon only when the advisor cannot recommend anything).
+
 Both directions, on purpose. The ALLOW case that matters most is the verbatim reply
 of the real failure: an unattended implement-finding session ended correctly on an
 APPROVAL_REQUIRED question, this gate refused the stop over its unticked plan steps,
@@ -73,12 +77,40 @@ def write_plan(text):
         f.write(text)
 
 
-def transcript_saying(text):
+def jon(text):
+    return {"type": "user", "message": {"content": [{"type": "text", "text": text}]}}
+
+
+def says(text):
+    return {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}
+
+
+def dispatch(tool_id, subagent_type="decision-advisor"):
+    return {"type": "assistant", "message": {"content": [{
+        "type": "tool_use", "id": tool_id, "name": "Agent",
+        "input": {"subagent_type": subagent_type, "prompt": "the question"}}]}}
+
+
+def result(tool_id, text):
+    return {"type": "user", "message": {"content": [{
+        "type": "tool_result", "tool_use_id": tool_id, "content": [{"type": "text", "text": text}]}]}}
+
+
+ASK_JON = "VERDICT: ASK_JON\n**Question:** approve the reconciliation?"
+RECOMMEND = "VERDICT: RECOMMEND\n**Decision:** reconcile in the shared layer."
+
+
+def transcript(*entries):
     os.makedirs(os.path.dirname(TRANSCRIPT), exist_ok=True)
     with open(TRANSCRIPT, "w", encoding="utf-8") as f:
-        f.write(json.dumps({"type": "assistant",
-                            "message": {"content": [{"type": "text", "text": text}]}}) + "\n")
+        for entry in entries:
+            f.write(json.dumps(entry) + "\n")
     return TRANSCRIPT
+
+
+def advised(verdict, *after):
+    """Jon asks, the advisor answers `verdict`, then whatever follows."""
+    return transcript(jon("fix the finding"), dispatch("t1"), result("t1", verdict), *after)
 
 
 def reset(*extra):
@@ -103,14 +135,40 @@ def gate(plan_text, reply=None, transcript=MISSING_TRANSCRIPT):
     return decision.get("decision", "allow"), decision.get("reason", "")
 
 
-print("allows an approval request:")
-check("verbatim real reply, unticked plan -> allowed",
-      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY)[0], "allow")
-check("approval line read from the transcript fallback -> allowed",
-      gate(UNFINISHED_PLAN, None, transcript_saying(REAL_APPROVAL_REPLY))[0], "allow")
-check("approval line as a list item -> allowed",
+print("allows an approval request the advisor handed to Jon:")
+check("verbatim real reply, unticked plan, advisor ASK_JON -> allowed",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY, advised(ASK_JON))[0], "allow")
+check("approval line read from the transcript fallback, advisor ASK_JON -> allowed",
+      gate(UNFINISHED_PLAN, None, advised(ASK_JON, says(REAL_APPROVAL_REPLY)))[0], "allow")
+check("approval line as a list item, advisor ASK_JON -> allowed",
       gate(UNFINISHED_PLAN, "Done with the python half.\n\n- APPROVAL_REQUIRED: the "
-           "typescript half needs a new shared module, ~400 lines.")[0], "allow")
+           "typescript half needs a new shared module, ~400 lines.", advised(ASK_JON))[0],
+      "allow")
+check("ASK_JON survives a stop hook's feedback message -> allowed",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY,
+           advised(ASK_JON, jon("Stop hook feedback:\n[gate]: STOP REJECTED")))[0], "allow")
+check("unreadable transcript fails open -> allowed",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY, MISSING_TRANSCRIPT)[0], "allow")
+
+print("refuses an approval request the advisor did not hand to Jon:")
+decision, reason = gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY,
+                        transcript(jon("fix the finding")))
+check("no advisor dispatched -> blocked", decision, "block")
+check("  refusal names the advisor", "decision-advisor" in reason, True)
+check("advisor recommended -> blocked",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY, advised(RECOMMEND))[0], "block")
+check("ASK_JON given before Jon's latest message -> blocked",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY, advised(ASK_JON, jon("now do the next one")))[0],
+      "block")
+check("ASK_JON from a general-purpose agent -> blocked",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY,
+           transcript(jon("go"), dispatch("t1", "general-purpose"), result("t1", ASK_JON)))[0],
+      "block")
+check("ASK_JON typed by the agent itself -> blocked",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY,
+           transcript(jon("go"), says("VERDICT: ASK_JON")))[0], "block")
+check("finished plan does not lift the advisor rule -> blocked",
+      gate(FINISHED_PLAN, REAL_APPROVAL_REPLY, transcript(jon("go")))[0], "block")
 
 print("keeps the other exits:")
 check("every step ticked and verified -> allowed", gate(FINISHED_PLAN, "Jon, done.")[0], "allow")
@@ -135,6 +193,7 @@ print("names the exit in its refusal:")
 decision, reason = gate(UNFINISHED_PLAN, "Jon, I stopped.")
 check("refusal tells the agent how to end on an approval request",
       "APPROVAL_REQUIRED:" in reason, True)
+check("refusal routes the question through the advisor", "decision-advisor" in reason, True)
 
 reset(TRANSCRIPT)
 print()

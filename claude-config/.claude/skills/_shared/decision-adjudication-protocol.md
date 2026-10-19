@@ -1,8 +1,10 @@
 # Decision Adjudication Protocol (shared)
 
-**Used by `/task-orchestrator`, `/execute-tasks`, and `/execute-tasks-parallel`. It governs what the
-skill-running agent does with ANY decision it cannot make itself — including, but NOT limited to, a
-subagent's BLOCKED report.**
+**Used by every agent and every skill — main session, subagent, orchestrator, `claude -p` step.** It
+governs what an agent does with ANY question or decision it cannot settle itself — including, but NOT
+limited to, a subagent's BLOCKED report and an `APPROVAL_REQUIRED` growth request (Jon's order: a
+question goes to a Fable agent at high effort, the agent acts on its recommendation, and only when it
+cannot recommend anything is Jon asked).
 
 Read this alongside `execution-contract.md` (§1 the closed blocker list, §3 the four-part proof).
 
@@ -23,17 +25,19 @@ you may not stop early.
 |---|---|---|
 | **1** | **INVESTIGATE** | Read the code and the docs **yourself**. Reproduce the error. Open the `file:line`. Read the governing design doc. Most "decisions" dissolve here — they were missing information, not genuine ties. |
 | **2** | **DECIDE** | If the evidence settles it, **decide and act**. Escalating a decision you are able to make is as much a failure as stopping. Mild discomfort deciding is not a tie. |
-| **3** | **ADJUDICATE (Fable)** | If, after genuine investigation, you **truly cannot decide** — spawn a **Fable** adjudicator (`model: "fable"`, `effort: "high"`). Its decision is **binding**; you execute it. |
-| **4** | **ASK THE USER** | **Only** when Fable itself returns decision **F (ASK_USER)**. Never before. Never instead. |
+| **3** | **ADVISE (Fable)** | If, after genuine investigation, you **truly cannot decide** — dispatch the **decision advisor** (`subagent_type: "decision-advisor"`: Fable 5.1, high effort, read-only). On `VERDICT: RECOMMEND` its recommendation is **binding**; you execute it. |
+| **4** | **ASK JON** | **Only** when the advisor returns `VERDICT: ASK_JON`. Never before. Never instead. |
 
-**The user is the last rung, not the first.** If you find yourself drafting an `AskUserQuestion` and a
-Fable adjudicator has not already returned `F` on this exact question, **you are on the wrong rung —
-go back to rung 3.** The only exceptions are listed in §7 (they are narrow, and none of them is a
-technical or design judgment).
+**Jon is the last rung, not the first.** If you find yourself drafting an `AskUserQuestion` or an
+`APPROVAL_REQUIRED:` line and an advisor has not returned `ASK_JON` on this exact question since Jon's
+last message, **you are on the wrong rung — go back to rung 3.** `gate-decision-escalation.py` and
+`gate-agent-plan-stop.py` refuse it, reading the verdict from the advisor's tool result in the
+transcript, never from your own text.
 
-**Only the orchestrating session spawns the adjudicator.** A subagent that hits a decision does rungs
-1–2 itself and reports the question to its dispatcher; it never spawns an adjudicator
-(`guard-no-nested-agents.py`).
+**Every agent may dispatch the advisor, subagents included.** It is the one exception to depth-one
+(`guard-no-nested-agents.py` lets `decision-advisor` through and nothing else): the advisor is a leaf
+with no Agent tool, so no fan-out follows. A subagent climbs all four rungs itself, and returns
+`APPROVAL_REQUIRED` to its dispatcher only with the advisor's `ASK_JON` question.
 
 ---
 
@@ -148,8 +152,9 @@ one) · "environmental" / "behavioral" (prove it with the error text or fix it) 
 reached (a new hypothesis gets fresh attempts).
 
 **Not blockers, and not re-dispatches either:** "bigger than estimated" / "would require broader
-changes" is an `APPROVAL_REQUIRED` request that goes to Jon (execution-contract §4); a pre-existing
-failure or any other defect the task does not need is a findings file (§5).
+changes" is a growth question that climbs this ladder (execution-contract §4): the advisor
+recommends, and it reaches Jon as `APPROVAL_REQUIRED` only on `ASK_JON`; a pre-existing failure or
+any other defect the task does not need is a findings file (§5).
 
 ---
 
@@ -180,8 +185,9 @@ THE PATH FORWARD:
 
 SCOPE: If the root cause lies outside your task's file list, follow it and fix it there, within the
 size and kind of change the task describes, and report the added files under `scope_expansion`. If
-the fix needs changes the task does not name, or a multiple of its size, return APPROVAL_REQUIRED
-(what, why, size) instead of making them.
+the fix needs behaviour the task does not ask for, or a multiple of its size, return APPROVAL_REQUIRED
+(what, why, size) instead of making them. Where the code lands, a required library, names and
+fixtures are implementation decisions: make them and record them (execution-contract §4).
 
 Re-read `.claude/skills/_shared/execution-contract.md` §1-§3 before you start. Your default outcome
 is: THE PROBLEM IS FIXED.
@@ -214,25 +220,26 @@ change the task, reorder the work, or genuinely go ask the user. It is the highe
 run and it gets the strongest model. **It is emphatically not the user's call — not yet.** The user
 is rung 4, and only Fable can put you there.
 
-### Spawn the adjudicator
+### Dispatch the advisor
 
 ```
 Agent tool parameters:
-  subagent_type: "general-purpose"
-  model: "fable"          # Claude Fable 5 — claude-fable-5
-  effort: "high"
-  run_in_background: false   # you need the decision before you can proceed
-  description: "Fable adjudication: {task_id or short conflict name}"
+  subagent_type: "decision-advisor"   # .claude/agents/decision-advisor.md: Fable 5.1, high effort,
+                                      # read-only; its first line is VERDICT: RECOMMEND | ASK_JON
+  run_in_background: false            # you need the decision before you can proceed
+  description: "Decision advisor: {task_id or short question name}"
 ```
 
-### Adjudicator prompt
+Do not pass `model` or `effort`: the definition sets them. A `general-purpose` agent on Fable is not
+the advisor; the gates do not accept its verdict.
 
-Fill every section. An adjudicator given a thin packet returns a thin decision.
+### Advisor packet
+
+Fill every section. An advisor given a thin packet returns a thin decision.
 
 ```
-You are the final decision-maker on a decision an automated task run cannot make for itself. Your
-decision is binding — the orchestrator will carry it out exactly. Decide; do not implement.
-Do NOT spawn subagents; decide from the packet and your own reads.
+You are the final decision-maker on a question an agent cannot settle for itself. Your
+decision is binding — the agent will carry it out exactly. Decide; do not implement.
 
 WHAT KIND OF DECISION THIS IS: {CONFIRMED BLOCKER | DESIGN/TASK CONFLICT | UNOWNED INVARIANT SURFACE |
   AMBIGUOUS FIX SCOPE | ORDERING CONFLICT | RED GATE RECOVERY | OTHER — name it}
@@ -291,11 +298,14 @@ DECIDE ONE of the following and return it as `decision`:
      engineering judgment). State the exact question, the options, and YOUR RECOMMENDATION.
 
      Choose F sparingly and only for what is genuinely the user's to decide. An engineering tradeoff
-     with a defensible answer is YOUR call (A-E), not theirs. But when the call is truly the user's,
+     with a defensible answer is YOUR call (A-E, G), not theirs. But when the call is truly the user's,
      do not manufacture an engineering answer to avoid F — say F.
+  G. RECOMMEND — any other question (a growth request, a B2 tie, an open design item): your
+     recommended answer, including whether the growth is needed and at what size.
 
 Return:
-1. `decision` — one of A-F.
+0. The first line, exactly: `VERDICT: ASK_JON` for F, `VERDICT: RECOMMEND` for every other decision.
+1. `decision` — one of A-G.
 2. `rationale` — 2-4 sentences. Why this and not the others.
 3. `steps` — concrete, ordered, executable. Exact files. Enough that an implementer follows without
    re-deciding.
@@ -314,9 +324,10 @@ Return:
 | **C. AMEND_TASK** | Amend the **task file** (never the design doc): update its scope, `**Design acceptance property:**`, and Success Criteria per Fable's decision. Rewire `Depends on` and `dependencies.md` if the scope moved. Then dispatch it. |
 | **D. RESEQUENCE** | Add the dependency edges (task files **and** `dependencies.md`), re-run cycle detection, move the tasks/phases to the correct order, and run the prerequisite first. Then the work proceeds normally. |
 | **E. SPAWN_FOLLOW_UP** | File a **real task file** with an ID, design reference, and provable acceptance property — prose in a report is not filing (execution-contract §5). Then do whatever Fable said the current work does in the meantime. |
-| **F. ASK_USER** | **Only now does a human enter the loop.** `AskUserQuestion` with Fable's exact question, its options, **and its recommendation**. Act on the answer and continue the run. |
+| **F. ASK_USER** (`VERDICT: ASK_JON`) | **Only now does Jon enter the loop.** `AskUserQuestion`, or one line starting `APPROVAL_REQUIRED:` when a turn ends on it, with the advisor's exact question, its options, **and its leaning**. Keep working what does not depend on it; act on the answer and continue the run. |
+| **G. RECOMMEND** | Act on the recommendation as written: a recommended growth is approved, a recommended answer to a B2 or design item is the decision. Record it (below) and keep going. |
 
-**Only F reaches the user.** A–E all keep the run moving. Verify the outcome yourself with the
+**Only F reaches Jon.** A–E and G all keep the run moving. Verify the outcome yourself with the
 `acceptance_check` Fable specified — the implementer's self-report is never sufficient.
 
 **If you believe Fable's decision is wrong**, say so *to Fable* with the evidence (a second
@@ -331,10 +342,11 @@ unexplained change of plan.
 
 ---
 
-## 7. The narrow set of things that DO go straight to the user
+## 7. The narrow set of things the advisor hands to Jon
 
-These bypass Fable because they are not judgments at all — they are inputs only the user possesses,
-or safety gates the user owns. This list is **closed**:
+These are not judgments at all — they are inputs only Jon possesses, or safety gates he owns. They
+still go through the advisor (the gates accept no question to Jon without its `ASK_JON`); state the
+case in the packet and it returns `ASK_JON` without deliberating. This list is **closed**:
 
 1. **A credential, secret, endpoint, or account** that exists nowhere in the repo and that you need in
    order to proceed *at all*. (Confirm it is genuinely absent first — §3's B1 test.)
@@ -348,7 +360,8 @@ or safety gates the user owns. This list is **closed**:
 **Everything else climbs the ladder.** Notably NOT on this list, and therefore NOT a direct user
 question: which of two designs to follow · what order to run phases in · whether a task set satisfies
 its design · how to close a coverage gap · what the fix scope is · whether to continue after a
-failure · whether a red gate should halt the run. **Those are rung-3 decisions. They go to Fable.**
+failure · whether a red gate should halt the run · whether a task may grow. **Those are rung-3
+decisions. The advisor decides them.**
 
 ---
 

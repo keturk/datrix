@@ -201,8 +201,10 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - Root cause of the failure you were sent to fix → follow it and fix it there, even
      in another package, while the change stays the size and kind the task describes.
      Report added files under scope_expansion.
-   - The task turns out bigger or broader than it states (new model fields, phases,
-     diagnostics, modules or packages it does not name; a multiple of its estimate) →
+   - The task turns out bigger or broader than it states (behaviour it does not ask for:
+     a capability, model field, phase or diagnostic its requirements do not need; a
+     multiple of its estimate; never merely where the code lands, which is an
+     implementation decision you make and record, execution-contract §4) →
      do not grow it: return status APPROVAL_REQUIRED with what, why (file:line) and
      its measured size (execution-contract §4: counted census × measured rate, in
      tokens and agent minutes, never human hours/days).
