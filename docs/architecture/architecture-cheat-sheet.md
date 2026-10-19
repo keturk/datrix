@@ -4,7 +4,7 @@
 
 **What Datrix is:** a **multi-language, multi-platform code generator** that turns `.dtrx` domain specifications into production-ready applications — NOT limited to Python/TypeScript, NOT limited to Docker/AWS/Azure. The shipped generator packages are the *current* targets, never the boundary. Two invariants follow: a fix for one language/platform must never break another (shared layers are imported by every generator — test every package the change reaches), and solutions live at the most language/platform-agnostic layer that can own them. Never write a doc, test, or script that assumes the shipped set is the whole set.
 
-**Pipeline:** `.dtrx → Parser (datrix-language) → extension directives on AST → extension resolution → Semantic Analysis → Config Resolution → Application (sealed AST) → Generators`. No IR layer. `GenerationPipeline` (`datrix-cli/src/datrix_cli/pipeline/generation.py`) runs an ordered list of typed stages — see [pipeline-stages](./packs/pipeline-stages.md).
+**Pipeline:** `.dtrx → Parser (datrix-language) → extension directives on AST → extension resolution → Semantic Analysis → Config Resolution → Application (sealed AST) → Generators`. No IR layer. `GenerationPipeline` (`datrix-cli/src/datrix_cli/pipeline/generation.py`) runs declared, typed stages in the order derived from what each reads and writes — see [pipeline-stages](./packs/pipeline-stages.md).
 
 ## Knowledge Packs — Read the One You Need
 
