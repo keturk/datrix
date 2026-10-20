@@ -14,6 +14,128 @@ Datrix is built on proven software engineering principles that ensure:
 
 ---
 
+## Design Guidelines (Binding)
+
+These twelve guidelines are the standard every design, implementation, review and decision is
+checked against. A design that breaks one is a defective draft, not an alternative to weigh, and
+an implementation that breaks one is a defect, whatever its tests say. When two options both
+satisfy every guideline, the rest of this document and the decision log choose between them; an
+option that breaks a guideline is never chosen because it is simpler, smaller or sooner.
+
+The sections below and the knowledge packs hold the detail; each guideline names where.
+
+### Portability: one application, every target
+
+**G1. Changing the target language loses no feature.** Every registered language realizes the
+same functionality from the same validated `Application`; only rendering differs (syntax, casing,
+type names, imports, framework idioms). No language is the reference: when copies disagree, the
+shared implementation takes the strongest behaviour (fails closed, reads everything the DSL
+declares, most secure, most correct output). A builtin, block type, DAL generator domain or
+documented construct one language realizes is an obligation for every language. Detail:
+[parity-and-obligation](packs/parity-and-obligation.md),
+[multi-target-invariants](../../../datrix-common/docs/contributing/ai-agent-rules/multi-target-invariants.md).
+
+**G2. Platforms use their native services, and the author may choose a portable process mode.**
+Each platform realizes a construct with its own native primitive (AWS Lambda, Azure Functions, a
+compose container) — see [Construct-Mapped Platform Realization](#11-construct-mapped-platform-realization-stable).
+Handler code stays platform-agnostic; the platform only packages, triggers and wires it. The
+author may also run serverless handlers as long-running processes on container or VM compute, on
+any platform, as an explicit choice — never as a fallback a platform takes silently. A platform
+realizes one serverless compute model, so on a cloud the choice is the provider: a VM provider
+beside the native one runs the compose stack on cloud compute with provisioned managed state. A
+choice a platform cannot host safely is refused at generation, naming what the platform offers.
+Status: native realization **Stable** on every platform; the process mode is **Stable** for
+local/existing providers (dedicated compose containers, or `serverless { hosting = "inProcess" }`
+inside the service's web app) and on Azure (`azure-vm`, Decision 35), and **Planned** on AWS
+(`aws-vm`).
+
+**G3. No platform lacks a capability another platform has.** Obligation is at the capability
+level (block type, notification channel, identity feature, observability category, portable
+config surface, …); a provider-specific product is that platform's vocabulary, the capability it
+delivers is everyone's. A capability a platform does not yet realize is one counted
+`capability_gaps` row on its own declaration, never an exemption and never a reason. Portable
+knobs are declared once and projected by every platform. Detail:
+[parity-and-obligation](packs/parity-and-obligation.md).
+
+**G4. The shipped targets are today's set, not the limit.** Shared layers ask, targets answer:
+target facts live on the target's plugin declaration, providers/flavors/runtimes/targets are
+registry-validated open-world identifiers, gates and tests enumerate targets from registration and
+never name one, and a fix lives at the most agnostic layer that can own it. The next target must
+slot in without a shared-code change. Detail: [Shared Layers Ask](#10-shared-layers-ask-target-plugins-answer-adopted),
+[target-plugins](packs/target-plugins.md).
+
+### The language and the generated code
+
+**G5. One language, every fact stated once.** A complete application is written in Datrix alone;
+every fact is stated once and derived everywhere else. An author never writes the same field
+list, route or setting twice, and a generator never reads a value from a second place that could
+drift from the first. Doc comments are documentation, never a channel for UI text or behaviour.
+Detail: [DRY](#2-dry-dont-repeat-yourself).
+
+**G6. Every declared knob is realized.** A setting the DSL or config accepts changes the generated
+output in a functional position; a surface no target consumes is deleted; a declared surface is
+the only emission path for its concern. Detail: [A Declared Knob Must Be Realized](#11-a-declared-knob-must-be-realized-adopted).
+
+**G7. Secure by default, in what Datrix emits as much as in Datrix itself.** The more secure
+option wins wherever one exists, and a difference in security posture settles a choice rather
+than creating one. Fail closed; credentials are required-and-present or the run stops; a running
+service reads no environment variable; auth is mandatory and checked before the action;
+permissions are as narrow as the need; errors and logs carry no secret, PII or internal address.
+Detail: [Credentials Fail Closed](#9-credentials-fail-closed),
+[secure-by-default](../../../datrix-common/docs/contributing/ai-agent-rules/secure-by-default.md).
+
+**G8. Fail loud, never silently.** An unknown identifier, an unsupported combination or a missing
+value stops generation with a diagnostic naming what went wrong, what was expected, the valid
+options and the fix. No defaulted required value, no fallback type mapping, no substituted mode.
+Detail: [Fail Fast, Fail Loud](#1-fail-fast-fail-loud).
+
+### Code quality and reuse
+
+**G9. Reusable, efficient code: one fact, one home.** Every behaviour has one implementation, in
+the most shared layer that can own it; a hoist removes every private copy in the same change.
+Shared plans are computed once and consumed by every generator; generator facts come from what
+analysis records, not from re-walking bodies. Generated code is efficient as well as correct:
+deployment-static values are baked in at generation, and no per-request work is done that
+generation could do. Detail: [shared-layer-and-one-fact](packs/shared-layer-and-one-fact.md).
+
+**G10. No backward compatibility, no pretend code.** A replaced path is deleted in the same
+change; nothing ships as a stub, placeholder, empty handler or temporary shim. Detail:
+[No Dead Code, No Runtime Stubs](#2-no-dead-code-no-runtime-stubs).
+
+### Testing
+
+**G11. Every test earns its place.** A test exists to prove a behaviour that could break, never to
+raise a count. The fact chooses the carrier: an annotation on the fixture line, a case row, a
+`.dcfg` fixture, a table row, and a test function only for an invariant over a set, an exception
+path or an algorithm's edge cases. Real objects only. Framework tests are static: they never
+compile, run or deploy generated output. One invariant read on every target replaces N per-target
+copies. Detail: [test-guidelines](../../../datrix-common/docs/contributing/test-guidelines/).
+
+**G12. Catch it statically, before running it.** Every producer/consumer seam gets a set
+comparison (consumed − produced) that lives in code as a validator or test; the emitted artifact
+is parsed before anything is generated, built or deployed; a runtime failure lands, with its fix,
+the static check that would have caught it. Detail:
+[static-analysis-first](../../../datrix-common/docs/contributing/ai-agent-rules/static-analysis-first.md).
+
+### Review checklist
+
+| # | Question | A "no" means |
+|---|---|---|
+| G1 | Does every language realize this with identical behaviour? | parity defect |
+| G2 | Does each platform use its native primitive, with the portable process mode still selectable? | missing realization or missing choice |
+| G3 | Does every platform realize the capability, or carry a counted gap row? | uncounted gap |
+| G4 | Would the next target slot in with no shared-code change? | non-general design |
+| G5 | Is every fact stated once by the author? | restatement |
+| G6 | Does every new knob change the output functionally? | inert surface |
+| G7 | Is the most secure available option taken, failing closed? | security defect |
+| G8 | Does every unsupported input stop with a full diagnostic? | silent fallback |
+| G9 | Is every behaviour implemented exactly once, at the most shared layer? | duplication |
+| G10 | Is every replaced path deleted, and nothing stubbed? | dual path or pretend code |
+| G11 | Does each new test prove something that could break, in the right carrier? | inflated tests |
+| G12 | Is each new seam checked statically, in code? | runtime-only detection |
+
+---
+
 ## Architectural Principles
 
 ### 1. Fail Fast, Fail Loud

@@ -2,6 +2,23 @@
 
 **What Datrix is:** a **multi-language, multi-platform code generator** (`.dtrx` domain specs → production-ready applications) — NOT limited to Python/TypeScript, NOT limited to Docker/AWS/Azure. Read every principle through that lens: a fix for one language/platform must not break another, and designs must preserve the multi-language, multi-platform nature.
 
+## Design Guidelines (Binding)
+
+Every design, implementation, review and decision is checked against these twelve; breaking one is a defect, never an option to weigh. Full text and review checklist: [design-principles.md § Design Guidelines](./design-principles.md#design-guidelines-binding).
+
+- **G1** Changing the target language loses no feature — same behaviour, only rendering differs.
+- **G2** Platforms use native primitives; the author may choose a portable process (container/VM) mode on any platform.
+- **G3** No platform lacks a capability another has — a missing one is a counted `capability_gaps` row.
+- **G4** Shipped targets are today's set, not the limit — the next target needs no shared-code change.
+- **G5** One language, every fact stated once.
+- **G6** Every declared knob is realized.
+- **G7** Secure by default, in emitted code as in Datrix; fail closed.
+- **G8** Fail loud, never silently.
+- **G9** Reusable, efficient code: one fact, one home.
+- **G10** No backward compatibility, no pretend code.
+- **G11** Every test earns its place — no tests to inflate a count.
+- **G12** Catch it statically, before running it.
+
 ## Core Principles
 
 1. **Fail Fast, Fail Loud** -- Errors at generation time, not runtime. Raise with context, never return None.
