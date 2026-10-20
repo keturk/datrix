@@ -38,6 +38,7 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -49,12 +50,17 @@ from datrix_scripts.local_llm import (
     ChatRequest,
     LocalLlmPool,
     LocalLlmUnavailable,
-    add_local_llm_arguments,
-    local_llm_settings,
+    add_wrapper_llm_arguments,
+    wrapper_llm_settings,
 )
 from datrix_scripts.local_reading import ReadScopeError, load_workspace_term_corpus
 from datrix_scripts.paths import WORKSPACE_DIR
 from datrix_scripts.git.fix_line_endings import fix_repo
+from datrix_scripts.test.wrappers import GIT_SCRIPTS_DIR, module_main, run_self_test
+
+MODULE = "datrix_scripts.git.resolve_pull"
+WRAPPER = "resolve-pull"
+LLM_TIMEOUT_SECONDS = 300
 
 EXIT_ALL_DONE = 0
 EXIT_NEEDS_ATTENTION = 1
@@ -528,8 +534,8 @@ def _drafter(args: argparse.Namespace) -> MergeDrafter | None:
     except ReadScopeError as exc:
         print(f"No merge drafts: {exc}", file=sys.stderr)
         return None
-    pool = LocalLlmPool(local_llm_settings(args), report=lambda line: None)
-    return MergeDrafter(pool, corpus, {repo.name for repo in framework_repos()})
+    pool = LocalLlmPool(wrapper_llm_settings(args), report=lambda line: None)
+    return MergeDrafter(pool, corpus, {repo.name for repo in framework_repos(WORKSPACE_DIR)})
 
 
 def _one(repo: Path, args: argparse.Namespace, drafter: MergeDrafter | None) -> RepoReport:
@@ -541,19 +547,30 @@ def _one(repo: Path, args: argparse.Namespace, drafter: MergeDrafter | None) -> 
         return RepoReport(repo.name, OUTCOME_FAILED, [str(exc)])
 
 
-def main(argv: list[str]) -> int:
-    for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("repos", nargs="*", help="Repository names (default: every git repository in the workspace)")
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``git/resolve-pull.ps1``: one per wrapper parameter, spelled exactly."""
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     allow_abbrev=False)
+    parser.add_argument("positional_repos", nargs="*", metavar="REPO", help="Repository names (as --repo).")
+    parser.add_argument("--repo", action="append", default=[],
+                        help="Repository name (repeatable). Default: every git repository in the workspace.")
     parser.add_argument("--finish", action="store_true", help="Verify the hand merge, then drop the stash entry")
-    parser.add_argument("--merged", nargs="*", default=[], help="With --finish: paths whose local lines were "
-                        "deliberately merged with the incoming change (reported, not refused)")
+    parser.add_argument("--merged", action="extend", nargs="*", default=[], help="With --finish: paths whose "
+                        "local lines were deliberately merged with the incoming change (reported, not refused)")
     parser.add_argument("--no-model", action="store_true", help="No local-model merge drafts in the packet")
-    add_local_llm_arguments(parser)
-    args = parser.parse_args(argv)
+    add_wrapper_llm_arguments(parser, timeout_seconds=LLM_TIMEOUT_SECONDS)
+    parser.add_argument("--self-test", action="store_true",
+                        help="Run only the wrapper seam checks: the wrapper and its twin are the templates "
+                             "rendered with exactly this parser's options.")
+    parser.set_defaults(debug=False)
+    return parser
+
+
+def _run(args: argparse.Namespace) -> int:
+    if args.self_test:
+        return run_self_test([], wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=GIT_SCRIPTS_DIR)
     try:
-        repos = _repos(args.repos)
+        repos = _repos([*args.positional_repos, *args.repo])
     except ResolveError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return EXIT_CANNOT_RUN
@@ -565,5 +582,10 @@ def main(argv: list[str]) -> int:
     return EXIT_ALL_DONE if all(report.done for report in reports) else EXIT_NEEDS_ATTENTION
 
 
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point."""
+    return module_main(build_parser(), _run, argv)
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
