@@ -42,13 +42,13 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **manda
 
 Every run writes `generate-results-<timestamp>-<language>[-<profile>].log` to `<workspace>\.generated\.results`, whatever the output path; product repos' generate scripts call this script to get that log.
 
-Before generating, the script checks the editable installs and that every installed plugin loads (`datrix_scripts.plugin_discovery`, run through `Invoke-DatrixPythonScript -RequirePackages`, over the `datrix.languages`, `datrix.generators`, `datrix.platforms` and `datrix.extensions` groups), and then verifies the `datrix` CLI (`common\venv.ps1 -TestCommand`; on failure it prints why, then reinstalls `datrix-cli` with `common\venv.ps1 -InstallPackage datrix-cli -NoDev`, which refuses under `DATRIX_OFFLINE`, and checks again). `datrix --version` loads no plugin, so a package whose plugin fails to register is named here, with the registry's own error, instead of failing deep inside the pipeline.
+Before generating, the script checks the editable installs and that every installed plugin loads (a `datrix_scripts.plugin_discovery` child over the `datrix.languages`, `datrix.generators`, `datrix.platforms` and `datrix.extensions` groups), and then verifies the `datrix` CLI (`datrix_scripts.venv.check_datrix_command`; on failure it prints why, then reinstalls `datrix-cli` without its `[dev]` extra, which refuses under `DATRIX_OFFLINE`, and checks again). `datrix --version` loads no plugin, so a package whose plugin fails to register is named here, with the registry's own error, instead of failing deep inside the pipeline.
 
 **Parameters:** `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, **mandatory**, the real generation target — also selects the output-path language segment), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner, output path only), `-ConfigProfile` (config profile that also selects the provider segment read from `config/system.dcfg`, e.g. test\|development\|production; default: test), `-ValidationLevel` (none\|fast\|standard, validated by the CLI; omitted = CLI default, standard), `-OutputBase` (default: .generated), `-TestSet` (default: all), `-VerboseOutput`, `-Dbg`
 
-**Logs:** generation logs are saved to `.generated/.results/generate-results-TIMESTAMP-LANGUAGE[-PROFILE].log`; old logs are not deleted automatically. The language and profile segments are labels, not what keeps two runs apart: each run **claims** its log file (`common/DatrixRunLog.psm1`), so two runs that compute the same name — two profiles generated in the same second, or two runs of one profile — get `…-2.log`, `…-3.log`, … rather than truncating and interleaving one file. Held by `test/run-log-exclusivity-gate.ps1`. Every exit path prints `Log saved to: <path>`, which the red-run digest hook reads when the Generation Summary reports a failed project.
+**Logs:** generation logs are saved to `.generated/.results/generate-results-TIMESTAMP-LANGUAGE[-PROFILE].log`; old logs are not deleted automatically. The language and profile segments are labels, not what keeps two runs apart: each run **claims** its log file (`datrix_scripts.run_log.claim_run_log_file`), so two runs that compute the same name — two profiles generated in the same second, or two runs of one profile — get `…-2.log`, `…-3.log`, … rather than truncating and interleaving one file. Held by `test/run-log-exclusivity-gate.ps1`. Every exit path prints `Log saved to: <path>`, which the red-run digest hook reads when the Generation Summary reports a failed project.
 
-**Implementation:** `scripts/dev/generate.ps1` checks the packages, claims the run log and runs the generator; `scripts/dev/lib/generate.py` resolves the output path and runs `datrix generate` per project.
+**Module:** `datrix_scripts.dev.generate` (in `common/lib/`), behind a wrapper rendered from `common/templates/entrypoint.ps1`: it checks the packages, claims the run log and runs `datrix_scripts.dev.generate_projects`, which resolves the output path and runs `datrix generate` per project. Its POSIX twin `dev\generate.sh` takes the module's own flags: each parameter as `--kebab-name` (`--source`, `--output`, `--language`, `--runtime`, `--config-profile`, `--test-set`, `--verbose-output`, `--dbg`, `--self-test`; the `-L`/`-R` aliases are `--language`/`--runtime`) — `bash dev/generate.sh --source examples/02-features/01-core-data-modeling/entities/system.dtrx --language python`. `-SelfTest` runs the module's self-test and generates nothing. Every module behind a `dev\` wrapper takes its options spelled in full: an abbreviation is a usage error (exit 2), never expanded, since the guards read flags by their exact spelling.
 
 ### `dev\generate-doc-fragments.ps1`
 
@@ -62,7 +62,9 @@ Generates documentation fragments from source code. Extracts semantic pipeline s
 | **Check mode** | `.\dev\generate-doc-fragments.ps1 -Check` | Verify fragments are up-to-date (non-zero exit if stale) |
 | **With debug** | `.\dev\generate-doc-fragments.ps1 -Dbg` | Show detailed output |
 
-**Parameters:** `-Fragment` (positional 0: all\|semantic-pipeline\|cli-help, default: all), `-Check`, `-Dbg`
+**Parameters:** `-Fragment` (positional 0: all\|semantic-pipeline\|cli-help, default: all), `-Check`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.dev.generate_doc_fragments`; POSIX twin `dev\generate-doc-fragments.sh` (`--check`, `--dbg`, `--self-test`; the fragment positional) — `bash dev/generate-doc-fragments.sh --check`.
 
 ---
 
@@ -84,7 +86,9 @@ counted.
 | **Importers of a name** | `.\dev\find-imports.ps1 -Module datrix_common.errors.plugin -Name PluginError` | `[from-import]` sites, plus `[attribute]` reads (`plugin_mod.PluginError`) on a bound module |
 | **Everything from a module** | `.\dev\find-imports.ps1 -Module datrix_codegen_common.transpiler.base` | Every from-import, plus `[import]`/`[module-import]` statements binding the module itself |
 
-**Parameters:** `-Module <dotted,...>` (required), `-Name <name,...>`, `-Dbg`
+**Parameters:** `-Module <dotted,...>` (required), `-Name <name,...>`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.dev.find_imports`; POSIX twin `dev\find-imports.sh` (`--module`, `--name`, `--dbg`, `--self-test`) — `bash dev/find-imports.sh --module datrix_common.errors.plugin --name PluginError`.
 
 ### `dev\who-imports.ps1`
 
@@ -98,7 +102,9 @@ reports *that* a forbidden edge exists (statically); this shows *which chain* re
 |------|---------|-------------|
 | **Trace a target** | `.\dev\who-imports.ps1 -Root datrix_codegen_kernel.dgen -Target datrix_codegen_common` | Does the kernel load the language layer, and through which import? |
 
-**Parameters:** `-Root <module,...>` (required), `-Target <module,...>` (required). **Exit codes:** 0 = every root imported (a target that never loaded is listed as such), 2 = a root failed to import (its error is printed).
+**Module:** `datrix_scripts.dev.who_imports`; POSIX twin `dev\who-imports.sh` (`--root`, `--target`, `--self-test`).
+
+**Parameters:** `-Root <module,...>` (required), `-Target <module,...>` (required), `-SelfTest`. **Exit codes:** 0 = every root imported (a target that never loaded is listed as such), 2 = a root failed to import (its error is printed).
 
 ### `dev\print-sexp.ps1`
 
@@ -112,7 +118,9 @@ library on every host. Named nodes only by default; MISSING nodes print as `(MIS
 | **File** | `.\dev\print-sexp.ps1 examples\01-foundation\system.dtrx` | Tree of one file |
 | **Inline** | `.\dev\print-sexp.ps1 -Text 'service s { }' -All` | Inline source, anonymous nodes included |
 
-**Parameters:** `-Path` (positional 0) or `-Text`, `-All`. **Exit codes:** 0 = clean tree, 1 = ERROR or MISSING nodes present (tree still printed), 2 = input unreadable.
+**Module:** `datrix_scripts.dev.print_sexp`; POSIX twin `dev\print-sexp.sh` (`--path` or the path positional, `--text`, `--all`, `--self-test`).
+
+**Parameters:** `-Path` (positional 0) or `-Text`, `-All`, `-SelfTest`. **Exit codes:** 0 = clean tree, 1 = ERROR or MISSING nodes present (tree still printed), 2 = input unreadable.
 
 ---
 
@@ -131,7 +139,9 @@ Lints documentation for common drift patterns: deprecated CLI flags, fixed phase
 | **Custom docs dir** | `.\dev\check-docs.ps1 path\to\docs` | Scan specific directory |
 | **Debug** | `.\dev\check-docs.ps1 -Dbg` | Debug logging |
 
-**Parameters:** `-DocsDir` (positional, variadic — defaults to all monorepo docs/), `-Check` (deprecated-cli-flags\|fixed-phase-count\|cdx-filenames\|cdx-structure\|capability-status-labels, repeatable), `-Detailed`, `-Dbg`
+**Parameters:** `-DocsDir` (positional, variadic — defaults to all monorepo docs/), `-Check` (deprecated-cli-flags\|fixed-phase-count\|cdx-filenames\|cdx-structure\|capability-status-labels, repeatable), `-Detailed`, `-Dbg`, `-LlmSuggest` with `-LlmLimit`, `-LlmNumPredict`, `-LlmTemperature` and the shared local-model flags `-LocalMachines`, `-LlmModel`, `-LlmTimeout`, `-SelfTest`
+
+**Module:** `datrix_scripts.dev.check_docs`; POSIX twin `dev\check-docs.sh` (`--docs-dir`, `--check`, `--detailed`, `--dbg`, `--llm-suggest`, `--self-test`, …) — `bash dev/check-docs.sh --check deprecated-cli-flags`.
 
 **Exit codes:** 0 = clean, 1 = lint failures found
 
@@ -143,7 +153,7 @@ Lints documentation for common drift patterns: deprecated CLI flags, fixed phase
 
 Queries the code index: an SQLite index of every Python file git sees in the workspace repositories (tracked, plus untracked files no `.gitignore` excludes, minus `scripts/config/code-index.json`'s `exclude`). It lives beside the checkout at `d:\datrix\.code-index\`. **Each development machine has its own**, built from its own working tree, so nothing is synchronised between machines.
 
-**Creating and updating.** Run `-Setup` once on each machine, and again whenever the server's script path changes: it builds the index (about ten seconds) and writes the index's MCP server into `d:\datrix\.mcp.json` with this machine's paths and the scripts `PYTHONPATH`, keeping any other servers in the file. It then approves the server for this machine in `.claude\settings.local.json` (gitignored), because current Claude Code builds ignore an approval in the checked-in `settings.json`. Last, it removes the local-scope registrations older versions made. Claude Code reads `.mcp.json` from the opened folder for every installation and drive-letter spelling, so an extension update needs no re-run. Then restart Claude Code (in VS Code: Developer: Reload Window). `claude mcp get datrix-code-index` may still say "Pending approval"; a real session connects it regardless. There is nothing to schedule after that. Every query, from this script or an agent's MCP tool call, first brings the index up to date with the working tree (about 0.2 s when little changed), so edits, pulls and branch switches show up in the next query. Only files whose content changed are parsed again.
+**Creating and updating.** Run `-Setup` once on each machine, and again whenever the server's script path changes: it builds the index (about ten seconds) and writes the index's MCP server into `d:\datrix\.mcp.json` with this machine's paths and the scripts `PYTHONPATH`, keeping any other servers in the file. It then approves the server for this machine in `.claude\settings.local.json` (gitignored), because current Claude Code builds ignore an approval in the checked-in `settings.json`. Last, it removes the local-scope registrations older versions made. Those two files are the only ones `-Setup` writes (here and in `local-llm.ps1 -Setup`, the same `datrix_scripts.dev.mcp_setup` writer); a file that is not valid JSON is refused, never overwritten. Claude Code reads `.mcp.json` from the opened folder for every installation and drive-letter spelling, so an extension update needs no re-run. Then restart Claude Code (in VS Code: Developer: Reload Window). `claude mcp get datrix-code-index` may still say "Pending approval"; a real session connects it regardless. There is nothing to schedule after that. Every query, from this script or an agent's MCP tool call, first brings the index up to date with the working tree (about 0.2 s when little changed), so edits, pulls and branch switches show up in the next query. Only files whose content changed are parsed again.
 
 The index also owns the logic map. Every refresh rewrites `d:\datrix\.logic-map\markers.db` whenever the `@canonical`/`@pattern`/`@boundary`/`@invariant`/`@test-rule` markers in source changed.
 
@@ -164,19 +174,21 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 
 **Usage log:** the non-blocking PostToolUse hook `record-search-usage.py` appends one line per code-search call to `d:\datrix\.code-index\usage.jsonl` on each machine. It records the tool, the pattern or path searched (never file content) and the size of the answer. A shell search counts when `rg`/`grep`/`Select-String`/`findstr` starts a command or is piped from a file listing; piped from anything else it is an output filter and is not logged. After an identifier grep or a whole read of a large `.py` file the same hook points the agent at the index: at the MCP tool when the server is registered for the directory the session started in, otherwise at the `code-index.ps1` command. The hook finds its workspace from its own real path, so it logs to `d:\datrix\.code-index\` however it is started.
 
-**Summaries stay current without `-Summarize`.** A module summary is keyed by the module's content hash, so every edit leaves the module without one. When a query's refresh (the CLI's, or an MCP tool call's) finds changed files, or the MCP server's first call finds modules still waiting, it starts a detached `code_index_cli.py summarize --limit 0` run in the background and answers at once; the run summarizes everything pending on the local model servers and exits. Only one summarize run exists at a time: every run, this one or a manual `-Summarize`, holds `d:\datrix\.code-index\summarize.lock` (a lock older than 4 hours is taken over), and a second run exits at once. The background run's output is `d:\datrix\.code-index\summarize.log`. `-Status` shows the coverage.
+**Summaries stay current without `-Summarize`.** A module summary is keyed by the module's content hash, so every edit leaves the module without one. When a query's refresh (the CLI's, or an MCP tool call's) finds changed files, or the MCP server's first call finds modules still waiting, it starts a detached `python -m datrix_scripts.dev.code_index --summarize --limit=0` run in the background and answers at once; the run summarizes everything pending on the local model servers and exits. Only one summarize run exists at a time: every run, this one or a manual `-Summarize`, holds `d:\datrix\.code-index\summarize.lock` (a lock older than 4 hours is taken over), and a second run exits at once. The background run's output is `d:\datrix\.code-index\summarize.log`. `-Status` shows the coverage.
 
 **Missing registration is announced.** A session whose start directory lacks the `datrix-code-index` or `datrix-local-llm` server is told so at session start by `session-context.py`, per server, with its `-Setup` command (and, for the index, the shell fallback). A server counts when registered in user scope, in local scope for that exact directory, or in a `.mcp.json` there that this machine has approved (`enabledMcpjsonServers` in `.claude\settings.local.json` or the project's `~/.claude.json` entry; `disabledMcpjsonServers` wins). Without it a machine that never ran `-Setup` looks like one that did, and every agent silently greps instead.
 
-**Parameters:** exactly one action: `-Symbol`, `-References`, `-Outline`, `-Search`, `-Canonical`, `-Status`, `-Refresh`, `-Usage`, `-Summarize`, `-Setup`. Modifiers: `-Kind` (with `-Symbol`), `-IncludeTestRules` (with `-Canonical`), `-Days` (with `-Usage`; default 7, 0 = all), `-Limit` (results, files listed, or modules summarized), `-Workers` (default 4), `-LocalMachines`, `-LlmModel` and `-LlmTimeout` (default 300; all three with `-Summarize`).
+**Parameters:** exactly one action: `-Symbol`, `-References`, `-Outline`, `-Search`, `-Canonical`, `-Status`, `-Refresh`, `-Usage`, `-Summarize`, `-Setup`. Modifiers: `-Kind` (with `-Symbol`), `-IncludeTestRules` (with `-Canonical`), `-Days` (with `-Usage`; default 7, 0 = all), `-Limit` (results, files listed, or modules summarized), `-Workers` (default 4), `-LocalMachines`, `-LlmModel` and `-LlmTimeout` (default 300; all three with `-Summarize`). `-SelfTest` runs the module's self-test.
 
 **Exit codes:** 0 answered; 1 the query or index could not be answered as asked; 2 `-Summarize` found no local model server.
 
-**Agents:** the MCP server (`dev/lib/code_index_mcp.py`, stdio, no socket) offers the same queries as the tools `find_symbol`, `find_references`, `outline`, `search`, `find_canonical` and `index_status`.
+**Module:** `datrix_scripts.dev.code_index`; POSIX twin `dev\code-index.sh` (`--symbol`, `--references`, `--outline`, `--search`, `--canonical`, `--status`, `--setup`, `--self-test`, …) — `bash dev/code-index.sh --symbol to_snake_case`. `-Setup` (`datrix_scripts.dev.mcp_setup`) registers the server as the venv Python running `-m datrix_scripts.dev.code_index_mcp`.
+
+**Agents:** the MCP server (`datrix_scripts.dev.code_index_mcp`, stdio, no socket) offers the same queries as the tools `find_symbol`, `find_references`, `outline`, `search`, `find_canonical` and `index_status`.
 
 ### `dev\code-index-gate.ps1`
 
-Behaviour checks for the code index (`common/lib/datrix_scripts/code_index/`) and its entry points (`dev\code-index.ps1`, the MCP server `dev/lib/code_index_mcp.py`, and the logic-map consumers). Each check builds a real workspace of git repositories in a temporary directory and runs the real index over it. The checks cover:
+Behaviour checks for the code index (`common/lib/datrix_scripts/code_index/`) and its entry points (`dev\code-index.ps1`, the MCP server `datrix_scripts.dev.code_index_mcp`, and the logic-map consumers). Each check builds a real workspace of git repositories in a temporary directory and runs the real index over it. The checks cover:
 
 - extraction: definitions, imports and references, a file with a syntax error, and wrapped `@rule` lines
 - the file set: git visibility and config excludes
@@ -202,6 +214,8 @@ It is a repo-level validation **script**, not a pytest suite.
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 
+**Module:** `datrix_scripts.dev.code_index_gate`; POSIX twin `dev\code-index-gate.sh` (`--only`, `--harness-self-test`, `--self-test`, `--dbg`). The run ends with the `[GATE] code-index PASSED|FAILED` verdict line.
+
 ### `dev\logic-map-report.ps1`
 
 Refreshes the code index (which rewrites the logic map database if markers changed), then dumps the logic map SQLite database to a readable Markdown report for human verification.
@@ -211,7 +225,9 @@ Refreshes the code index (which rewrites the logic map database if markers chang
 | **Default** | `.\dev\logic-map-report.ps1` | Write logic-map-report.md to current dir |
 | **Custom output** | `.\dev\logic-map-report.ps1 -Output docs\logic-map.md` | Custom output path |
 
-**Parameters:** `-Output` (positional 0)
+**Parameters:** `-Output` (positional 0), `-SelfTest`
+
+**Module:** `datrix_scripts.dev.logic_map_report`; POSIX twin `dev\logic-map-report.sh` (`--output` or the output positional, `--self-test`).
 
 **Exit codes:** 0 = report written and every `@see` names a declared topic; 1 = the index could not be refreshed, or the report lists dangling `@see` references (section "Dangling @see References").
 
@@ -221,7 +237,7 @@ Refreshes the code index (which rewrites the logic map database if markers chang
 
 ### `dev\local-llm.ps1`
 
-**Sets up, inspects and measures the local model servers that agents read through.** The Ollama servers on the network's machines (the only model server they run; searched by `common/lib/datrix_scripts/local_llm.py`) answer every local-model script, the stop-gate judge, and the agents' MCP tools from `dev/lib/local_llm_mcp.py`:
+**Sets up, inspects and measures the local model servers that agents read through.** The Ollama servers on the network's machines (the only model server they run; searched by `common/lib/datrix_scripts/local_llm.py`) answer every local-model script, the stop-gate judge, and the agents' MCP tools from `datrix_scripts.dev.local_llm_mcp`:
 
 | Tool | What the agent gets |
 |------|---------------------|
@@ -249,19 +265,21 @@ Hooks reach the shared scripts package through `add_scripts_lib_to_path()` in `_
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Set up a machine** | `.\dev\local-llm.ps1 -Setup` | Write the MCP server `datrix-local-llm` into `d:\datrix\.mcp.json` (other servers kept, scripts `PYTHONPATH` in its `env`), approve it for this machine in `.claude\settings.local.json`, remove older local-scope registrations; restart Claude Code afterwards. Same mechanism as `code-index.ps1 -Setup` (`Install-DatrixProjectMcpServer`) |
+| **Set up a machine** | `.\dev\local-llm.ps1 -Setup` | Write the MCP server `datrix-local-llm` into `d:\datrix\.mcp.json` (other servers kept, scripts `PYTHONPATH` in its `env`), approve it for this machine in `.claude\settings.local.json`, remove older local-scope registrations; restart Claude Code afterwards. Same mechanism as `code-index.ps1 -Setup` (`datrix_scripts.dev.mcp_setup`) |
 | **Status** | `.\dev\local-llm.ps1 -Status` | Servers that answer, resident models, a line per machine holding no model indefinitely, and the last day's usage |
 | **Usage** | `.\dev\local-llm.ps1 -Usage -Days 7` | Requests by caller and by server (`-Days 0` = everything logged) |
 | **Pin** | `.\dev\local-llm.ps1 -Pin` | On each reachable machine, load the first installed model of the load preference and keep it resident indefinitely, so the resident-only callers (the red-run digest hook) find one; prints per machine what was pinned or why not. Nothing pins automatically |
 | **Unpin** | `.\dev\local-llm.ps1 -Unpin` | On each reachable machine, unload every indefinitely resident model; prints what was released |
 
-**Parameters:** exactly one action: `-Setup`, `-Status`, `-Usage`, `-Pin`, `-Unpin`. Modifier: `-Days` (with `-Status`, default 1; with `-Usage`, default 7; 0 = all).
+**Parameters:** exactly one action: `-Setup`, `-Status`, `-Usage`, `-Pin`, `-Unpin`, `-SelfTest`. Modifier: `-Days` (with `-Status`, default 1; with `-Usage`, default 7; 0 = all).
 
 **Exit codes:** 0 done; 1 the request could not be carried out.
 
+**Module:** `datrix_scripts.dev.local_llm`; POSIX twin `dev\local-llm.sh` (`--setup`, `--status`, `--usage`, `--pin`, `--unpin`, `--days`, `--self-test`) — `bash dev/local-llm.sh --status`. `-Setup` registers the server as the venv Python running `-m datrix_scripts.dev.local_llm_mcp`.
+
 ### `dev\local-llm-gate.ps1`
 
-Behaviour checks for the local-model reading tools: the reading layer (`common/lib/datrix_scripts/local_reading.py`) and the MCP server built on it (`dev/lib/local_llm_mcp.py`). Each check builds a real workspace in a temporary directory (two framework repositories, a customer-style repository beside them, `.tmp` and `.test-output`) and answers through a real Ollama-shaped server on loopback (`common/lib/datrix_scripts/local_llm_loopback.py`) whose answers depend on the prompt. It never contacts the network's model servers, and it records requests in a temporary usage log, never the machine's own. The checks cover:
+Behaviour checks for the local-model reading tools: the reading layer (`common/lib/datrix_scripts/local_reading.py`) and the MCP server built on it (`datrix_scripts.dev.local_llm_mcp`). Each check builds a real workspace in a temporary directory (two framework repositories, a customer-style repository beside them, `.tmp` and `.test-output`) and answers through a real Ollama-shaped server on loopback (`common/lib/datrix_scripts/local_llm_loopback.py`) whose answers depend on the prompt. It never contacts the network's model servers, and it records requests in a temporary usage log, never the machine's own. The checks cover:
 
 - scope: framework repositories and `.test-output` are read; another repository, `.tmp`, `..` escapes, `.git` internals and paths outside the workspace are refused; a glob reaching out of scope is refused whole; at most 40 files per call
 - chunking: every chunk opens with its file's header and keeps original line numbers; a long file is split at line boundaries
@@ -282,9 +300,11 @@ It is a repo-level validation **script**, not a pytest suite.
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 
+**Module:** `datrix_scripts.dev.local_llm_gate`; POSIX twin `dev\local-llm-gate.sh` (`--only`, `--harness-self-test`, `--self-test`, `--dbg`). The run ends with the `[GATE] local-llm PASSED|FAILED` verdict line.
+
 ### `dev\line-edit.ps1`
 
-Sets up the `datrix-edit` MCP server (`dev/lib/line_edit_mcp.py`, logic in `common/lib/datrix_scripts/line_edits.py`). Its `read_lines` shows each line as `<number>:<hash>|<text>` (same `file_path`/`offset`/`limit` as Read). Its `edit_lines` replaces lines (`{file_path, start, end, hashes, text}`, `hashes` = the 2-character hash of every replaced line) or inserts after a line (`{file_path, after, hash, text}`, `after` 0 = the top). One call carries up to 200 edits across files.
+Sets up the `datrix-edit` MCP server (`datrix_scripts.dev.line_edit_mcp`, logic in `common/lib/datrix_scripts/line_edits.py`). Its `read_lines` shows each line as `<number>:<hash>|<text>` (same `file_path`/`offset`/`limit` as Read). Its `edit_lines` replaces lines (`{file_path, start, end, hashes, text}`, `hashes` = the 2-character hash of every replaced line) or inserts after a line (`{file_path, after, hash, text}`, `after` 0 = the top). One call carries up to 200 edits across files.
 
 - **Old text is never re-sent.** An `Edit` re-sends its `old_string`, padded until unique, and every later response re-reads it. In one overnight run, old text made up 46% of all edit input.
 - **Checked before written.** Line numbers refer to the files as they were before the call, and edits apply bottom-up. Every edit is checked before any file is written. One wrong hash refuses the whole call and shows the lines now there.
@@ -296,9 +316,14 @@ Sets up the `datrix-edit` MCP server (`dev/lib/line_edit_mcp.py`, logic in `comm
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Set up a machine** | `.\dev\line-edit.ps1 -Setup` | Write `datrix-edit` into `d:\datrix\.mcp.json` (other servers kept), approve it for this machine in `.claude\settings.local.json`, remove older local-scope registrations; restart Claude Code afterwards (`Install-DatrixProjectMcpServer`, as for `code-index.ps1 -Setup`) |
+| **Set up a machine** | `.\dev\line-edit.ps1 -Setup` | Write `datrix-edit` into `d:\datrix\.mcp.json` (other servers kept), approve it for this machine in `.claude\settings.local.json`, remove older local-scope registrations; restart Claude Code afterwards (`datrix_scripts.dev.mcp_setup`, the writer behind `code-index.ps1 -Setup`). The entry starts the server as `python -m datrix_scripts.dev.line_edit_mcp`, so a machine set up when the server was a script path re-runs `-Setup` |
+| **Self-test** | `.\dev\line-edit.ps1 -SelfTest` | `-Setup` is required, the server module it registers resolves, and the wrapper is the template rendered with the module's options; registers nothing |
+
+**Parameters:** `-Setup`, `-SelfTest`
 
 **Exit codes:** 0 done; 1 the request could not be carried out.
+
+**Module:** `datrix_scripts.dev.line_edit`; POSIX twin `dev\line-edit.sh` (`--setup`, `--self-test`).
 
 ### `dev\line-edit-gate.ps1`
 
@@ -322,15 +347,17 @@ It is a repo-level validation **script**, not a pytest suite. The hook side is c
 | **Run the gate** | `.\dev\line-edit-gate.ps1` | Run every check |
 | **One area** | `.\dev\line-edit-gate.ps1 -Only check_mcp` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\dev\line-edit-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
-| **Self-test** | `.\dev\line-edit-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
+| **Self-test** | `.\dev\line-edit-gate.ps1 -SelfTest` | Harness self-test, then the wrapper seam checks |
 
 **Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 
+**Module:** `datrix_scripts.dev.line_edit_gate`; POSIX twin `dev\line-edit-gate.sh` (`--only`, `--harness-self-test`, `--self-test`, `--dbg`). The run ends with the `[GATE] line-edit PASSED|FAILED` verdict line.
+
 ### `dev\ineedtoknow.ps1`
 
-**Ask what you need to know, in your own words, instead of loading whole docs.** The knowledge base answers from the project's own docs (architecture cheat sheet and knowledge packs, the decision log, agent rules, execution contract, script quick-references, package architecture docs; the list is `CURATED_PATTERNS` in `common/lib/datrix_scripts/knowledge/seed.py`), cut into chunks by heading, and from answers learned earlier. A hit is a brief answer plus the file and line range to open. Wrapper over `dev/lib/ineedtoknow_cli.py`; the logic is in `common/lib/datrix_scripts/knowledge/`.
+**Ask what you need to know, in your own words, instead of loading whole docs.** The knowledge base answers from the project's own docs (architecture cheat sheet and knowledge packs, the decision log, agent rules, execution contract, script quick-references, package architecture docs; the list is `CURATED_PATTERNS` in `common/lib/datrix_scripts/knowledge/seed.py`), cut into chunks by heading, and from answers learned earlier. A hit is a brief answer plus the file and line range to open. Wrapper over the module `datrix_scripts.dev.ineedtoknow`; the logic is in `common/lib/datrix_scripts/knowledge/`.
 
 **When the knowledge base holds no answer**, a local model server that already has a model in memory (never waits for a load) reads the closest chunks of the docs (with their real line numbers) plus any `-In` files, and writes a short cited answer. The answer is **stored only when grounded**: it cites at least one `path:line`, every citation names a file and line the model was actually sent, and every quoted snippet is in what it was sent. A failed answer is reported with the reason and the closest places to read, and is never stored. With no model server available it says so and lists the same places. A stored answer **expires when a file it cites changes** (content hash).
 
@@ -346,13 +373,15 @@ It is a repo-level validation **script**, not a pytest suite. The hook side is c
 | **Rebuild** | `.\dev\ineedtoknow.ps1 -Rebuild` | Drop the database and rebuild it from the docs and the committed learned files |
 | **Prune** | `.\dev\ineedtoknow.ps1 -Prune` | Delete learned files whose cited files changed on this machine (a git change to commit) |
 
-**Parameters:** exactly one of: a question (positional or `-Question`), `-Status`, `-Rebuild`, `-Prune`. Modifiers: `-In`, `-Refresh`, `-NoLearn`, `-Limit` (answers shown, default 3), and the shared local-model flags `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 120).
+**Parameters:** exactly one of: a question (positional or `-Question`), `-Status`, `-Rebuild`, `-Prune`. Modifiers: `-In`, `-Refresh`, `-NoLearn`, `-Limit` (answers shown, default 3), and the shared local-model flags `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 120). `-SelfTest` runs the module's self-test.
+
+**Module:** `datrix_scripts.dev.ineedtoknow`; POSIX twin `dev\ineedtoknow.sh` (the question positional or `--question`, `--in`, `--refresh`, `--no-learn`, `--status`, `--rebuild`, `--prune`, `--self-test`, …) — `bash dev/ineedtoknow.sh "which package owns the gateway route enumeration" --no-learn`.
 
 **Exit codes:** 0 answered; 1 the request could not be carried out (the message says why); 2 no answer (not in the knowledge base and no local model could add one). An answer is a lead, not a finding: open the cited lines before acting on it.
 
 ### `dev\ineedtoknow-gate.ps1`
 
-Behaviour checks for `dev\ineedtoknow.ps1` (`common/lib/datrix_scripts/knowledge/`, `dev/lib/ineedtoknow_cli.py`). Each check builds a real workspace in a temporary directory (framework repositories plus a customer-style repository), uses real SQLite files, and answers through a real Ollama-shaped server on loopback (`common/lib/datrix_scripts/local_llm_loopback.py`). It never contacts the network's model servers and never touches the machine's own knowledge base. The checks cover:
+Behaviour checks for `dev\ineedtoknow.ps1` (`common/lib/datrix_scripts/knowledge/`, `datrix_scripts.dev.ineedtoknow`). Each check builds a real workspace in a temporary directory (framework repositories plus a customer-style repository), uses real SQLite files, and answers through a real Ollama-shaped server on loopback (`common/lib/datrix_scripts/local_llm_loopback.py`). It never contacts the network's model servers and never touches the machine's own knowledge base. The checks cover:
 
 - chunking: a chunk's body equals the document's own lines `line_start`..`line_end`; a `#` line inside a code fence is not a heading; a long section splits into bounded chunks that keep every line
 - sync: docs are added, updated by content hash and removed; a customer repository never enters the knowledge base
@@ -374,6 +403,8 @@ It is a repo-level validation **script**, not a pytest suite.
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
 
+**Module:** `datrix_scripts.dev.ineedtoknow_gate`; POSIX twin `dev\ineedtoknow-gate.sh` (`--only`, `--harness-self-test`, `--self-test`, `--dbg`). The run ends with the `[GATE] ineedtoknow PASSED|FAILED` verdict line.
+
 ---
 
 ## Code Health
@@ -384,10 +415,10 @@ It is a repo-level validation **script**, not a pytest suite.
 
 | Section | Source | What the scan adds |
 |---|---|---|
-| Dead code: never used / used only by tests | two-pass Vulture (`common/lib/datrix_scripts/dead_code_report.py`) | Each finding is checked against the code index across the whole workspace, so a use in another package refutes it. It is dropped if a Jinja template, a Python string (a `getattr` name, a dotted resolver path, DAL generator text) or a `pyproject.toml` entry point names it. Unused imports are left to ruff. Classes and functions rank above fields. |
-| Too complex | cyclomatic + cognitive (`common/lib/datrix_scripts/complexity.py`) | Merged, highest first |
-| Duplicated blocks | Pylint R0801 (`common/lib/datrix_scripts/duplicate.py`) | Largest first |
-| Docs drift | `dev/lib/check_docs.py` checks over each package's `docs/` | — |
+| Dead code: never used / used only by tests | two-pass Vulture (`common/lib/datrix_scripts/metrics/dead_code_report.py`) | Each finding is checked against the code index across the whole workspace, so a use in another package refutes it. It is dropped if a Jinja template, a Python string (a `getattr` name, a dotted resolver path, DAL generator text) or a `pyproject.toml` entry point names it. Unused imports are left to ruff. Classes and functions rank above fields. |
+| Too complex | cyclomatic + cognitive (`common/lib/datrix_scripts/metrics/complexity.py`) | Merged, highest first |
+| Duplicated blocks | Pylint R0801 (`common/lib/datrix_scripts/metrics/duplicate.py`) | Largest first |
+| Docs drift | `datrix_scripts.dev.check_docs` checks over each package's `docs/` | — |
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -396,7 +427,9 @@ It is a repo-level validation **script**, not a pytest suite.
 | **By folder** | `.\datrix\scripts\dev\code-scan.ps1 .\datrix-cli\` | A package folder in any form: relative, absolute, trailing slash, or a path inside it |
 | **Everything** | `.\dev\code-scan.ps1 -All` | Every Python package (about 4 minutes) |
 
-**Parameters:** `-Package` (positional; names or folders), `-All`, `-MinConfidence` (Vulture, default 60), `-DuplicateMinLines` (default 6)
+**Parameters:** `-Package` (positional; names or folders), `-All`, `-MinConfidence` (Vulture, default 60), `-DuplicateMinLines` (default 6), `-SelfTest`
+
+**Module:** `datrix_scripts.dev.code_scan`; POSIX twin `dev\code-scan.sh` (the packages positional or `--package`, `--all`, `--min-confidence`, `--duplicate-min-lines`, `--self-test`) — `bash dev/code-scan.sh datrix-common`.
 
 **Exit codes:** 0 = digest written, or nothing changed since the last scan; 1 = the scan could not run (a missing tool such as Vulture, an unknown package, an unreadable scan state).
 
@@ -419,4 +452,6 @@ Generates `@test-rule` conformance annotations for test functions using a local 
 | **Custom model** | `.\dev\generate-test-rules.ps1 -All -Model qwen3-coder:30b-ctx32k` | Override the model |
 | **Debug** | `.\dev\generate-test-rules.ps1 datrix-codegen-python -Limit 5 -Dbg` | Debug logging |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Apply`, `-Review` (triage existing proposals; no LLM/edits), `-Model` (default: exaone-deep:32b), `-LocalMachines` (machines to search, in preference order; default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Parallel` (default: 4), `-Limit` (default: 0 = no limit), `-Path` (file/dir filter, repeatable; also scopes `-Apply`/`-Review`), `-NoSeed` (don't seed topic vocabulary from existing markers), `-NoConsolidate` (skip topic-merge pass), `-IncludeE2e`, `-IncludeIntegration` (e2e/integration excluded by default), `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Apply`, `-Review` (triage existing proposals; no LLM/edits), `-Model` (default: exaone-deep:32b), `-LocalMachines` (machines to search, in preference order; default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Parallel` (default: 4), `-Limit` (default: 0 = no limit), `-Path` (file/dir filter, repeatable; also scopes `-Apply`/`-Review`), `-NoSeed` (don't seed topic vocabulary from existing markers), `-NoConsolidate` (skip topic-merge pass), `-IncludeE2e`, `-IncludeIntegration` (e2e/integration excluded by default), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.dev.generate_test_rules`; POSIX twin `dev\generate-test-rules.sh` (the packages positional or `--projects`, `--all`, `--apply`, `--review`, `--model`, `--path`, `--no-seed`, `--self-test`, …) — `bash dev/generate-test-rules.sh datrix-codegen-python --review`.

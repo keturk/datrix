@@ -4,11 +4,12 @@
     Query the code index: definitions, references, outlines, search, logic-map markers.
 
 .DESCRIPTION
-    The code index covers every Python file git sees in the workspace repositories and lives
-    beside the checkout it describes (<workspace>\.code-index\). Each development machine builds
-    its own from its own working tree; nothing is shared or synchronised between machines, and the
-    first query on a machine builds it (about ten seconds). Every query refreshes it first, parsing
-    only files whose content changed, and never contacts another machine.
+    The behaviour is datrix_scripts.dev.code_index. The code index covers every Python file git
+    sees in the workspace repositories and lives beside the checkout it describes
+    (<workspace>\.code-index\). Each development machine builds its own from its own working tree;
+    nothing is shared or synchronised between machines, and the first query on a machine builds it
+    (about ten seconds). Every query refreshes it first, parsing only files whose content changed,
+    and never contacts another machine.
 
     The index also owns the logic map: each refresh rewrites .logic-map\markers.db whenever the
     @canonical/@pattern/@boundary/@invariant/@test-rule markers in source changed.
@@ -18,6 +19,9 @@
     or from an agent's MCP tool call, first updates the index to the machine's current working tree
     (about 0.2 seconds when little changed), so edits, pulls and branch switches are picked up by the
     next query. The optional module summaries (-Summarize) are cached per machine by content hash.
+
+    Pass exactly one action: -Symbol, -References, -Outline, -Search, -Canonical, -Status, -Refresh,
+    -Usage, -Summarize or -Setup.
 
     Exit codes:
       0 = answered
@@ -83,12 +87,16 @@
 
 .PARAMETER Setup
     Set this machine up: build (or bring up to date) its index, then write the index's MCP server
-    into <workspace>\.mcp.json with this machine's paths (other servers in the file are kept), and
-    remove any older local-scope registration that would shadow it. Claude Code reads .mcp.json
-    for every installation and drive-letter spelling. The server is approved for this machine in
-    .claude\settings.local.json (gitignored), because Claude Code ignores an approval in the
-    checked-in settings.json. Run once on each development machine, then restart Claude Code.
-    Safe to re-run.
+    (python -m datrix_scripts.dev.code_index_mcp in the shared venv) into <workspace>\.mcp.json with
+    this machine's paths (other servers in the file are kept), and remove any older local-scope
+    registration that would shadow it. Claude Code reads .mcp.json for every installation and
+    drive-letter spelling. The server is approved for this machine in .claude\settings.local.json
+    (gitignored), because Claude Code ignores an approval in the checked-in settings.json. Run once
+    on each development machine, then restart Claude Code. Safe to re-run.
+
+.PARAMETER SelfTest
+    Run only the module's self-test: exactly one action is required, each query keeps its limit,
+    and the wrapper seam holds.
 
 .EXAMPLE
     .\code-index.ps1 -Symbol to_snake_case
@@ -105,94 +113,33 @@
 .EXAMPLE
     .\code-index.ps1 -Summarize -Limit 100
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter()] [string]$Symbol = "",
-    [Parameter()] [ValidateSet("", "class", "function", "method", "variable", "attribute")] [string]$Kind = "",
-    [Parameter()] [string]$References = "",
-    [Parameter()] [string]$Outline = "",
-    [Parameter()] [string]$Search = "",
-    [Parameter()] [string]$Canonical = "",
-    [Parameter()] [switch]$IncludeTestRules,
-    [Parameter()] [switch]$Status,
-    [Parameter()] [switch]$Refresh,
-    [Parameter()] [switch]$Usage,
-    [Parameter()] [int]$Days = 7,
-    [Parameter()] [switch]$Summarize,
-    [Parameter()] [int]$Workers = 4,
-    [Parameter()] [int]$Limit = -1,
-    [Parameter()] [string[]]$LocalMachines = @(),
-    [Parameter()] [string[]]$LlmModel = @(),
-    [Parameter()] [int]$LlmTimeout = 300,
-    [Parameter()] [switch]$Setup
+ [Parameter(ParameterSetName = "Run")][string]$Symbol,
+ [Parameter(ParameterSetName = "Run")][ValidateSet("", "class", "function", "method", "variable", "attribute")][string]$Kind,
+ [Parameter(ParameterSetName = "Run")][string]$References,
+ [Parameter(ParameterSetName = "Run")][string]$Outline,
+ [Parameter(ParameterSetName = "Run")][string]$Search,
+ [Parameter(ParameterSetName = "Run")][string]$Canonical,
+ [Parameter(ParameterSetName = "Run")][switch]$IncludeTestRules,
+ [Parameter(ParameterSetName = "Run")][switch]$Status,
+ [Parameter(ParameterSetName = "Run")][switch]$Refresh,
+ [Parameter(ParameterSetName = "Run")][switch]$Usage,
+ [Parameter(ParameterSetName = "Run")][int]$Days = 7,
+ [Parameter(ParameterSetName = "Run")][switch]$Summarize,
+ [Parameter(ParameterSetName = "Run")][int]$Workers = 4,
+ [Parameter(ParameterSetName = "Run")][int]$Limit = -1,
+ [Parameter(ParameterSetName = "Run")][string[]]$LocalMachines,
+ [Parameter(ParameterSetName = "Run")][string[]]$LlmModel,
+ [Parameter(ParameterSetName = "Run")][int]$LlmTimeout = 300,
+ [Parameter(ParameterSetName = "Run")][switch]$Setup,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-$cliScript = Join-Path $PSScriptRoot "lib\code_index_cli.py"
-$mcpScript = Join-Path $PSScriptRoot "lib\code_index_mcp.py"
-$commonDir = Join-Path $PSScriptRoot "..\common"
-Import-Module (Join-Path $commonDir "DatrixPaths.psm1") -Force
-Import-Module (Join-Path $commonDir "DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $commonDir "DatrixPythonScript.psm1") -Force
-
-$McpServerName = "datrix-code-index"
-
-# @(...) around the pipeline: one surviving hashtable would otherwise be the value itself,
-# and a hashtable's .Count is its number of keys.
-$actions = @(@(
-    @{ Name = "-Symbol"; Set = [bool]$Symbol },
-    @{ Name = "-References"; Set = [bool]$References },
-    @{ Name = "-Outline"; Set = [bool]$Outline },
-    @{ Name = "-Search"; Set = [bool]$Search },
-    @{ Name = "-Canonical"; Set = [bool]$Canonical },
-    @{ Name = "-Status"; Set = [bool]$Status },
-    @{ Name = "-Refresh"; Set = [bool]$Refresh },
-    @{ Name = "-Usage"; Set = [bool]$Usage },
-    @{ Name = "-Summarize"; Set = [bool]$Summarize },
-    @{ Name = "-Setup"; Set = [bool]$Setup }
-) | Where-Object { $_.Set })
-if ($actions.Count -ne 1) {
-    $given = if ($actions.Count) { ($actions | ForEach-Object { $_.Name }) -join ", " } else { "none" }
-    Write-Host ("Pass exactly one action: -Symbol, -References, -Outline, -Search, -Canonical, -Status, " +
-        "-Refresh, -Usage, -Summarize or -Setup (given: $given). Get-Help .\code-index.ps1 -Full lists them.") -ForegroundColor Red
-    exit 1
-}
-
-if ($Setup) {
-    $refreshExit = Invoke-DatrixPythonScript -Script $cliScript -Arguments @("refresh")
-    if ($refreshExit -ne 0) {
-        Write-Host "Building the index failed (see above); the MCP server was not set up." -ForegroundColor Red
-        exit $refreshExit
-    }
-    # The MCP server entry names the venv interpreter by path; Claude Code starts it directly.
-    Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe (Get-DatrixVenvPython) -ServerScript $mcpScript `
-        -PythonPath (Get-DatrixScriptsPythonPath) -Workspace (Get-DatrixWorkspaceRoot) -SetupCommand "code-index.ps1 -Setup"
-    exit 0
-}
-
-$pyArgs = @()
-if ($Symbol) {
-    $pyArgs += @("symbol", $Symbol)
-    if ($Kind) { $pyArgs += @("--kind", $Kind) }
-}
-elseif ($References) { $pyArgs += @("refs", $References) }
-elseif ($Outline) { $pyArgs += @("outline", $Outline) }
-elseif ($Search) { $pyArgs += @("search", $Search) }
-elseif ($Canonical) {
-    $pyArgs += @("canonical", $Canonical)
-    if ($IncludeTestRules) { $pyArgs += "--test-rules" }
-}
-elseif ($Status) { $pyArgs += "status" }
-elseif ($Refresh) { $pyArgs += "refresh" }
-elseif ($Usage) { $pyArgs += @("usage", "--days", "$Days") }
-elseif ($Summarize) {
-    $pyArgs += @("summarize", "--workers", "$Workers")
-    $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-}
-if ($Limit -ge 0 -and -not ($Outline -or $Status -or $Refresh -or $Usage)) {
-    $pyArgs += @("--limit", "$Limit")
-}
-
-exit (Invoke-DatrixPythonScript -Script $cliScript -Arguments $pyArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.dev.code_index" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

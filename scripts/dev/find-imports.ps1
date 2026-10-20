@@ -4,9 +4,9 @@
  List every place that imports names from given modules: the worklist before a move or rename.
 
 .DESCRIPTION
- Wraps dev\lib\find_imports.py. AST-parses every .py file under each datrix-* repository's
- src/ and tests/ trees, its root-level *.py files, the scripts tree and the Claude Code hooks,
- and prints path:line for:
+ The behaviour is datrix_scripts.dev.find_imports. AST-parses every .py file under each datrix-*
+ repository's src/ and tests/ trees, its root-level *.py files, the scripts tree and the Claude
+ Code hooks, and prints path:line for:
 
    [from-import]    from M import N            (relative imports in src/ resolved first)
    [import]         import M / import M as m   (only without -Name)
@@ -18,13 +18,16 @@
  not parse is printed as UNPARSEABLE and counted. Report only: exit 0.
 
 .PARAMETER Module
- Dotted target modules (required, one or more).
+ Dotted target modules (required, one or more; comma-separated or repeated).
 
 .PARAMETER Name
  Narrow to these imported names.
 
 .PARAMETER Dbg
  Debug logging.
+
+.PARAMETER SelfTest
+ Run only the module's self-test: a planted import is found, and the wrapper seam holds.
 
 .EXAMPLE
  .\dev\find-imports.ps1 -Module datrix_common.errors.plugin -Name PluginError
@@ -34,26 +37,18 @@
  .\dev\find-imports.ps1 -Module datrix_codegen_common.transpiler.base
  Everything imported from the module, and every place that imports the module itself.
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter(Mandatory = $true)]
-    [string[]]$Module,
-    [string[]]$Name = @(),
-    [switch]$Dbg
+ [Parameter(Mandatory = $true, ParameterSetName = "Run")][string[]]$Module,
+ [Parameter(ParameterSetName = "Run")][string[]]$Name,
+ [switch]$Dbg,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-# `powershell -File` passes "a,b" as one string; accept both that and a real array.
-$Module = @($Module | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-$Name = @($Name | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-foreach ($item in $Module) { $pythonArgs += @("--module", $item) }
-foreach ($item in $Name) { $pythonArgs += @("--name", $item) }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\find_imports.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.dev.find_imports" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

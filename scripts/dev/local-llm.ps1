@@ -4,22 +4,24 @@
     Set up, inspect and measure the local model servers agents read through.
 
 .DESCRIPTION
-    The Ollama servers on the network's machines (searched by
-    common/lib/datrix_scripts/local_llm.py) answer for every local-model script, the stop-gate
-    judge, and the agents' MCP tools ask_files, digest_log and local_models (dev/lib/local_llm_mcp.py).
-    Every request any of them sends is recorded, by size only, in
-    <workspace>\.local-llm\usage.jsonl on the machine that sent it.
+    The behaviour is datrix_scripts.dev.local_llm. The Ollama servers on the network's machines
+    (searched by common/lib/datrix_scripts/local_llm.py) answer for every local-model script, the
+    stop-gate judge, and the agents' MCP tools ask_files, digest_log and local_models
+    (datrix_scripts.dev.local_llm_mcp). Every request any of them sends is recorded, by size only,
+    in <workspace>\.local-llm\usage.jsonl on the machine that sent it.
+
+    Pass exactly one action: -Setup, -Status, -Usage, -Pin or -Unpin.
 
     Exit codes:
       0 = done
       1 = the request could not be carried out (the message says why)
 
 .PARAMETER Setup
-    Set this machine up: write the local-model MCP server into <workspace>\.mcp.json with this
-    machine's paths (other servers in the file are kept), approve it for this machine in
-    .claude\settings.local.json (gitignored), and remove any older local-scope registration that
-    would shadow it. Run once on each development machine, then restart Claude Code. Safe to
-    re-run.
+    Set this machine up: write the local-model MCP server (python -m datrix_scripts.dev.local_llm_mcp
+    in the shared venv) into <workspace>\.mcp.json with this machine's paths (other servers in the
+    file are kept), approve it for this machine in .claude\settings.local.json (gitignored), and
+    remove any older local-scope registration that would shadow it. Run once on each development
+    machine, then restart Claude Code. Safe to re-run.
 
 .PARAMETER Status
     Show which model servers answer right now, what each holds in memory, a line for each machine
@@ -42,6 +44,10 @@
 .PARAMETER Days
     With -Status or -Usage: days to cover.
 
+.PARAMETER SelfTest
+    Run only the module's self-test: exactly one action is required, -Days only with -Status or
+    -Usage, and the wrapper seam holds.
+
 .EXAMPLE
     .\local-llm.ps1 -Setup
 
@@ -54,54 +60,21 @@
 .EXAMPLE
     .\local-llm.ps1 -Pin
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter()] [switch]$Setup,
-    [Parameter()] [switch]$Status,
-    [Parameter()] [switch]$Usage,
-    [Parameter()] [switch]$Pin,
-    [Parameter()] [switch]$Unpin,
-    [Parameter()] [int]$Days = -1
+ [Parameter(ParameterSetName = "Run")][switch]$Setup,
+ [Parameter(ParameterSetName = "Run")][switch]$Status,
+ [Parameter(ParameterSetName = "Run")][switch]$Usage,
+ [Parameter(ParameterSetName = "Run")][switch]$Pin,
+ [Parameter(ParameterSetName = "Run")][switch]$Unpin,
+ [Parameter(ParameterSetName = "Run")][int]$Days = -1,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$McpServerName = "datrix-local-llm"
-
-$actions = @(@(
-    @{ Name = "-Setup"; Set = [bool]$Setup },
-    @{ Name = "-Status"; Set = [bool]$Status },
-    @{ Name = "-Usage"; Set = [bool]$Usage },
-    @{ Name = "-Pin"; Set = [bool]$Pin },
-    @{ Name = "-Unpin"; Set = [bool]$Unpin }
-) | Where-Object { $_.Set })
-if ($actions.Count -ne 1) {
-    $given = if ($actions.Count) { ($actions | ForEach-Object { $_.Name }) -join ", " } else { "none" }
-    Write-Host ("Pass exactly one action: -Setup, -Status, -Usage, -Pin or -Unpin (given: $given). " +
-        "Get-Help .\local-llm.ps1 -Full lists them.") -ForegroundColor Red
-    exit 1
-}
-if ($Days -ge 0 -and -not ($Status -or $Usage)) {
-    Write-Host "-Days applies to -Status and -Usage only; $($actions[0].Name) takes no other parameter." -ForegroundColor Red
-    exit 1
-}
-
-if ($Setup) {
-    # Registration writes the MCP server's interpreter, script and PYTHONPATH into .mcp.json; it
-    # runs no Python itself.
-    Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1")
-    Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-    $workspace = Get-DatrixWorkspaceRoot
-    Install-DatrixProjectMcpServer -Name $McpServerName -PythonExe (Get-DatrixVenvPython) `
-        -ServerScript (Join-Path $PSScriptRoot "lib\local_llm_mcp.py") -PythonPath (Get-DatrixScriptsPythonPath) `
-        -Workspace $workspace -SetupCommand "local-llm.ps1 -Setup"
-    exit 0
-}
-
-# @(...) around the whole expression: an if-expression unwraps a one-element array to a string,
-# and splatting a string passes it one character per argument.
-$pythonArgs = @(if ($Status) { "status" } elseif ($Pin) { "pin" } elseif ($Unpin) { "unpin" } else { "usage" })
-if ($Days -ge 0) { $pythonArgs += @("--days", $Days) }
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\local_llm_cli.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.dev.local_llm" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

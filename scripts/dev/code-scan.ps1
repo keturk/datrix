@@ -4,10 +4,10 @@
     On-demand code-health scan: one ranked digest of dead code, complexity, duplicates and docs drift.
 
 .DESCRIPTION
-    Wraps scripts\dev\lib\code_scan.py. By default scans only the packages whose content changed
-    since their last scan (tracked with the code index's file hashes in .code-index\scan-state.json);
-    -Package or -All override that. Runs on this machine; changes nothing but the digest and the scan
-    state.
+    The behaviour is datrix_scripts.dev.code_scan. By default scans only the packages whose content
+    changed since their last scan (tracked with the code index's file hashes in
+    .code-index\scan-state.json); -Package or -All override that. Runs on this machine; changes
+    nothing but the digest and the scan state.
 
     Per package:
       dead code   two-pass Vulture, each finding checked against the code index across the whole
@@ -40,6 +40,10 @@
 .PARAMETER DuplicateMinLines
     Smallest duplicated block Pylint reports. Default: 6.
 
+.PARAMETER SelfTest
+    Run only the module's self-test: package names and string-named symbols are read correctly, and
+    the wrapper seam holds.
+
 .EXAMPLE
     .\code-scan.ps1
     Scan the packages changed since their last scan.
@@ -50,24 +54,19 @@
 .EXAMPLE
     .\code-scan.ps1 .\datrix-cli\ .\datrix-common\
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter(Position = 0, ValueFromRemainingArguments = $true)] [string[]]$Package = @(),
-    [Parameter()] [switch]$All,
-    [Parameter()] [int]$MinConfidence = 60,
-    [Parameter()] [int]$DuplicateMinLines = 6
+ [Parameter(Position = 0, ValueFromRemainingArguments = $true, ParameterSetName = "Run")][string[]]$Package,
+ [Parameter(ParameterSetName = "Run")][switch]$All,
+ [Parameter(ParameterSetName = "Run")][int]$MinConfidence = 60,
+ [Parameter(ParameterSetName = "Run")][int]$DuplicateMinLines = 6,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pyArgs = @("--min-confidence", "$MinConfidence", "--duplicate-min-lines", "$DuplicateMinLines")
-foreach ($entry in $Package) {
-    foreach ($name in ($entry -split ',')) {
-        if ($name.Trim()) { $pyArgs += @("--package", $name.Trim()) }
-    }
-}
-if ($All) { $pyArgs += "--all" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\code_scan.py") -Arguments $pyArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.dev.code_scan" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -4,6 +4,9 @@
     Ask what you need to know: answered from the knowledge base, or gathered by a local model and kept.
 
 .DESCRIPTION
+    The behaviour is datrix_scripts.dev.ineedtoknow. Pass exactly one of: a question, -Status,
+    -Rebuild or -Prune.
+
     Agents and developers ask a question in their own words instead of loading whole docs. The
     knowledge base answers from the project's own docs (architecture, knowledge packs, agent rules,
     execution contract, script references, package architecture docs), cut into chunks by heading,
@@ -62,6 +65,10 @@
 .PARAMETER LlmTimeout
     Request timeout in seconds. Default: 120.
 
+.PARAMETER SelfTest
+    Run only the module's self-test: exactly one request is required, the question's words are
+    joined, and the wrapper seam holds.
+
 .EXAMPLE
     .\ineedtoknow.ps1 -Question "which package owns the gateway route enumeration"
 
@@ -75,49 +82,26 @@
     .\ineedtoknow.ps1 -Status
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter(Position = 0, ValueFromRemainingArguments = $true)] [string[]]$Question = @(),
-    [Parameter()] [string[]]$In = @(),
-    [Parameter()] [switch]$Refresh,
-    [Parameter()] [switch]$NoLearn,
-    [Parameter()] [int]$Limit = 0,
-    [Parameter()] [switch]$Status,
-    [Parameter()] [switch]$Rebuild,
-    [Parameter()] [switch]$Prune,
-    [Parameter()] [string[]]$LocalMachines = @(),
-    [Parameter()] [string[]]$LlmModel = @(),
-    [Parameter()] [int]$LlmTimeout = 120
+ [Parameter(Position = 0, ValueFromRemainingArguments = $true, ParameterSetName = "Run")][string[]]$Question,
+ [Parameter(ParameterSetName = "Run")][string[]]$In,
+ [Parameter(ParameterSetName = "Run")][switch]$Refresh,
+ [Parameter(ParameterSetName = "Run")][switch]$NoLearn,
+ [Parameter(ParameterSetName = "Run")][int]$Limit = 0,
+ [Parameter(ParameterSetName = "Run")][switch]$Status,
+ [Parameter(ParameterSetName = "Run")][switch]$Rebuild,
+ [Parameter(ParameterSetName = "Run")][switch]$Prune,
+ [Parameter(ParameterSetName = "Run")][string[]]$LocalMachines,
+ [Parameter(ParameterSetName = "Run")][string[]]$LlmModel,
+ [Parameter(ParameterSetName = "Run")][int]$LlmTimeout = 120,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$questionText = ($Question -join " ").Trim()
-$actions = @(@(
-    @{ Name = "a question"; Set = [bool]$questionText },
-    @{ Name = "-Status"; Set = [bool]$Status },
-    @{ Name = "-Rebuild"; Set = [bool]$Rebuild },
-    @{ Name = "-Prune"; Set = [bool]$Prune }
-) | Where-Object { $_.Set })
-if ($actions.Count -ne 1) {
-    $given = if ($actions.Count) { ($actions | ForEach-Object { $_.Name }) -join ", " } else { "none" }
-    Write-Host ("Pass exactly one of: a question, -Status, -Rebuild or -Prune (given: $given). " +
-        "Get-Help .\ineedtoknow.ps1 -Full lists them.") -ForegroundColor Red
-    exit 1
-}
-
-$pyArgs = @()
-if ($questionText) { $pyArgs += $questionText }
-if ($Status) { $pyArgs += "--status" }
-if ($Rebuild) { $pyArgs += "--rebuild" }
-if ($Prune) { $pyArgs += "--prune" }
-foreach ($spec in $In) { $pyArgs += @("--in", $spec) }
-if ($Refresh) { $pyArgs += "--refresh" }
-if ($NoLearn) { $pyArgs += "--no-learn" }
-if ($Limit -gt 0) { $pyArgs += @("--limit", "$Limit") }
-$pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\ineedtoknow_cli.py") -Arguments $pyArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.dev.ineedtoknow" -Parameters $PSBoundParameters
+exit $LASTEXITCODE
