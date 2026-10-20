@@ -162,7 +162,7 @@ The migration engine treats every database as a persistent, append-only one. Tha
 
 ## D30: Rebaseline (`R := D`) Is a First-Class, Policy-Gated Operation
 
-A new `rebaseline` operation explicitly sets the recorded baseline to the desired schema. It runs no DDL, opens no database connection, and is **refused in `guard` mode**. Rebaseline starts a fresh ledger generation (a new `0001_initial` = `D`) rather than editing any frozen revision, and records `rebaselined_from` provenance containing the prior ledger identity, reason, and timestamp for auditability.
+A new `rebaseline` operation explicitly sets the recorded baseline to the desired schema. It runs no DDL, opens no database connection, requires the operator to state that the database is wiped or disposable (`--assume-wiped`), and is **refused in `guard` mode** (a live database's chain is carried forward instead, D43). Rebaseline starts a fresh ledger generation (a new `0001_initial` = `D`) rather than editing any frozen revision, and records `rebaselined_from` provenance containing the prior ledger identity, reason, and timestamp for auditability.
 
 **Rationale:** The wipe-and-redeploy lifecycle has no live schema worth preserving and no persistent migration history to protect. Today's recovery mechanism is a manual, unaudited `rm -rf` of the state directory. Making rebaseline a first-class, gated framework operation replaces that ad-hoc approach with an explicit, audited one that records the decision and the prior state for investigation if needed.
 
@@ -253,6 +253,16 @@ An action is part of the constraint a database enforces, so a change to `onDelet
 A relationship change is matched to its constraint by the full (columns, referred table, referred columns) tuple, never by the table alone: an entity with a `createdBy` and an `updatedBy` user holds two keys to one table.
 
 **Rejected: reflect the deployed catalog at generation time to find drifted keys.** The generator has no database connection, and re-asserting every key once is deterministic.
+
+## D43: A Live Database's Unreadable Chain Is Carried Forward (`R := R`), Never Reset on an Assumption
+
+A chain holding revisions recorded before the ledger recorded the statements each one runs cannot be audited, so generation refuses it. Resetting it (D30, `R := D`) is honest only for a database that is gone or disposable, and the command cannot verify that, so a reset requires the operator to state it (`--assume-wiped`). A long-lived database gets a second operation instead: `rebaseline --rdbms-id <id> --live-snapshot <file>` carries the chain forward. The exported live schema must equal the recorded schema `R`; the new baseline builds exactly `R` under a fresh id; and the ledger (v6) records `rebaselined_from.carried_revision`, the chain's last revision with a revision file — the retired id that database's migration runner records. Each language's generated runner moves a history whose latest recorded revision is the carried one onto the baseline under the apply lock, without DDL; any other history of retired ids stays refused. A fresh database runs the baseline as usual.
+
+Because it resets nothing — the database keeps every object, and the recorded schema is unchanged — the carry-forward is permitted in every drift mode, `guard` included; D30's guard refusal applies to the reset alone. A live schema that differs from `R` is refused: the drift is reconciled first (D27), then the chain is carried.
+
+**Rejected: let `reconcile --to-desired` describe the old chain.** It appends a revision on top of the unreadable one; the records below it stay undescribed and the audit still refuses.
+
+**Rejected: assume the database is wiped.** Recording a baseline no database ran leaves the history describing DDL the database never executed, which the next incremental revision builds on.
 
 ---
 

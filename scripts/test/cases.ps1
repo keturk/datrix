@@ -4,7 +4,7 @@
  Author, migrate and check declarative test cases (datrix_testing.cases).
 
 .DESCRIPTION
- Runs datrix_testing.cases.cli in the shared venv.
+ Runs datrix_scripts.test.cases, which runs datrix_testing.cases.cli in the shared venv.
  A case is one row of a package's tests/cases/<area>.cases.yaml: a stage run
  on a committed input, one observed value, and an authored expectation. The
  package's one runner module, tests/test_cases.py, runs every row as a pytest
@@ -77,6 +77,12 @@
 .PARAMETER Reason
  new: one sentence naming the decision the case protects.
 
+.PARAMETER Dbg
+ Print the interpreter and the CLI arguments before the run.
+
+.PARAMETER SelfTest
+ Run the module's self-test (no -Command).
+
 .EXAMPLE
  .\cases.ps1 check datrix-codegen-docker
 
@@ -95,71 +101,36 @@
 .EXAMPLE
  .\cases.ps1 accept D:\datrix\.tmp\case-proposals\datrix-codegen-typescript-substring.proposal.json
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
- [Parameter(Position=0, Mandatory=$true)]
+ [Parameter(Position=0, Mandatory=$true, ParameterSetName="Run")]
  [ValidateSet("observe", "new", "migrate", "accept", "check")]
  [string]$Command,
 
- [Parameter(Position=1, ValueFromRemainingArguments=$true)]
- [string[]]$Arguments = @(),
+ [Parameter(Position=1, ValueFromRemainingArguments=$true, ParameterSetName="Run")]
+ [string[]]$Arguments,
 
- [string]$Package,
- [string]$Id,
- [string]$Tags,
- [Alias("Input")]
- [string]$CaseInput,
- [string]$Stage,
- [string]$Observer,
- [string]$Selector,
- [string]$Expectation,
- [string]$Reason,
- [string]$At,
- [switch]$Annotations,
- [switch]$Dbg
+ [Parameter(ParameterSetName="Run")][string]$Package,
+ [Parameter(ParameterSetName="Run")][string]$Id,
+ [Parameter(ParameterSetName="Run")][string]$Tags,
+ [Parameter(ParameterSetName="Run")][Alias("Input")][string]$CaseInput,
+ [Parameter(ParameterSetName="Run")][string]$Stage,
+ [Parameter(ParameterSetName="Run")][string]$Observer,
+ [Parameter(ParameterSetName="Run")][string]$Selector,
+ [Parameter(ParameterSetName="Run")][string]$Expectation,
+ [Parameter(ParameterSetName="Run")][string]$Reason,
+ [Parameter(ParameterSetName="Run")][string]$At,
+ [Parameter(ParameterSetName="Run")][switch]$Annotations,
+ [switch]$Dbg,
+
+ [Parameter(Mandatory=$true, ParameterSetName="SelfTest")]
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$ExitUsage = 2
-
-# An absent case takes no expectation, so only a given -Expectation is passed on.
-$ExpectationGiven = $PSBoundParameters.ContainsKey("Expectation")
-
-function Get-CommandArguments {
- $pythonArgs = @($Command)
- switch ($Command) {
-  "observe" {
-   if (-not $Package) { throw "observe needs -Package <package>: the package whose inputs to load." }
-   $pythonArgs += @("--package", $Package)
-   if ($At) { $pythonArgs += @("--at", $At) }
-   $pythonArgs += $Arguments
-  }
-  "new" {
-   $pythonArgs += $Arguments
-   foreach ($field in @(@("--id", $Id), @("--tags", $Tags), @("--input", $CaseInput), @("--stage", $Stage),
-                        @("--observer", $Observer), @("--selector", $Selector), @("--reason", $Reason))) {
-    if (-not $field[1]) { throw "new needs $($field[0] -replace '--', '-'): every field of a case comes from you." }
-    $pythonArgs += $field
-   }
-   if ($ExpectationGiven) { $pythonArgs += @("--expectation", $Expectation) }
-  }
-  "migrate" {
-   $pythonArgs += $Arguments
-   if ($Annotations) { $pythonArgs += "--annotations" }
-  }
-  default { $pythonArgs += $Arguments }
- }
- return ,$pythonArgs
-}
-
-try {
- $pythonArgs = Get-CommandArguments
-}
-catch {
- Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
- exit $ExitUsage
-}
-exit (Invoke-DatrixPythonScript -Module "datrix_testing.cases.cli" -Arguments $pythonArgs -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.cases" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

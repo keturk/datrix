@@ -1,54 +1,27 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate for the test tooling's result parsing (lib\test_tooling_parsing_gate.py).
-
+ Repo-level gate for the test tooling's result parsing.
 .DESCRIPTION
- Activates the Datrix virtual environment and runs lib\test_tooling_parsing_gate.py, a
- plain-Python check harness (no pytest) over the result parsing of test/lib/compare_tests.py,
- the shared datrix_scripts.status_tests, and run_complete's summary-line parsing.
-
- Exit codes:
-   0 = every check passed
-   1 = at least one check (or the harness self-test) failed
-   2 = usage error
-
-.PARAMETER HarnessSelfTest
- Demonstration mode: run one intentionally-failing dummy check through the harness
- and confirm it reports [FAIL] and exits 1 (proves the harness is not vacuous).
-
-.PARAMETER SelfTest
- Run the harness self-test and the gate's checks over planted inputs only.
-
-.PARAMETER Dbg
- Print the python invocation before running.
-
+ Runs datrix_scripts.test.test_tooling_parsing_gate, a plain-Python check harness (no pytest) over the result
+ parsing of datrix_scripts.test.compare_tests, datrix_scripts.status_tests, run_complete's summary-line parsing,
+ the node test runner's JUnit merge and post_process_test_results' index.json. -Only <prefix> runs only the checks
+ whose name starts with it. -SelfTest runs the harness self-test and the wrapper seam checks; -HarnessSelfTest runs
+ only the harness self-test. Exit 0 pass, 1 a check failed, 2 usage error. The last line is
+ "[GATE] test-tooling-parsing PASSED|FAILED exit=<n> log=<path>".
+ python -m datrix_scripts.test.test_tooling_parsing_gate --help describes every option.
 .EXAMPLE
- .\test-tooling-parsing-gate.ps1
- Run every absorbed check.
-
-.EXAMPLE
- .\test-tooling-parsing-gate.ps1 -HarnessSelfTest
- Prove the harness detects a forced failure.
+ .\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest
 #>
-
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [switch]$HarnessSelfTest,
-
-    [Parameter()]
-    [switch]$SelfTest,
-
-    [Parameter()]
-    [switch]$Dbg
+ [string]$Only, [switch]$SelfTest, [switch]$HarnessSelfTest, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\test_tooling_parsing_gate.py") -Arguments $pythonArgs -Gate "test-tooling-parsing" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.test_tooling_parsing_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

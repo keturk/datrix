@@ -1,15 +1,15 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Repo-level gate for the first-pass pre-review (lib\pre_review_gate.py).
+ Repo-level gate for the first-pass pre-review.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs lib\pre_review_gate.py, which builds real git
- repositories in temporary directories and checks scripts/git/lib/pre_review.py over them:
- the diff parser, every definite rule firing on added lines only (with Protocol/ABC exemptions
- and planted old violations as the non-vacuity control), pending changes read from git, model
- findings dropped unless grounded, and the model review staying advisory and off test files
- (against a real loopback model server).
+ The behaviour is datrix_scripts.git.pre_review_gate, which builds real git repositories in
+ temporary directories and checks datrix_scripts.git.pre_review over them: the diff parser, every
+ definite rule firing on added lines only (with Protocol/ABC exemptions and planted old violations
+ as the non-vacuity control), pending changes read from git, model findings dropped unless grounded,
+ and the model review staying advisory and off test files (against a real loopback model server).
+ It ends with the gate's verdict line.
 
  Exit codes:
    0 = every check passed
@@ -23,29 +23,26 @@
  Run one intentionally-failing dummy check and confirm it is reported [FAIL].
 
 .PARAMETER SelfTest
- Run the harness self-test and the gate's checks over planted inputs only.
+ Run the harness self-test and the wrapper seam checks only.
 
 .PARAMETER Dbg
- Print the python invocation before running.
+ Debug logging.
 
 .EXAMPLE
- .\pre-review-gate.ps1
-#>
+ .\git\pre-review-gate.ps1
 
+.EXAMPLE
+ .\git\pre-review-gate.ps1 -Only check_model
+#>
 [CmdletBinding()]
 param(
-    [Parameter()] [string]$Only = "",
-    [Parameter()] [switch]$HarnessSelfTest,
-    [Parameter()] [switch]$SelfTest,
-    [Parameter()] [switch]$Dbg
+ [string]$Only, [switch]$HarnessSelfTest, [switch]$SelfTest, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Only) { $pythonArgs += @("--only", $Only) }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\pre_review_gate.py") -Arguments $pythonArgs -Gate "pre-review" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.git.pre_review_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

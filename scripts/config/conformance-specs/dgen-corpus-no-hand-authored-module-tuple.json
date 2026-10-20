@@ -1,13 +1,13 @@
 {
-  "target": "../../gates/realization/lib",
+  "target": "../../common/lib/datrix_scripts/gates/realization",
   "negative_control": "_fixtures/dgen-corpus-no-hand-authored-module-tuple/negative-control",
   "assertions": [
     {
       "id": "no-hand-authored-dgen-module-tuple",
       "type": "must_not_contain",
-      "description": "dgen_corpus_resolution.py must derive its DAL generator definitions-module inventory from registration alone -- every target, language and platform alike, contributes its own DgenTargetContribution.definition_modules via target_registry.definition_modules_for(); the transitional platform-definition-module map is retired. It must never re-introduce the hand-authored 7-module literal tuple.",
+      "description": "dgen_corpus_resolution_gate.py must derive its DAL generator definitions-module inventory from registration alone -- every target, language and platform alike, contributes its own DgenTargetContribution.definition_modules via target_registry.definition_modules_for(); the transitional platform-definition-module map is retired. It must never re-introduce the hand-authored 7-module literal tuple.",
       "pattern": "datrix_codegen_python\\.dgen\\.definitions|datrix_codegen_typescript\\.dgen_definitions|datrix_codegen_sql\\.dgen\\.sql_definitions|datrix_codegen_docker\\.dgen_definitions|datrix_codegen_aws\\.dgen\\.aws_definitions|datrix_codegen_azure\\.dgen\\.azure_definitions|datrix_codegen_component\\.dgen_definitions",
-      "glob": "dgen_corpus_resolution.py"
+      "glob": "dgen_corpus_resolution_gate.py"
     }
   ]
 }

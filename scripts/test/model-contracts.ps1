@@ -4,7 +4,7 @@
  Inspect and migrate schema-derived model contracts (datrix_testing.model_contracts).
 
 .DESCRIPTION
- Runs datrix_testing.model_contracts.cli in the shared venv.
+ Runs datrix_scripts.test.model_contracts, which runs datrix_testing.model_contracts.cli in the shared venv.
  A package's runner module, tests/test_model_contracts.py, proves every schema fact of
  every model the package declares -- each required field, default, bound, pattern and
  the unknown-key refusal -- as one pytest item, by mutating a sample the real loader fed
@@ -35,6 +35,12 @@
    migrate   <package>
    accept    <proposal>
 
+.PARAMETER Dbg
+ Print the interpreter and the CLI arguments before the run.
+
+.PARAMETER SelfTest
+ Run the module's self-test (no -Command).
+
 .EXAMPLE
  .\model-contracts.ps1 facts datrix-codegen-docker
 
@@ -47,20 +53,25 @@
 .EXAMPLE
  .\model-contracts.ps1 accept D:\datrix\.tmp\case-proposals\datrix-codegen-aws.model-contracts.proposal.json
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
- [Parameter(Position=0, Mandatory=$true)]
+ [Parameter(Position=0, Mandatory=$true, ParameterSetName="Run")]
  [ValidateSet("facts", "inventory", "migrate", "accept")]
  [string]$Command,
 
- [Parameter(Position=1, ValueFromRemainingArguments=$true)]
- [string[]]$Arguments = @(),
+ [Parameter(Position=1, ValueFromRemainingArguments=$true, ParameterSetName="Run")]
+ [string[]]$Arguments,
 
- [switch]$Dbg
+ [switch]$Dbg,
+
+ [Parameter(Mandatory=$true, ParameterSetName="SelfTest")]
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-exit (Invoke-DatrixPythonScript -Module "datrix_testing.model_contracts.cli" -Arguments (@($Command) + $Arguments) -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.model_contracts" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -4,10 +4,9 @@
 Generate commit messages for every dirty Datrix repo and commit+push them.
 
 .DESCRIPTION
-Single entry point that wraps scripts\git\lib\commit_and_push.py. The Python
-implementation splits each dirty Datrix repository's changes into themed change
-sets, generates one commit message per set, commits each set separately, and
-pushes each repo once.
+The behaviour is datrix_scripts.git.commit_and_push. It splits each dirty Datrix
+repository's changes into themed change sets, generates one commit message per set,
+commits each set separately, and pushes each repo once.
 
 Themes are areas, not top-level folders: container directories (src\<package>,
 tests\<tier>, scripts, examples) are stepped through, so a generator and its tests
@@ -45,6 +44,9 @@ run with nothing committed, naming file, line and code. There is NO skip switch;
 a genuinely required finding is suppressed on its own line with `# noqa: <code>`
 and the reason.
 
+Exit codes: 0 = committed and pushed (or a dry run, nothing to commit, a passing -SelfTest);
+1 = a check or git command failed, or a self-test check failed; 2 = a bad argument.
+
 .PARAMETER MessageSource
 auto (default), local, or claude. auto tries every discovered local model and
 falls back to Claude; local tries every discovered local model and errors if none
@@ -57,6 +59,7 @@ shows it): the Dell T5820 and T7920 (RTX 3090) and the ASUS GX10.
 
 .PARAMETER LocalTimeoutMs
 HTTP timeout (ms) for each local generate request, with the model already loaded.
+Default 180000.
 
 .PARAMETER LocalLoadTimeoutMs
 Timeout (ms) for readying a model before the first message: loading it into
@@ -74,6 +77,7 @@ Timeout (ms) for each Claude CLI invocation. Default 300000.
 
 .PARAMETER MaxDiffCharsPerCommit
 Maximum prompt characters of diff context sent to the model for one change set.
+Default 45000.
 
 .PARAMETER MaxCommitsPerRepo
 Upper bound on themed commits per repo (default 8); past it the smallest change
@@ -121,121 +125,52 @@ thousand sites while the only check was an on-demand Semgrep warning. Pass
 this only for a confirmed false positive -- it prints a warning and commits
 regardless.
 
+.PARAMETER SelfTest
+Run only the module's self-test (a planted customer term, registered by digest in a
+temporary workspace's corpus, fails the whole run with nothing committed or staged; the
+local-model option mapping; the census that no git script runs stash/reset/checkout/revert/
+restore) and the wrapper seam checks.
+
 .EXAMPLE
-.\commit-and-push.ps1
+.\git\commit-and-push.ps1
 Auto-detect backend, generate messages, commit and push every dirty repo.
 
 .EXAMPLE
-.\commit-and-push.ps1 -MessageSource claude
+.\git\commit-and-push.ps1 -MessageSource claude
 Force the Claude Code CLI as the message source.
 
 .EXAMPLE
-.\commit-and-push.ps1 -DryRun
+.\git\commit-and-push.ps1 -DryRun
 Print the generated messages without committing.
 
 .EXAMPLE
-.\commit-and-push.ps1 -LocalMachines 10.94.0.102, 10.94.0.101
+.\git\commit-and-push.ps1 -LocalMachines 10.94.0.102, 10.94.0.101
 Search only these machines, in this order: the GX10 first, then the T7920.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $false)]
-    [ValidateSet('auto', 'local', 'claude')]
-    [string]$MessageSource = 'auto',
-
-    [Parameter(Mandatory = $false)]
-    [string[]]$LocalMachines = @(),
-
-    [Parameter(Mandatory = $false)]
-    [int]$LocalTimeoutMs = 180000,
-
-    [Parameter(Mandatory = $false)]
-    [int]$LocalLoadTimeoutMs = 900000,
-
-    [Parameter(Mandatory = $false)]
-    [int]$LocalMaxTokens = 896,
-
-    [Parameter(Mandatory = $false)]
-    [string]$ClaudeModel = 'sonnet',
-
-    [Parameter(Mandatory = $false)]
-    [int]$ClaudeTimeoutMs = 300000,
-
-    [Parameter(Mandatory = $false)]
-    [int]$MaxDiffCharsPerCommit = 45000,
-
-    [Parameter(Mandatory = $false)]
-    [ValidateRange(1, [int]::MaxValue)]
-    [int]$MaxCommitsPerRepo = 8,
-
-    [switch]$DryRun,
-
-    [switch]$SkipCustomerDomainCheck,
-
-    [switch]$SkipIgnoredSourceCheck,
-
-    [switch]$SkipPolyStringCaseCheck
+ [ValidateSet('auto', 'local', 'claude')]
+ [string]$MessageSource,
+ [string[]]$LocalMachines,
+ [int]$LocalTimeoutMs,
+ [int]$LocalLoadTimeoutMs,
+ [int]$LocalMaxTokens,
+ [string]$ClaudeModel,
+ [int]$ClaudeTimeoutMs,
+ [int]$MaxDiffCharsPerCommit,
+ [ValidateRange(1, [int]::MaxValue)]
+ [int]$MaxCommitsPerRepo,
+ [switch]$DryRun,
+ [switch]$SkipCustomerDomainCheck,
+ [switch]$SkipIgnoredSourceCheck,
+ [switch]$SkipPolyStringCaseCheck,
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = 'Stop'
-
-$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-$datrixRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$pythonScript = Join-Path $scriptDir 'lib\commit_and_push.py'
-
-if (-not (Test-Path -LiteralPath $pythonScript)) {
-    Write-Error "Python implementation not found at: $pythonScript"
-    exit 1
-}
-
-# The commit path imports the shared scripts package (the isolation, ignored-source,
-# lint and design-reference scanners); Enter-DatrixVenvEnvironment puts it on PYTHONPATH for the child.
-Import-Module (Join-Path $scriptDir '..\common\DatrixPythonScript.psm1')
-
-$workspaceRoot = Split-Path -Parent $datrixRoot
-$venvPython = Join-Path $workspaceRoot '.venv\Scripts\python.exe'
-$pythonExe = if (Test-Path -LiteralPath $venvPython) { $venvPython } else { 'python' }
-
-$pyArgs = @(
-    $pythonScript,
-    '--message-source', $MessageSource,
-    '--local-timeout-ms', $LocalTimeoutMs,
-    '--local-load-timeout-ms', $LocalLoadTimeoutMs,
-    '--local-max-tokens', $LocalMaxTokens,
-    '--claude-model', $ClaudeModel,
-    '--claude-timeout-ms', $ClaudeTimeoutMs,
-    '--max-diff-chars-per-commit', $MaxDiffCharsPerCommit,
-    '--max-commits-per-repo', $MaxCommitsPerRepo
-)
-
-# The default machine list lives only in common/lib/datrix_scripts/local_llm.py; it is overridden
-# only when -LocalMachines is passed.
-foreach ($localMachine in $LocalMachines) {
-    $pyArgs += @('--local-machine', $localMachine)
-}
-
-if ($DryRun) {
-    $pyArgs += '--dry-run'
-}
-
-if ($SkipCustomerDomainCheck) {
-    $pyArgs += '--skip-customer-domain-check'
-}
-
-if ($SkipIgnoredSourceCheck) {
-    $pyArgs += '--skip-ignored-source-check'
-}
-
-if ($SkipPolyStringCaseCheck) {
-    $pyArgs += '--skip-polystring-case-check'
-}
-
-$savedEnvironment = Enter-DatrixVenvEnvironment
-try {
-    & $pythonExe @pyArgs
-    $exitCode = $LASTEXITCODE
-}
-finally {
-    Exit-DatrixVenvEnvironment -Saved $savedEnvironment
-}
-exit $exitCode
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.git.commit_and_push" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -28,7 +28,7 @@ Datrix is built on proven software engineering principles that ensure:
 
 **Application:** The codebase raises explicit errors with context (e.g. entity not found with available names and suggestions). No silent fallbacks or `None` returns for lookup failures.
 
-**Example (Alembic initial migration):** `build_initial_migration_context` and related helpers in `datrix_codegen_python.generators.persistence._migration_schema` raise `GenerationError` when an entity has no primary key, when a `belongsTo` target is missing from the block, or when foreign-key dependencies between tables are circular — generation stops with a concrete message instead of emitting broken DDL.
+**Example (migration revisions):** the kernel's shared revision renderer (`datrix_codegen_kernel.sql_facts.revision.render_revision`) raises `GenerationError` when a column is typed with an enum that declares no members or whose stored labels the snapshot does not record, naming the column and table; the Alembic adapter raises when the snapshot and the render context name different block schemas — generation stops with a concrete message instead of emitting broken DDL.
 
 **Example (incremental migration safety):** The shared migration change policy in `datrix_migration.change_policy` classifies schema diffs as `safe`, `risky`, or `blocked` before adapter rendering. Destructive changes (field/table removal, rename, type narrowing, enum value removal/rename/reorder) are generation errors — they fail loudly instead of silently generating migrations that could corrupt deployed databases. Missing RDBMS UUID, missing migration state with existing history, and append-only file content changes are also hard errors.
 

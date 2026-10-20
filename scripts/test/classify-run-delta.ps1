@@ -2,50 +2,26 @@
 <#
 .SYNOPSIS
  Classify the delta between two structured test-results runs.
-
 .DESCRIPTION
- Activates the Datrix virtual environment and runs datrix_scripts.classify_run_delta.
- Compares the failing sets and cluster patterns of a previous and a current
- run of the same project, writes run-delta.json into the CURRENT run
- directory, and reports a verdict (SUCCESS / PARTIAL / NO_CHANGE /
- REGRESSION). Exit code 0 only for SUCCESS.
-
-.PARAMETER Previous
- Previous run directory or index.json path (also accepted as the first
- positional argument).
-
-.PARAMETER Current
- Current run directory or index.json path (also accepted as the second
- positional argument).
-
-.PARAMETER Dbg
- Enable debug logging.
-
+ Runs datrix_scripts.classify_run_delta (shared with the red-run digest). Compares the failing sets and cluster
+ patterns of a previous and a current run of the same project, writes run-delta.json into the CURRENT run
+ directory, and reports a verdict (SUCCESS / PARTIAL / NO_CHANGE / REGRESSION). -Previous and -Current are each a
+ run directory or its index.json, also accepted positionally in that order. -SelfTest runs only the self-test.
+ Exit 0 SUCCESS (or self-test passed), 1 any other verdict (or self-test failed), 2 usage error.
+ python -m datrix_scripts.classify_run_delta --help describes every option.
 .EXAMPLE
- .\classify-run-delta.ps1 -Previous D:\datrix\datrix-codegen-aws\.test_results\test-results-20260712-235813 -Current D:\datrix\datrix-codegen-aws\.test_results\test-results-20260713-000700
-
-.EXAMPLE
- .\classify-run-delta.ps1 <previous-run-dir> <current-run-dir>
+ .\test\classify-run-delta.ps1 <previous-run-dir> <current-run-dir>
 #>
-
 [CmdletBinding()]
 param(
- [Parameter(Position=0)]
- [string]$Previous,
-
- [Parameter(Position=1)]
- [string]$Current,
-
- [switch]$Dbg
+ [Parameter(Position = 0)][string]$Previous, [Parameter(Position = 1)][string]$Current,
+ [switch]$SelfTest, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Previous) { $pythonArgs += @("--previous", $Previous) }
-if ($Current) { $pythonArgs += @("--current", $Current) }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-# Shared with the red-run digest, so it lives in the shared scripts package and runs as a module.
-exit (Invoke-DatrixPythonScript -Module "datrix_scripts.classify_run_delta" -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.classify_run_delta" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

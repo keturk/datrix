@@ -4,12 +4,15 @@
  Mechanical project-level scan for the /evaluate-generated skill (quick mode).
 
 .DESCRIPTION
- Parses the system.dtrx with the real Datrix pipeline, cross-checks the
- generated project (service directories, manifests, infrastructure files,
- docker-compose entries), rolls up critical blockers and warnings, and writes
- project-scan.json plus one service-*.prompt.md per service into the
- evaluation directory. All detail goes to the output files; the console
- prints a short summary only.
+ The behaviour is datrix_scripts.generation.evaluate_generated_scan. Parses the system.dtrx
+ with the real Datrix pipeline, cross-checks the generated project (service directories,
+ manifests, infrastructure files, docker-compose entries), rolls up critical blockers and
+ warnings, and writes project-scan.json plus one service-*.prompt.md per service into the
+ evaluation directory. All detail goes to the output files; the console prints a short
+ summary only.
+
+ Exit codes: 0 = scanned, 2 = bad input (missing source or generated root, a source that
+ does not analyze).
 
 .PARAMETER Source
  Path to the system.dtrx file.
@@ -25,38 +28,29 @@
  generate.ps1's default).
 
 .PARAMETER Dbg
- Enable debug logging in the Python script.
+ Enable debug logging.
+
+.PARAMETER SelfTest
+ Run only the module's self-test: bad inputs are refused, planted outputs are read, and the
+ wrapper seam holds.
 
 .EXAMPLE
  .\evaluate-generated-scan.ps1 -Source examples\01-foundation\system.dtrx -Generated D:\datrix\.generated\python\docker-compose\local\01-foundation
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
- [Parameter(Position=0)]
- [string]$Source,
-
- [Parameter(Position=1)]
- [string]$Generated,
-
- [Parameter()]
- [string]$EvalDir = "",
-
- [Parameter()]
- [string]$ConfigProfile = "",
-
- [Parameter()]
- [switch]$Dbg
+ [Parameter(ParameterSetName = "Run", Position = 0)][string]$Source,
+ [Parameter(ParameterSetName = "Run", Position = 1)][string]$Generated,
+ [Parameter(ParameterSetName = "Run")][string]$EvalDir,
+ [Parameter(ParameterSetName = "Run")][string]$ConfigProfile,
+ [Parameter(ParameterSetName = "Run")][switch]$Dbg,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Source) { $pythonArgs += @("--source", $Source) }
-if ($Generated) { $pythonArgs += @("--generated", $Generated) }
-if ($EvalDir) { $pythonArgs += @("--eval-dir", $EvalDir) }
-if ($ConfigProfile) { $pythonArgs += @("--profile", $ConfigProfile) }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\evaluate_generated_scan.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.generation.evaluate_generated_scan" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

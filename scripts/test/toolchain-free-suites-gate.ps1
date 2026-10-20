@@ -2,94 +2,30 @@
 <#
 .SYNOPSIS
  Fail if a framework test suite compiles or executes generated output.
-
 .DESCRIPTION
- A datrix-*/tests/ suite proves that DATRIX FUNCTIONALITY works -- that the
- generator emits the right thing. Whether the emitted output compiles and runs
- in its target language belongs to the generated tier: the generated project's
- own unit tests, and the deploy tests.
-
- Four shapes fail this gate:
-   1. A toolchain subprocess -- javac / java / mvnw / dotnet / tsc / npm / npx /
-      node / docker / az / gradle driven against generated output.
-   2. In-process execution -- exec(compile(...)), runpy, or importlib's
-      spec_from_file_location/exec_module applied to a rendered template.
-   3. Suite-in-suite (pytest) -- a subprocess spawning a nested pytest session
-      against a repo test path (pytest/py.test as argv[0], or the
-      [sys.executable, "-m", "pytest", ...] module form).
-   4. Suite-in-suite (script) -- a subprocess naming any script under
-      datrix/scripts/ (directly, or via powershell -File), re-running a repo
-      gate or metrics script a sibling gate already pays for.
-
- Both new shapes carve out pytester-based synthetic suites (a test function
- taking a pytester fixture parameter, or a direct pytester.runpytest*(...)
- attribute call) -- pytest's own plugin, which launches a nested run against a
- SYNTHETIC tree in a tmp dir, never against this repo's own production tests.
-
- Two shapes stay allowed: linters over generated TEXT (ruff/black -- reading is
- not executing), and subprocess runs of datrix itself (sys.executable -m
- datrix_cli, the import-boundary probes).
-
- The non-vacuity self-test runs on EVERY invocation before the real scan, so a
- green result can never mean "the detector was broken". Use -SelfTest to run
- only that leg.
-
-.PARAMETER Suites
- Comma-separated tests/ directories to scan. When omitted, scans every
- datrix-* package's suite.
-
-.PARAMETER Shapes
- Comma-separated violation kinds to report (default: all four). Use this to
- enforce the two new suite-in-suite shapes at hard zero independently of the
- pre-existing, still-red in-process-execution/toolchain-subprocess counts --
- e.g. -Shapes suite-in-suite-pytest,suite-in-suite-script. There is no
- baseline/exemption file for either new shape: both are hard zero.
-
-.PARAMETER SelfTest
- Run only the non-vacuity self-test and skip the real scan.
-
+ Runs datrix_scripts.test.toolchain_free_suites. A datrix-*/tests/ suite proves that the generator emits the right
+ thing; whether the emitted output compiles and runs belongs to the generated project's own tests and the deploy
+ tests. Four shapes fail: a toolchain subprocess (javac, dotnet, tsc, npm, node, docker, az, ...), in-process
+ execution of a rendered template (exec(compile(...)), runpy, importlib exec_module), a nested pytest session over a
+ repo test path, and a subprocess running a datrix/scripts/ script. pytester synthetic suites, linters over generated
+ text and runs of datrix itself stay allowed. Every run first proves the detector non-vacuous.
+ -Suites (comma-separated tests/ directories; default every package suite) and -Shapes (comma-separated kinds;
+ default all) narrow the scan; a path that is not a directory or an unknown kind is a usage error. -SelfTest runs
+ only the detector proof and the wrapper seam checks. Exit 0 pass, 1 violations, 2 usage error. The last line is
+ "[GATE] toolchain-free-suites PASSED|FAILED exit=<n> log=<path>".
+ python -m datrix_scripts.test.toolchain_free_suites --help describes every option.
 .EXAMPLE
- .\toolchain-free-suites-gate.ps1
- Scan every package suite, every shape.
-
-.EXAMPLE
- .\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-typescript/tests
- Scan a single suite.
-
-.EXAMPLE
- .\toolchain-free-suites-gate.ps1 -Shapes suite-in-suite-pytest,suite-in-suite-script
- Enforce only the two new shapes at hard zero.
-
-.EXAMPLE
- .\toolchain-free-suites-gate.ps1 -SelfTest
- Prove the detector fires on a planted compile call and spares an allowed one.
+ .\test\toolchain-free-suites-gate.ps1 -Shapes suite-in-suite-pytest,suite-in-suite-script
 #>
-
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [string]$Suites = "",
-
-    [Parameter()]
-    [string]$Shapes = "",
-
-    [Parameter()]
-    [switch]$SelfTest
+ [string]$Suites, [string]$Shapes, [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) {
-    $pythonArgs += "--self-test"
-}
-elseif (-not [string]::IsNullOrWhiteSpace($Suites)) {
-    foreach ($item in $Suites.Split(",")) {
-        $trimmed = $item.Trim()
-        if (-not [string]::IsNullOrWhiteSpace($trimmed)) { $pythonArgs += $trimmed }
-    }
-}
-if (-not [string]::IsNullOrWhiteSpace($Shapes)) { $pythonArgs += @("--shapes", $Shapes) }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\toolchain_free_suites.py") -Arguments $pythonArgs -RequirePackages -Gate "toolchain-free-suites")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.toolchain_free_suites" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

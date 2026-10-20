@@ -1,85 +1,78 @@
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Compare .generated vs .generated_saved with content-level feature detection.
+ Compare .generated vs .generated_saved with content-level feature detection.
 
 .DESCRIPTION
-    Runs the exhaustive content-level comparison script and writes a Markdown report.
-    Feature detection is by file content (same feature may be in different paths).
-    Report default: <datrix_root>\generated-comparison-report.md.
+ The behaviour is datrix_scripts.generation.compare_generated. Runs the exhaustive
+ content-level comparison and writes a Markdown report. Feature detection is by file content
+ (same feature may be in different paths). Relative paths resolve under the workspace root.
+ Report default: <workspace>\generated-comparison-report.md.
+
+ Exit codes: 0 = report written, 1 = a generated root is missing, 2 = usage error.
 
 .PARAMETER Current
-    Current generated root (default: .generated).
+ Current generated root (default: .generated).
 
 .PARAMETER Saved
-    Saved (old) generated root (default: .generated_saved).
+ Saved (old) generated root (default: .generated_saved).
 
 .PARAMETER Report
-    Output report path under datrix root (default: generated-comparison-report.md).
+ Output report path under the workspace root (default: generated-comparison-report.md).
 
 .PARAMETER LlmSummary
-    Append advisory local LLM summary to the generated comparison report.
+ Append advisory local LLM summary to the generated comparison report.
 
 .PARAMETER LlmLimit
-    Maximum feature/project rows to include in advisory LLM summary. Default: 40.
+ Maximum feature/project rows to include in advisory LLM summary. Default: 40.
 
 .PARAMETER LocalMachines
-    Machines to search for local model servers, in preference order. Omit to search the
-    default list in common/lib/datrix_scripts/local_llm.py.
+ Machines to search for local model servers, in preference order. Omit to search the
+ default list in common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
-    Models to use for advisory summary, best first. Omit to use any model already in memory.
+ Models to use for advisory summary, best first. Omit to use any model already in memory.
 
 .PARAMETER LlmTimeout
-    Request timeout in seconds for advisory summary.
+ Request timeout in seconds for advisory summary. Default: 180.
 
 .PARAMETER LlmNumPredict
-    Max generated tokens for advisory summary.
+ Max generated tokens for advisory summary. Default: 4096.
 
 .PARAMETER LlmTemperature
-    Sampling temperature for advisory summary.
+ Sampling temperature for advisory summary. Default: 0.1.
+
+.PARAMETER SelfTest
+ Run only the module's self-test: two planted trees are compared, a missing root exits 1, and
+ the wrapper seam holds.
 
 .EXAMPLE
-    .\compare-generated.ps1
-    Compare defaults and write report to datrix_root\generated-comparison-report.md.
+ .\compare-generated.ps1
+ Compare defaults and write report to <workspace>\generated-comparison-report.md.
 
 .EXAMPLE
-    .\compare-generated.ps1 -Report my-report.md
-    Write report to datrix_root\my-report.md.
+ .\compare-generated.ps1 -Report my-report.md
+ Write report to <workspace>\my-report.md.
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [string]$Current = ".generated",
-    [string]$Saved = ".generated_saved",
-    [string]$Report = "generated-comparison-report.md",
-    [switch]$LlmSummary,
-    [int]$LlmLimit = 40,
-    [string[]]$LocalMachines = @(),
-    [string[]]$LlmModel = @(),
-    [int]$LlmTimeout = 180,
-    [int]$LlmNumPredict = 4096,
-    [double]$LlmTemperature = 0.1
+ [Parameter(ParameterSetName = "Run")][string]$Current,
+ [Parameter(ParameterSetName = "Run")][string]$Saved,
+ [Parameter(ParameterSetName = "Run")][string]$Report,
+ [Parameter(ParameterSetName = "Run")][switch]$LlmSummary,
+ [Parameter(ParameterSetName = "Run")][int]$LlmLimit,
+ [Parameter(ParameterSetName = "Run")][string[]]$LocalMachines,
+ [Parameter(ParameterSetName = "Run")][string[]]$LlmModel,
+ [Parameter(ParameterSetName = "Run")][int]$LlmTimeout,
+ [Parameter(ParameterSetName = "Run")][int]$LlmNumPredict,
+ [Parameter(ParameterSetName = "Run")][double]$LlmTemperature,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pyArgs = @("--current", $Current, "--saved", $Saved, "--report", $Report)
-if ($LlmSummary) {
-    $pyArgs += @(
-        "--llm-summary",
-        "--llm-limit", "$LlmLimit",
-        "--llm-num-predict", "$LlmNumPredict",
-        "--llm-temperature", "$LlmTemperature"
-    )
-    $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-}
-
-$exitCode = Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\compare_generated.py") -Arguments $pyArgs
-
-if ($exitCode -eq 0 -and $Report) {
-    $reportFullPath = if ([System.IO.Path]::IsPathRooted($Report)) { $Report } else { Join-Path (Get-DatrixWorkspaceRoot) $Report }
-    Write-Host "Report written to: $reportFullPath"
-}
-exit $exitCode
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.generation.compare_generated" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

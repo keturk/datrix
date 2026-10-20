@@ -2,7 +2,7 @@
 #
 # Frozen per-file counts of target-literal identifiers (language/provider
 # names hardcoded in a shared layer -- Decision D1, Invariant I1).
-# Any INCREASE in a file's count fails datrix/scripts/scan/lib/check_import_boundaries.py
+# Any INCREASE in a file's count fails datrix/scripts/scan/check-import-boundaries.ps1
 # --check-target-literals. Decreases are always allowed and should be captured
 # by re-running with --update-baseline once a later change deletes an identifier
 # (the terminal state is 0 for every entry here).
@@ -13,7 +13,7 @@
 #   count = <int>
 #
 # The target-literal writer (write_target_literal_baseline, in
-# scan/lib/import_boundaries/target_literals.py) does not round-trip a `reason`
+# datrix_scripts.scan.import_boundaries.target_literals) does not round-trip a `reason`
 # TOML key -- `--update-baseline` fully
 # regenerates this file from a fresh scan, so a reason lives as a `#`-comment line
 # directly above its `[[baseline]]` block instead (matching this header's own

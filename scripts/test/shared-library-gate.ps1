@@ -2,56 +2,28 @@
 <#
 .SYNOPSIS
  Repo-level gate for the shared scripts package and the scripts-tree contracts.
-
 .DESCRIPTION
- Runs lib\shared_library_gate.py, which checks the shared scripts package
- (common/lib/datrix_scripts), the scripts-tree layout and the scripts-tree censuses as plain
- Python checks (no pytest, no mocks, real tempfile.TemporaryDirectory() fixtures). See the .py
- file's module docstring for the full list of modules covered.
-
- Exit codes:
-   0 = every check passed
-   1 = at least one check failed
-   2 = usage error
-
-.PARAMETER SelfTest
- Run only the gate's non-vacuity proof over planted inputs: the harness reports a deliberate
- failure, and each scripts-tree census reports a planted copy. Reads nothing of the real tree.
-
-.PARAMETER HarnessSelfTest
- Run only the harness self-test: one deliberately-failing check must be reported FAILED.
-
-.PARAMETER Only
- Run only the checks whose name starts with this prefix (e.g. check_local_llm),
- for a change confined to one shared module.
-
+ Runs datrix_scripts.test.shared_library_gate, which checks the shared scripts package (common/lib/datrix_scripts),
+ the scripts-tree layout and the scripts-tree censuses as plain Python checks (no pytest, no mocks, real temporary
+ directories); the module docstring lists every module covered. -Only runs the checks whose name starts with a
+ prefix (e.g. check_local_llm), for a change confined to one shared module. -SelfTest runs only the non-vacuity
+ proof over planted inputs (the harness reports a deliberate failure, each scripts-tree census reports a planted
+ copy, and the wrapper seam is checked), reading nothing of the real tree; -HarnessSelfTest runs only the harness
+ self-test. Exit 0 every check passed, 1 a check failed, 2 usage error. The last line is
+ "[GATE] shared-library PASSED|FAILED exit=<n> log=<path>".
+ python -m datrix_scripts.test.shared_library_gate --help describes every option.
 .EXAMPLE
- .\shared-library-gate.ps1
- Run every shared-library behavior check; exit 0 only if all pass.
-
-.EXAMPLE
- .\shared-library-gate.ps1 -SelfTest
- Prove each census and the pass/fail harness can detect and report a failure.
+ .\test\shared-library-gate.ps1 -Only check_scripts_tree
 #>
-
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [switch]$SelfTest,
-
-    [Parameter()]
-    [switch]$HarnessSelfTest,
-
-    [Parameter()]
-    [string]$Only = ""
+ [switch]$SelfTest, [switch]$HarnessSelfTest, [string]$Only
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($HarnessSelfTest) { $pythonArgs += "--harness-self-test" }
-if ($Only) { $pythonArgs += @("--only", $Only) }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\shared_library_gate.py") -Arguments $pythonArgs -Gate "shared-library")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.shared_library_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

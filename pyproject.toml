@@ -18,7 +18,7 @@ dependencies = []
 #
 # semgrep publishes no Windows ARM64 wheel (only win_amd64, macOS and Linux), and its sdist
 # needs the prebuilt semgrep-core binary, so it is not installable into a native Windows ARM64
-# venv; scan/lib/semgrep_scanner.py names that platform when it refuses there.
+# venv; datrix_scripts.scan.semgrep names that platform when it refuses there.
 [dependency-groups]
 scripts = [
     "bandit>=1.9.4",

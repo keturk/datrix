@@ -4,12 +4,10 @@
  Run a single test file or pattern quickly for checkpoint-based debugging.
 
 .DESCRIPTION
- Lightweight test runner for verifying individual fixes. Runs pytest, in the shared
- venv, against a specific test file, test class, or test function.
- Designed for the fix-one-verify-one workflow where you need fast feedback on a single fix.
-
- Unlike test.ps1 which orchestrates full project test runs, this script focuses on
- running exactly what you specify with minimal overhead.
+ Runs datrix_scripts.test.test_single: pytest, in the shared venv, against a specific test file, test class, or
+ test function, in the project that owns it. Designed for the fix-one-verify-one workflow where you need fast
+ feedback on a single fix. Unlike test.ps1, which orchestrates project test runs, it runs exactly what you
+ specify with minimal overhead. python -m datrix_scripts.test.test_single --help describes every option.
 
  Exit codes:
    0 = tests passed
@@ -40,6 +38,9 @@
 .PARAMETER Dbg
  Enable debug logging.
 
+.PARAMETER SelfTest
+ Run the module's self-test.
+
 .EXAMPLE
  .\test-single.ps1 "D:\datrix\datrix-codegen-python\tests\generators\test_entity_generator.py"
  Run all tests in a specific file.
@@ -56,55 +57,16 @@
  .\test-single.ps1 "tests/test_enum.py" -Project datrix-codegen-typescript -FailFast
  Run tests in a file, stop on first failure.
 #>
-
 [CmdletBinding()]
 param(
- [Parameter(Position=0)]
- [string]$TestPath = "",
-
- [Parameter()]
- [string]$Project = "",
-
- [Parameter()]
- [string]$Keyword = "",
-
- [Parameter()]
- [string]$Marker = "",
-
- [Parameter()]
- [switch]$VerboseOutput,
-
- [Parameter()]
- [switch]$FailFast,
-
- [Parameter()]
- [switch]$Dbg
+ [Parameter(Position=0)][string]$TestPath, [string]$Project, [string]$Keyword, [string]$Marker,
+ [switch]$VerboseOutput, [switch]$FailFast, [switch]$Dbg, [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-# Require TestPath or Keyword
-if (-not $TestPath -and -not $Keyword) {
- Write-Host "Usage:" -ForegroundColor Yellow
- Write-Host "  .\test-single.ps1 <test-path> [-Project <name>]" -ForegroundColor White
- Write-Host "  .\test-single.ps1 -Project <name> -Keyword <expr>" -ForegroundColor White
- Write-Host ""
- Write-Host "Examples:" -ForegroundColor Cyan
- Write-Host "  .\test-single.ps1 tests/test_foo.py -Project datrix-common"
- Write-Host "  .\test-single.ps1 -Project datrix-codegen-python -Keyword test_enum"
- Write-Host ""
- Write-Host "Use Get-Help .\test-single.ps1 -Full for detailed help." -ForegroundColor Yellow
- exit 2
-}
-
-$pythonArgs = @()
-if ($TestPath) { $pythonArgs += $TestPath }
-if ($Project) { $pythonArgs += @("--project", $Project) }
-if ($Keyword) { $pythonArgs += @("--keyword", $Keyword) }
-if ($Marker) { $pythonArgs += @("--marker", $Marker) }
-if ($VerboseOutput) { $pythonArgs += "--verbose" }
-if ($FailFast) { $pythonArgs += "--fail-fast" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\test_single.py") -Arguments $pythonArgs -RequirePackages)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.test_single" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

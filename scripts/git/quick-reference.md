@@ -3,6 +3,8 @@
 > **Bash invocation:** Prefix with `powershell -File`, use forward slashes, quote paths. See [../quick-reference.md](../quick-reference.md) for full details.
 >
 > **Base path:** `d:/datrix/datrix/scripts/`
+>
+> Each `.ps1` here is rendered from the shared entrypoint template and runs a module of `common/lib/datrix_scripts/git/`; each has a POSIX twin `.sh` beside it taking the same options as `--kebab` flags, and each takes `-SelfTest` (the module's checks and the wrapper seam checks). No script here runs `git stash`, `reset`, `checkout`, `restore` or `revert`; the self-tests of `status`, `pull`, `pre-review`, `fix-line-endings` and `commit-and-push` scan for those forms in every git module and every `datrix_scripts` module the git modules import (the shared scans commit-and-push runs call git too).
 
 ---
 
@@ -15,13 +17,15 @@ Shows git status for all repositories under the workspace root.
 | **Summary** | `.\git\status.ps1` | Clean/has-changes per repo |
 | **Detailed** | `.\git\status.ps1 -Detailed` | Branch, ahead/behind, changed files |
 
-**Parameters:** `-Detailed`, `-Dbg`
+**Parameters:** `-Detailed`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.git.status`; POSIX twin `git/status.sh` (`--detailed`, `--dbg`, `--self-test`).
 
 ---
 
 ## `git\pull.ps1`
 
-Pulls all git repositories under the workspace root (wraps `git\lib\pull.py`), printing git's output per repo, then one summary grouping every repo by outcome: **Updated** (old..new, commit count), **Up to date**, **Conflict** (unmerged paths listed), **Blocked by local changes** (the paths the pull would overwrite; nothing merged — Jon's `/resolve-conflicts`), **Failed** (git's error line).
+Pulls all git repositories under the workspace root, printing git's output per repo, then one summary grouping every repo by outcome: **Updated** (old..new, commit count), **Up to date**, **Conflict** (unmerged paths listed), **Blocked by local changes** (the paths the pull would overwrite; nothing merged — Jon's `/resolve-conflicts`), **Failed** (git's error line).
 
 Each blocked path carries a verdict. It compares the local edit (HEAD vs the working tree) with the
 incoming one (HEAD vs the fetched upstream) on HEAD line ranges, which is the first question a
@@ -39,9 +43,11 @@ conflict resolution asks:
 |------|---------|
 | **Pull all** | `.\git\pull.ps1` |
 
-**Parameters:** none.
+**Parameters:** `-SelfTest`.
 
 **Exit codes:** 0 = every repo updated or up to date, 1 = at least one conflicted, was blocked or failed, 2 = the run could not start.
+
+**Module:** `datrix_scripts.git.pull`; POSIX twin `git/pull.sh` (`--self-test`).
 
 ---
 
@@ -62,7 +68,9 @@ CRLF line in any index blob) is held by `gates\repo-hygiene\line-ending-gate.ps1
 | **One repo** | `.\git\fix-line-endings.ps1 -Repo datrix-codegen-python` | Restore them in one repository |
 | **Every repo** | `.\git\fix-line-endings.ps1` | Every framework repository |
 
-**Parameters:** `-Repo <name,...>` (default: every framework repo), `-DryRun`. **Exit codes:** 0 = done (or a clean `-DryRun`), 2 = a git command failed or a bad argument.
+**Parameters:** `-Repo <name,...>` (default: every framework repo), `-DryRun`, `-SelfTest`. **Exit codes:** 0 = done (or a clean `-DryRun`), 2 = a git command failed or a bad argument.
+
+**Module:** `datrix_scripts.git.fix_line_endings`; POSIX twin `git/fix-line-endings.sh` (`--repo`, `--dry-run`, `--self-test`).
 
 ---
 
@@ -101,15 +109,17 @@ Definite findings: `get-none` (a `.get(key, None)` silent fallback), `bare-excep
 | **Review** | `.\git\pre-review.ps1` | Definite checks over pending added lines |
 | **With model** | `.\git\pre-review.ps1 -ModelReview` | Plus advisory local-model findings |
 
-**Parameters:** `-ModelReview`, and with it `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default 180)
+**Parameters:** `-ModelReview`, and with it `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default 180); `-SelfTest`
 
 **Exit codes:** 0 = no definite findings, 1 = definite findings (listed as `file:line rule: explanation`), 2 = the review could not run.
+
+**Module:** `datrix_scripts.git.pre_review`; POSIX twin `git/pre-review.sh` (`--model-review`, `--local-machines`, `--llm-model`, `--llm-timeout`, `--self-test`).
 
 ---
 
 ## `git\pre-review-gate.ps1`
 
-Behaviour checks for the first-pass pre-review (`git/lib/pre_review.py`, wrapped by `git\pre-review.ps1`), over real git repositories in a temporary directory. It covers:
+Behaviour checks for the first-pass pre-review (`datrix_scripts.git.pre_review`, wrapped by `git\pre-review.ps1`), over real git repositories in a temporary directory. It covers:
 
 - the diff parser
 - every definite rule firing on added lines only, with planted old violations as the non-vacuity control and Protocol/ABC declarations exempt
@@ -127,6 +137,8 @@ Behaviour checks for the first-pass pre-review (`git/lib/pre_review.py`, wrapped
 **Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
 **Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
+
+**Module:** `datrix_scripts.git.pre_review_gate`; POSIX twin `git/pre-review-gate.sh` (`--only`, `--harness-self-test`, `--self-test`, `--dbg`).
 
 ---
 
@@ -166,7 +178,9 @@ Behaviour checks for `git\resolve-pull.ps1` (`git/lib/resolve_pull.py`), over an
 | **Force Claude** | `.\git\commit-and-push.ps1 -MessageSource claude` | Use the Claude Code CLI |
 | **Preview only** | `.\git\commit-and-push.ps1 -DryRun` | Print generated messages; do not commit |
 
-**Parameters:** `-MessageSource` (`auto`\|`local`\|`claude`, default `auto`), `-LocalMachines` (host names or IPs to search, preference order; default T5820, T7920, GX10), `-LocalTimeoutMs`, `-LocalLoadTimeoutMs`, `-LocalMaxTokens`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerCommit`, `-MaxCommitsPerRepo` (default 8; 1 = one commit per repo), `-DryRun`, `-SkipCustomerDomainCheck`, `-SkipIgnoredSourceCheck`, `-SkipPolyStringCaseCheck`
+**Parameters:** `-MessageSource` (`auto`\|`local`\|`claude`, default `auto`), `-LocalMachines` (host names or IPs to search, preference order; default T5820, T7920, GX10), `-LocalTimeoutMs`, `-LocalLoadTimeoutMs`, `-LocalMaxTokens`, `-ClaudeModel`, `-ClaudeTimeoutMs`, `-MaxDiffCharsPerCommit`, `-MaxCommitsPerRepo` (default 8; 1 = one commit per repo), `-DryRun`, `-SkipCustomerDomainCheck`, `-SkipIgnoredSourceCheck`, `-SkipPolyStringCaseCheck`, `-SelfTest`
+
+**Module:** `datrix_scripts.git.commit_and_push`; POSIX twin `git/commit-and-push.sh` (`--message-source`, `--local-machines`, `--local-timeout-ms`, `--local-load-timeout-ms`, `--local-max-tokens`, `--claude-model`, `--claude-timeout-ms`, `--max-diff-chars-per-commit`, `--max-commits-per-repo`, `--dry-run`, `--skip-customer-domain-check`, `--skip-ignored-source-check`, `--skip-poly-string-case-check`, `--self-test`).
 
 **Prerequisites:** For the Claude fallback, the Claude Code CLI must be installed and available in PATH (`claude` command). For the local path, at least one searched machine must run a model server that answers.
 
@@ -175,6 +189,8 @@ Behaviour checks for `git\resolve-pull.ps1` (`git/lib/resolve_pull.py`), over an
 Before a single message is generated or anything is staged, every dirty repo's pending changes are scanned against the hashed customer-term corpus (`scripts/config/customer-term-hashes.json`). One hit aborts the **whole run** with nothing committed — checked across all repos up front so a violation in the last repo cannot leave the first four already pushed. Violations are reported as `repo/path:line` with the matched token redacted; open the file:line to see it.
 
 This is the seam where content actually enters a framework repo: every commit goes through this script's `git add -A`. Customer/project domain language must never reach one of these repos, and prose alone did not stop it — customer cloud-resource names and paths into a customer checkout were committed to a settings file through Claude Code permission entries nobody re-read.
+
+The script's `-SelfTest` proves the abort with a planted term (the corpus stores only digests): one hit fails the whole run, the error names the file and line without printing the term, and nothing is staged or committed.
 
 `-SkipCustomerDomainCheck` bypasses it for a confirmed false positive; it prints a warning and commits regardless. To audit what is already committed (rather than what is pending), run `gates\repo-hygiene\customer-domain-isolation-gate.ps1`. To register a new term, use that gate's `-AddTerm`.
 

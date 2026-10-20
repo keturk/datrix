@@ -2,55 +2,26 @@
 <#
 .SYNOPSIS
  Compare timestamped test results inside one .test_results folder.
-
 .DESCRIPTION
- Runs compare_tests.py in the shared venv against a
- single project .test_results directory. Unit test runs are compared only with
- other unit-test timestamps, and deploy test runs are compared only with other
- deploy-test timestamps.
-
-.PARAMETER TestResults
- Path to a single .test_results folder.
-
-.PARAMETER Report
- Optional Markdown report path.
-
-.PARAMETER Dbg
- Enable debug logging.
-
+ Runs datrix_scripts.test.compare_tests against a single project .test_results directory (-TestResults, alias
+ -Path, also the first positional argument). Unit test runs are compared only with other unit-test timestamps,
+ and deploy test runs only with other deploy-test timestamps. -Report also writes a Markdown report. -SelfTest
+ runs only the self-test. Exit 0 runs compared, 1 not a .test_results folder (or self-test failed), 2 no runs
+ found or usage error. python -m datrix_scripts.test.compare_tests --help describes every option.
 .EXAMPLE
- .\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results
-
-.EXAMPLE
- .\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results -Report D:\datrix\ecommerce-test-comparison.md
+ .\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
- [Parameter(Position=0, Mandatory=$true)]
- [Alias("Path")]
- [string]$TestResults,
-
- [string]$Report,
-
- [switch]$Dbg
+ [Parameter(Position = 0, Mandatory = $true, ParameterSetName = "Run")][Alias("Path")][string]$TestResults,
+ [Parameter(ParameterSetName = "Run")][string]$Report, [switch]$Dbg,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-if (-not (Test-Path -LiteralPath $TestResults -PathType Container)) {
- Write-Host "Error: test results path is not a directory: $TestResults. Expected a project's .test_results folder." -ForegroundColor Red
- exit 1
-}
-$resolvedTestResultsPath = (Resolve-Path -LiteralPath $TestResults).Path
-if ((Split-Path -Leaf $resolvedTestResultsPath) -ne ".test_results") {
- Write-Host "Error: expected a .test_results folder, got: $resolvedTestResultsPath" -ForegroundColor Red
- exit 1
-}
-
-$pythonArgs = @("--test-results", $resolvedTestResultsPath)
-if ($Report) { $pythonArgs += @("--report", $Report) }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\compare_tests.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.compare_tests" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

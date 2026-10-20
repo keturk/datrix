@@ -1,7 +1,7 @@
 {
   "_comment": [
     "What the code index (scripts/common/lib/datrix_scripts/code_index, wrapped by scripts/dev/code-index.ps1",
-    "and served to agents by scripts/dev/lib/code_index_mcp.py) covers. The index indexes every Python file git",
+    "and served to agents by datrix_scripts.dev.code_index_mcp) covers. The index indexes every Python file git",
     "sees in each repository at the workspace root (tracked, plus untracked files no .gitignore excludes),",
     "minus 'exclude'. Every pattern is an fnmatch pattern over the workspace-relative path with forward",
     "slashes, in which '*' also matches '/'.",

@@ -1,5 +1,5 @@
 # Two-directional pin over the problem-type parity gate's unspelled (language, family) cells
-# (scripts/gates/parity/lib/problem_type_parity.py, wrapped by
+# (datrix_scripts.gates.parity.problem_type_parity_gate, wrapped by
 # scripts/gates/parity/problem-type-parity-gate.ps1).
 #
 # Every registered language is obligated to spell every registered problem-type family. A cell a

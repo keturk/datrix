@@ -1,148 +1,65 @@
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Run all visualization and documentation scripts for a project.
+ Run all visualization and documentation scripts for a project.
 
 .DESCRIPTION
-    Orchestrates the full visualization pipeline for one or more .dtrx projects:
-      1. Mermaid diagrams (all types)
-      2. OpenAPI / AsyncAPI specs
-      3. Documentation status report
+ The behaviour is datrix_scripts.visualize.all_reports. Orchestrates the full visualization
+ pipeline for one or more .dtrx projects:
+   1. Mermaid and SVG diagrams (visualize)
+   2. OpenAPI / AsyncAPI specs (openapi-gen)
+   3. Documentation status report (status-docs)
 
-    All output is written next to the .dtrx source files (language-agnostic).
-    Each step runs independently - a failure in one step is reported but does not
-    block subsequent steps.
+ All output is written next to the .dtrx source files (language-agnostic). Each step runs as its
+ own process: a failure in one step is reported but does not block subsequent steps.
+
+ Exit codes: 0 = every step passed; 1 = a step failed, or neither -Source nor a batch flag.
 
 .PARAMETER Source
-    Path to .dtrx file or directory (single project mode).
+ Path to .dtrx file or directory (single project mode).
 
 .PARAMETER All
-    Process all projects from test-projects.json.
+ Process all projects from test-projects.json.
 
 .PARAMETER Domains
-    Domain examples only.
+ Domain examples only.
 
 .PARAMETER TestSet
-    Named test set from test-projects.json (default: all).
+ Named test set from test-projects.json (default: all).
 
 .PARAMETER Profile
-    Config profile to resolve (default: test).
+ Config profile the diagram and spec steps resolve (default: test).
 
 .PARAMETER Dbg
-    Enable debug logging.
+ Enable debug logging.
+
+.PARAMETER SelfTest
+ Run only the module's self-test: every step runs with its options, a failing step fails the
+ run, and the wrapper seam.
 
 .EXAMPLE
-    .\all-reports.ps1 examples\02-domains\ecommerce\system.dtrx
-    Run all reports for the ecommerce example.
+ .\all-reports.ps1 datrix\examples\02-domains\ecommerce\system.dtrx
+ Run all reports for the ecommerce example.
 
 .EXAMPLE
-    .\all-reports.ps1 -All -Dbg
-    Run all reports for every project with debug logging.
+ .\all-reports.ps1 -All -Dbg
+ Run all reports for every project with debug logging.
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter(Position = 0)]
-    [string]$Source,
-
-    [switch]$All,
-    [switch]$Domains,
-    [string]$TestSet = "all",
-    [string]$Profile = "test",
-    [switch]$Dbg
+ [Parameter(ParameterSetName = "Run", Position = 0)][string]$Source,
+ [Parameter(ParameterSetName = "Run")][switch]$All,
+ [Parameter(ParameterSetName = "Run")][switch]$Domains,
+ [Parameter(ParameterSetName = "Run")][string]$TestSet,
+ [Parameter(ParameterSetName = "Run")][string]$Profile,
+ [Parameter(ParameterSetName = "Run")][switch]$Dbg,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-# Validate that at least one mode is specified
-if (-not $Source -and -not $All -and -not $Domains) {
-    Write-Host "Usage:" -ForegroundColor Yellow
-    Write-Host "  .\all-reports.ps1 <source.dtrx>               Single project" -ForegroundColor White
-    Write-Host "  .\all-reports.ps1 -All                         All projects" -ForegroundColor White
-    Write-Host "  .\all-reports.ps1 -Domains                     Domain examples" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Use Get-Help .\all-reports.ps1 -Full for detailed help." -ForegroundColor Yellow
-    exit 1
-}
-
-# Build common arguments that get forwarded to every sub-script (hashtable splatting)
-$commonArgs = @{}
-if ($Source)   { $commonArgs.Source = $Source }
-if ($All)      { $commonArgs.All = $true }
-if ($Domains)  { $commonArgs.Domains = $true }
-if ($TestSet -ne "all") { $commonArgs.TestSet = $TestSet }
-if ($Dbg) { $commonArgs.Dbg = $true }
-
-# ResolvesProfile: the step loads the application under a config profile and
-# accepts -Profile; status-docs only inspects files on disk and takes none.
-$steps = @(
-    @{
-        Name            = "Mermaid Diagrams"
-        Script          = Join-Path $scriptDir "visualize.ps1"
-        ResolvesProfile = $true
-    },
-    @{
-        Name            = "OpenAPI / AsyncAPI Specs"
-        Script          = Join-Path $scriptDir "openapi-gen.ps1"
-        ResolvesProfile = $true
-    },
-    @{
-        Name            = "Documentation Status"
-        Script          = Join-Path $scriptDir "status-docs.ps1"
-        ResolvesProfile = $false
-    }
-)
-
-$totalSteps = $steps.Count
-$passed = 0
-$failed = 0
-
-Write-Host ""
-Write-Host "===================================================" -ForegroundColor Cyan
-Write-Host "  Datrix Visualization - All Reports" -ForegroundColor Cyan
-Write-Host "===================================================" -ForegroundColor Cyan
-Write-Host ""
-
-for ($i = 0; $i -lt $totalSteps; $i++) {
-    $step = $steps[$i]
-    $stepNum = $i + 1
-    $stepScript = $step.Script
-
-    Write-Host "---------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  Step $stepNum/$totalSteps : $($step.Name)" -ForegroundColor Cyan
-    Write-Host "---------------------------------------------------" -ForegroundColor DarkGray
-
-    if (-not (Test-Path $stepScript)) {
-        Write-Host "  SKIPPED - script not found: $stepScript" -ForegroundColor Yellow
-        $failed++
-        continue
-    }
-
-    $stepArgs = $commonArgs.Clone()
-    if ($step.ResolvesProfile -and $Profile -ne "test") { $stepArgs.Profile = $Profile }
-
-    try {
-        & $stepScript @stepArgs
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "  -> OK" -ForegroundColor Green
-            $passed++
-        } else {
-            Write-Host "  -> FAILED (exit code $LASTEXITCODE)" -ForegroundColor Red
-            $failed++
-        }
-    } catch {
-        Write-Host "  -> ERROR: $_" -ForegroundColor Red
-        $failed++
-    }
-    Write-Host ""
-}
-
-# Summary
-$summaryColor = "Green"
-if ($failed -gt 0) { $summaryColor = "Yellow" }
-
-Write-Host "===================================================" -ForegroundColor Cyan
-Write-Host "  Summary: $passed passed, $failed failed (out of $totalSteps steps)" -ForegroundColor $summaryColor
-Write-Host "===================================================" -ForegroundColor Cyan
-
-if ($failed -gt 0) { exit 1 } else { exit 0 }
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.visualize.all_reports" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -22,7 +22,7 @@ Runs tests for one or more Datrix projects.
 | **Keyword filter** | `.\test\test.ps1 datrix-common -Keyword "test_parse"` | Match by keyword (-k) |
 | **Feature tag** | `.\test\test.ps1 datrix-codegen-python datrix-codegen-typescript -Tag gateway` | Only the tests carrying the tag, in every named package — how a change's behaviour is verified across the packages it reaches |
 | **Several tags** | `.\test\test.ps1 datrix-common -Tag config-resolution,secrets` | A test runs when it carries ANY named tag |
-| **List tags** | `.\test\test.ps1 datrix-codegen-python -ListTags` | Every tag with its test count, and the untagged tests; runs nothing; exit 1 while any test is untagged or a module fails to collect. Then lists each package's tags missing from the vocabulary table in `feature-tags.md`, with where each is first applied (`test\lib\tag_vocabulary.py`, a static AST read; report only, never changes the exit code). Enforcement happens at collection: every `test.ps1` run passes the feature-tag plugin's `--datrix-require-tags`, which refuses a collected item carrying an unlisted tag |
+| **List tags** | `.\test\test.ps1 datrix-codegen-python -ListTags` | Every tag with its test count, and the untagged tests; runs nothing; exit 1 while any test is untagged or a module fails to collect. Then lists each package's tags missing from the vocabulary table in `feature-tags.md`, with where each is first applied (`datrix_scripts.test.tag_vocabulary`, a static AST read; report only, never changes the exit code). Enforcement happens at collection: every `test.ps1` run passes the feature-tag plugin's `--datrix-require-tags`, which refuses a collected item carrying an unlisted tag |
 | **List tags (scoped)** | `.\test\test.ps1 datrix-common -ListTags -Specific "tests/unit/config"` | Listing over the named files/directories only |
 | **Verbose output** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py" -VerboseOutput` | Verbose pytest output (Jon; agents never pass it) |
 | **No log save** | `.\test\test.ps1 datrix-common -Specific "tests/unit/test_foo.py" -NoSave` | Don't save output to log files (Jon; agents never pass it) |
@@ -32,9 +32,9 @@ Runs tests for one or more Datrix projects.
 
 Whole-suite modes (Jon only): a bare package (`.\test\test.ps1` + package names), a folder path, `-All`, `-Rerun` (re-run projects whose latest log reports failures), and the tier switches `-Unit` / `-Integration` / `-E2E` / `-Fast` (excludes slow) / `-Slow`.
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Rerun`, `-Coverage`, `-VerboseOutput`, `-NoSave`, `-NoAutoInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow` (mutually exclusive), `-Specific <path[,path...]>` (comma-separated files/node-IDs run in one pytest session), `-Keyword <expr>`, `-Tag <tag[,tag...]>` (feature tags; a test runs when it carries any of them), `-ListTags` (list tags, run nothing; with `-Specific`, scoped), `-NoDigest` (write no failure digest), `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Rerun`, `-Coverage`, `-VerboseOutput`, `-NoSave`, `-NoAutoInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow` (mutually exclusive), `-Specific <path[,path...]>` (comma-separated files/node-IDs run in one pytest session), `-Keyword <expr>`, `-Tag <tag[,tag...]>` (feature tags; a test runs when it carries any of them), `-ListTags` (list tags, run nothing; with `-Specific`, scoped), `-NoDigest` (write no failure digest), `-Dbg`, `-SelfTest` (the module's self-test; runs no package's tests)
 
-The runner is `datrix_scripts.test_project` (in `common/lib/`), run as a module.
+**Module:** `datrix_scripts.test.test` (in `common/lib/`), behind a wrapper rendered from `common/templates/entrypoint.ps1`. Its POSIX twin `test\test.sh` takes the module's own flags: each parameter as `--kebab-name` (`--specific`, `--keyword`, `--tag`, `--list-tags`, `--self-test`; `-E2E` is `--e2-e`), with the packages positional — `bash test/test.sh datrix-common --list-tags`. The full-suite guard reads both spellings alike. Every module behind a `test\` wrapper takes its options spelled in full: an abbreviation (`--al` for `--all`) is a usage error (exit 2), never expanded, since the guard reads flags by their exact spelling. Each package runs in its own `datrix_scripts.test_project` child.
 
 **Failure digest.** After the summary table, every failed package whose run was saved gets a short digest from `common/lib/datrix_scripts/run_digest.py`, written to `digest.txt` in the run directory. The console gets one line, `Failure digest written: <path>`, never the digest itself. It lists the run's failure groups (the `collect-failure-data.ps1` families, labelled `E1..` for errors and `F1..` for failures) with count, pattern, source location and a re-run command. It also says what changed since the newest earlier completed run of the package with the same `selection` — an interrupted `INCOMPLETE` run ran nothing to compare with and is passed over (new failing tests, still failing, fixed — `classify-run-delta.ps1`'s counts; each group is marked `[new]` or `[seen before]`). From a resident local model it adds a one-paragraph hint per group (first 5) and, when there are several groups, one reading of which share a cause and which to fix first. Model text is labelled with its model and is a lead to confirm, never a finding. Every prompt goes through the customer-term filter, and nothing is sent without the corpus. Only resident models are used (no cold load), with a 60 s request timeout. When no model answers, one `Model: no hint (...)` line says why and the digest carries the deterministic part alone. A digest that cannot be written prints `No failure digest for <package> ...` and never changes the exit code. The run also gains `failure-data.json` and, when an earlier comparable run exists, `run-delta.json`. About 15 s on a three-group run. The `digest-red-test-run.py` hook asks no model for a run that has `digest.txt`, because the run folder already holds the digest.
 
@@ -46,7 +46,7 @@ The runner is `datrix_scripts.test_project` (in `common/lib/`), run as a module.
 
 **Selection and suite-input stamp (`index.json` `schema_version: 2`):** every saved run records `selection` — `{"kind": "full"}` for a bare `test.ps1 <package>`, otherwise `{"kind": "targeted", "specific", "keyword", "tier", "marker", "tags"}` for `-Specific`/`-Keyword`/`-Tag`/any tier switch; a `-Tag` run adds `selected_items`, `serial_items` and `execution` (`"single-process"` or `"parallel+serial"`). Only a full run whose every phase completed records `inputs` (the suite-input fingerprint over the package's cone, installed set, interpreter, and observed foreign paths and executables); a targeted run never has an `inputs` key, so it can never stand in for a full one. A full run loads `datrix_scripts.runner_plugin` (`-p`) in every phase and also leaves `observed-*.json` / `deselected-*.json` / `timings-*.json` / `workers-controller.json` records and a merged `timings.json`; any other saved run except a `-Tag` run loads it in its parallel phase only and is never stamped. **The serial phase runs only when needed:** a `-Tag` run decides from its exported selection (see Feature tags above) and reads no deselected counts; every other run decides as follows: when every parallel worker's `deselected-<worker>.json` says it deselected 0 items (so no collected test is `serial`), the serial phase is skipped — `full.log` says `Phase 2: serial tests SKIPPED -- …` and `index.json` records `"phases": {"Serial": "skipped (0 serial items)"}` with no `junit-serial.xml`. It runs on any missing evidence (`-NoSave`, a worker the controller listed with no record, a parallel phase that did not complete), under a marker or keyword filter (`-Unit`/`-Fast`/`-Keyword`/…; `-Specific` is not a filter), and when workers deselected items. Workers disagreeing on the count, or an unreadable record, is a runner error: the serial phase runs and the run is FAILED with the reason in `index.json` `runner_errors`. Each worker's `deselected-<worker>.json` carries per-file `deselected_files` counts, and a disagreement error names every file whose count differs and lists the package files modified since the parallel phase started: a file saved by another session mid-run adds or removes test functions, so workers that collected before and after it count different items. Collection itself is deterministic (a solo run agrees on every worker), so such a FAILED run is correct and the fix is to re-run on an unchanged tree. When a full run cannot be stamped (a phase did not complete, a session's records are missing, or a cone tree changed while it ran), `full.log` says why and `index.json` has `selection` but no `inputs`. Field reference: [Package-run `index.json`](#package-run-indexjson-schema-version-2).
 
-**Never run two `test.ps1` invocations at once — batch the projects into ONE call instead.** `-Projects` is variadic and iterates sequentially, so `test.ps1 a b c` is the supported way to cover several packages. Before running anything, `test.ps1` runs the venv install check (`scripts/common/venv.ps1 -EnsurePackages -SkipIfInstalled`, through `Invoke-DatrixPythonScript -RequirePackages`), which takes a **workspace-wide exclusive package lock** (`<workspace>\.venv-package.lock`, 120s acquisition timeout) shared with `generate.ps1` — it guards the install/repair phase against concurrent writers of the one shared venv. A second concurrent invocation therefore blocks for up to two minutes and then dies with `Could not acquire package lock - another process may be installing packages`, having run **no** tests. The one sanctioned concurrency is `affected-gate.ps1` (Jon's tool — agents never run it), and it does not contend here: it runs that install check **once**, before any child, and launches every `test.ps1` child with `DATRIX_PACKAGES_ENSURED=1`, which makes `test.ps1` skip its own check (with `DATRIX_VENV_VERBOSE=1` it prints `Package install check skipped: the caller already ran it` instead) and makes `test_project.py` skip its per-project dev-dependency probes (the `python -c "import <tool>"` run per declared test tool), since the caller's check already covered every package's `[dev]` extras. `test.ps1` restores its caller's value of that variable on exit, so a run started in your own shell never leaves it set for the next direct run — a direct `test.ps1` always performs its own check.
+**Never run two `test.ps1` invocations at once — batch the projects into ONE call instead.** `-Projects` is variadic and iterates sequentially, so `test.ps1 a b c` is the supported way to cover several packages. Before running anything, `test.ps1` runs the venv install check (`scripts/common/venv.ps1 -EnsurePackages -SkipIfInstalled`, run in-process as `datrix_scripts.venv.require_packages`), which takes a **workspace-wide exclusive package lock** (`<workspace>\.venv-package.lock`, 120s acquisition timeout) shared with `generate.ps1` — it guards the install/repair phase against concurrent writers of the one shared venv. A second concurrent invocation therefore blocks for up to two minutes and then dies with `Could not acquire package lock - another process may be installing packages`, having run **no** tests. The one sanctioned concurrency is `affected-gate.ps1` (Jon's tool — agents never run it), and it does not contend here: it runs that install check **once**, before any child, and launches every `test.ps1` child with `DATRIX_PACKAGES_ENSURED=1`, which makes `test.ps1` skip its own check (with `DATRIX_VENV_VERBOSE=1` it prints `Package install check skipped: the caller already ran it` instead) and makes `test_project.py` skip its per-project dev-dependency probes (the `python -c "import <tool>"` run per declared test tool), since the caller's check already covered every package's `[dev]` extras. `test.ps1` sets that variable only in its children's environment, never in its own process or its caller's, so a run started in your own shell never leaves it set for the next direct run — a direct `test.ps1` always performs its own check.
 
 **Concurrency here buys nothing and costs a lot.** The runs serialize on the lock whatever you do, and the loser fails outright rather than queueing. A sweep launched as N parallel invocations finishes later than the same sweep as one invocation, and reports failures that are pure contention.
 
@@ -110,9 +110,11 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests. 
 | **Verbose output** | `.\test\run-complete.ps1 -All -L python -VerboseOutput` | Show detailed generation and test output |
 | **Debug** | `.\test\run-complete.ps1 -All -L python -Dbg` | Debug logging |
 
-**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (python\|typescript, **mandatory**), `-Platform`/`-P` (output-path runtime segment, default: docker-compose; provider segment comes from each project's `config/system.dcfg`), `-Hosting`/`-H`, `-TestSet` (default: all), `-Rerun`, `-VerboseOutput`, `-Skip1`, `-Skip2`, `-Skip3`, `-Skip4`, `-Skip5` (deprecated), `-FreshBuild`, `-Dbg`/`-DebugLogging`, `-LlmSummary`, `-LlmLimit` (default: 12), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-LlmModel` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1)
+**Parameters:** `-ExamplePath` (positional 0), `-OutputPath` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (a registered `datrix.languages` target, **mandatory**), `-Platform`/`-P` (output-path runtime segment, default: docker-compose; provider segment comes from each project's `config/system.dcfg`), `-Hosting`/`-H`, `-TestSet` (default: all), `-Rerun`, `-VerboseOutput`, `-Skip1`, `-Skip2`, `-Skip3`, `-Skip4`, `-Skip5` (deprecated), `-FreshBuild`, `-Dbg`/`-DebugLogging`, `-LlmSummary`, `-LlmLimit` (default: 12), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-LlmModel` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-SelfTest`
 
-**Project environments:** Steps 3 and 4 run a generated Python project's own runners (`tests/unit_tests.py`, `tests/deploy_test.py`) in that project's own virtual environment, `<project>\.venv`, never in the framework venv. `run_complete.py` starts each runner through the project's `tests/run-tests.ps1` in the activated workspace venv and does nothing else to the environment. The emitted `tests/_project_venv.py` is the one owner of `<project>\.venv`, however the runner is launched: it creates it from the launching interpreter's base installation when absent, reuses it while its `pyvenv.cfg` `home` names that installation, rebuilds it (`venv --clear`) when `home` names another or its interpreter is missing, installs into it and runs pytest with its interpreter, so a runner started outside `run-complete` never installs into the interpreter that launched it either. Each runner installs every service's `requirements.txt` and `requirements-dev.txt` into it, one service at a time, before any test runs. If pip cannot install a file, the runner prints pip's output, the file, the interpreter and pip's exit code, and stops with a non-zero exit: the unit runner tests no service, and the deploy runner builds nothing. A directory at `<project>\.venv` that is not a virtual environment fails the project rather than being replaced.
+**Module:** `datrix_scripts.test.run_complete` (the rerun selection in `datrix_scripts.test.run_complete_rerun`); POSIX twin `test\run-complete.sh` (`--kebab-name` flags: `--language`, `--test-set`, `--skip1` … `--skip5`, `--debug-logging`; the aliases `-L`/`-P`/`-H`/`-Dbg` reach the module as `--language`/`--platform`/`--hosting`/`--debug-logging`). It checks the request before any step runs: no `-Language`, or neither an example path nor `-All`/`-Domains`/`-TestSet`/`-Rerun`, prints what is missing and exits 1; a language that is not registered exits 1; an example outside `examples/` exits 2. `-Rerun` runs each selected project's workflow in the same process, in order, and stops at a Ctrl-C (exit 130). `-SelfTest` checks the argument validation and the rerun selection on a planted workspace.
+
+**Project environments:** Steps 3 and 4 run a generated Python project's own runners (`tests/unit_tests.py`, `tests/deploy_test.py`) in that project's own virtual environment, `<project>\.venv`, never in the framework venv. The module starts each runner through the project's `tests/run-tests.ps1` in the activated workspace venv and does nothing else to the environment. The emitted `tests/_project_venv.py` is the one owner of `<project>\.venv`, however the runner is launched: it creates it from the launching interpreter's base installation when absent, reuses it while its `pyvenv.cfg` `home` names that installation, rebuilds it (`venv --clear`) when `home` names another or its interpreter is missing, installs into it and runs pytest with its interpreter, so a runner started outside `run-complete` never installs into the interpreter that launched it either. Each runner installs every service's `requirements.txt` and `requirements-dev.txt` into it, one service at a time, before any test runs. If pip cannot install a file, the runner prints pip's output, the file, the interpreter and pip's exit code, and stops with a non-zero exit: the unit runner tests no service, and the deploy runner builds nothing. A directory at `<project>\.venv` that is not a virtual environment fails the project rather than being replaced.
 
 **Note:** Deploy tests (Step 4) use Docker cache by default for faster builds and better network resilience. Use `-FreshBuild` to force `--no-cache` for maximum validation confidence. `-Skip5` is accepted but deprecated (Step 5 merged into Step 4).
 
@@ -122,16 +124,18 @@ Complete workflow: syntax check, code generation, unit tests, deployment tests. 
 
 ## `test\dual-target.ps1`
 
-Runs generation against both Python and TypeScript for the same test set and compares results.
+Runs generation of one test set for every registered `datrix.languages` target (in name order, discovered at run time) and compares the per-project results: a Markdown table with one column per language and a parity column (`OK` when every language reports the same outcome, `Mismatch` otherwise, `(missing)` where a language's newest `generate-results-*.log` does not name the project).
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Default** | `.\test\dual-target.ps1` | typescript-validation set, both languages |
+| **Default** | `.\test\dual-target.ps1` | typescript-validation set, every registered language |
 | **All examples** | `.\test\dual-target.ps1 -TestSet all` | Full parity check |
-| **Skip deploy tests** | `.\test\dual-target.ps1 -Skip4 -Skip5` | Uses `run-complete.ps1` (steps 1-3: syntax + generation + unit tests, skips deployment) |
-| **Fresh build** | `.\test\dual-target.ps1 -Skip4 -Skip5 -FreshBuild` | Use --no-cache for deploy tests (when run-complete.ps1 used) |
+| **Skip deploy tests** | `.\test\dual-target.ps1 -Skip4 -Skip5` | Uses the complete run (steps 1-3: syntax + generation + unit tests, skips deployment) |
+| **Fresh build** | `.\test\dual-target.ps1 -Skip4 -Skip5 -FreshBuild` | Use --no-cache for deploy tests (when the complete run is used) |
 
-**Parameters:** `-TestSet` (default: typescript-validation), `-Platform` (any installed `datrix.platforms` plugin name — discovered at runtime; default: docker; fails loud listing the installed platforms if unknown), `-Skip4`, `-Skip5` (both required to use `run-complete.ps1` instead of `generate.ps1`), `-FreshBuild`, `-Dbg`
+**Parameters:** `-TestSet` (default: typescript-validation), `-Platform` (any installed `datrix.platforms` plugin name — discovered at runtime; default: docker; fails loud listing the installed platforms if unknown), `-Skip4`, `-Skip5` (both required to use the complete run instead of `generate.ps1`), `-FreshBuild`, `-Dbg`/`-DebugLogging`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.dual_target`; POSIX twin `test\dual-target.sh` (`--test-set`, `--platform`, `--skip4`, `--skip5`, `--fresh-build`, `--debug-logging`). Each language runs `dev\generate.ps1` through the PowerShell host, or with `-Skip4 -Skip5` the module `datrix_scripts.test.run_complete` as a child process. **Exit codes:** 0 = every run succeeded and every project is `Success` in every language, 1 = any failure, a missing project, an unregistered platform, no registered language or no results log, or a failed `-SelfTest`, 2 = usage error. `-SelfTest` checks the log parse, the newest-log choice, the table and parity marks, the child commands and the platform refusal.
 
 ---
 
@@ -145,9 +149,11 @@ Lightweight single-test runner for checkpoint-based debugging. Runs exactly what
 | **Node ID** | `.\test\test-single.ps1 "tests/test_entity.py::TestEntity::test_basic" -Project datrix-codegen-python` | One test method |
 | **Keyword** | `.\test\test-single.ps1 -Project datrix-common -Keyword "test_poly_string"` | Match by keyword |
 | **Fail fast** | `.\test\test-single.ps1 "tests/test_enum.py" -Project datrix-codegen-typescript -FailFast` | Stop on first failure |
-| **Verbose** | `.\test\test-single.ps1 "tests/test_foo.py" -Project datrix-common -Verbose` | Full pytest output |
+| **Verbose** | `.\test\test-single.ps1 "tests/test_foo.py" -Project datrix-common -VerboseOutput` | Full pytest output |
 
-**Parameters:** `-TestPath` (positional 0), `-Project`, `-Keyword`, `-Marker`, `-Verbose`, `-FailFast`, `-Dbg`
+**Parameters:** `-TestPath` (positional 0), `-Project`, `-Keyword`, `-Marker`, `-VerboseOutput`, `-FailFast`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.test_single`; its POSIX twin `test\test-single.sh` takes the same parameters as `--kebab-name` flags (`--project`, `--verbose-output`, `--fail-fast`).
 
 **Note:** Auto-detects project from full test path. Use `-Project` when providing relative paths or keyword-only searches.
 
@@ -169,7 +175,9 @@ The authoring tool for declarative test cases (`datrix_testing.cases.cli`). A **
 | **Accept an approved proposal** | `.\test\cases.ps1 accept D:\datrix\.tmp\case-proposals\<name>.proposal.json` | Requires Jon's `<name>.cases.approved` in the approval-gate directory (proposal name, sha256, and every security or `not in` row id). Writes the rows, removes the replaced code by AST, lowers the package's pins |
 | **Accept some rows** | `.\test\cases.ps1 accept <proposal> <case id> <case id>` | Only those rows, and only their records' code |
 
-**Parameters:** `-Command` (positional: `observe`, `new`, `migrate`, `accept`, `check`), the command's positional arguments, `-Package`, `-At` (observe), `-Annotations` (migrate), `-Id`, `-Tags`, `-Input`, `-Stage`, `-Observer`, `-Selector`, `-Expectation`, `-Reason` (new), `-Dbg`
+**Parameters:** `-Command` (positional: `observe`, `new`, `migrate`, `accept`, `check`), the command's positional arguments, `-Package`, `-At` (observe), `-Annotations` (migrate), `-Id`, `-Tags`, `-Input`, `-Stage`, `-Observer`, `-Selector`, `-Expectation`, `-Reason` (new), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.cases`, which runs `datrix_testing.cases.cli`; POSIX twin `test\cases.sh` (`--kebab-name` flags).
 
 **Exit codes:** 0 = done and clean, 1 = refused or problems found, 2 = usage error (unknown package, missing field).
 
@@ -187,7 +195,9 @@ The schema-derived model contract tool (`datrix_testing.model_contracts.cli`). A
 | **Propose** | `.\test\model-contracts.ps1 migrate datrix-codegen-aws` | Write `D:\datrix\.tmp\case-proposals\<package>.model-contracts.proposal.json`: `delete` for every covered test, `stays` with the reason for every other one |
 | **Accept** | `.\test\model-contracts.ps1 accept D:\datrix\.tmp\case-proposals\<package>.model-contracts.proposal.json` | Requires Jon's `<proposal name>.cases.approved` (proposal name, sha256, and the `<module>::<test>` key of every security test it deletes). Re-resolves every test, refuses a deletion no current item proves, removes the tests by AST with the dead code they leave, lowers the pins |
 
-**Parameters:** `-Command` (positional: `facts`, `inventory`, `migrate`, `accept`), the command's positional arguments, `-Dbg`
+**Parameters:** `-Command` (positional: `facts`, `inventory`, `migrate`, `accept`), the command's positional arguments, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.model_contracts`, which runs `datrix_testing.model_contracts.cli`; POSIX twin `test\model-contracts.sh`.
 
 **Exit codes:** 0 = done, 1 = refused (an unapproved or stale proposal, a capture or discovery error), 2 = usage error (unknown package).
 
@@ -205,7 +215,9 @@ The table-contract tool (`datrix_testing.tables.cli`). A package that owns a tab
 | **Propose** | `.\test\tables.ps1 migrate datrix-codegen-python` | Write `D:\datrix\.tmp\case-proposals\<package>.tables.proposal.json`: `delete` for every covered test, `stays` with the reason for every other one |
 | **Accept** | `.\test\tables.ps1 accept D:\datrix\.tmp\case-proposals\<package>.tables.proposal.json` | Requires Jon's `<proposal name>.cases.approved` (proposal name, sha256, and the `<module>::<test>` key of every security test it deletes). Re-resolves every test, refuses a deletion no current item covers, removes the tests by AST with the dead code they leave, lowers the pins |
 
-**Parameters:** `-Command` (positional: `rows`, `inventory`, `migrate`, `accept`), the command's positional arguments, `-Dbg`
+**Parameters:** `-Command` (positional: `rows`, `inventory`, `migrate`, `accept`), the command's positional arguments, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.tables`, which runs `datrix_testing.tables.cli`; POSIX twin `test\tables.sh`.
 
 **Exit codes:** 0 = done, 1 = refused (an unapproved or stale proposal, a package with no `tests/test_tables.py`, a malformed contract), 2 = usage error (unknown package).
 
@@ -213,7 +225,7 @@ The table-contract tool (`datrix_testing.tables.cli`). A package that owns a tab
 
 ## `test\retag.ps1`
 
-Renames feature tags across every tag carrier of the package test trees, from a mapping file (`lib\retag.py`): pytest `tag(...)` calls (module `pytestmark`, class, function and `pytest.param(..., marks=...)`, located with `ast` and rewritten at the exact string literal) and fixture `// @tags` / `# @tags` header lines (`.dtrx`, `.dcfg`, `.dseed`). How tags are curated against the vocabulary: `datrix-common/docs/contributing/test-guidelines/feature-tags.md`.
+Renames feature tags across every tag carrier of the package test trees, from a mapping file: pytest `tag(...)` calls (module `pytestmark`, class, function and `pytest.param(..., marks=...)`, located with `ast` and rewritten at the exact string literal) and fixture `// @tags` / `# @tags` header lines (`.dtrx`, `.dcfg`, `.dseed`). How tags are curated against the vocabulary: `datrix-common/docs/contributing/test-guidelines/feature-tags.md`.
 
 - **Scoped rules:** a rule with `paths` applies to those files only and wins over the tag's unscoped rule. A tag that has only scoped rules must name every file that uses it, or the whole run is refused (exit 1) and nothing is written.
 - **No duplicates:** when the new tag is already in the same `tag(...)` call or on the same header line, the old one is removed instead.
@@ -233,20 +245,24 @@ Mapping: `{"retags": [{"from": "<old>", "to": "<new>", "paths": ["<workspace-rel
 
 **Exit codes:** 0 = done (preview or applied), 1 = a refused occurrence or a bad mapping (nothing written), 2 = self-test failure or usage error.
 
+**Module:** `datrix_scripts.test.retag`; POSIX twin `test\retag.sh` (`--mapping`, `--apply`, `--self-test`). `-SelfTest` also checks the wrapper seam.
+
 ---
 
 ## `test\cleanup.ps1`
 
-Lists/deletes `.test_results` folders (containing timestamped test result directories) under each datrix project and `.generated/`.
+Lists/deletes `.test_results` folders (containing timestamped test result directories) under each `datrix*` package, under `.generated/` (a walk that stops at each generated project) and under `.projects/` (any depth).
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **List (dry run)** | `.\test\cleanup.ps1` | Show what would be deleted |
-| **Delete** | `.\test\cleanup.ps1 -Force` | Delete after confirmation |
+| **Delete** | `.\test\cleanup.ps1 -Force` | Delete after confirmation, then remove the parents left empty below `-BaseDir` |
 | **Trim old results** | `.\test\cleanup.ps1 -Force -Trim` | Keep 10 newest, delete older |
 | **Custom base dir** | `.\test\cleanup.ps1 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** `-BaseDir`, `-Force`, `-Trim`, `-Dbg`
+**Parameters:** `-BaseDir` (default: the workspace root), `-Force`, `-Trim`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.cleanup` (the confirmation and the empty-parent removal in `datrix_scripts.cleanup_utils`); POSIX twin `test\cleanup.sh` (`--base-dir`, `--force`, `--trim`). `-Force` asks `Are you sure? {yes/no}` and deletes nothing without a typed `yes`; an end of input is a no. No search follows a symbolic link or junction below `-BaseDir`, `.generated` or `.projects` (the listing shows one as `[LINK]`), so nothing a link leads to is listed, trimmed or deleted. **Exit codes:** 0 = listed, deleted, trimmed or cancelled, 1 = `-BaseDir` is not a directory or a failed `-SelfTest`, 2 = usage error.
 
 ---
 
@@ -259,8 +275,11 @@ Compares timestamped test runs inside one explicit `.test_results` folder. It do
 | **Compare project runs** | `.\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results` | Compare unit/deploy runs for one project |
 | **Write Markdown report** | `.\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results -Report D:\datrix\ecommerce-test-comparison.md` | Save report to a file |
 | **Debug logging** | `.\test\compare-tests.ps1 D:\datrix\.generated\python\docker-compose\local\03-domains\ecommerce\python\.test_results -Dbg` | Enable debug output |
+| **Self-test** | `.\test\compare-tests.ps1 -SelfTest` | Prove run discovery, the path checks and the wrapper seam over planted runs |
 
-**Parameters:** `-TestResults` (positional, required; must be a `.test_results` folder), `-Report`, `-Dbg`
+**Parameters:** `-TestResults` (positional, required; alias `-Path`; must be a `.test_results` folder), `-Report`, `-Dbg`, `-SelfTest` (its own parameter set). Exit 1 when the path is missing, not a directory, or not a `.test_results` folder; exit 2 when it holds no runs.
+
+**Module:** `datrix_scripts.test.compare_tests`; POSIX twin `test\compare-tests.sh` (`--test-results` or the positional path, `--report`, `--dbg`, `--self-test`).
 
 **Comparison behavior:** `unit-tests-*` folders are compared only with unit-test runs, and `deploy-test-*` folders only with deploy-test runs. When more than two timestamps exist, all runs are listed and the service-level delta compares the second-newest run to the newest run; the history column shows all runs.
 
@@ -268,9 +287,9 @@ Compares timestamped test runs inside one explicit `.test_results` folder. It do
 
 ## `test\mypy.ps1`
 
-Runs mypy type checking for one or more Datrix projects. Accepts the same flags as `test.ps1` for command-line symmetry, but most test-selection flags (`-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow`, `-Keyword`) are accepted for parity and silently ignored by the underlying mypy runner.
+Runs mypy type checking for one or more Datrix projects. Accepts the same flags as `test.ps1` for command-line symmetry, but the test-selection flags (`-Coverage`, `-NoAutoInstall`, `-Unit`, `-Integration`, `-E2E`, `-Fast`, `-Slow`, `-Keyword`) are accepted for parity and ignored by the mypy runner, which prints a note naming each one given.
 
-**A human-only tool, enforced.** No skill, hook, orchestrator, or other script runs it: its only caller is `affected-gate.ps1`'s opt-in `-Mypy` switch. The agent contract forbids agents to run any standalone type-checker (`CLAUDE.md`, "Running Python"), and that is now a harness block rather than prose -- `guard-forbidden-commands.py` refuses `mypy`/`dmypy`/`pyright`, the `python -m mypy` form, this wrapper, `test/lib/mypy_check.py`, and `affected-gate.ps1 -Mypy` from any agent tool call. A person running it in his own terminal is not a tool call and is unaffected. For agents, the tests of the code they changed are the gate for type correctness; this wrapper exists so a person can run a full type-check on demand.
+**A human-only tool, enforced.** No skill, hook, orchestrator, or other script runs it: its only caller is `affected-gate.ps1`'s opt-in `-Mypy` switch. The agent contract forbids agents to run any standalone type-checker (`CLAUDE.md`, "Running Python"), and that is now a harness block rather than prose -- `guard-forbidden-commands.py` refuses `mypy`/`dmypy`/`pyright`, the `python -m mypy` form, this wrapper, its `mypy.sh` twin, the module `datrix_scripts.test.mypy_check`, and `affected-gate.ps1 -Mypy` from any agent tool call; the wrapper's `-SelfTest` alone, which launches no type-checker, passes. A person running it in his own terminal is not a tool call and is unaffected. For agents, the tests of the code they changed are the gate for type correctness; this wrapper exists so a person can run a full type-check on demand.
 
 **The cache never lands in a package repo.** mypy writes `.mypy_cache/` into its working directory, which here is the package root, so the runner passes an explicit `--cache-dir D:\datrix\.tmp\mypy-cache\<project>`. Left at the default, one sweep of the installable packages buried ~51,400 cache files in 15 separate git repositories and failed `ignored-source-gate.ps1`. Run logs still go to `<project>/.test_results/mypy-results-<timestamp>.log`, which is the sanctioned in-repo location the test runner already owns.
 
@@ -283,10 +302,13 @@ Runs mypy type checking for one or more Datrix projects. Accepts the same flags 
 | **Verbose output** | `.\test\mypy.ps1 datrix-common -VerboseOutput` | Full mypy output |
 | **No log save** | `.\test\mypy.ps1 datrix-common -NoSave` | Don't save output to log files |
 | **Debug** | `.\test\mypy.ps1 datrix-common -Dbg` | Debug logging |
+| **Self-test** | `.\test\mypy.ps1 -SelfTest` | Prove project selection, target and cache resolution, and the wrapper seam; launches no type-checker |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-VerboseOutput`, `-NoSave`, `-Specific <path>`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-VerboseOutput`, `-NoSave`, `-Specific <path>`, `-Dbg`, `-SelfTest`, and the ignored test-runner flags above. A named project that is not a Datrix package with a `pyproject.toml` is an error listing the valid names; `-All` together with names is a usage error (exit 2); an unreadable `pyproject.toml` fails that project.
 
-**The `datrix` showcase repo itself is a valid explicit project name** (e.g. `.\test\mypy.ps1 datrix -Specific "scripts/gates/ratchet/lib/check_generated_file_ratchet.py"`) even though it is excluded from `-All`'s package sweep -- `datrix/pyproject.toml` carries its own `[tool.mypy]` (strict) section for its repo-level validation scripts, but is deliberately never auto-discovered by `Get-DatrixPackageNamesGlobWithPyProject`'s `datrix-*` glob (it is not an installable toolchain package). Always pass `-Specific` for `datrix` -- there is no `src/` layout to default to.
+**Module:** `datrix_scripts.test.mypy_check`; POSIX twin `test\mypy.sh` (`--projects`, `--all`, `--specific`, `--verbose-output`, `--no-save`, `--dbg`, `--self-test`, …; `-E2E` is `--e2-e`).
+
+**The `datrix` showcase repo itself is a valid explicit project name** (e.g. `.\test\mypy.ps1 datrix -Specific "scripts/common/lib/datrix_scripts/gates/ratchet/check_generated_file_ratchet.py"`) even though it is excluded from `-All`'s package sweep -- `datrix/pyproject.toml` carries its own `[tool.mypy]` (strict) section for its repo-level validation scripts, but the sweep takes only `datrix-*` packages (it is not an installable toolchain package). Always pass `-Specific` for `datrix` -- there is no `src/` layout to default to.
 
 ---
 
@@ -294,14 +316,16 @@ Runs mypy type checking for one or more Datrix projects. Accepts the same flags 
 
 ### `test\status-tests.ps1`
 
-Reports test results from latest test logs for all datrix projects. Reads structured `index.json` when available (new directory format), falls back to regex-parsing flat log files. Runs `datrix_scripts.status_tests` as a module.
+Reports test results from latest test logs for all datrix projects. Reads structured `index.json` when available (new directory format), falls back to regex-parsing flat log files.
 
 | Mode | Command |
 |------|---------|
 | **Show status** | `.\test\status-tests.ps1` |
 | **With debug** | `.\test\status-tests.ps1 -Dbg` |
 
-**Parameters:** `-Dbg`
+**Parameters:** `-Dbg` (debug logging), `-SelfTest`
+
+**Module:** `datrix_scripts.status_tests` (shared with the test runner and the tooling gates); POSIX twin `test\status-tests.sh`.
 
 ### `test\status-deploy-tests.ps1`
 
@@ -314,7 +338,9 @@ Reports deployment test results from `.generated/` tree.
 | **Markdown report** | `.\test\status-deploy-tests.ps1 -Report <path>` |
 | **With debug** | `.\test\status-deploy-tests.ps1 -Dbg` |
 
-**Parameters:** `-Report <path>`, `-Language` / `-L <lang>`, `-Dbg`
+**Parameters:** `-Report <path>`, `-Language` / `-L <lang>`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.status_deploy_tests`; POSIX twin `test\status-deploy-tests.sh` (`--report`, `--language`).
 
 `-Language` restricts the report to `.generated\<language>` (any language directory
 present in the tree). Omit it to report on every language.
@@ -329,7 +355,9 @@ Reports run test results from `.generated/` tree.
 | **One language only** | `.\test\status-unit-tests.ps1 -L python` |
 | **With debug** | `.\test\status-unit-tests.ps1 -Dbg` |
 
-**Parameters:** `-Language` / `-L <lang>`, `-Dbg`
+**Parameters:** `-Language` / `-L <lang>`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.status_unit_tests`; POSIX twin `test\status-unit-tests.sh` (`--language`).
 
 `-Language` restricts the report to `.generated\<language>` (any language directory
 present in the tree). Omit it to report on every language.
@@ -358,6 +386,8 @@ Builds `failure-data.json` inside a run directory: every error/failure cluster w
 
 **Parameters:** positional run-dir/`index.json` path OR `-Project <name>` (exactly one), `-MaxLogLines <n>`, `-NoLlmHints`, `-LlmHintLimit <n>` (default 5; 0 = none), `-LocalMachines <hosts>` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-LlmModel <models>` (default: any model in memory), `-LlmTimeout <seconds>` (default 120), `-SelfTest`, `-Dbg`
 
+**Module:** `datrix_scripts.collect_failure_data` (shared with `run_digest`); POSIX twin `test\collect-failure-data.sh` (`--project`, `--max-log-lines`, `--no-llm-hints`, `--llm-hint-limit`, `--local-machines`, `--llm-model`, `--llm-timeout`).
+
 **Schema-shape self-test.** The three writers do not spell their cluster keys identically —
 `structured_log_writer` and `deploy_test_log_writer` use `failure_ids`/`representative_failure_id`
 inside `failure_clusters`, while `generated_test_log_writer` builds both of its cluster lists from
@@ -374,7 +404,7 @@ markers the `test.ps1 -Specific` form, each asserted to carry none of the other'
 suite-less package that must yield no command at all. Handing a Node package the pytest invocation
 is worse than emitting nothing: it reads as ready-to-run and cannot run.
 
-**Output:** `{run-dir}\failure-data.json`. **Exit codes:** 0 = analysis completed (even all-green), 2 = usage / input not found / unrecognized schema / a failing `-SelfTest` case.
+**Output:** `{run-dir}\failure-data.json`. **Exit codes:** 0 = analysis completed (even all-green), 1 = a failing `-SelfTest` case, 2 = usage / input not found / unrecognized schema.
 
 ### `test\extract-warnings.ps1`
 
@@ -385,20 +415,25 @@ Parses the pytest `warnings summary` section of a run's `full.log` into deduplic
 | **Run directory** | `.\test\extract-warnings.ps1 "D:\datrix\datrix-codegen-aws\.test_results\test-results-YYYYMMDD-HHMMSS"` |
 | **index.json / full.log path** | `.\test\extract-warnings.ps1 "...\test-results-YYYYMMDD-HHMMSS\index.json"` |
 
-**Parameters:** positional path (run dir, `index.json`, or `full.log`), `-Dbg`
+**Parameters:** positional path (run dir, `index.json`, or `full.log`), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.test.extract_warnings`; POSIX twin `test\extract-warnings.sh` (`--path` or the positional path).
 
 **Output:** `{run-dir}\warnings.json` (empty `warnings` list when the run had no warnings section). **Exit codes:** 0 = done, 2 = usage error.
 
 ### `test\classify-run-delta.ps1`
 
-Compares two runs of the same package and classifies the delta: `SUCCESS` (all previously-failing fixed, none new), `PARTIAL`, `NO_CHANGE`, or `REGRESSION` (new failures). Writes `run-delta.json` (with `now_passing` / `still_failing` / `new_failures` / cluster-level resolution lists) into the CURRENT run dir. Runs `datrix_scripts.classify_run_delta` as a module.
+Compares two runs of the same package and classifies the delta: `SUCCESS` (all previously-failing fixed, none new), `PARTIAL`, `NO_CHANGE`, or `REGRESSION` (new failures). Writes `run-delta.json` (with `now_passing` / `still_failing` / `new_failures` / cluster-level resolution lists) into the CURRENT run dir.
 
 | Mode | Command |
 |------|---------|
 | **Named parameters** | `.\test\classify-run-delta.ps1 -Previous "{old-run-dir}" -Current "{new-run-dir}"` |
 | **Positional** | `.\test\classify-run-delta.ps1 "{old-run-dir}" "{new-run-dir}"` |
+| **Self-test** | `.\test\classify-run-delta.ps1 -SelfTest` |
 
-**Parameters:** `-Previous`, `-Current` (run dirs or `index.json` paths; same project on both sides), `-Dbg`
+**Parameters:** `-Previous`, `-Current` (run dirs or `index.json` paths; same project on both sides), `-Dbg`, `-SelfTest` (each verdict over planted runs, the refusals, and the wrapper seam)
+
+**Module:** `datrix_scripts.classify_run_delta`; POSIX twin `test\classify-run-delta.sh` (`--previous`/`--current`, or the two paths positionally).
 
 **Exit codes:** 0 = SUCCESS, 1 = PARTIAL / NO_CHANGE / REGRESSION, 2 = usage error.
 
@@ -414,7 +449,9 @@ Aggregates the newest run of each requested package into a GREEN/RED gate verdic
 
 **Parameters:** `-Projects <comma-separated>` OR `-All`, `-Output <path>`, `-SelfTest` (only the verdict logic over planted run directories; reads no real run), `-Dbg`
 
-**Output:** `D:\datrix\.tmp\test\gate-verdict.json` (schema 2: per-package counts + capped failing-test list). **Exit codes:** 0 = overall GREEN, 1 = overall RED, 2 = usage error.
+**Output:** `D:\datrix\.tmp\test\gate-verdict.json` (schema 2: per-package counts + capped failing-test list). **Exit codes:** 0 = overall GREEN, 1 = overall RED, 2 = usage error. The last line is `[GATE] gate-verdict PASSED|FAILED exit=<n> log=<path>` (the console output is also written to that log under `.test-output\gates\gate-verdict\`).
+
+**Module:** `datrix_scripts.test.gate_verdict`; POSIX twin `test\gate-verdict.sh` (`--projects`, `--all`, `--output`, `--self-test`, `--dbg`; projects may also be given positionally).
 
 **CARRIED verdict kind.** Rows have a third verdict, `CARRIED`, produced only through `evaluate_projects(carried=...)` by `affected-gate.ps1` (this CLI judges newest runs and never carries). A CARRIED row names a recorded green **full** run that stood in for a fresh one because its suite-input fingerprint still matches; it counts as green for `OVERALL` but is never rendered or serialized as `GREEN`. Every row carries two fields for it: `carried` (true only on a CARRIED row) and `fingerprint` (the fingerprint computed now that equals the run's recorded one; null otherwise). A CARRIED row's `run_dir`, `counts` and `age_minutes` are the carried run's own. The claim is re-checked against that run's `index.json` — `selection.kind` must be `full`, `result` `PASSED` with zero failed/errors, and `inputs.fingerprint` equal to the claimed one; anything else is `RED` with reason `CARRY_REJECTED: …`, never a fall-through to another run. Console line: `datrix-extensions: CARRIED 54 passed (run test-results-20260923-204821, age 3.2m, fingerprint 3c6f31f30e7e022b)`.
 
@@ -424,7 +461,7 @@ Aggregates the newest run of each requested package into a GREEN/RED gate verdic
 
 ### `test\affected-set.ps1`
 
-Derives the reverse-dependency closure of every `datrix-*` package from actual imports (never a hand-maintained table). Discovers packages from disk by `pyproject.toml` presence, builds the import graph from each package's `src/`, `tests/`, and root-level `conftest.py` (the file class that hides test-time-only edges like datrix-common's consumption of datrix-language/datrix-cli) unioned with declared `pyproject.toml` dependencies, and computes each requested package's transitive reverse closure -- the packages whose code may consume a change. It answers "which packages might this change reach"; an agent then confirms each by surface and runs the changed behaviour's feature tags there (`test.ps1 <pkgs> -Tag <tag>`), never their whole suites. `affected-gate.ps1` (human-only) consumes this module directly. Runs `datrix_scripts.affected_set` as a module.
+Derives the reverse-dependency closure of every `datrix-*` package from actual imports (never a hand-maintained table). Discovers packages from disk by `pyproject.toml` presence, builds the import graph from each package's `src/`, `tests/`, and root-level `conftest.py` (the file class that hides test-time-only edges like datrix-common's consumption of datrix-language/datrix-cli) unioned with declared `pyproject.toml` dependencies, and computes each requested package's transitive reverse closure -- the packages whose code may consume a change. It answers "which packages might this change reach"; an agent then confirms each by surface and runs the changed behaviour's feature tags there (`test.ps1 <pkgs> -Tag <tag>`), never their whole suites. `affected-gate.ps1` (human-only) consumes this module directly.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -436,6 +473,8 @@ Derives the reverse-dependency closure of every `datrix-*` package from actual i
 | **Debug** | `.\test\affected-set.ps1 -Projects datrix-common -Dbg` | Debug logging |
 
 **Parameters:** `-Projects <comma-separated>` OR `-All`, `-Output <path>`, `-SelfTest`, `-Dbg`
+
+**Module:** `datrix_scripts.affected_set`; POSIX twin `test\affected-set.sh` (`--projects`, `--all`, `--output`, `--self-test`, `--dbg`; projects may also be given positionally). `-SelfTest` adds the wrapper seam checks to the suite below.
 
 **Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements) covers `discover_packages`, the root-conftest-only import edge (must be detected when the conftest scan is enabled, and adversarially proven ABSENT when it is disabled), BOM-prefixed source files, a cyclic/self-referential edge (must terminate, not hang), the non-vacuity guard (`check_closure_not_smaller_than_declared`), and unreadable/corrupt `pyproject.toml` input. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real derivation, exit 1); `-SelfTest` runs it in isolation and skips the real derivation.
 
@@ -487,7 +526,9 @@ Runs the affected set of Datrix package suites concurrently and returns one GREE
 - Every other package is judged on **the run directory its child attributed to itself** — the absolute `index.json` path in the `Details:` line `test.ps1` prints under its own `[PASSED]`/`[FAILED]` block, relayed through the child's stdout and pinned through `gate_verdict.evaluate_projects(pinned_runs=...)`. The newest run directory under `.test_results` is never consulted, neither at child exit nor at verdict time: `test.ps1` holds the workspace package lock only through its install phase, so a targeted `-Specific` run from another session can land a newer directory before **or** after the child exits, and a newest-run lookup then replaces a RED whole-suite result with an unrelated GREEN subset — a 59-test targeted run once stood in for a 5,950-test RED suite this way (the gate printed `OVERALL: GREEN` with exit 0), and later a 7-test targeted run landed mid-suite and stood in for a child that had exited 1 with two failures. A pinned run with no results file is RED with reason `PINNED_RUN_HAS_NO_RESULTS`; it never falls through to the newest run.
 - A CARRIED package's `test.ps1` child is never launched (the decision is made before scheduling, not after), and its row is pinned to exactly the full run whose fingerprint matched.
 
-**Exit codes:** 0 = overall GREEN (or a successful `-SelfTest` run), 1 = overall RED, a failed install check, or `-SelfTest` reporting a failing check, 2 = usage error (bad `-MaxConcurrent`/`-WorkersPerChild`, unknown/duplicate package name, both `-Projects` and `-All` given, neither or both of `-Consumers`/`-NoConsumers` given without `-All`, either given with `-All`, a changed package named in `-Consumers`).
+**Exit codes:** 0 = overall GREEN (or a successful `-SelfTest` run), 1 = overall RED, a failed install check, or `-SelfTest` reporting a failing check, 2 = usage error (bad `-MaxConcurrent`/`-WorkersPerChild`, unknown/duplicate package name, both `-Projects` and `-All` given, neither or both of `-Consumers`/`-NoConsumers` given without `-All`, either given with `-All`, a changed package named in `-Consumers`). The last line is `[GATE] affected PASSED|FAILED exit=<n> log=<path>` (the console output is also written to that log under `.test-output\gates\affected\`).
+
+**Module:** `datrix_scripts.test.affected_gate`; POSIX twin `test\affected-gate.sh` (`--projects`, `--consumers`, `--no-consumers`, `--all`, `--max-concurrent`, `--workers-per-child`, `--mypy`, `--force`, `--no-carry`, `--output`, `--self-test`, `--dbg`), classified by `guard-full-suite-runs.py` exactly as the wrapper. `-SelfTest` adds the wrapper seam checks to the suite above.
 
 ---
 
@@ -563,7 +604,8 @@ fixtures). They cover:
   every planted project through that entry point alone (the switch, the forwarded arguments, the
   project-root working directory, the activated workspace venv, a failing runner failing the
   project, a missing entry point failing rather than skipping); the gate verdict line
-  `Invoke-DatrixPythonScript -Gate` prints being the line the red-run digest hook parses; and the
+  `Invoke-DatrixPythonScript -Gate` prints, and the one a Python gate module prints in gate mode
+  (`datrix_scripts.gate_log`, a crash included), being the line the red-run digest hook parses; and the
   held-clean modules (the `import_boundaries` scanner package, `run_complete.py`, and the
   `checklist.py` and `guard-predeploy-analysis.py` hooks) keeping every function at or under
   cognitive complexity 15, after proving the measurement reports a planted function over the
@@ -577,12 +619,14 @@ fixtures). They cover:
 |------|---------|-------------|
 | **Run the gate** | `.\test\shared-library-gate.ps1` | Run every check |
 | **One area** | `.\test\shared-library-gate.ps1 -Only check_scripts_tree` | Run only checks whose name starts with the prefix |
-| **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
-| **Self-test** | `.\test\shared-library-gate.ps1 -SelfTest` | The gate's checks over planted inputs only |
+| **Harness self-test** | `.\test\shared-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (reports the planted [FAIL], exits 0 when it is caught) |
+| **Self-test** | `.\test\shared-library-gate.ps1 -SelfTest` | The harness self-test, each scripts-tree census over its planted copy, and the wrapper seam checks |
 
 **Parameters:** `-SelfTest`, `-HarnessSelfTest`, `-Only <prefix>`
 
-**Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed, 2 = usage error.
+**Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed, 2 = usage error (an `-Only` prefix naming no check). The last line is `[GATE] shared-library PASSED|FAILED exit=<n> log=<path>`.
+
+**Module:** `datrix_scripts.test.shared_library_gate` (its checks also in `datrix_scripts.test.scripts_contract_checks`, `scripts_tree_census` and `run_complete_checks`); POSIX twin `test\shared-library-gate.sh` (`--self-test`, `--harness-self-test`, `--only`).
 
 ### `test\runner-plugin-gate.ps1`
 
@@ -599,18 +643,21 @@ naming every worker); an existing record file is never overwritten.
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run the gate** | `.\test\runner-plugin-gate.ps1` | Run every check |
+| **One check** | `.\test\runner-plugin-gate.ps1 -Only check_records_are_named` | Run only checks whose name starts with the prefix |
 | **Harness self-test** | `.\test\runner-plugin-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure |
 | **Debug** | `.\test\runner-plugin-gate.ps1 -Dbg` | Print the python invocation before running |
-| **Self-test** | `.\test\runner-plugin-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
+| **Self-test** | `.\test\runner-plugin-gate.ps1 -SelfTest` | Harness self-test, then the wrapper seam checks (spawns no pytest) |
 
-**Parameters:** `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
+**Parameters:** `-Only <prefix>`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
-**Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed.
+**Exit codes:** 0 = every check passed, 1 = at least one check (or the harness self-test) failed, 2 = usage error. The last line is `[GATE] runner-plugin PASSED|FAILED exit=<n> log=<path>`.
+
+**Module:** `datrix_scripts.test.runner_plugin_gate`; POSIX twin `test\runner-plugin-gate.sh` (`--only`, `--harness-self-test`, `--self-test`, `--dbg`).
 
 ### `test\test-tooling-parsing-gate.ps1`
 
 Plain-Python checks (no pytest, no mocks/fakes) of how the test tooling reads run results:
-`test/lib/compare_tests.py`'s `find_runs`/`build_service_comparisons`/`parse_unit_run`
+`datrix_scripts.test.compare_tests`' `find_runs`/`build_service_comparisons`/`parse_unit_run`
 (direct-child-only `unit-tests-*`/`deploy-test-*` run discovery excluding nested/archived dirs,
 service change classification e.g. REGRESSED with OK/FAIL history, the flat-log fallback parser for
 `unit-tests-summary.log`, and unit-vs-deploy runs discovered and compared as separate populations),
@@ -625,11 +672,14 @@ test runner.
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run the gate** | `.\test\test-tooling-parsing-gate.ps1` | Run every check |
-| **Harness self-test** | `.\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
+| **One area** | `.\test\test-tooling-parsing-gate.ps1 -Only find_runs` | Run only checks whose name starts with the prefix |
+| **Harness self-test** | `.\test\test-tooling-parsing-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (reports the planted [FAIL], exits 0 when it is caught) |
 | **Debug** | `.\test\test-tooling-parsing-gate.ps1 -Dbg` | Print the python invocation before running |
-| **Self-test** | `.\test\test-tooling-parsing-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
+| **Self-test** | `.\test\test-tooling-parsing-gate.ps1 -SelfTest` | Harness self-test, then the wrapper seam checks |
 
-**Parameters:** `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
+**Parameters:** `-Only <prefix>`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
+
+**Module:** `datrix_scripts.test.test_tooling_parsing_gate` (the `index.json` post-processing it checks is `datrix_scripts.test.post_process_test_results`); POSIX twin `test\test-tooling-parsing-gate.sh` (`--only`, `--harness-self-test`, `--self-test`, `--dbg`). The last line is `[GATE] test-tooling-parsing PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:** several checks are inherently adversarial (nested/archived run dirs excluded from discovery, corrupt JSON → `None`, INCOMPLETE result → `None`/fallback, missing `counts` → `None`), which already demonstrates discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not vacuous by registering one deliberately-failing dummy check and confirming it is reported `[FAIL]` with a nonzero exit.
 
@@ -653,7 +703,12 @@ printing its own correct exit code.
 
 **Parameters:** `-Package` (default: `datrix-codegen-python`), `-FileA` / `-FileB` (package-relative test
 files; must be two *different* files — the default pair is the one from the original report), `-SelfTest`
-(only the comparator's non-vacuity step over planted run directories; runs no test), `-Dbg`
+(only the comparator's non-vacuity step over planted run directories and the wrapper seam checks; runs no
+test), `-HarnessSelfTest` (only the harness self-test), `-Dbg` (prints the command, then runs)
+
+**Module:** `datrix_scripts.test.test_specific_selection_gate`; POSIX twin `test\test-specific-selection-gate.sh`
+(`--package`, `--file-a`, `--file-b`, `--self-test`, `--harness-self-test`, `--dbg`). The last line is
+`[GATE] test-specific-selection PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions (4 steps):**
 - **Non-vacuity (runs first).** The comparator is fed a deliberately **wrong-file** run directory — a
@@ -684,32 +739,42 @@ and wrote the header with a truncating write, so two runs started together **for
 profiles** computed one name — the second truncated the first's log and both appended into it, each
 pointing its caller at a log describing the other run's generation. Adding the profile as a third segment
 would only move the collision to two runs of one profile, exactly as adding the language segment left the
-profile case open, so uniqueness comes from *claiming* the name (`common/DatrixRunLog.psm1`,
-`FileMode.CreateNew`). Pure PowerShell, no venv, ~2 s.
+profile case open, so uniqueness comes from *claiming* the name. Two claimers exist and the gate holds
+both: `common/DatrixRunLog.psm1` (`FileMode.CreateNew`; the PowerShell gate mode) and its
+Python twin `datrix_scripts.run_log` (`O_CREAT|O_EXCL`; `generate.ps1` and the Python gate mode), which must compose the same
+names. The PowerShell claimer runs in real `powershell` processes (Windows PowerShell 5.1 suffices: the
+concurrent racers are separate processes released together), the Python one in threads.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run the gate** | `.\test\run-log-exclusivity-gate.ps1` | 8 racers (default) |
 | **More racers** | `.\test\run-log-exclusivity-gate.ps1 -Racers 32` | Widen the forced collision (2–64) |
+| **Self-test** | `.\test\run-log-exclusivity-gate.ps1 -SelfTest` | Non-vacuity proof and wrapper seam checks only |
 
-**Parameters:** `-Racers` (default: `8`, range 2–64), `-SelfTest` (only the gate's non-vacuity proof over planted inputs)
+**Parameters:** `-Racers` (default: `8`, range 2–64), `-SelfTest` (only the gate's non-vacuity proof over planted inputs, and the wrapper seam checks), `-Dbg`
+
+**Module:** `datrix_scripts.test.run_log_exclusivity_gate`; POSIX twin `test\run-log-exclusivity-gate.sh` (`--racers`, `--self-test`, `--dbg`). The last line is `[GATE] run-log-exclusivity PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions (5 steps):**
 - **Non-vacuity (runs first).** The distinct-count comparator is fed names composed the way the defect
   composed them (one pinned timestamp, one label set) and must see **1** name; fed genuinely different
   label sets it must see all of them. A comparator that cannot see the forced collision fails the gate
-  before any real result is trusted.
+  before any real result is trusted. The two claimers compose the same name for the same labels,
+  hostile labels included.
 - **Sequential exclusivity.** N claims on a **pinned** base name yield N distinct files that all exist —
-  a name is never reused.
+  a name is never reused — through each claimer.
 - **Concurrent exclusivity.** The same N claims made simultaneously yield N distinct files — the claim is
-  atomic. This is the step that fails against any name-only scheme.
+  atomic — through each claimer. This is the step that fails against any name-only scheme.
 - **Label containment.** A label carrying `..`, a separator, a drive letter, or a wildcard cannot steer the
   log out of its results directory.
-- **Wiring.** `generate.ps1`'s own **syntax tree** must call `New-DatrixRunLogFile` and must contain no
-  inline interpolated `generate-results-…` name. Without this the gate would prove a library nobody calls.
+- **Wiring.** The **syntax tree** of `datrix_scripts.dev.generate`, the module behind `generate.ps1`, must
+  call `claim_run_log_file` and must build no `generate-results-…` name inline (no string literal or
+  f-string holding `generate-results-`; docstrings do not count), read through Python's `ast`, whose matcher is first proven on a
+  planted module that does both. Without this the gate would prove a library nobody calls.
 
-**Exit codes:** 0 = every step held, 1 = a shared or reused log name, an escaped label, unwired
-`generate.ps1`, or a vacuous comparator, 2 = `common/DatrixRunLog.psm1` or `dev/generate.ps1` not found.
+**Exit codes:** 0 = every step held, 1 = a shared or reused log name, an escaped label, an unwired
+generate module, or a vacuous comparator, 2 = `-Racers` outside 2–64, or `common/DatrixRunLog.psm1` or
+`common/lib/datrix_scripts/dev/generate.py` not found.
 
 ### `test\toolchain-free-suites-gate.ps1`
 
@@ -722,9 +787,11 @@ profile case open, so uniqueness comes from *claiming* the name (`common/DatrixR
 | **Run gate** | `.\test\toolchain-free-suites-gate.ps1` | Scan every `datrix-*` package suite, every shape |
 | **One suite** | `.\test\toolchain-free-suites-gate.ps1 -Suites D:/datrix/datrix-codegen-typescript/tests` | Scan one or more comma-separated `tests/` directories |
 | **New shapes only** | `.\test\toolchain-free-suites-gate.ps1 -Shapes suite-in-suite-pytest,suite-in-suite-script` | Enforce only the two suite-in-suite shapes at hard zero, independent of the pre-existing `in-process-execution`/`toolchain-subprocess` counts |
-| **Self-test** | `.\test\toolchain-free-suites-gate.ps1 -SelfTest` | Prove the detector is non-vacuous, skip the real scan |
+| **Self-test** | `.\test\toolchain-free-suites-gate.ps1 -SelfTest` | Prove the detector is non-vacuous and the wrapper seam holds, skip the real scan |
 
-**Parameters:** `-Suites <path[,path...]>`, `-Shapes <kind[,kind...]>`, `-SelfTest`
+**Parameters:** `-Suites <path[,path...]>` (each must be a directory), `-Shapes <kind[,kind...]>` (kinds: `toolchain-subprocess`, `in-process-execution`, `suite-in-suite-pytest`, `suite-in-suite-script`, `unparseable`), `-SelfTest`
+
+**Module:** `datrix_scripts.test.toolchain_free_suites`; POSIX twin `test\toolchain-free-suites-gate.sh` (`--suites`, `--shapes`, `--self-test`). The last line is `[GATE] toolchain-free-suites PASSED|FAILED exit=<n> log=<path>`.
 
 **Fails on:**
 - A toolchain subprocess: `javac`, `java`, `mvn`/`mvnw`, `gradle`, `dotnet`, `tsc`/`tsx`, `npm`/`npx`, `node`, `docker`, `az`, `aws`, `gcloud`, `kubectl`, `terraform`, `bicep` -- whether named as a literal or resolved through a helper.
@@ -742,7 +809,7 @@ profile case open, so uniqueness comes from *claiming* the name (`common/DatrixR
 
 **Assertions:** the non-vacuity self-test runs before every real scan (a planted `javac` call, a planted `exec(compile(...))`, a planted nested-pytest subprocess, and a planted repo-script subprocess must all be caught; an allowed `ruff` call, an allowed `sys.executable -m datrix_cli`, a `pytester`-fixture test, and a `pytester.runpytest(...)` call must all pass), so a green result can never mean the detector was broken.
 
-**Exit codes:** 0 = no violation of the requested shape(s), 1 = at least one violation, or the self-test failed.
+**Exit codes:** 0 = no violation of the requested shape(s), 1 = at least one violation, or the self-test failed, 2 = usage error (a `-Suites` entry that is not a directory, or a `-Shapes` kind that does not exist — never a narrower scan that passes).
 
 ---
 

@@ -12,7 +12,7 @@ so a venv built from the manifests carries them. Do not `pip install` them by ha
 tool is gone after the next rebuild, and `shared-library-gate.ps1 -Only check_scripts_tree` refuses a
 scripts-tree import no manifest declares.
 
-The **run-codemod.ps1** wrapper activates the venv and runs the selected codemod via **lib/run_codemod.py**, which finds the numbered recipe beside it in `lib/`.
+The **run-codemod.ps1** wrapper (rendered from `common/templates/entrypoint.ps1`) runs `datrix_scripts.codemods.run_codemod` in the shared venv, which finds the numbered recipe in `scripts/codemods/lib/` and runs it under Bowler. Both wrappers here have a POSIX twin (`run-codemod.sh`, `split-module.sh`) taking the module's own flags, and a `-SelfTest` that runs the module's self-test (including the wrapper seam) and nothing else.
 
 ## `codemods\run-codemod.ps1`
 
@@ -25,7 +25,9 @@ Runs a Bowler codemod from `scripts/codemods/lib/`. All arguments after the code
 | **Rename imports** | `.\codemods\run-codemod.ps1 08_rename_module_imports datrix_language.parser datrix_language.parsing datrix-language\src` | Update imports |
 | **Print to logger** | `.\codemods\run-codemod.ps1 13_print_to_logger datrix-cli\src` | Replace `print` with `logger.info` |
 
-**Parameters:** `-CodemodName` (positional 0, required), `-CodemodArgs` (positional, variadic)
+**Parameters:** `-CodemodName` (positional 0, required), `-CodemodArgs` (positional, variadic), `-SelfTest`. Only a numbered recipe (`NN_name`) in `scripts/codemods/lib/` runs: any other name, or one holding a path, is refused with the list of recipes (exit 1).
+
+**Module:** `datrix_scripts.codemods.run_codemod`; POSIX twin `codemods/run-codemod.sh` (the recipe and its arguments as positionals, or `--codemod-name` / `--codemod-args`) — `bash codemods/run-codemod.sh 01_rename_function parse_file parse_path`.
 
 - **Preview (diff only):** Default; no files are changed.
 - **Interactive (apply hunks):** Edit the codemod script: change `.diff()` to `.idiff()`.
@@ -63,7 +65,7 @@ Edit each script to change defaults or constants, then run via `.\codemods\run-c
 ## `codemods\split-module.ps1`
 
 Splits a large module into sibling modules and points every importer at the new homes. It is not
-a Bowler recipe; it runs `lib/split_module.py`. Top-level definitions move **verbatim**, with the
+a Bowler recipe; it runs `datrix_scripts.codemods.split_module`. Top-level definitions move **verbatim**, with the
 comments above them, so a split cannot change behaviour by re-rendering code. A JSON plan (keep it
 under `D:\datrix\.tmp\`) names, for each new module, its docstring and the definitions it
 receives:
@@ -102,13 +104,16 @@ The split **refuses and writes nothing** when it would be wrong or incomplete:
 | **Split** | `.\codemods\split-module.ps1 -Module <file.py> -Plan D:\datrix\.tmp\split-plan.json` | Write the new modules, the remainder and the importer rewrites |
 | **Test module** | `.\codemods\split-module.ps1 -Module <tests\...\test_big.py> -Plan <plan> -PackageModule tests.unit.generators` | A module outside `src/` names its dotted package |
 
-**Parameters:** `-Module <path>` (required), `-Plan <path>` (required), `-PackageModule <dotted>` (required outside a `src/` tree), `-DryRun`. **Exit codes:** 0 = split done (or a clean dry run), 1 = refused (every reason printed), 2 = usage. Run the moved code's tests afterwards (`test.ps1 <pkg> -Specific` / `-Tag`).
+**Parameters:** `-Module <path>` (required), `-Plan <path>` (required), `-PackageModule <dotted>` (required outside a `src/` tree), `-DryRun`, `-SelfTest` (a planted workspace: a dry run, a split with its importer rewritten, a refused plan). **Exit codes:** 0 = split done (or a clean dry run), 1 = refused (every reason printed), 2 = usage. Run the moved code's tests afterwards (`test.ps1 <pkg> -Specific` / `-Tag`).
+
+**Module:** `datrix_scripts.codemods.split_module`; POSIX twin `codemods/split-module.sh` (`--module`, `--plan`, `--package-module`, `--dry-run`, `--self-test`).
 
 ## Implementation
 
-- **PowerShell:** `scripts/codemods/run-codemod.ps1` – Activates venv, passes codemod name and args to the Python runner.
-- **Python:** `scripts/codemods/lib/run_codemod.py` – Finds the recipe in its own folder, runs `python -m bowler run <script> -- <args>`.
-- **Module split:** `scripts/codemods/split-module.ps1` → `scripts/codemods/lib/split_module.py` (not a numbered recipe, so `run-codemod.ps1` never lists it).
+- **Wrappers:** `scripts/codemods/run-codemod.ps1` and `split-module.ps1` (and their `.sh` twins), rendered from `common/templates/entrypoint.ps1`.
+- **Runner:** `datrix_scripts.codemods.run_codemod` (in `scripts/common/lib/`) – finds the recipe in `scripts/codemods/lib/`, runs `python -m bowler run <script> -- <args>`.
+- **Module split:** `datrix_scripts.codemods.split_module` (not a numbered recipe, so `run-codemod.ps1` never lists it).
+- **Recipes:** `scripts/codemods/lib/NN_*.py` (and their shared helpers `_shared.py`): files Bowler loads by path, not importable modules.
 
 ## Tips
 

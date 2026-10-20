@@ -2,99 +2,28 @@
 <#
 .SYNOPSIS
  Collect per-cluster failure data from a structured test-results run.
-
 .DESCRIPTION
- Runs datrix_scripts.collect_failure_data in the shared venv.
- Resolves the representative entry of every error/failure cluster in the
- run's index.json, embeds the tail of its detail log and a ready-to-run
- single-test command, and writes failure-data.json into the run directory.
- Clusters sharing one pattern are grouped into families (one traceback tail
- each), long error messages are cut with a pointer to their log_file, and the
- first -LlmHintLimit families get an advisory hint from a local model server
- (common/lib/datrix_scripts/local_llm.py). A hint is a hypothesis to verify, never a verdict.
-
-.PARAMETER NoLlmHints
- Write no local-model hints (families and message caps still apply).
-
-.PARAMETER LlmHintLimit
- Families, errors first, that get a hint (default 5; 0 writes none).
-
-.PARAMETER LocalMachines
- Machines to search for model servers, in preference order. Omit to search the
- default list in common/lib/datrix_scripts/local_llm.py.
-
-.PARAMETER LlmModel
- Models to use for hints, best first. Omit to use any model already in memory.
-
-.PARAMETER LlmTimeout
- Request timeout in seconds for each hint (default 120).
-
-.PARAMETER Path
- Run directory or index.json path (alternative to -Project).
-
-.PARAMETER Project
- Project name; auto-locates the newest test-results-* run directory under
- <workspace>\<project>\.test_results.
-
-.PARAMETER MaxLogLines
- How many tail lines of each representative log to embed (default 60).
-
-.PARAMETER SelfTest
- Parse one fixture index per supported writer schema (package, generated-project
- unit, deploy-test) and exit; skips the real run-directory analysis.
-
-.PARAMETER Dbg
- Enable debug logging.
-
+ Runs datrix_scripts.collect_failure_data: resolves the representative entry of every error/failure cluster in
+ the run's index.json (-Path, or the newest run of -Project), embeds the tail of its detail log (-MaxLogLines,
+ default 60) and a ready-to-run single-test command, groups clusters into families, and writes failure-data.json
+ into the run directory. The first -LlmHintLimit families (default 5) get an advisory local-model hint
+ (-NoLlmHints: none; -LocalMachines, -LlmModel, -LlmTimeout seconds, default 120). Exit 0 when done, 2 on a usage
+ error. -SelfTest runs the module's self-test. python -m datrix_scripts.collect_failure_data --help describes every option.
 .EXAMPLE
- .\collect-failure-data.ps1 -Project datrix-codegen-azure
-
+ .\test\collect-failure-data.ps1 -Project datrix-codegen-azure
 .EXAMPLE
- .\collect-failure-data.ps1 -SelfTest
-
-.EXAMPLE
- .\collect-failure-data.ps1 D:\datrix\datrix-codegen-aws\.test_results\test-results-20260712-235813
+ .\test\collect-failure-data.ps1 D:\datrix\datrix-codegen-aws\.test_results\test-results-20260712-235813
 #>
-
 [CmdletBinding()]
 param(
- [Parameter(Position=0)]
- [string]$Path,
-
- [string]$Project,
-
- [int]$MaxLogLines = 60,
-
- [switch]$SelfTest,
-
- [switch]$NoLlmHints,
-
- [int]$LlmHintLimit = 5,
-
- [string[]]$LocalMachines = @(),
-
- [string[]]$LlmModel = @(),
-
- [int]$LlmTimeout = 120,
-
- [switch]$Dbg
+ [Parameter(Position=0)][string]$Path, [string]$Project, [int]$MaxLogLines, [switch]$SelfTest, [switch]$NoLlmHints,
+ [int]$LlmHintLimit, [string[]]$LocalMachines, [string[]]$LlmModel, [int]$LlmTimeout, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) {
- $pythonArgs += "--self-test"
-} else {
- if ($Path) { $pythonArgs += $Path }
- if ($Project) { $pythonArgs += @("--project", $Project) }
- $pythonArgs += @("--max-log-lines", "$MaxLogLines", "--llm-hint-limit", "$LlmHintLimit")
- if ($NoLlmHints) { $pythonArgs += "--no-llm-hints" }
- $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-}
-if ($Dbg) { $pythonArgs += "--debug" }
-
-# Shared with the red-run digest, so it lives in the shared scripts package and runs as a module.
-exit (Invoke-DatrixPythonScript -Module "datrix_scripts.collect_failure_data" -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.collect_failure_data" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

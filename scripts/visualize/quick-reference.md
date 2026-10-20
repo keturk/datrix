@@ -3,12 +3,14 @@
 > **Bash invocation:** Prefix with `powershell -File`, use forward slashes, quote paths. See [../quick-reference.md](../quick-reference.md) for full details.
 >
 > **Base path:** `d:/datrix/datrix/scripts/`
+>
+> **Modules:** every wrapper here is rendered from `common/templates/entrypoint.ps1`; its behaviour is the `datrix_scripts.visualize.*` module (in `common/lib/`) named under it, run in the shared venv. Each has a POSIX twin `visualize/<name>.sh` taking the module's own flags, each parameter as `--kebab-name` (`bash visualize/visualize.sh --source examples/01-foundation/system.dtrx --type erd`; `-All` is `--all`, `-TestSet` is `--test-set`). `-SelfTest` runs the module's self-test (over a planted copy of an example, including the wrapper seam) and nothing else. Options are spelled in full: an abbreviation is a usage error (exit 2). The batch modes read `datrix/scripts/config/test-projects.json`; an empty or unreadable test set is an `ERROR:` on stderr, exit 1.
 
 ---
 
 ## `visualize\all-reports.ps1`
 
-Runs all visualization and documentation scripts for a project: diagrams, schema snapshot, OpenAPI/AsyncAPI specs, and status report. All output is written next to the `.dtrx` source files (language-agnostic). Each step runs independently — a failure in one does not block subsequent steps.
+Runs the diagram, OpenAPI/AsyncAPI and documentation-status steps for a project (`visualize`, `openapi-gen`, `status-docs`), each as its own module run with the same selection. All output is written next to the `.dtrx` source files (language-agnostic). Each step runs independently — a failure in one does not block subsequent steps. With no selection it prints its usage and exits 1.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -19,7 +21,9 @@ Runs all visualization and documentation scripts for a project: diagrams, schema
 | **Custom test set** | `.\visualize\all-reports.ps1 -TestSet features-core` | Named test set |
 | **Debug** | `.\visualize\all-reports.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Profile` (config profile, default: test), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Profile` (config profile, default: test), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.visualize.all_reports`; POSIX twin `visualize/all-reports.sh`.
 
 ---
 
@@ -40,13 +44,15 @@ Generates Mermaid diagrams from `.dtrx` source files. Produces ERD, service map,
 | **Non-test profile** | `.\visualize\visualize.ps1 <source.dtrx> -Profile production` | Use non-default config profile |
 | **Debug** | `.\visualize\visualize.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Type` (erd\|service-map\|event-flow\|api-catalog\|cqrs-flow\|inheritance\|infrastructure\|system-context\|all, default: all), `-Service`, `-Format` (md\|mmd, default: md), `-Profile` (config profile, default: test), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Type` (erd\|service-map\|event-flow\|api-catalog\|cqrs-flow\|inheritance\|infrastructure\|system-context\|all, default: all), `-Service`, `-Format` (md\|mmd, default: md), `-Profile` (config profile, default: test), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.visualize.visualize`; POSIX twin `visualize/visualize.sh`.
 
 ---
 
 ## `visualize\schema-diff.ps1`
 
-Compares two `.dtrx` files and reports structural changes (breaking vs non-breaking).
+Compares two `.dtrx` files and reports structural changes (breaking vs non-breaking). Each side is loaded exactly as generation loads it (profile `test`); a `.json` snapshot is refused (pass the `.dtrx` it was taken from).
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -55,13 +61,15 @@ Compares two `.dtrx` files and reports structural changes (breaking vs non-break
 | **To file** | `.\visualize\schema-diff.ps1 v1\system.dtrx v2\system.dtrx -Output changes.md` | Write to file |
 | **Debug** | `.\visualize\schema-diff.ps1 v1\system.dtrx v2\system.dtrx -Dbg` | Debug logging |
 
-**Parameters:** `-Before` (positional 0, required), `-After` (positional 1, required), `-Format` (markdown\|json, default: markdown), `-Output`, `-Dbg`
+**Parameters:** `-Before` (positional 0, required), `-After` (positional 1, required), `-Format` (markdown\|json, default: markdown), `-Output`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.visualize.schema_diff`; POSIX twin `visualize/schema-diff.sh` (`--before`, `--after`, `--format`, `--output`, `--dbg`, `--self-test`).
 
 ---
 
 ## `visualize\schema-snapshot.ps1`
 
-Saves `.dtrx` Application as a JSON snapshot for future diffs. Output is written next to the `.dtrx` source (e.g., `examples/.../docs/snapshots/`).
+Saves `.dtrx` Application as a JSON snapshot for future diffs. The application is loaded exactly as generation loads it (profile `test`). Output is written next to the `.dtrx` source (e.g., `examples/.../docs/snapshots/`).
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -72,7 +80,9 @@ Saves `.dtrx` Application as a JSON snapshot for future diffs. Output is written
 | **Domains only** | `.\visualize\schema-snapshot.ps1 -Domains` | Batch: domain examples |
 | **Debug** | `.\visualize\schema-snapshot.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Output`, `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Output`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.visualize.schema_snapshot`; POSIX twin `visualize/schema-snapshot.sh`.
 
 ---
 
@@ -91,7 +101,9 @@ Generates one OpenAPI 3.1 YAML per service — every `rest_api` block of the ser
 | **Non-test profile** | `.\visualize\openapi-gen.ps1 <source.dtrx> -Profile staging` | Use non-default config profile |
 | **Debug** | `.\visualize\openapi-gen.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Type` (openapi\|asyncapi\|all, default: all), `-Profile` (config profile, default: test), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Type` (openapi\|asyncapi\|all, default: all), `-Profile` (config profile, default: test), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.visualize.openapi_gen`; POSIX twin `visualize/openapi-gen.sh`.
 
 ---
 
@@ -107,4 +119,6 @@ Reports documentation status for Datrix projects (diagrams, OpenAPI, AsyncAPI, s
 | **Domains only** | `.\visualize\status-docs.ps1 -Domains` | Domain examples only |
 | **Debug** | `.\visualize\status-docs.ps1 -All -Dbg` | Debug logging |
 
-**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Dbg`
+**Parameters:** `-Source` (positional 0), `-All`, `-Domains`, `-TestSet` (default: all), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.visualize.status_docs`; POSIX twin `visualize/status-docs.sh`.

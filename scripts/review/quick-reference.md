@@ -25,7 +25,7 @@ Claude Code → Generate Tasks → task-NN-TT-{slug}.md
                   ↓ (escalation logic)
 
         Tier 2: the whole phase, on a larger local model (optional)
-        lib/tier2_local.py TIER2_MODELS, prompts/phase-reviewer.md
+        datrix_scripts.review.tier2_local TIER2_MODELS, prompts/phase-reviewer.md
         Phase scope ([tier2] context_window; a phase that does not fit is split by task)
         Reports only what needs the whole phase to see
 
@@ -45,7 +45,9 @@ Claude Code → Generate Tasks → task-NN-TT-{slug}.md
 
 ## `review\review.ps1`
 
-Runs the Task Review System (`review/lib/review.py`); every argument is passed through.
+Runs the Task Review System; every argument is passed through to the review's own options (`--help` lists them).
+
+**Module:** `datrix_scripts.review.review` (in `common/lib/`), behind a wrapper rendered from `common/templates/entrypoint.ps1`: the `.ps1` hands each argument over as `--review-arguments=<word>`. Its POSIX twin `review/review.sh` takes the review options as they are (`bash review/review.sh --phase 43 --tier2`). `-SelfTest` runs the module's self-test (both argument forms, the refusal of a review naming neither `--task` nor `--phase`, the wrapper seam) and reviews nothing. A review option is spelled in full: an abbreviation is a usage error (exit 2).
 
 ```bash
 # Review single task
@@ -76,7 +78,7 @@ Tier 1 runs on the first model `datrix_scripts.local_llm` finds on the local mac
 
 - `0` — A complete review found nothing blocking (pass or warnings only)
 - `1` — Blocking findings
-- `2` — Every task's review failed to parse
+- `2` — Every task's review failed to parse, or a usage error (neither `--task` nor `--phase`, an unknown option)
 - `3` — No local model server answered, so no review ran. `--tier2*` does not change this: Tier 2 reviews Tier 1's output and cannot run without it.
 - `4` — Tier 2 was due (forced, threshold, or phase gate) but no tier-2 model answered, or none answered with a review; the phase review is incomplete
 
@@ -86,7 +88,7 @@ Tier 1 runs on the first model `datrix_scripts.local_llm` finds on the local mac
 
 ### Review JSON Schema
 
-Both tiers emit JSON conforming to `lib/review_schema.py`:
+Both tiers emit JSON conforming to `datrix_scripts.review.review_schema`:
 
 ```json
 {
@@ -128,14 +130,14 @@ Task findings are numbered `F-NNN`, phase findings `P-NNN`, so an applied marker
 **Tooling:**
 ```
 scripts/review/
-  review.ps1                   # Runs lib/review.py; passes every argument through
+  review.ps1, review.sh        # Rendered wrappers of datrix_scripts.review.review; pass every argument through
   config.toml                  # Configuration
-  apply-reviews-prep.ps1       # /apply-reviews worklist
-  review-library-gate.ps1      # Behaviour checks for lib/
+  apply-reviews-prep.ps1, .sh  # /apply-reviews worklist
+  review-library-gate.ps1, .sh # Behaviour checks for datrix_scripts.review
   prompts/
     local-reviewer.md          # Tier 1 prompt
     phase-reviewer.md          # Tier 2 prompt
-  lib/
+scripts/common/lib/datrix_scripts/review/
     review.py                  # Orchestrator
     review_reply.py            # The review request and the parsing of its answer (both tiers)
     review_schema.py           # JSON schema dataclasses
@@ -158,7 +160,7 @@ scripts/review/
 
 ## `review\apply-reviews-prep.ps1`
 
-Builds the `/apply-reviews` worklist: discovers `*.review.local.json` across every repo's `.tasks\phase-{NN}\` plus the Tier 2 `phase-{NN}.review.phase.json`, validates findings against `review_schema.py`, filters out findings already recorded in `.review.applied.json` markers, groups by `target`, and sorts blocking → major → minor → nit. Minimal console; details to JSON.
+Builds the `/apply-reviews` worklist: discovers `*.review.local.json` across every repo's `.tasks\phase-{NN}\` plus the Tier 2 `phase-{NN}.review.phase.json`, validates findings against `datrix_scripts.review.review_schema`, filters out findings already recorded in `.review.applied.json` markers, groups by `target`, and sorts blocking → major → minor → nit. Minimal console; details to JSON.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -167,20 +169,25 @@ Builds the `/apply-reviews` worklist: discovers `*.review.local.json` across eve
 | **Tier 2 only** | `.\review\apply-reviews-prep.ps1 -Phase 43 -Source phase` | Phase review findings only |
 | **Custom base dir** | `.\review\apply-reviews-prep.ps1 -Phase 43 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** `-Phase <NN>` (required), `-Source local|phase|all` (default all), `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** 0 = done (also when no review files exist — says so), 2 = usage error.
+**Parameters:** `-Phase <NN>` (required, positional 0), `-Source local|phase|all` (default all), `-BaseDir` (default: this workspace), `-Output <path>`, `-Dbg` (DEBUG logging), `-SelfTest` (a planted phase; reads nothing of the workspace). **Exit codes:** 0 = done (also when no review files exist — says so), 2 = usage error (no phase, a missing base directory, a malformed artifact or marker).
+
+**Module:** `datrix_scripts.review.apply_reviews_prep`; POSIX twin `review/apply-reviews-prep.sh` (`--phase`, `--source`, `--base-dir`, `--output`, `--dbg`, `--self-test`).
 
 ## `review\review-library-gate.ps1`
 
-Plain-Python behaviour checks (no pytest, no mocks/fakes) for the review library in `review/lib/` (`review_schema.py`, `canonical_modules.py`, `escalation.py`, `review_reply.py`, `review.py`, `tier2_local.py`): `Finding`/`ReviewResult` construction and serialization round-trips, canonical-module package discovery/scanning/digest-building/cache validity/prompt formatting, `should_escalate_to_tier2` across every escalation mode and threshold combination, `extract_json_from_response`/`parse_model_response` JSON-extraction strategies (fences, brace-matching, `<think>` tag stripping, largest-review-JSON selection), the orchestrator core (`resolve_task_context`, `discover_phase_tasks`, `dict_to_review_result`, `build_reviewer_prompt`), and Tier 2 against a loopback Ollama: a phase review with a canned phase verdict writes `phase-NN.review.phase.json` (`P-001`) and exits 0, a pool with no tier-2 model exits 4, and a phase too large for the window is split by task. Repo-level validation **script**, not a pytest suite (the datrix showcase repo hosts none).
+Plain-Python behaviour checks (no pytest, no mocks/fakes) for the review library `datrix_scripts.review` (`review_schema`, `canonical_modules`, `escalation`, `review_reply`, `review`, `tier2_local`): `Finding`/`ReviewResult` construction and serialization round-trips, canonical-module package discovery/scanning/digest-building/cache validity/prompt formatting, `should_escalate_to_tier2` across every escalation mode and threshold combination, `extract_json_from_response`/`parse_model_response` JSON-extraction strategies (fences, brace-matching, `<think>` tag stripping, largest-review-JSON selection), the orchestrator core (`resolve_task_context`, `discover_phase_tasks`, `dict_to_review_result`, `build_reviewer_prompt`), and Tier 2 against a loopback Ollama: a phase review with a canned phase verdict writes `phase-NN.review.phase.json` (`P-001`) and exits 0, a pool with no tier-2 model exits 4, and a phase too large for the window is split by task. Repo-level validation **script**, not a pytest suite (the datrix showcase repo hosts none).
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run the gate** | `.\review\review-library-gate.ps1` | Run every check |
 | **Harness self-test** | `.\review\review-library-gate.ps1 -HarnessSelfTest` | Prove the harness detects a forced failure (always reports [FAIL], exits 1) |
 | **Debug** | `.\review\review-library-gate.ps1 -Dbg` | Print the python invocation before running |
-| **Self-test** | `.\review\review-library-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks (all of them run over planted inputs) |
+| **Some checks** | `.\review\review-library-gate.ps1 -Only extract` | Only the checks whose name starts with the prefix |
+| **Self-test** | `.\review\review-library-gate.ps1 -SelfTest` | Harness self-test, then the wrapper seam checks |
 
-**Parameters:** `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
+**Parameters:** `-Only <prefix>`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
+
+**Module:** `datrix_scripts.review.review_library_gate`, run in gate mode: it ends with the gate's verdict line (`[GATE] review-library PASSED|FAILED exit=<n> log=<path>`, the log under `.test-output\gates\review-library\`). POSIX twin `review/review-library-gate.sh` (`--only`, `--harness-self-test`, `--self-test`, `--dbg`).
 
 **Assertions:** several checks are inherently adversarial (corrupt/malformed JSON → invalid or `None`, non-review JSON rejected, garbage → `None`, unknown escalation mode never escalates, no tier-2 model → exit 4), which already demonstrates discriminating power; `-HarnessSelfTest` additionally proves the pass/fail harness itself is not vacuous by registering one deliberately-failing dummy check and confirming it is reported `[FAIL]` with a nonzero exit.
 

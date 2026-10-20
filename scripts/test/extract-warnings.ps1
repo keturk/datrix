@@ -2,35 +2,22 @@
 <#
 .SYNOPSIS
  Extract and deduplicate pytest warnings from a test run's full.log.
-
 .DESCRIPTION
- Runs extract_warnings.py in the shared venv against
- a test-results run directory (or an index.json / full.log path inside one).
- Writes warnings.json into the run directory.
-
-.PARAMETER Path
- Run directory, index.json path, or full.log path.
-
-.PARAMETER Dbg
- Enable debug logging.
-
+ Runs datrix_scripts.test.extract_warnings against a test-results run directory (or an index.json / full.log
+ path inside one) and writes warnings.json into the run directory. Exit 0 when done, 2 on a usage error.
+ -SelfTest runs the module's self-test. python -m datrix_scripts.test.extract_warnings --help describes every option.
 .EXAMPLE
- .\extract-warnings.ps1 D:\datrix\datrix-codegen-aws\.test_results\test-results-20260712-121900
+ .\test\extract-warnings.ps1 D:\datrix\datrix-codegen-aws\.test_results\test-results-20260712-121900
 #>
-
 [CmdletBinding()]
 param(
- [Parameter(Position=0)]
- [string]$Path,
-
- [switch]$Dbg
+ [Parameter(Position=0)][string]$Path, [switch]$Dbg, [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Path) { $pythonArgs += $Path }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\extract_warnings.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.extract_warnings" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

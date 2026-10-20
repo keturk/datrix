@@ -4,8 +4,8 @@
  Split a large module into sibling modules and point every importer at the new homes.
 
 .DESCRIPTION
- Wraps codemods\lib\split_module.py. Top-level definitions move VERBATIM (with the comments
- above them) into the new sibling modules a JSON plan names:
+ The behaviour is datrix_scripts.codemods.split_module. Top-level definitions move VERBATIM
+ (with the comments above them) into the new sibling modules a JSON plan names:
 
    {
      "_plan_sizing": {"doc": "App Service Plan SKU policy.", "range": ["SKU_MAP", "derive_size"]},
@@ -40,27 +40,27 @@
 .PARAMETER DryRun
  Print the new modules, the remainder and every importer rewrite; write nothing.
 
+.PARAMETER SelfTest
+ Run only the module's self-test: a planted module is split (dry run, then for real) with its
+ importer rewritten, a bad plan is refused with nothing written, and the wrapper seam.
+
 .EXAMPLE
  .\codemods\split-module.ps1 -Module D:\datrix\datrix-codegen-azure\src\datrix_codegen_azure\generators\resource_mapping\_gateway_app_service.py -Plan D:\datrix\.tmp\split-plan.json -DryRun
  Preview the split and every import it would rewrite.
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Module,
-    [Parameter(Mandatory = $true)]
-    [string]$Plan,
-    [string]$PackageModule = "",
-    [switch]$DryRun
+ [Parameter(ParameterSetName = "Run", Mandatory = $true)][string]$Module,
+ [Parameter(ParameterSetName = "Run", Mandatory = $true)][string]$Plan,
+ [Parameter(ParameterSetName = "Run")][string]$PackageModule,
+ [Parameter(ParameterSetName = "Run")][switch]$DryRun,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @("--module", $Module, "--plan", $Plan)
-if ($PackageModule) { $pythonArgs += @("--package-module", $PackageModule) }
-if ($DryRun) { $pythonArgs += "--dry-run" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\split_module.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.codemods.split_module" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

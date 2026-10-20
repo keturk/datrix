@@ -1,26 +1,24 @@
-# PowerShell wrapper for status_deploy_tests.py
-# This script runs the Python deployment test status checker
-
+#!/usr/bin/env pwsh
+<#
+.SYNOPSIS
+ The status of the latest deploy-test run of every generated project under <workspace>\.generated.
+.DESCRIPTION
+ Runs datrix_scripts.test.status_deploy_tests, always with the spec/integration breakdown. -Language narrows the
+ report to <.generated>\<language>, validated against the language folders present (never a hardcoded list);
+ -Report also writes it as Markdown. -SelfTest runs the module's self-test.
+ python -m datrix_scripts.test.status_deploy_tests --help describes every option.
+.EXAMPLE
+ .\test\status-deploy-tests.ps1 -L typescript
+#>
 [CmdletBinding()]
 param(
- [string]$Report,
- [Alias("L")]
- [string]$Language,
- [switch]$Dbg
+ [string]$Report, [Alias("L")][string]$Language, [switch]$Dbg, [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-# Default: report only results under <workspace>\.generated, always with the spec/integration breakdown
-$pythonArgs = @("--root", (Join-Path (Get-DatrixWorkspaceRoot) ".generated"), "--detail")
-if ($Report) { $pythonArgs += @("--report", $Report) }
-if (-not [string]::IsNullOrWhiteSpace($Language)) {
- # Restrict the report to <.generated>\<language>. The Python script validates the
- # name against the language directories actually present, never a hardcoded list.
- $pythonArgs += @("--language", $Language)
-}
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\status_deploy_tests.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.status_deploy_tests" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -2,64 +2,25 @@
 <#
 .SYNOPSIS
  Aggregate a GREEN/RED test gate verdict across Datrix packages.
-
 .DESCRIPTION
- Runs gate_verdict.py in the shared venv. For each
- requested project (or all testable packages with -All), finds the newest
- test-results run and reports a per-project GREEN/RED verdict plus an overall
- verdict. Writes gate-verdict.json to <workspace>\.tmp\test\ by default.
- Exit code 0 only when every project is GREEN.
-
-.PARAMETER Projects
- One or more project names (comma-separated or space-separated).
-
-.PARAMETER All
- Check all testable datrix-* packages.
-
-.PARAMETER Output
- Output JSON path (default <workspace>\.tmp\test\gate-verdict.json).
-
-.PARAMETER SelfTest
- Run only the self-test: planted green, red and index-less run folders give
- GREEN, RED, RED. Reads no real run.
-
-.PARAMETER Dbg
- Enable debug logging.
-
+ Runs datrix_scripts.test.gate_verdict in gate mode: for each project named (or every testable package with -All)
+ it reads the newest test-results run and reports a per-project GREEN/RED verdict and an overall one, writing
+ gate-verdict.json to <workspace>\.tmp\test\ unless -Output names a path. Exit 0 only when every project is GREEN,
+ 1 when any is RED, 2 on a usage error. -SelfTest judges planted green, red and index-less runs (GREEN, RED, RED)
+ and reads no real run. python -m datrix_scripts.test.gate_verdict --help describes every option.
 .EXAMPLE
- .\gate-verdict.ps1 -Projects datrix-codegen-azure,datrix-language
-
-.EXAMPLE
- .\gate-verdict.ps1 -SelfTest
-
-.EXAMPLE
- .\gate-verdict.ps1 -All
+ .\test\gate-verdict.ps1 -Projects datrix-codegen-azure,datrix-language
 #>
-
 [CmdletBinding()]
 param(
- [Parameter(Position=0, ValueFromRemainingArguments=$true)]
- [string[]]$Projects,
-
- [switch]$All,
-
- [string]$Output,
-
- [switch]$SelfTest,
-
- [switch]$Dbg
+ [Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Projects,
+ [switch]$All, [string]$Output, [switch]$SelfTest, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-foreach ($project in $Projects) {
- if ($project) { $pythonArgs += @("--projects", $project) }
-}
-if ($All) { $pythonArgs += "--all" }
-if ($Output) { $pythonArgs += @("--output", $Output) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\gate_verdict.py") -Arguments $pythonArgs -Gate "gate-verdict")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.gate_verdict" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

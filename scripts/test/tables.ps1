@@ -4,7 +4,7 @@
  Inspect and migrate table contracts (datrix_testing.tables).
 
 .DESCRIPTION
- Runs datrix_testing.tables.cli in the shared venv.
+ Runs datrix_scripts.test.tables, which runs datrix_testing.tables.cli in the shared venv.
  A package's runner module, tests/test_tables.py, proves every row of every table the
  package's tests/conftest.py registered -- the builtin registry for its language, its type
  map, its emit tables, its DAL generator file declarations -- as one pytest item per row
@@ -36,6 +36,12 @@
    migrate   <package>
    accept    <proposal>
 
+.PARAMETER Dbg
+ Print the interpreter and the CLI arguments before the run.
+
+.PARAMETER SelfTest
+ Run the module's self-test (no -Command).
+
 .EXAMPLE
  .\tables.ps1 rows datrix-codegen-python
 
@@ -48,20 +54,25 @@
 .EXAMPLE
  .\tables.ps1 accept D:\datrix\.tmp\case-proposals\datrix-codegen-python.tables.proposal.json
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
- [Parameter(Position=0, Mandatory=$true)]
+ [Parameter(Position=0, Mandatory=$true, ParameterSetName="Run")]
  [ValidateSet("rows", "inventory", "migrate", "accept")]
  [string]$Command,
 
- [Parameter(Position=1, ValueFromRemainingArguments=$true)]
- [string[]]$Arguments = @(),
+ [Parameter(Position=1, ValueFromRemainingArguments=$true, ParameterSetName="Run")]
+ [string[]]$Arguments,
 
- [switch]$Dbg
+ [switch]$Dbg,
+
+ [Parameter(Mandatory=$true, ParameterSetName="SelfTest")]
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-exit (Invoke-DatrixPythonScript -Module "datrix_testing.tables.cli" -Arguments (@($Command) + $Arguments) -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.tables" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

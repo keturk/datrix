@@ -1,17 +1,20 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Count files with one or more extensions in subfolders of every datrix directory
+ Count files with one or more extensions in subfolders of every datrix directory.
 
 .DESCRIPTION
- Counts the files whose name ends with each given extension under every datrix repository
-discovered by Get-DatrixDirectories (the datrix showcase repo plus every datrix-* package directory in
-the workspace), one column per extension. The set is discovered from disk, never hardcoded, so a new
-package is covered with no edit here. A file is counted under an extension only when its name ends
-with it, so "x.dtrx.false" counts as dtrx.false, never as dtrx.
+ Runs datrix_scripts.workspace.file_count in the shared venv.
+ Counts the files whose name ends with each given extension under every datrix repository (the datrix
+ showcase repo plus every datrix-* package directory in the workspace, discovered from disk), one column
+ per extension. A file is counted under an extension only when its name ends with it, so "x.dtrx.false"
+ counts as dtrx.false, never as dtrx. Hidden files and folders are left out and no link is entered.
 
 .PARAMETER Extension
- The file extensions to count (without the leading dot). Defaults to "j2".
+ The file extensions to count (without the leading dot), one or more, comma-separated. Defaults to "j2".
+
+.PARAMETER SelfTest
+ Run only the module's self-test (a planted workspace) and the wrapper seam checks, and exit.
 
 .EXAMPLE
  .\file-count.ps1
@@ -25,51 +28,18 @@ with it, so "x.dtrx.false" counts as dtrx.false, never as dtrx.
  .\file-count.ps1 -Extension dtrx,dtrx.false
  Count .dtrx and .dtrx.false files, one column each.
 #>
-
 [CmdletBinding()]
 param(
- [Parameter(Mandatory=$false, Position=0)]
- [string[]]$Extension = @("j2")
+ [Parameter(Position = 0)]
+ [string[]]$Extension,
+
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-
-# "powershell -File" passes "dtrx,dtrx.false" as one string, so a comma list is split here;
-# each extension is normalized to start with a dot.
-$extensions = @($Extension | ForEach-Object { $_ -split "," } | Where-Object { $_ } |
- ForEach-Object { if ($_.StartsWith(".")) { $_ } else { ".$_" } })
-
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
-$directories = Get-DatrixDirectories
-
-Write-Host "Counting $($extensions -join ', ') files in subfolders..." -ForegroundColor Cyan
-Write-Host ""
-
-$totals = [ordered]@{}
-foreach ($ext in $extensions) { $totals[$ext] = 0 }
-$results = @()
-
-foreach ($dir in $directories) {
- $dirPath = Join-Path $datrixWorkspaceRoot $dir
- if (-not (Test-Path $dirPath)) {
-  Write-Warning "Directory not found: $dirPath"
-  continue
- }
- $names = @(Get-ChildItem -Path $dirPath -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
- $row = [ordered]@{ Directory = $dir }
- foreach ($ext in $extensions) {
-  $count = @($names | Where-Object { $_.EndsWith($ext, [System.StringComparison]::OrdinalIgnoreCase) }).Count
-  $row[$ext] = $count
-  $totals[$ext] += $count
- }
- $results += [PSCustomObject]$row
-}
-
-$results | Format-Table -AutoSize
-
-foreach ($ext in $extensions) {
- Write-Host "Total $ext files: $($totals[$ext])" -ForegroundColor Green
-}
-
-exit 0
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.workspace.file_count" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

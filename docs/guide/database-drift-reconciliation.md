@@ -102,19 +102,43 @@ When the database is disposable or explicitly wiped, reset the migration state t
 
 ```bash
 # After wiping the database (drop/recreate outside Datrix)
-datrix migrations rebaseline --all \
+datrix migrations rebaseline --all --assume-wiped \
   --reason "staging reset for schema redesign"
 ```
 
+`--assume-wiped` states the premise the command cannot check (it opens no database connection);
+without it, or `--live-snapshot` (3d), the command refuses.
+
 **Effect:**
-- Discards all prior migration history for the affected RDBMS block(s)
-- Records the prior ledger identity and reason for auditability (`rebaselined_from` provenance)
-- Starts a fresh `0001_initial` baseline equal to the desired schema `D`
+- Retires all prior migration history for the affected RDBMS block(s)
+- Records the prior ledger identity, every retired id and the reason for auditability (`rebaselined_from` provenance)
+- Starts a fresh baseline equal to the desired schema `D`, under an id above every sequence the block has used (`0001_initial` for a block with no history)
 - Future generations will plan from the new baseline
 
 **Use case:** Pre-production and ephemeral databases where periodic resets are normal (e.g., `reset-staging.ps1` wiping all databases). After a wipe, `rebaseline` resets the migration state so the next `generate` produces a baseline that applies cleanly to the fresh database.
 
-**Guard refusal:** In `guard` mode, `rebaseline` is refused entirely (policy-gated) — production databases are never wiped or auto-rebaselined.
+**Guard refusal:** In `guard` mode, a reset is refused (policy-gated) — production databases are never wiped or auto-rebaselined.
+
+### 3d. Carry a Live Database's Chain Forward (`--live-snapshot`)
+
+A chain holding revisions recorded before the ledger recorded the statements each revision runs
+cannot be audited, and generation refuses it. When that database must be kept, carry its chain
+forward instead of resetting it:
+
+```bash
+# The exported live schema must equal the recorded one; reconcile any drift first (3a)
+datrix migrations rebaseline --rdbms-id <uuid> \
+  --live-snapshot live-schema-snapshot.json \
+  --reason "carry the production chain forward"
+```
+
+**Effect:**
+- Refuses unless the live schema equals the recorded schema `R` (R := R, proven rather than assumed)
+- Starts a fresh baseline that builds exactly `R`, recording the statements it runs
+- Records `rebaselined_from.carried_revision`: the retired revision the database records
+- The generated migration runner moves a database recorded at that revision onto the baseline under the apply lock, without DDL; a fresh database runs the baseline; any other retired history is refused
+
+Because it resets nothing, it is permitted in every mode, `guard` included.
 
 ---
 
@@ -128,7 +152,7 @@ The `driftPolicy` selector in your system config determines regime behavior. Eac
 driftPolicy.mode (resolved from the active profile's system config)
         │
         ├─ off        → append-only policy; blocked ⇒ GenerationError.  DEFAULT.
-        ├─ guard      → append-only policy; blocked ⇒ GenerationError; rebaseline refused.
+        ├─ guard      → append-only policy; blocked ⇒ GenerationError; reset rebaseline refused.
         ├─ reconcile  → blocked ⇒ actionable message offering {rebaseline | reconcile --to-desired}.
         │               (no auto-rebaseline; operator chooses keep or wipe)
         └─ ephemeral  → blocked ⇒ auto-rebaseline (R := D), logged, generation proceeds.
@@ -168,7 +192,7 @@ profile production as "prod" extends base {
 - If drift is detected, reconciliation verbs refuse to run
 - The system treats drift as a **red flag**, not something to auto-fix
 - Generation uses the append-only change policy; blocked changes fail with an error
-- `rebaseline` verb is **refused** in guard mode (policy-gated)
+- `rebaseline --assume-wiped` is **refused** in guard mode (policy-gated); `rebaseline --live-snapshot`, which resets nothing, is allowed
 
 **Safety:** Production never auto-reconciles, never auto-rebaselines. You always review the divergence before deciding what to do. The append-only contract is sacred in production.
 
@@ -185,7 +209,7 @@ profile staging as "stg" extends base {
 **Behavior:**
 - Drift detection and reconciliation verbs (`--adopt`, `--to-desired`) are available
 - When generation encounters a blocked change, it **fails with an actionable message** offering exactly two choices:
-  1. `datrix migrations rebaseline --all` to wipe state and start from `D`
+  1. `datrix migrations rebaseline --all --assume-wiped` to wipe state and start from `D`
   2. `datrix migrations reconcile --to-desired` to keep `L` and converge to `D`
 - No automatic rebaseline: the choice of wipe or keep is explicit and operator-chosen
 - Supports the full experimental loop: fix spec → regenerate → export snapshot → adopt/converge
@@ -200,7 +224,7 @@ When `generate` would block in reconcile mode, you face a decision:
   ```bash
   # Reset the database (drop and recreate — outside Datrix)
   # Then reset migration state:
-  datrix migrations rebaseline --all --reason "staging reset for schema rework"
+  datrix migrations rebaseline --all --assume-wiped --reason "staging reset for schema rework"
   # Now generate proceeds with a fresh baseline
   datrix generate --profile staging
   ```

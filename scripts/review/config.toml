@@ -4,7 +4,7 @@
 context_window = 32768   # sent to Ollama as num_ctx; its default window truncates a task prompt
 
 [tier2]
-# Tier 2 reviews the whole phase on a larger local model (lib/tier2_local.py TIER2_MODELS).
+# Tier 2 reviews the whole phase on a larger local model (datrix_scripts.review.tier2_local TIER2_MODELS).
 enabled = true
 mode = "phase-gate"          # one of: off, manual, threshold, phase-gate
 threshold_blocking = 1        # any blocking finding triggers Tier 2

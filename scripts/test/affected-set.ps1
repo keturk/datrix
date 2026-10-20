@@ -2,71 +2,26 @@
 <#
 .SYNOPSIS
  Derive the reverse-dependency closure of Datrix packages from actual imports.
-
 .DESCRIPTION
- Activates the Datrix virtual environment and runs affected_set.py. Discovers
- every datrix-* package from disk (no hardcoded package list), builds the
- import graph from each package's src/, tests/, and root-level conftest.py
- plus declared pyproject.toml dependencies, and prints each requested
- package's transitive reverse-dependency closure (the packages that must
- also be tested when it changes). Writes affected-set.json to
- <workspace>\.tmp\test\ by default. A plain-Python self-test suite runs
- automatically, unconditionally, as step 1 of every invocation.
-
-.PARAMETER Projects
- One or more package names (comma-separated or space-separated) to report
- closures for.
-
-.PARAMETER All
- Report every discovered package's closure.
-
-.PARAMETER Output
- Output JSON path (default <workspace>\.tmp\test\affected-set.json).
-
-.PARAMETER SelfTest
- Run only the scanner's own self-test suite and exit -- skips the real
- derivation. The same self-test also runs automatically, unconditionally, as
- step 1 of every normal invocation.
-
-.PARAMETER Dbg
- Enable debug logging.
-
+ Runs datrix_scripts.affected_set (shared with the suite stamp and the affected gate). Discovers every datrix-*
+ package from disk, builds the import graph from each package's src/, tests/ and root conftest.py plus its declared
+ pyproject.toml dependencies, and prints the reverse-dependency closure of each package named (-Projects) or of
+ every package (-All). Writes affected-set.json to <workspace>\.tmp\test\ unless -Output names a path. The
+ scanner's self-test runs first on every invocation; -SelfTest runs only it. Exit 0 done, 1 self-check failed,
+ 2 usage error. python -m datrix_scripts.affected_set --help describes every option.
 .EXAMPLE
- .\affected-set.ps1 -Projects datrix-language
-
-.EXAMPLE
- .\affected-set.ps1 -All
-
-.EXAMPLE
- .\affected-set.ps1 -SelfTest
+ .\test\affected-set.ps1 -Projects datrix-language
 #>
-
 [CmdletBinding()]
 param(
-    [Parameter(Position=0, ValueFromRemainingArguments=$true)]
-    [string[]]$Projects,
-
-    [switch]$All,
-
-    [string]$Output,
-
-    [switch]$SelfTest,
-
-    [switch]$Dbg
+ [Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Projects,
+ [switch]$All, [string]$Output, [switch]$SelfTest, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-foreach ($project in $Projects) {
-    if ($project) { $pythonArgs += @("--projects", $project) }
-}
-if ($All) { $pythonArgs += "--all" }
-if ($Output) { $pythonArgs += @("--output", $Output) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-# Shared with the suite stamp and the affected gate, so it lives in the shared scripts package
-# and runs as a module.
-exit (Invoke-DatrixPythonScript -Module "datrix_scripts.affected_set" -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.affected_set" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

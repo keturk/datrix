@@ -34,35 +34,34 @@ scripts/
 
 The scripts follow a **wrapper pattern**:
 
-1. **PowerShell wrappers** (`.ps1`) in each folder handle virtual environment activation, dependency
-   installation, argument parsing and validation, and logging and cleanup.
-2. **Python implementations** (`.py`) sit beside the wrapper that runs them, in that folder's `lib/`
-   (`gates/<family>/lib/` for gates). A module imported from more than one folder, by a hook, or by
-   a package test lives in `common/lib/datrix_scripts/` and is imported as `datrix_scripts.<name>`;
-   a wrapper runs one of those with `python -m datrix_scripts.<name>`.
+1. **PowerShell wrappers** (`.ps1`) in each folder are the template `common/templates/entrypoint.ps1`
+   rendered with the script's own help, `param()` block and module, each with a POSIX twin (`.sh`)
+   rendered from `common/templates/entrypoint.sh`. `gates\repo-hygiene\thin-entrypoint-gate.ps1`
+   holds every `.ps1` to that form.
+2. **Python implementations** (`.py`) are modules of the shared package in `common/lib/datrix_scripts/`
+   (`datrix_scripts.<category>.<script>`, gates under `datrix_scripts.gates.<family>`), run with
+   `python -m`. The one `lib/` folder beside a wrapper is `codemods/lib/`, recipes loaded by path.
 
-Every wrapper runs its Python through `Invoke-DatrixPythonScript` (`common/DatrixPythonScript.psm1`),
+Every wrapper runs its module through `Invoke-DatrixEntrypoint` (`common/DatrixPythonScript.psm1`),
 which activates the shared venv with `common/lib` on `PYTHONPATH`, so every wrapper's Python can
 import the shared package. The placement rule, how hooks and MCP servers reach the package, and how to add a
 script are in [common/README.md](common/README.md#where-python-lives).
 `test\shared-library-gate.ps1 -Only check_scripts_tree` holds the layout.
 
-## Project discovery (PowerShell)
+## Project discovery
 
 Different scripts use different ways to decide which packages to include:
 
-| Use case | Helper (see `common/DatrixScriptCommon.psm1`) | Meaning |
-|----------|-----------------------------------------------|---------|
-| Metrics `-All` (Ruff, complexity, …) | `Get-DatrixPackageNamesGlob` | Every directory under the workspace named `datrix-*` |
-| `test.ps1 -All` | `Get-DatrixTestablePackageNames` | `datrix-*` directories carrying a test suite: a `tests/` folder (pytest) or a `package.json` with a `test` script (Node) |
-| `duplicate.ps1 -Mono` | `Get-DatrixMonoProjectNames` | Ordered canonical package names (`Get-DatrixDirectories`) where the path exists |
-| `dependency.ps1` help text | `Get-DatrixPackageNamesGlobWithPyProject` | `datrix-*` directories that contain `pyproject.toml` |
+| Use case | Helper (Python) | Meaning |
+|----------|-----------------|---------|
+| A metrics script (`-All`) | `datrix_scripts.metrics.projects.select_projects` | Every directory under the workspace named `datrix-*`, sorted |
+| `duplicate.ps1 -Mono` | `framework_repos.workspace_package_dirs(..., include_showcase=True)` | The `datrix` showcase repo, then every `datrix-*` directory, sorted |
+| `dependency.ps1` (`-All` and its usage text) | `select_projects(..., any_of={PackageMarker.PYPROJECT})` | `datrix-*` directories that contain `pyproject.toml` |
 
-`Get-DatrixTestablePackageNames` is the PowerShell half of one fact; the Python half is
-`common/lib/datrix_scripts/package_suites.py`, which `status-tests.ps1`, `test_project.py` and
-`gate-verdict.ps1` use. Neither can call the other — the PowerShell answer is needed before
-the venv is activated — so `test/test-tooling-parsing-gate.ps1` compares the two sets on every
-run rather than leaving them to drift.
+Which packages carry a test suite (`test.ps1 -All`, `status-tests.ps1`, `test_project.py`,
+`gate-verdict.ps1`) is answered in Python alone: `testable_package_names` in
+`common/lib/datrix_scripts/package_suites.py` — `datrix-*` directories with a `tests/` folder
+(pytest) or a `package.json` with a `test` script (Node).
 
 ## Bash Shell Invocation
 

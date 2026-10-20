@@ -1,231 +1,36 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Run mypy for Datrix projects using lib\mypy_check.py.
-
+ Run mypy for Datrix projects.
 .DESCRIPTION
- Runs lib\mypy_check.py in the shared venv for one or more
- projects. Accepts the same parameters as test.ps1 for command-line symmetry.
+ Runs datrix_scripts.test.mypy_check for the projects named (-Projects, names or folder paths) or every datrix-*
+ package with a pyproject.toml (-All); the datrix showcase repo may be named but is never swept. -Specific names
+ files, directories or comma-separated targets; -VerboseOutput shows error context; -NoSave writes no log. The
+ test.ps1 switches (-Coverage, -NoAutoInstall, -Unit, -Integration, -E2E, -Fast, -Slow, -Keyword) are accepted
+ for symmetry and ignored. mypy's cache goes under <workspace>\.tmp\mypy-cache, never into a package repository.
 
- A human-only tool: no skill, hook, orchestrator, or other script invokes it
- (its only caller is affected-gate.ps1's opt-in -Mypy switch), and the agent
- contract forbids agents to run any standalone type-checker. That is enforced,
- not advisory -- guard-forbidden-commands.py refuses this script, test/lib/mypy_check.py,
- the mypy/dmypy/pyright binaries, the `python -m mypy` form and
- `affected-gate.ps1 -Mypy` from any agent tool call. A person running it in his
- own terminal is not a tool call and is unaffected. The package test suites are
- the declared gate for type correctness; this wrapper exists so a person can
- type-check on demand.
-
- mypy_check.py passes an explicit --cache-dir under D:\datrix\.tmp\mypy-cache so the
- incremental cache never lands inside a package repository: mypy writes
- .mypy_cache into its working directory, and one sweep at the default once left
- ~51,400 cache files across 15 git repos and failed the ignored-source gate.
-
-.PARAMETER Projects
- One or more project names or folder paths to type-check.
-
-.PARAMETER All
- Run mypy for all Datrix projects that have pyproject.toml.
-
-.PARAMETER Coverage
- Accepted for parity with test.ps1; ignored by mypy_check.py.
-
-.PARAMETER VerboseOutput
- Enable verbose mypy output.
-
-.PARAMETER NoSave
- Don't save mypy output to log files.
-
-.PARAMETER NoAutoInstall
- Accepted for parity with test.ps1; dependency installation is handled by this wrapper.
-
-.PARAMETER Unit
- Accepted for parity with test.ps1; ignored by mypy_check.py.
-
-.PARAMETER Integration
- Accepted for parity with test.ps1; ignored by mypy_check.py.
-
-.PARAMETER E2E
- Accepted for parity with test.ps1; ignored by mypy_check.py.
-
-.PARAMETER Fast
- Accepted for parity with test.ps1; ignored by mypy_check.py.
-
-.PARAMETER Slow
- Accepted for parity with test.ps1; ignored by mypy_check.py.
-
-.PARAMETER Specific
- Run mypy against a specific file, directory, or comma-separated targets.
-
-.PARAMETER Keyword
- Accepted for parity with test.ps1; ignored by mypy_check.py.
-
-.PARAMETER Dbg
- Enable debug logging.
+ A human-only tool: no skill, hook, orchestrator or other script invokes it (its only caller is affected-gate's
+ opt-in -Mypy switch), and the agent contract forbids agents to run any standalone type-checker. That is
+ enforced: guard-forbidden-commands.py refuses this wrapper, its .sh twin, the module, the mypy/dmypy/pyright
+ binaries, `python -m mypy` and affected-gate -Mypy from any agent tool call, except -SelfTest, which installs,
+ launches and caches nothing. The package test suites are the declared gate for type correctness.
+ Exit 0 passed or skipped, 1 a project failed (or selection/install/self-test failure), 2 usage error.
+ python -m datrix_scripts.test.mypy_check --help describes every option.
+.EXAMPLE
+ .\test\mypy.ps1 datrix-common -Specific "src\datrix_common\builtins"
 #>
-
 [CmdletBinding()]
 param(
- [Parameter(Position=0, ValueFromRemainingArguments=$true)]
- [string[]]$Projects,
-
- [switch]$All,
- [switch]$Coverage,
- [switch]$VerboseOutput,
- [switch]$NoSave,
- [switch]$NoAutoInstall,
-
- [switch]$Unit,
- [switch]$Integration,
- [switch]$E2E,
- [switch]$Fast,
- [switch]$Slow,
-
- [string]$Specific,
- [string]$Keyword,
-
- [Parameter()]
- [switch]$Dbg
+ [Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Projects,
+ [switch]$All, [switch]$Coverage, [switch]$VerboseOutput, [switch]$NoSave, [switch]$NoAutoInstall,
+ [switch]$Unit, [switch]$Integration, [switch]$E2E, [switch]$Fast, [switch]$Slow,
+ [string]$Specific, [string]$Keyword, [switch]$SelfTest, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$mypyScript = Join-Path $PSScriptRoot "lib\mypy_check.py"
-$datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
-
- $projectsToCheck = @()
-
- if ($All) {
- $projectsToCheck = Get-DatrixPackageNamesGlobWithPyProject -WorkspaceRoot $datrixWorkspaceRoot
- if ($projectsToCheck.Count -eq 0) {
- Write-Host "ERROR: No Datrix projects with pyproject.toml found in: $datrixWorkspaceRoot" -ForegroundColor Red
- exit 1
- }
- Write-Host "Running mypy for all projects: $($projectsToCheck -join ', ')" -ForegroundColor Cyan
- } elseif ($Projects.Count -gt 0) {
- $normalizedProjects = $Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }
- $allProjects = Get-DatrixPackageNamesGlobWithPyProject -WorkspaceRoot $datrixWorkspaceRoot
-
- # The "datrix" showcase repo has its own pyproject.toml (with a [tool.mypy]
- # section for its scripts/) but is deliberately excluded from
- # Get-DatrixPackageNamesGlobWithPyProject's "datrix-*" glob -- it is not an
- # installable toolchain package, so -All must never sweep it (that glob is
- # shared with dependency.ps1's package listing). An EXPLICIT
- # `mypy.ps1 datrix -Specific <file>` request is still a legitimate,
- # targeted type-check of one showcase script, so it is allowed here even
- # though it is never auto-discovered by -All.
- $datrixShowcasePyProject = Join-Path (Join-Path $datrixWorkspaceRoot "datrix") "pyproject.toml"
- if ((Test-Path $datrixShowcasePyProject) -and ($allProjects -notcontains "datrix")) {
- $allProjects = @($allProjects) + "datrix"
- }
-
- $projectsToCheck = $normalizedProjects | Where-Object { $allProjects -contains $_ }
-
- if ($projectsToCheck.Count -eq 0) {
- Write-Host "ERROR: No valid projects specified." -ForegroundColor Red
- Write-Host ""
- Write-Host "Available projects:" -ForegroundColor Yellow
- foreach ($project in $allProjects) {
- Write-Host " - $project" -ForegroundColor Cyan
- }
- exit 1
- }
- Write-Host "Running mypy for projects: $($projectsToCheck -join ', ')" -ForegroundColor Cyan
- } else {
- Write-Host ""
- Write-Host "ERROR: No projects specified." -ForegroundColor Red
- Write-Host ""
- Write-Host "Usage:" -ForegroundColor Yellow
- Write-Host " .\mypy.ps1 <project-name> [options]" -ForegroundColor Cyan
- Write-Host " .\mypy.ps1 <folder-path> [options]" -ForegroundColor Cyan
- Write-Host " .\mypy.ps1 -All [options]" -ForegroundColor Cyan
- Write-Host ""
- Write-Host "Examples:" -ForegroundColor Yellow
- Write-Host " .\mypy.ps1 datrix-common" -ForegroundColor Cyan
- Write-Host " .\mypy.ps1 .\datrix-common\" -ForegroundColor Cyan
- Write-Host " .\mypy.ps1 datrix-common datrix-language" -ForegroundColor Cyan
- Write-Host " .\mypy.ps1 datrix-common -Specific `"src\datrix_common\builtins`"" -ForegroundColor Cyan
- Write-Host " .\mypy.ps1 -All" -ForegroundColor Cyan
- Write-Host ""
- $availableProjects = Get-DatrixPackageNamesGlobWithPyProject -WorkspaceRoot $datrixWorkspaceRoot
- if ($availableProjects.Count -gt 0) {
- Write-Host "Available projects:" -ForegroundColor Yellow
- foreach ($project in $availableProjects) {
- Write-Host " - $project" -ForegroundColor Cyan
- }
- Write-Host ""
- Write-Host "Total: $($availableProjects.Count) projects" -ForegroundColor Cyan
- }
- exit 1
- }
-
- $mypyArgs = @()
- if ($Coverage) { $mypyArgs += "--coverage" }
- if ($VerboseOutput) { $mypyArgs += "--verbose" }
- if ($NoSave) { $mypyArgs += "--no-save" }
- if ($NoAutoInstall) { $mypyArgs += "--no-auto-install" }
- if ($Unit) { $mypyArgs += "--unit" }
- if ($Integration) { $mypyArgs += "--integration" }
- if ($E2E) { $mypyArgs += "--e2e" }
- if ($Fast) { $mypyArgs += "--fast" }
- if ($Slow) { $mypyArgs += "--slow" }
- if ($Specific) {
- $mypyArgs += "--specific"
- $mypyArgs += $Specific
- }
- if ($Keyword) {
- $mypyArgs += "-k"
- $mypyArgs += $Keyword
- }
- if ($Dbg) { $mypyArgs += "--debug" }
-
- $results = @{}
- $totalProjects = $projectsToCheck.Count
- $currentProject = 0
-
- foreach ($project in $projectsToCheck) {
- $currentProject++
- Write-Host ""
- Write-Host "========================================" -ForegroundColor Cyan
- Write-Host "[$currentProject/$totalProjects] Mypy: $project" -ForegroundColor Cyan
- Write-Host "========================================" -ForegroundColor Cyan
- Write-Host ""
-
- $exitCode = Invoke-DatrixPythonScript -Script $mypyScript -Arguments (@($mypyArgs) + @($project)) -RequirePackages
- $results[$project] = @{ success = ($exitCode -eq 0); exitCode = $exitCode }
-
- if ($exitCode -eq 0) {
- Write-Host ""
- Write-Host "[PASS] Mypy passed for $project" -ForegroundColor Green
- } else {
- Write-Host ""
- Write-Host "[FAIL] Mypy failed for $project (exit code: $exitCode)" -ForegroundColor Red
- }
- }
-
- Write-Host ""
- Write-Host "========================================" -ForegroundColor Cyan
- Write-Host "Mypy Summary" -ForegroundColor Cyan
- Write-Host "========================================" -ForegroundColor Cyan
-
- $passed = ($results.Keys | Where-Object { $results[$_].success -eq $true }).Count
- $failed = ($results.Keys | Where-Object { $results[$_].success -eq $false }).Count
-
- foreach ($project in ($results.Keys | Sort-Object)) {
- $result = $results[$project]
- $status = if ($result.success) { "[PASS]" } else { "[FAIL]" }
- $color = if ($result.success) { "Green" } else { "Red" }
- Write-Host " $status : $project" -ForegroundColor $color
- }
-
- Write-Host ""
- Write-Host "Total: $totalProjects | Passed: $passed | Failed: $failed" -ForegroundColor Cyan
-
- if ($failed -gt 0) {
- exit 1
- }
- exit 0
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.test.mypy_check" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

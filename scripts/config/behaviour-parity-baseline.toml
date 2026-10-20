@@ -1,5 +1,5 @@
 # Decrease-only, two-directional ratchet over the behaviour-parity gate's failing-role
-# population (scripts/gates/parity/lib/behaviour_parity.py, wrapped by
+# population (datrix_scripts.gates.parity.behaviour_parity_gate, wrapped by
 # scripts/gates/parity/behaviour-parity-gate.ps1).
 #
 # Every role of a gated axis is in scope: every bucket, every domain, and a role no shared
