@@ -37,6 +37,7 @@ Generates Datrix projects from `.dtrx` source files. `-Language`/`-L` is **manda
 | **Debug logging** | `.\dev\generate.ps1 -All -L python -Dbg` | Enable DEBUG level logging |
 | **Config profile** | `.\dev\generate.ps1 <source.dtrx> -L python -ConfigProfile production` | Select non-default config profile |
 | **Validation level** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L python -ValidationLevel fast` | Forwarded to `datrix generate --validation-level` |
+| **Carry chains forward with live snapshots** | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L python -ConfigProfile staging -CarryForwardLiveSnapshots <dir>` | Forwarded to `datrix generate --carry-forward-live-snapshots`; one `<rdbms_id>.json` per database of that profile; single project only (refused with `-All`/`-Domains`/`-TestSet`) |
 
 `-All`, `-Domains` and `-TestSet` are Jon's: `validate-script-invocation.py` refuses them from an agent tool call.
 
