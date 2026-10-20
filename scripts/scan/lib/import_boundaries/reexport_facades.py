@@ -807,7 +807,7 @@ def _compiled_dgen_references() -> Iterator[str]:
     from datrix_codegen_kernel.dgen.domain_callables import domain_callables
 
     for target in sorted(target_registry.target_kind_map()):
-        for definition in compiler.get_definitions(target):
+        for definition in compiler.target_definitions(target):
             for domain in definition.domains:
                 for _callable, reference in domain_callables(domain):
                     yield reference

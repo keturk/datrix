@@ -46,7 +46,7 @@ if sys.platform == "win32" and __name__ == "__main__":
         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from datrix_codegen_kernel.dgen import target_registry  # noqa: E402
-from datrix_codegen_kernel.dgen.compiler import get_definitions  # noqa: E402
+from datrix_codegen_kernel.dgen.compiler import target_definitions  # noqa: E402
 from datrix_codegen_kernel.generation.dgen_ir import (  # noqa: E402
     DomainBuilderDefinition,
     DomainDefinition,
@@ -282,14 +282,15 @@ def run_census(language: str) -> tuple[str, list[GeneratorDefinition], list[Doma
         UsageError: If the target is unknown or registers no definitions.
     """
     target_kind = resolve_target_kind(language)
-    definitions = get_definitions(language)
-    if not definitions:
+    try:
+        definitions = list(target_definitions(language))
+    except ValueError as error:
         raise UsageError(
-            f"Target {language!r} (kind={target_kind}) is installed but registers "
-            f"no compiled DAL generator definitions -- there is nothing to census. If the "
-            f"target should have definitions, check its "
+            f"Target {language!r} (kind={target_kind}) is installed but supplies "
+            f"no compiled DAL generator definitions -- there is nothing to census: {error} "
+            f"If the target should have definitions, check its "
             f"datrix.dgen_generator_targets contribution's definition_modules."
-        )
+        ) from error
     rows: list[DomainCensus] = []
     for definition in definitions:
         logger.debug(
