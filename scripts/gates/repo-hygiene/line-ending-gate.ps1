@@ -4,9 +4,9 @@
  Repo-level gate: every framework repo normalizes text to LF and commits no CRLF line.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs lib\line_endings.py, which checks
- the datrix showcase repo and every datrix-* git checkout in the workspace (discovered
- at runtime) for two facts, both read from git:
+ Runs datrix_scripts.gates.repo_hygiene.line_ending_gate in the shared venv. It checks the datrix
+ showcase repo and every datrix-* git checkout in the workspace (discovered at runtime) for two
+ facts, both read from git:
 
    policy          -- 'git check-attr text eol' on a path no per-extension rule names
                       resolves to text=auto, eol=lf: the catch-all '* text=auto eol=lf'
@@ -28,10 +28,11 @@
    2 = usage error (unknown -Repo name, no framework repo found) or a failing git command
 
 .PARAMETER Repo
- Limit the scan to these repo names. Default: every framework repo in the workspace.
+ Limit the scan to these repo names (an array or one comma-separated value). Default: every
+ framework repo in the workspace.
 
 .PARAMETER SelfTest
- Run only the non-vacuity self-test and skip the real scan.
+ Run only the non-vacuity self-test and the wrapper seam checks, and skip the real scan.
 
 .PARAMETER Dbg
  Enable DEBUG logging and print the python invocation before running.
@@ -48,29 +49,15 @@
  .\line-ending-gate.ps1 -SelfTest
  Run only the non-vacuity self-test.
 #>
-
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [string[]]$Repo,
-
-    [Parameter()]
-    [switch]$SelfTest,
-
-    [Parameter()]
-    [switch]$Dbg
+ [string[]]$Repo, [switch]$SelfTest, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-
-# `powershell -File` passes "a,b" as one string; accept both that and a real array.
-$Repo = @($Repo | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-foreach ($name in $Repo) { $pythonArgs += @("--repo", $name) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\line_endings.py") -Arguments $pythonArgs -Gate "line-ending" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.line_ending_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

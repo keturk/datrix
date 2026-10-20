@@ -4,6 +4,8 @@
  Example config load gate: every declared profile of every example .dcfg loads.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.example_config_load_gate in the shared venv.
+
  Every model a config document validates into rejects unknown keys, so a
  key the model does not declare is an error at load time rather than a value
  silently dropped. This gate loads every declared profile of every .dcfg
@@ -20,7 +22,7 @@
  pytest suite lives in datrix).
 
 .PARAMETER Dbg
- Enable debug logging.
+ Enable DEBUG logging.
 
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real check.
@@ -42,12 +44,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Dbg) { $pythonArgs += "--debug" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\example_config_load.py") -Arguments $pythonArgs -RequirePackages -Gate "example-config-load")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.example_config_load_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

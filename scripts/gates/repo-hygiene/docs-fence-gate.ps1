@@ -4,6 +4,8 @@
  Docs fence gate: every datrix fence under datrix/docs states a fact that holds.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.docs_fence_gate in the shared venv.
+
  The showcase repo hosts no test suite, so its docs tree is checked here through
  the same collector, stages and comparison a package's case runner applies to
  its own docs/ tree: an example parses, a context= fragment parses in its
@@ -19,7 +21,7 @@
  suite lives in datrix).
 
 .PARAMETER Dbg
- Enable debug logging.
+ Enable DEBUG logging.
 
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real check.
@@ -41,12 +43,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Dbg) { $pythonArgs += "--debug" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\docs_fence_gate.py") -Arguments $pythonArgs -RequirePackages -Gate "docs-fence")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.docs_fence_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

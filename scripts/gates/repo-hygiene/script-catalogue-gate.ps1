@@ -4,7 +4,9 @@
  Script catalogue gate: each scripts folder's quick-reference documents its scripts and flags.
 
 .DESCRIPTION
- Runs lib\script_catalogue.py over datrix\scripts. Four rules, read from Markdown's token stream
+ Runs datrix_scripts.gates.repo_hygiene.script_catalogue_gate in the shared venv.
+
+ Checks datrix\scripts against four rules, read from Markdown's token stream
  and from PowerShell's own parser: every .ps1 in a folder with a quick-reference.md is a ##/###
  heading of it; every -Flag written after a script's name in a code span or code line is a
  parameter (or alias) the script declares; no folder holds both a quick-reference.md and a
@@ -34,13 +36,11 @@ param(
  [string]$Only = "",
  [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Only) { $pythonArgs += @("--only", $Only) }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\script_catalogue.py") -Arguments $pythonArgs -Gate "script-catalogue" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.script_catalogue_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

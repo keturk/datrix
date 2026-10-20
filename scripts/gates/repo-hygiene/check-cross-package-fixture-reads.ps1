@@ -5,7 +5,8 @@
  tests/ directory.
 
 .DESCRIPTION
- AST-scans every .py file under every discovered datrix* package's tests/
+ Runs datrix_scripts.gates.repo_hygiene.check_cross_package_fixture_reads in the shared
+ venv, which AST-scans every .py file under every discovered datrix* package's tests/
  tree and statically evaluates the pathlib expressions test fixtures use to
  locate .dtrx/.dcfg/.json files (Path(__file__), .resolve(), .parent,
  .parents[N], "/" joins, and "from tests.<module> import NAME" -- always the
@@ -65,13 +66,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($ShowFiles) { $pythonArgs += "--verbose" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_cross_package_fixture_reads.py") -Arguments $pythonArgs -Gate "cross-package-fixture-reads" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.check_cross_package_fixture_reads" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

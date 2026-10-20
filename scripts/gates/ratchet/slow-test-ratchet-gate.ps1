@@ -56,15 +56,11 @@ param(
     [switch]$Seed,
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-# No -RequirePackages: the Python module imports only the stdlib and the shared
-# scripts package, so it never needs the installed editable package set.
-$pythonArgs = @()
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Seed) { $pythonArgs += "--seed" }
-if ($Dbg) { $pythonArgs += "--dbg" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\slow_test_ratchet.py") -Arguments $pythonArgs -Gate "slow-test-ratchet")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.ratchet.slow_test_ratchet_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -54,13 +54,11 @@ param(
     [Parameter()]
     [string]$BaselinePath
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Dbg) { $pythonArgs += "--debug" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($BaselinePath) { $pythonArgs += @("--baseline", $BaselinePath) }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\capability_gap_ledger.py") -Arguments $pythonArgs -RequirePackages -Gate "capability-gap-ledger")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.ratchet.capability_gap_ledger_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

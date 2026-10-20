@@ -4,6 +4,9 @@
  Fail if a committed artifact cites a design document or a task file.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.design_task_reference_gate in the shared venv,
+ over the shared scan datrix_scripts.design_task_references.
+
  Design documents (design/) and task files (.tasks/) are gitignored and are
  developed on more than one machine, so their numbering collides: two different
  044-* documents can exist, and neither is present after a clone. A reference to
@@ -60,21 +63,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) {
-    $pythonArgs += "--self-test"
-}
-elseif (-not [string]::IsNullOrWhiteSpace($Roots)) {
-    foreach ($item in $Roots.Split(",")) {
-        $trimmed = $item.Trim()
-        if (-not [string]::IsNullOrWhiteSpace($trimmed)) { $pythonArgs += $trimmed }
-    }
-}
-
-# Shared with git/commit-and-push and the committed-content hook, so it lives in the shared
-# scripts package and runs as a module.
-exit (Invoke-DatrixPythonScript -Module "datrix_scripts.design_task_references" -Arguments $pythonArgs -RequirePackages -Gate "design-task-reference")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.design_task_reference_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

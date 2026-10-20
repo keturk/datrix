@@ -4,6 +4,8 @@
  Fail if a `from <datrix module> import <name>` names something that does not exist.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.import_name_existence_gate in the shared venv.
+
  A half-completed rename leaves a module importing one name and defining
  another. When the import runs, the first test that touches the module raises
  ImportError and the suite goes red. When it sits inside `if TYPE_CHECKING:`,
@@ -61,19 +63,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) {
-    $pythonArgs += "--self-test"
-}
-elseif (-not [string]::IsNullOrWhiteSpace($Roots)) {
-    foreach ($item in $Roots.Split(",")) {
-        $trimmed = $item.Trim()
-        if (-not [string]::IsNullOrWhiteSpace($trimmed)) { $pythonArgs += $trimmed }
-    }
-}
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\import_name_existence.py") -Arguments $pythonArgs -RequirePackages -Gate "import-name-existence")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.import_name_existence_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -4,7 +4,7 @@
  Repo-level gate: no registered customer term appears in a Datrix framework repo.
 
 .DESCRIPTION
- Runs lib\customer_domain_isolation_gate.py in the shared venv,
+ Runs datrix_scripts.gates.repo_hygiene.customer_domain_isolation_gate in the shared venv,
  which scans the git-TRACKED content of every framework repo in the workspace (datrix
  plus every datrix-* clone) against the hashed customer-term corpus at
  scripts/config/customer-term-hashes.json.
@@ -38,15 +38,19 @@
 
 .PARAMETER AddTerm
  Register a customer term by SHA-256 digest and exit. The term itself is never written.
+ It must be one token (a letter followed by letters or digits) at least the corpus
+ min_token_length long: anything else could never be matched, so it is refused (exit 2),
+ as is a corpus file that is malformed.
 
 .PARAMETER Hint
- Non-identifying note stored alongside a registered digest.
+ Non-identifying note stored alongside a registered digest. A hint holding the term is
+ refused (exit 2): the hint is stored in clear text.
 
 .PARAMETER SelfTest
  Run only the scanner self-test and scan nothing.
 
 .PARAMETER Dbg
- Print the python invocation before running.
+ Print the python invocation before running, with any -AddTerm value redacted.
 
 .EXAMPLE
  .\customer-domain-isolation-gate.ps1
@@ -81,14 +85,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-foreach ($name in $Repo) { $pythonArgs += @("--repo", $name) }
-if ($PendingOnly) { $pythonArgs += "--pending-only" }
-if ($AddTerm) { $pythonArgs += @("--add-term", $AddTerm, "--hint", $Hint) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\customer_domain_isolation_gate.py") -Arguments $pythonArgs -Gate "customer-domain-isolation" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.customer_domain_isolation_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

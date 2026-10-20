@@ -4,6 +4,8 @@
  Example-universe consistency and layout gate.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.example_registry_gate in the shared venv.
+
  Every system.dtrx under datrix/examples/ must appear in >= 1 named test set
  of datrix/scripts/config/test-projects.json, or carry a reviewed entry in
  datrix/scripts/config/test-set-exclusions.json. An unregistered example is
@@ -24,7 +26,7 @@
  pytest suite lives in datrix).
 
 .PARAMETER Dbg
- Enable debug logging.
+ Enable DEBUG logging.
 
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real comparison.
@@ -46,12 +48,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Dbg) { $pythonArgs += "--debug" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\example_registry_consistency.py") -Arguments $pythonArgs -RequirePackages -Gate "example-registry")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.example_registry_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

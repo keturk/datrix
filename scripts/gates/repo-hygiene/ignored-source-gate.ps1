@@ -4,8 +4,8 @@
  Repo-level gate: a .gitignore rule may never shadow a publishable file.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs the shared module
- datrix_scripts.ignored_source (scripts/common/lib), which computes -- for the datrix
+ Runs datrix_scripts.gates.repo_hygiene.ignored_source_gate in the shared venv, over
+ the shared scan datrix_scripts.ignored_source, which computes -- for the datrix
  showcase repo and every datrix-* clone in the workspace, discovered at
  runtime -- the set difference between the working tree and what a
  'git add -A' would stage. Every element of that difference must be a
@@ -86,15 +86,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-foreach ($name in $Repo) { $pythonArgs += @("--repo", $name) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($ShowExempt) { $pythonArgs += "--show-exempt" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-# Shared with git/commit-and-push, so it lives in the shared scripts package and runs as a module.
-exit (Invoke-DatrixPythonScript -Module "datrix_scripts.ignored_source" -Arguments $pythonArgs -Gate "ignored-source" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.ignored_source_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

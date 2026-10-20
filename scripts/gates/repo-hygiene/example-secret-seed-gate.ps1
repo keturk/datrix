@@ -4,6 +4,8 @@
  Example secret-seed gate: every example's deploy test can start its stack.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.example_secret_seed_gate in the shared venv.
+
  A handle a service declares in its secrets { } table is mounted into the
  container as a file, and the generated deployment script refuses to start
  the stack while that file is absent -- with nothing written in its place,
@@ -26,7 +28,7 @@
  pytest suite lives in datrix).
 
 .PARAMETER Dbg
- Enable debug logging.
+ Enable DEBUG logging.
 
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real check.
@@ -48,12 +50,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Dbg) { $pythonArgs += "--debug" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\example_secret_seed.py") -Arguments $pythonArgs -RequirePackages -Gate "example-secret-seed")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.example_secret_seed_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

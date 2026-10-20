@@ -4,6 +4,8 @@
  Source comment-reference gate.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.source_comment_reference_gate in the shared venv.
+
  Every module a comment or docstring in a framework package's src/ tree cites
  must exist. Dotted datrix_* references resolve through importlib. A bare or
  relative file citation (foo.py, a/b/foo.py) must name a .py file of the citing
@@ -21,7 +23,7 @@
  suite lives in datrix).
 
 .PARAMETER Dbg
- Enable debug logging.
+ Enable DEBUG logging.
 
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real scan.
@@ -43,12 +45,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Dbg) { $pythonArgs += "--debug" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\source_comment_references.py") -Arguments $pythonArgs -RequirePackages -Gate "source-comment-reference")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.source_comment_reference_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

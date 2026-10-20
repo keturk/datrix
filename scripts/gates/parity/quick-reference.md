@@ -27,7 +27,7 @@ the row kind `datrix_testing.cases.parity`): `stage: parity`, `observer` a metho
 client target, from its generator class's `declared_conformance_probes()`), `input` the fixture, `selector` the facet of the probe's
 return and its keys, `expectation` the authored value, `tags` (`parity` plus the behaviour tag),
 `reason`. The rows live in `gates\parity\cases\*.parity.yaml`; the probes a row may name, their
-facets and the reading of each are `gates\parity\lib\parity_observers.py` (`PROBE_READINGS`).
+facets and the reading of each are `datrix_scripts.gates.parity.parity_observers` (`PROBE_READINGS`).
 
 | Probe | Fixture (`input`) | Facets (selector keys) |
 |---|---|---|
@@ -83,6 +83,8 @@ tags and an unknown tag.
 
 **Parameters:** `-Tag <tag,...>`, `-SelfTest`, `-Dbg`
 
+**Module:** `datrix_scripts.gates.parity.parity_cases_gate`; POSIX twin `gates/parity/parity-cases-gate.sh` (`--tag`, `--self-test`, `--dbg`). The last line is `[GATE] parity-cases PASSED|FAILED exit=<n> log=<path>`.
+
 **Exit codes:** 0 = every selected row holds on every target (or a successful `-SelfTest`), 1 = a
 divergence, an unreadable row or a gap, 2 = the self-test failed, a row file or row is malformed,
 a tag selection is refused, fewer than two targets can read a row, a target's probes are missing
@@ -100,11 +102,16 @@ The parity rows' authoring tool.
 | **Observe** | `.\gates\parity\parity-cases.ps1 observe rest-api route_wire_contracts "{facet: route, verb: get, path: /api/v1/books}"` | Build the fixture for every target and print each reading, with the expectation's form. Writes nothing |
 | **New** | `.\gates\parity\parity-cases.ps1 new routes -Id routes.rest-api.list-books -Tags parity,rest-api -Input rest-api -Probe route_wire_contracts -Selector "{facet: route, verb: get, path: /api/v1/books}" -Expectation "{status: '200', body: page, media-type: application/json}" -Reason "..."` | Validate one authored row against the checks and every committed row, read it on every target, append it to `cases\<area>.parity.yaml`. Refused while the approval gate is armed for the cases directory |
 | **Migrate** | `.\gates\parity\parity-cases.ps1 migrate pubsub event_envelopes -Area events -Tags pubsub` | Propose one row per selector the probe's return offers on any target, each with every target's reading and no expectation, under `D:\datrix\.tmp\case-proposals\`. `-Replaces <gate>` names the probe-backed gate the rows replace |
-| **Accept** | `.\gates\parity\parity-cases.ps1 accept D:\datrix\.tmp\case-proposals\parity-events-event-envelopes.proposal.json` | Move an approved proposal's rows in; refuses a proposal no `.cases.approved` covers at its current hash, and a row without an expectation. With `replaces`, also deletes that gate's wrapper, its `lib\` module and its section here |
+| **Accept** | `.\gates\parity\parity-cases.ps1 accept D:\datrix\.tmp\case-proposals\parity-events-event-envelopes.proposal.json` | Move an approved proposal's rows in; refuses a proposal no `.cases.approved` covers at its current hash, and a row without an expectation. With `replaces`, also deletes that gate's wrapper, its `.sh` twin, the module it runs and its section here |
 | **Check** | `.\gates\parity\parity-cases.ps1 check` | Every committed row parses, names a probe with readings, a fixture that probe accepts, a facet with exactly its keys and an expectation of its shape, carries documented tags; no id or (input, probe, selector) twice |
 
 **Parameters:** `-Id`, `-Tags`, `-Input`, `-Probe`, `-Selector`, `-Expectation`, `-Reason` (new);
-`-Area`, `-Tags`, `-Replaces` (migrate); `-Dbg`
+`-Area`, `-Tags`, `-Replaces` (migrate); `-Dbg`; `-SelfTest` (alone: the usage checks and the wrapper seam check)
+
+**Module:** `datrix_scripts.gates.parity.parity_cases`, which runs the commands in
+`datrix_scripts.gates.parity.parity_cases_cli`; POSIX twin `gates/parity/parity-cases.sh` (the command, then
+`--id`, `--tags`, `--case-input`, `--probe`, `--selector`, `--expectation`, `--reason`, `--area`, `--replaces`,
+`--dbg`, `--self-test`).
 
 **Every expectation is authored.** `observe` and `migrate` print and propose readings and never
 write an expectation; `accept` refuses a row without one. A proposal is approved exactly as a case
@@ -154,6 +161,8 @@ refuse the run.
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
+**Module:** `datrix_scripts.gates.parity.response_body_transform_census_gate`; POSIX twin `gates/parity/response-body-transform-census-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] response-body-transform-census PASSED|FAILED exit=<n> log=<path>`.
+
 **Exit codes:** 0 = every hit is reviewed and no entry is stale (or a successful `-SelfTest`), 1 = an
 unreviewed hit, a stale entry or a language with no declaration, 2 = the self-test failed, fewer than
 two languages are registered, or the review file is missing or malformed.
@@ -195,6 +204,8 @@ runs.
 optional — omit for every registered language; restricts the canonical-type leg only), `-SelfTest`,
 `-Dbg`
 
+**Module:** `datrix_scripts.gates.parity.type_mapping_completeness`; POSIX twin `gates/parity/type-mapping-completeness.sh` (`--languages`, `--self-test`, `--dbg`). The last line is `[GATE] type-mapping-completeness PASSED|FAILED exit=<n> log=<path>`.
+
 **Assertions:** canonical-type leg — `unmapped_types(language)` of the registry built from the
 requested languages' plugin maps is empty for every requested language. Extension-map leg — `compare_extension_map_completeness` reports zero missing
 packs for every surface (every registered language + sql).
@@ -225,6 +236,8 @@ On success, the gate prints, for every STRUCTURAL domain id, each registered lan
 | **Self-test only** | `.\gates\parity\supported-domain-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.parity.supported_domain_parity_gate`; POSIX twin `gates/parity/supported-domain-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] supported-domain-parity PASSED|FAILED exit=<n> log=<path>`.
 
 **Exit codes:** 0 = the domain-universe closure holds and every registered language declares every structural domain id, 1 = a domain-universe closure violation was found (checked first) or a declaration-presence violation was found for at least one language, 2 = a non-vacuity self-test failed or fewer than 2 languages are registered.
 
@@ -291,8 +304,7 @@ section.
 **`-Scope` / `-Buckets` are report filters only.** They choose which role lines the report
 prints (a role prints when its domain and its verdict satisfy every filter given), print a
 `BEHAVIOUR-PARITY REPORT FILTER` line, and never change the failing-role count, the ratchet
-comparison or the exit code. An unknown id is a usage error naming the valid options, and both
-are refused on a `--report-only` run.
+comparison or the exit code. An unknown id is a usage error naming the valid options.
 
 **Non-vacuity is enforced on every run.** A synthetic five-bucket tree (one identical role, one
 same-behaviour role, one divergent role, one role split only by a language token, one role
@@ -370,6 +382,8 @@ plugin answers to the same name — never guessed from the bare registered name 
 
 **Parameters:** `-Axis <languages|platforms>` (default: languages), `-Scope <id,...>`, `-Buckets <id,...>`, `-Dbg`, `-SelfTest`, `-Fingerprint`
 
+**Module:** `datrix_scripts.gates.parity.behaviour_parity_gate`; POSIX twin `gates/parity/behaviour-parity-gate.sh` (`--axis`, `--scope`, `--buckets`, `--dbg`, `--self-test`, `--fingerprint`). The last line is `[GATE] behaviour-parity PASSED|FAILED exit=<n> log=<path>`.
+
 **Exit codes:** 0 = the failing-role count equals its pin (or a successful `-SelfTest`),
 1 = the count differs from its pin (above it: a regression; below it: an improvement whose pin was not lowered in the same change),
 2 = usage/discovery/parse error, an unreadable or malformed baseline, or the self-test failed.
@@ -429,6 +443,8 @@ found.
 
 **Parameters:** `-Hits`, `-Symbol <name,...>`, `-UpdateBaseline`, `-Dbg`, `-SelfTest`
 
+**Module:** `datrix_scripts.gates.parity.shared_home_body_gate`; POSIX twin `gates/parity/shared-home-body-gate.sh` (`--hits`, `--symbol`, `--update-baseline`, `--dbg`, `--self-test`). The last line is `[GATE] shared-home-body PASSED|FAILED exit=<n> log=<path>`.
+
 **Exit codes:** 0 = no package exceeds its pin (or a successful `-SelfTest` / `-UpdateBaseline`),
 1 = a package's count is above its pin, or `-UpdateBaseline` was refused because a count would rise,
 2 = the self-test failed, the baseline is unreadable or malformed, a source file cannot be parsed,
@@ -447,6 +463,8 @@ Cross-target observability-AXIS parity gate: proves every registered language ag
 | **Self-test only** | `.\gates\parity\observability-axis-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.parity.observability_axis_parity_gate`; POSIX twin `gates/parity/observability-axis-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] observability-axis-parity PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:**
 - **Leg 1 (declaration identity).** Every registered language declares exactly the empty set for every category in `PLATFORM_ONLY_OBSERVABILITY_CATEGORIES` — a non-empty claim is how the same config generates on one language and fails generation on another.
@@ -472,6 +490,8 @@ Manifest / import parity gate: for every `datrix-*` package at the workspace roo
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
+**Module:** `datrix_scripts.gates.parity.manifest_import_parity_gate`; POSIX twin `gates/parity/manifest-import-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] manifest-import-parity PASSED|FAILED exit=<n> log=<path>`.
+
 **Assertions:**
 - For every discovered package, `imported − declared = ∅` and `declared − imported = ∅` over Datrix distributions, and no `[project] dependencies` entry naming a Datrix distribution carries a test-only extra. An import satisfied only by one of the package's **own** non-dev extras (for example `datrix-codegen-common`'s `testkit/` subtree importing `datrix-language`, declared by its `[testkit]` extra) is a declared optional dependency: logged, never a violation. A `dev`/`testing` extra never satisfies a `src/` import.
 - Non-vacuity self-test (every invocation): a synthetic dirty package yields exactly its five planted violations (one plain undeclared import, one `TYPE_CHECKING`-only undeclared import, one import declared only by a `dev` extra, one dead declaration, one test-only extra) while its import declared by a non-dev extra is not reported; a synthetic clean package yields none; a workspace with fewer than two packages is refused; and the **live** scan sees every package registering `datrix.languages` import `datrix-codegen-common` — a real edge, so the scanner is proven against the tree it guards, not only against fixtures.
@@ -489,9 +509,11 @@ Third-party dependency parity gate: for every `datrix-*` package with a `src/` t
 | **Run gate** | `.\gates\parity\third-party-dependency-parity-gate.ps1` | Compare every `datrix-*` manifest's third-party dependencies against its `src/` imports |
 | **Self-test only** | `.\gates\parity\third-party-dependency-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 | **Show files** | `.\gates\parity\third-party-dependency-parity-gate.ps1 -ShowFiles` | Print each package's declared set as it is scanned |
-| **Debug** | `.\gates\parity\third-party-dependency-parity-gate.ps1 -Dbg` | Print the python invocation |
+| **Debug** | `.\gates\parity\third-party-dependency-parity-gate.ps1 -Dbg` | Debug logging |
 
 **Parameters:** `-BaseDir <path>`, `-SelfTest`, `-ShowFiles`, `-Dbg`
+
+**Module:** `datrix_scripts.gates.parity.third_party_dependency_parity_gate`; POSIX twin `gates/parity/third-party-dependency-parity-gate.sh` (`--base-dir`, `--self-test`, `--show-files`, `--dbg`). The last line is `[GATE] third-party-dependency-parity PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:**
 - For every discovered package, `imported − declared = ∅` and `declared − imported = ∅` over third-party distributions, where `declared` is `[project] dependencies` plus every non-`dev` extra and a dead declaration is excused only by a reviewed executable exemption.
@@ -512,6 +534,8 @@ Framework header parity gate: every registered language spells the framework-min
 | **Self-test only** | `.\gates\parity\framework-header-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.parity.framework_header_parity_gate`; POSIX twin `gates/parity/framework-header-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] framework-header-parity PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:**
 - Spelling: `framework-prefixed spellings − registered names − exemptions = ∅`; `retired spellings = ∅`; `exemptions − live spellings = ∅` (no stale entry); every entry carries package, header, a registered family and a non-empty reason.
@@ -535,6 +559,8 @@ Problem-type parity gate: every registered language answers errors with RFC 7807
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
+**Module:** `datrix_scripts.gates.parity.problem_type_parity_gate`; POSIX twin `gates/parity/problem-type-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] problem-type-parity PASSED|FAILED exit=<n> log=<path>`.
+
 **Assertions:**
 - Spelling: `literal slugs − registered families = ∅`.
 - Realization, per language: `len(unspelled families) == pin` (exact match; the pin defaults to zero for a language absent from the baseline).
@@ -556,6 +582,8 @@ Field-error-path parity gate: every registered language spells a `request-valida
 | **Self-test only** | `.\gates\parity\field-error-path-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.parity.field_error_path_parity_gate`; POSIX twin `gates/parity/field-error-path-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] field-error-path-parity PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:**
 - Realization, per language: the census produces the canonical path; an empty census is a failure.
@@ -587,6 +615,8 @@ Artifact-role parity gate, cross-language and cross-provider: detects a language
 
 **Parameters:** `-GeneratedRoot` (default: `<workspace>/.generated`), `-Dbg`, `-SelfTest`, `-Census`
 
+**Module:** `datrix_scripts.gates.parity.artifact_role_parity_gate`; POSIX twin `gates/parity/artifact-role-parity-gate.sh` (`--generated-root`, `--dbg`, `--self-test`, `--census`). The last line is `[GATE] artifact-role-parity PASSED|FAILED exit=<n> log=<path>`.
+
 **Assertions:**
 - Every registered language's corpus is complete: each `system.dtrx` under `datrix/examples/` has a generated tree (a directory carrying `.datrix/manifests/*.json`) or a park entry; no parked pair has a tree.
 - Every `(example, runtime, provider)` generated in >= 2 registered languages is compared, and every `(language, example, runtime)` generated under >= 2 providers is compared.
@@ -616,6 +646,8 @@ Cross-language generated-suite parity gate: every registered language's generate
 | **Self-test only** | `.\gates\parity\generated-suite-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
 **Parameters:** `-GeneratedRoot` (default: `<workspace>/.generated`), `-ListLimit` (default: 10), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.parity.generated_suite_parity_gate`; POSIX twin `gates/parity/generated-suite-parity-gate.sh` (`--generated-root`, `--list-limit`, `--dbg`, `--self-test`). The last line is `[GATE] generated-suite-parity PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:**
 - Every `(example, runtime, provider)` unit-tested in >= 2 registered languages is compared; the language set comes from the installed `datrix.languages` entry points, never a list in the script.
@@ -662,6 +694,8 @@ fewer than 2 platforms are registered or a live surface unions over nothing.
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
+**Module:** `datrix_scripts.gates.parity.block_realization_parity_gate`; POSIX twin `gates/parity/block-realization-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] block-realization-parity PASSED|FAILED exit=<n> log=<path>`.
+
 **Exit codes:** 0 = every capability realized or accounted for, 1 = at least one violation, 2 = self-test or
 partition guard failed, fewer than 2 platforms, or a vacuous live surface.
 
@@ -693,6 +727,8 @@ if fewer than 2 languages are registered.
 | **Self-test only** | `.\gates\parity\builtin-claims-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.parity.builtin_claims_parity_gate`; POSIX twin `gates/parity/builtin-claims-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] builtin-claims-parity PASSED|FAILED exit=<n> log=<path>`.
 
 **Exit codes:** 0 = stance key sets identical and every `supported` group is fully mapped, 1 = a
 stance key-set divergence or an unmapped row in a `supported` group was found, 2 = the

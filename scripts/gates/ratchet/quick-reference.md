@@ -24,9 +24,11 @@ DAL generator ratchet: AST-counts direct `GeneratedFile(...)` constructor calls 
 | **Custom base dir** | `.\gates\ratchet\check-generated-file-ratchet.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
 | **Debug** | `.\gates\ratchet\check-generated-file-ratchet.ps1 -Dbg` | Debug logging |
 
-**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-UpdateBaseline`, `-SelfTest`, `-Dbg`
+**Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-UpdateBaseline`, `-SelfTest`, `-Dbg` (prints the interpreter and the arguments)
 
-**Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements) covers `count_generated_file_constructions`, `discover_packages`, `scan_package`, and `check_ratchet` edge cases -- including the adversarial "regression when above baseline" case, which must produce a message. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `--harness-self-test` (no `.ps1` switch -- diagnostic only) registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
+**Module:** `datrix_scripts.gates.ratchet.check_generated_file_ratchet`; POSIX twin `gates/ratchet/check-generated-file-ratchet.sh` (`--warn`, `--show-files`, `--base-dir`, `--update-baseline`, `--self-test`, `--dbg`). The last line is `[GATE] generated-file-ratchet PASSED|FAILED exit=<n> log=<path>`.
+
+**Self-test runs automatically, every invocation.** A plain-Python self-test suite (no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements) covers `count_generated_file_constructions`, `discover_packages`, `scan_package`, and `check_ratchet` edge cases -- including the adversarial "regression when above baseline" case, which must produce a message. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan, after the harness self-test (one intentionally-failing dummy check that must be reported FAILED, proving the `[OK]`/`[FAIL]` harness itself is not vacuous) and before the wrapper seam check.
 
 **Assertions:**
 - Direct `GeneratedFile(...)` constructor calls (bare or module-qualified) are counted per package's `src/` tree; `GeneratedFile.from_content(...)` is never counted (a distinct call shape).
@@ -34,7 +36,7 @@ DAL generator ratchet: AST-counts direct `GeneratedFile(...)` constructor calls 
 - `datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/executor.py` is excluded (the declared-render path's own internals).
 - A package absent from the baseline has an implicit baseline of 0.
 
-**Exit codes:** 0 = every package's count is at or below its frozen baseline (or a successful `-UpdateBaseline` or `-SelfTest`), 1 = a package's count exceeds its frozen baseline (or `-SelfTest`/`--harness-self-test` reports a failing check), 2 = usage error, missing baseline, an attempted baseline increase over an existing baseline, or the automatic self-test step failing on a normal invocation.
+**Exit codes:** 0 = every package's count is at or below its frozen baseline (or a successful `-UpdateBaseline` or `-SelfTest`), 1 = a package's count exceeds its frozen baseline (or `-SelfTest` reports a failing check), 2 = usage error, missing baseline, an attempted baseline increase over an existing baseline, or the automatic self-test step failing on a normal invocation.
 
 ---
 
@@ -65,6 +67,8 @@ This is a naming-shape heuristic, not an exhaustive semantic analysis: under-rep
 
 **Parameters:** `-Dbg`, `-SelfTest`, `-UpdateBaseline`
 
+**Module:** `datrix_scripts.gates.ratchet.dependency_declaration_ratchet_gate`; POSIX twin `gates/ratchet/dependency-declaration-ratchet-gate.sh` (`--dbg`, `--self-test`, `--update-baseline`). The last line is `[GATE] dependency-declaration-ratchet PASSED|FAILED exit=<n> log=<path>`.
+
 **Baseline:** `scripts/config/dependency-declaration-ratchet-baseline.json` -- a decrease-only ratchet on the out-of-table site count, summed across every registered language (a live count HIGHER than the recorded value fails; a decrease never fails). `-UpdateBaseline` is the only writer; do not hand-guess the number.
 
 **Exit codes:** 0 = the report ran and the out-of-table count is at or below the baseline (or a successful `-SelfTest`/`-UpdateBaseline`), 1 = the out-of-table count exceeds the baseline, 2 = the non-vacuity self-test failed, fewer than 2 languages are registered, or a discovery/parse error occurred.
@@ -82,6 +86,8 @@ Migration upgrade-op family gate: the cross-package half of the upgrade-op dupli
 | **Self-test only** | `.\gates\ratchet\migration-upgrade-op-family-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.ratchet.migration_upgrade_op_family_gate`; POSIX twin `gates/ratchet/migration-upgrade-op-family-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] migration-upgrade-op-family PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:**
 - Each of the six target-specific symbols is still defined exactly once per recorded carrier; a language not recorded as a carrier that defines any of them fails until it is recorded; a baseline recording no carrier fails as vacuous.
@@ -111,6 +117,8 @@ Derives its target sets from the installed `datrix.languages`, `datrix.generator
 | **Alternate pin** | `.\gates\ratchet\capability-gap-ledger-gate.ps1 -BaselinePath <file.toml>` | Compare against another baseline file (proves a raised or lowered pin fails) |
 
 **Parameters:** `-Dbg`, `-SelfTest`, `-BaselinePath`
+
+**Module:** `datrix_scripts.gates.ratchet.capability_gap_ledger_gate`; POSIX twin `gates/ratchet/capability-gap-ledger-gate.sh` (`--dbg`, `--self-test`, `--baseline-path`). The last line is `[GATE] capability-gap-ledger PASSED|FAILED exit=<n> log=<path>`.
 
 **Exit codes:** 0 = ledger equals the pin and no surface is carried by every implementation, 1 = a ratchet violation (either direction) or a shared-layer defect, 2 = self-test failed, fewer than 2 distinct implementations on an axis, or the baseline is unreadable or invalid.
 
@@ -144,6 +152,8 @@ only call-duration signal, so it has no fixture dimension at all.
 | **Seed the baseline** | `.\gates\ratchet\slow-test-ratchet-gate.ps1 -Seed` | Write the baseline from the current offenders (placeholder `class`/`reason` -- hand-edit every entry before commit) |
 
 **Parameters:** `-SelfTest`, `-Seed`, `-Dbg`
+
+**Module:** `datrix_scripts.gates.ratchet.slow_test_ratchet_gate`; POSIX twin `gates/ratchet/slow-test-ratchet-gate.sh` (`--self-test`, `--seed`, `--dbg`). The last line is `[GATE] slow-test-ratchet PASSED|FAILED exit=<n> log=<path>`.
 
 **Decrease-only, enforced in every mode against git, not just the working-tree file.** Both check
 mode and `-Seed` compare against the baseline **as committed at HEAD** in the `datrix` package's

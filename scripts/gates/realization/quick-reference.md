@@ -22,18 +22,20 @@ Declarative design-acceptance assertion runner over a tree (generated output or 
 
 **Parameters:** `-Spec <path>` (required unless `-SelfTest`), `-SelfTest`, `-Output <path>`, `-Dbg`
 
+**Module:** `datrix_scripts.gates.realization.conformance_gate`; POSIX twin `gates/realization/conformance-gate.sh` (`--spec`, `--self-test`, `--output`, `--dbg`). The last line is `[GATE] conformance PASSED|FAILED exit=<n> log=<path>`.
+
 **Output:** `D:\datrix\.test-output\conformance\<spec-stem>-ledger.json` (violating/matching paths per assertion, cap 100 + total). **Exit codes:** 0 = all assertions pass, 1 = any fail, 2 = usage / bad spec / self-test failure.
 
 ---
 
 ## `gates\realization\standing-conformance-gate.ps1`
 
-Standing conformance-spec corpus gate: runs every committed `conformance_gate.py` spec under `scripts/config/conformance-specs/` (top-level `*.json` files only -- fixture subdirectories such as `_fixtures/` are never swept). Each spec's own self-test runs first, exactly as `conformance_gate.py`'s single-spec CLI already guarantees on every invocation.
+Standing conformance-spec corpus gate: runs every committed `conformance-gate.ps1` spec under `scripts/config/conformance-specs/` (top-level `*.json` files only -- fixture subdirectories such as `_fixtures/` are never swept). Each spec's own self-test runs first, exactly as `conformance-gate.ps1`'s single-spec run already guarantees on every invocation.
 
 **Policy this gate exists to serve:** a design-acceptance NEGATIVE check ("the old state is gone on every surface") that outlives its landing must either become a real test in the owning package (preferred, per the prefer-a-test-over-a-scratch-script rule), or a committed spec here -- never a one-off run nobody re-executes. When a change's acceptance proof is "the old construct no longer exists anywhere" and that proof cannot naturally live as a package test, add a spec JSON here.
 
 **Writing a spec:**
-- **Paths are relative to the spec file.** `conformance_gate.py` accepts absolute paths too (fine for a one-off hand-run spec), but a *committed* spec bakes one machine's checkout location into the repo, and the runner hard-fails exit 2 on a missing directory -- so an absolute path does not degrade elsewhere, it simply cannot run. This gate checks the whole corpus for rooted paths **before running any spec** and aborts with exit 2 naming the offenders. From `scripts/config/conformance-specs/`: `../../../examples` (datrix examples), `../../gates/realization/lib` (a scripts `lib/` folder), `../../../../<package>/src` (a sibling package).
+- **Paths are relative to the spec file.** `conformance-gate.ps1` accepts absolute paths too (fine for a one-off hand-run spec), but a *committed* spec bakes one machine's checkout location into the repo, and the runner hard-fails exit 2 on a missing directory -- so an absolute path does not degrade elsewhere, it simply cannot run. This gate checks the whole corpus for rooted paths **before running any spec** and aborts with exit 2 naming the offenders. From `scripts/config/conformance-specs/`: `../../../examples` (datrix examples), `../../common/lib/datrix_scripts/gates/realization` (a scripts module folder), `../../../../<package>/src` (a sibling package).
 - **Negative-control fixtures live under `_fixtures/`** -- per-spec in `_fixtures/<spec-stem>/negative-control/`, or `_fixtures/_shared/<name>/` when several specs police the same retired surface (the four config-block dead-surface specs share one `system.dcfg` control this way). A `must_not_contain` whose pattern is absent from the control tree too fails as VACUOUS, so the fixture must keep containing the forbidden pattern forever -- never "fix" it to match the real code. A control tree is scanned with the **assertion's own glob**, so the fixture's filenames must satisfy that glob (a spec globbing `secret_backend.py` needs a control root holding a file by that name).
 
 | Mode | Command | Description |
@@ -44,9 +46,11 @@ Standing conformance-spec corpus gate: runs every committed `conformance_gate.py
 
 **Parameters:** `-Dbg`, `-SelfTest`
 
+**Module:** `datrix_scripts.gates.realization.standing_conformance_gate` (each spec run by `datrix_scripts.gates.realization.conformance_gate`); POSIX twin `gates/realization/standing-conformance-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] standing-conformance PASSED|FAILED exit=<n> log=<path>`.
+
 **Assertions:**
-- Every `*.json` file directly under `scripts/config/conformance-specs/` is a spec, run via `conformance_gate.py --spec <file>` (its own built-in self-test runs first, per-spec, aborting that spec with exit 2 before any real result is trusted).
-- Seed spec `dgen-corpus-no-hand-authored-module-tuple.json`: `dgen_corpus_resolution.py` contains none of the seven retired hand-authored DAL generator definitions-module literal strings, proven non-vacuous by a dedicated negative-control fixture under `scripts/config/conformance-specs/_fixtures/` that intentionally still contains them.
+- Every `*.json` file directly under `scripts/config/conformance-specs/` is a spec, run as `conformance-gate.ps1 -Spec <file>` runs it (its own built-in self-test runs first, per-spec, aborting that spec with exit 2 before any real result is trusted).
+- Seed spec `dgen-corpus-no-hand-authored-module-tuple.json`: `dgen_corpus_resolution_gate.py` contains none of the seven retired hand-authored DAL generator definitions-module literal strings, proven non-vacuous by a dedicated negative-control fixture under `scripts/config/conformance-specs/_fixtures/` that intentionally still contains them.
 
 **Exit codes:** 0 = every spec passed, 1 = at least one spec's assertions failed, 2 = the spec directory is missing/empty, a committed spec addresses its trees by absolute path, or any individual spec's own self-test failed (that spec's run aborts before its real assertions are evaluated).
 
@@ -60,53 +64,62 @@ Whole-system **TypeScript** generation gate: proves the whole-system generate pa
 |------|---------|-------------|
 | **Run gate** | `.\gates\realization\typescript-whole-system-gate.ps1` | Generate twice, assert realness + byte-stability |
 | **Custom output root** | `.\gates\realization\typescript-whole-system-gate.ps1 -OutputRoot D:\datrix\.test-output\ts-gate` | Override run1/run2 location |
-| **Debug** | `.\gates\realization\typescript-whole-system-gate.ps1 -Dbg` | Forward `-Dbg` to generate.ps1 |
+| **Debug** | `.\gates\realization\typescript-whole-system-gate.ps1 -Dbg` | Debug logging here and in both generations |
+| **Self-test** | `.\gates\realization\typescript-whole-system-gate.ps1 -SelfTest` | The classifier over planted trees; generates nothing |
 
 **Parameters:** `-OutputRoot` (default: `d:/datrix/.test-output/ts-gate`), `-Dbg`/`-DebugLogging`, `-SelfTest` (the gate's non-vacuity proof over planted inputs only; generates nothing)
 
+**Module:** `datrix_scripts.gates.realization.typescript_whole_system_gate`; POSIX twin `gates/realization/typescript-whole-system-gate.sh` (`--output-root`, `--debug-logging`, `--self-test`). Each generation is the module behind `dev\generate.ps1` (`datrix_scripts.dev.generate`), run as its own process.
+
 **Assertions:**
 - **Realness (positive):** generated `*.ts` source count > 0 (the TypeScript language generator ran).
-- **Realness (leak guard):** no `*.py` under any generated `src/` tree, and every `*.py` in the output lives only under `tests/` or `migration-tools/` — the two **language-agnostic** Python artifact classes emitted for every target (httpx HTTP-contract integration tests regenerated by datrix-codegen-python's `python_http_contract_overlay`; the live-schema exporter rendered by datrix-codegen-sql). Any other `*.py` is a language leak and fails the gate.
+- **Realness (leak guard):** no `*.py` under any generated `src/` tree, and every `*.py` in the output lives only under `tests/` or `migration-tools/` — the two **language-agnostic** Python artifact classes emitted for every target (the HTTP contract suite rendered by datrix-codegen-component's `contract_tests` domain; the live-schema exporter rendered by datrix-codegen-sql). Any other `*.py` is a language leak and fails the gate.
 - **Byte-stability:** recursive sha256 diff of run1 vs run2, excluding non-source build/install artifacts `.datrix/`, `.ruff_cache/`, `.tsc_cache/`, `node_modules/`. Any content or file-set difference fails.
 
-**Exit codes:** 0 = real + byte-stable TypeScript whole-system output, 1 = generation failed, realness violated, or byte drift detected.
+**Exit codes:** 0 = real + byte-stable TypeScript whole-system output (or the self-test passed), 1 = generation failed, realness violated, byte drift detected, the example is missing, or a self-test check failed, 2 = usage error.
 
 ---
 
 ## `gates\realization\generation-determinism-gate.ps1`
 
-Generation-pipeline determinism gate for one registered language: the SAME source tree, generated N times in a row via the documented single-project `generate.ps1` path, must never produce two different outcomes (same failure mode every time, or a byte-identical success manifest every time). Each run is its own `generate.ps1` process (fresh `python.exe`, fresh `PYTHONHASHSEED`), so this also exercises hash-seed-driven set-iteration-order bugs a single long-lived process would never surface. Targets `examples/02-features/03-infrastructure-blocks/nosql/system.dtrx` — the example a corpus generation sweep once found producing three different outcomes (a struct-test planning failure, then two different compile failures) from the identical, unchanged-tree invocation. No before/after comparison of two code states can catch this class of bug, because it never runs the same code twice; this gate runs the SAME code N times and compares outcomes to each other. `-Language` is required — the gate never assumes which languages are installed.
+Generation-pipeline determinism gate for one registered language: the SAME source tree, generated N times in a row via the documented single-project generation, must never produce two different outcomes (same failure mode every time, or a byte-identical success manifest every time). Each run is its own generation process (fresh `python.exe`, fresh `PYTHONHASHSEED`), so this also exercises hash-seed-driven set-iteration-order bugs a single long-lived process would never surface. Targets `examples/02-features/03-infrastructure-blocks/nosql/system.dtrx` — the example a corpus generation sweep once found producing three different outcomes (a struct-test planning failure, then two different compile failures) from the identical, unchanged-tree invocation. No before/after comparison of two code states can catch this class of bug, because it never runs the same code twice; this gate runs the SAME code N times and compares outcomes to each other. `-Language` is required — the gate never assumes which languages are installed.
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run gate (5 runs)** | `.\gates\realization\generation-determinism-gate.ps1 -Language python` | Generate 5 times for one language, assert identical outcomes |
 | **Custom run count** | `.\gates\realization\generation-determinism-gate.ps1 -Language typescript -Runs 3` | Fewer/more repeated generations (must be >= 2) |
 | **Custom output root** | `.\gates\realization\generation-determinism-gate.ps1 -Language python -OutputRoot D:\datrix\.test-output\generation-determinism-gate\python` | Override run1..runN location |
-| **Debug** | `.\gates\realization\generation-determinism-gate.ps1 -Language python -Dbg` | Forward `-Dbg` to generate.ps1 |
+| **Debug** | `.\gates\realization\generation-determinism-gate.ps1 -Language python -Dbg` | Debug logging here and in every generation |
+| **Self-test** | `.\gates\realization\generation-determinism-gate.ps1 -SelfTest` | Fingerprints and comparison over planted inputs; generates nothing |
 
 **Parameters:** `-SelfTest` (alone: the gate's non-vacuity proof over planted inputs only; generates nothing), or `-Language` (required unless `-SelfTest`; a registered `datrix.languages` name), `-OutputRoot` (default: `d:/datrix/.test-output/generation-determinism-gate/<Language>`), `-Runs` (default: 5, must be >= 2), `-Dbg`/`-DebugLogging`
+
+**Module:** `datrix_scripts.gates.realization.generation_determinism_gate`; POSIX twin `gates/realization/generation-determinism-gate.sh` (`--language`, `--output-root`, `--runs`, `--debug-logging`, `--self-test`). Each generation is the module behind `dev\generate.ps1` (`datrix_scripts.dev.generate`), run as its own process; a FAILED run's fingerprint reads the one generation log that run wrote under `.generated\.results`.
 
 **Assertions:**
 - Every run's classification (SUCCESS vs FAILED) matches run 1's.
 - A SUCCESS run's per-relative-path sha256 manifest of the generated source tree (excluding `.datrix/`, whose audit log / snapshot / manifest `generated_at` timestamp are expected to differ every invocation by design) matches run 1's manifest exactly.
 - A FAILED run's generation-results log, normalized (run-specific `--output` directory replaced with a fixed placeholder; timestamp/log-path preamble lines stripped) and hashed, matches run 1's normalized fingerprint exactly.
 
-**Exit codes:** 0 = all N runs produced the identical outcome, 1 = a classification or fingerprint mismatch was found (non-deterministic generation), non-zero PowerShell error = usage/environment error (e.g. venv activation failure, missing example).
+**Exit codes:** 0 = all N runs produced the identical outcome (or the self-test passed), 1 = a classification or fingerprint mismatch was found (non-deterministic generation), `-Runs` below 2, the example is missing, or a self-test check failed, 2 = usage error (`--language` missing through the `.sh` twin; in the `.ps1`, `-Language` is a mandatory parameter of the gate parameter set, which PowerShell enforces before the module starts).
 
 ---
 
 ## `gates\realization\ingress-migration-conformance-gate.ps1`
 
-Declaration-driven service ingress migration conformance gate. Repo-level, independent proof that regenerating the framework's own showcase examples produces only the four intended DI-6 realized-exposure deltas. Regenerates three representative registered examples individually (`identity` for delta d, `shared-block` for delta a, `authentication` + `01-foundation` for delta c) via single-project explicit-output `generate.ps1` calls, separately runs the existing full-tree example generation gate (`test\run-complete.ps1 -All -Skip3 -Skip4`) over every registered example, proves at the source level that the webhook verification prelude is independent of `AuthMode`, and greps for the removed config keys.
+Declaration-driven service ingress migration conformance gate. Repo-level, independent proof that regenerating the framework's own showcase examples produces only the four intended realized-exposure deltas. Regenerates three representative registered examples individually (`identity` for delta d, `shared-block` for delta a, `authentication` + `01-foundation` for delta c) via single-project explicit-output generations, separately runs the existing full-tree example generation (`test\run-complete.ps1 -All -Skip3 -Skip4`) over every registered example, proves at the source level that the webhook verification prelude is independent of `AuthMode`, and greps for the removed config keys.
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run gate (both languages)** | `.\gates\realization\ingress-migration-conformance-gate.ps1` | Full DI-6 conformance sweep, python + typescript |
+| **Run gate (every registered language)** | `.\gates\realization\ingress-migration-conformance-gate.ps1` | Full conformance sweep over every registered `datrix.languages` target |
 | **Single language** | `.\gates\realization\ingress-migration-conformance-gate.ps1 -Languages python` | Faster iteration while debugging |
 | **Custom output root** | `.\gates\realization\ingress-migration-conformance-gate.ps1 -OutputRoot D:\datrix\.test-output\ingress-gate` | Override scratch generation root |
-| **Debug** | `.\gates\realization\ingress-migration-conformance-gate.ps1 -Dbg` | Forward `-Dbg` to generate.ps1/run-complete.ps1 |
+| **Debug** | `.\gates\realization\ingress-migration-conformance-gate.ps1 -Dbg` | Debug logging here, in every generation and in the full-tree generation |
+| **Self-test** | `.\gates\realization\ingress-migration-conformance-gate.ps1 -SelfTest` | Every check over planted inputs; generates nothing |
 
-**Parameters:** `-OutputRoot` (default: `D:\datrix\.test-output\ingress-gate`), `-Languages` (comma-separated, default: `python,typescript`), `-Dbg`/`-DebugLogging`, `-SelfTest` (the gate's non-vacuity proof over planted inputs only; generates nothing)
+**Parameters:** `-OutputRoot` (default: `D:\datrix\.test-output\ingress-gate`), `-Languages` (comma-separated, default: every registered `datrix.languages` target, discovered at runtime), `-Dbg`/`-DebugLogging`, `-SelfTest` (the gate's non-vacuity proof over planted inputs only; generates nothing)
+
+**Module:** `datrix_scripts.gates.realization.ingress_migration_conformance_gate`; POSIX twin `gates/realization/ingress-migration-conformance-gate.sh` (`--output-root`, `--languages` (comma-separated, repeatable), `--debug-logging`, `--self-test`). Each generation is `datrix_scripts.dev.generate` and the full-tree generation `datrix_scripts.test.run_complete`, each run as its own process; the full-tree output is kept in `<OutputRoot>\full-tree-gate-<language>.log`.
 
 **Assertions:**
 - **Step 0 (live counts):** re-verifies `rest_api` file count, `system.dcfg` gateway-declaration count, `auth(service` occurrence count, and that the sole `verify(` usage is paired with `auth(webhook)` (the webhook migration's precondition).
@@ -114,10 +127,12 @@ Declaration-driven service ingress migration conformance gate. Repo-level, indep
 - **Delta (b):** documented, verified absence — no registered example reproduces the name-suppression fixture (owned by the docker/azure/aws package suites).
 - **Delta (c):** a single-service example with a declared `gateway {}` (`authentication`) emits a non-empty `config/nginx/nginx.conf`; a single-service example with NO declared gateway (`01-foundation`) emits none.
 - **Delta (d):** the shared webhook context builder, the python prelude builder and the typescript guard template each dispatch only on their verify-mode field and carry no `AuthMode` / `auth_contract.mode` / `access_level` reference, so the generated prelude is a pure function of the unchanged `verify(...)` contract; `identity` is also regenerated per language so the live tree is on disk for inspection (the repo keeps no stored output snapshot to diff against).
-- **Step 3:** zero ING001/ING002/ING003 and webhook-invariant errors across the full-tree generation gate, both languages (known, tracked, out-of-scope failures — e.g. shared-block's pre-existing API003/XSV017 defect — are reported but not conflated with an ingress regression).
-- **Step 4:** zero `publicIngress`/`platforms.azure.services` matches under `datrix/examples`.
+- **Step 3:** zero ING001/ING002/ING003 and webhook-invariant errors across the full-tree generation, every swept language, and no failed project beyond `shared-block` (whose failure is reported, not failed).
+- **Step 4:** zero `publicIngress`/`platforms.azure.services` matches under `datrix/examples`, and zero `"ingestion" in` name-suppression literals in any `*.py` under the workspace outside a `design` directory.
 
-**Exit codes:** 0 = every DI-6 delta class accounted for and the negative acceptance property holds, 1 = any finding (including known, out-of-scope pre-existing defects, reported distinctly) causes a non-zero ledger.
+Known pre-existing defects (e.g. a `shared-block` regeneration failing on its API003/XSV017 endpoint) are listed in their own section of the log and do **not** fail the gate.
+
+**Exit codes:** 0 = every delta class accounted for and the negative acceptance property holds (or the self-test passed), 1 = any hard finding, no registered language, or a self-test check failed, 2 = usage error.
 
 ---
 
@@ -133,6 +148,8 @@ Shared-builder reachability gate: every module-level `build_*` function declared
 | **Census** | `.\gates\realization\shared-builder-reachability-gate.ps1 -Census` | Print every builder with its calling packages, every live thin delegation with the delegate and context type it resolved through, and every dead builder; exit 0 |
 
 **Parameters:** `-Dbg`, `-SelfTest`, `-Census`
+
+**Module:** `datrix_scripts.gates.realization.shared_builder_reachability_gate`; POSIX twin `gates/realization/shared-builder-reachability-gate.sh` (`--dbg`, `--self-test`, `--census`). The last line is `[GATE] shared-builder-reachability PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:**
 - Zero `build_*` definitions under the scanned subpackages have neither a resolved external caller nor a live thin delegation.
@@ -159,6 +176,8 @@ A registered language that states no idioms, or supplies no probe reading, fails
 | **Lower pins** | `.\gates\realization\zero-environment-runtime-gate.ps1 -UpdateBaseline` | Lower every `pinned_count` entry to its live census (the only writer of `pinned_count`; it refuses to raise one; `reviewed_exemptions` entries are hand-authored and untouched) |
 
 **Parameters:** `-Dbg`, `-SelfTest`, `-UpdateBaseline`
+
+**Module:** `datrix_scripts.gates.realization.zero_environment_runtime_gate`; POSIX twin `gates/realization/zero-environment-runtime-gate.sh` (`--dbg`, `--self-test`, `--update-baseline`). The last line is `[GATE] zero-environment-runtime PASSED|FAILED exit=<n> log=<path>`.
 
 **Assertions:**
 - `reviewed_exemptions` kind (or no entry): `reads − exemptions = ∅` and `exemptions − reads = ∅`; every exemption carries a non-empty path and reason and no other key; a duplicate path is rejected.
@@ -198,6 +217,8 @@ flavor). Fails loud (exit 2) if fewer than 2 platforms are registered.
 | **Self-test only** | `.\gates\realization\model-realization-parity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real comparison |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.realization.model_realization_parity_gate`; POSIX twin `gates/realization/model-realization-parity-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] model-realization-parity PASSED|FAILED exit=<n> log=<path>`.
 
 **Exit codes:** 0 = every registered platform declares a well-formed `model_realizations`
 mapping, 1 = at least one violation (an unconstructible declaration or an out-of-domain
@@ -242,6 +263,8 @@ axis. Fails loud (exit 2) if fewer than 2 targets are registered on an axis bein
 
 **Parameters:** `-Axis <languages\|platforms>` (default: both axes), `-Dbg`, `-SelfTest`
 
+**Module:** `datrix_scripts.gates.realization.pooled_cache_realization_gate`; POSIX twin `gates/realization/pooled-cache-realization-gate.sh` (`--axis`, `--dbg`, `--self-test`). The last line is `[GATE] pooled-cache-realization PASSED|FAILED exit=<n> log=<path>`.
+
 **Exemptions:** `scripts/config/pooled-cache-realization-exemptions.json` — one entry per
 currently-unrealized target (`{axis, target, reason}`). There is no `-UpdateBaseline`: a
 realization change removes its own entry, never a generic freeze command.
@@ -279,6 +302,8 @@ classify realized, and a single-target axis must be refused as vacuous.
 
 **Parameters:** `-Axis <languages\|platforms>` (default: both axes), `-Dbg`, `-SelfTest`
 
+**Module:** `datrix_scripts.gates.realization.shared_cache_realization_gate`; POSIX twin `gates/realization/shared-cache-realization-gate.sh` (`--axis`, `--dbg`, `--self-test`). The last line is `[GATE] shared-cache-realization PASSED|FAILED exit=<n> log=<path>`.
+
 **Exit codes:** 0 = every registered target walks the realized cache blocks (and every platform
 proves the keys supplied), 1 = at least one target is consumer-blind, 2 = the non-vacuity self-test
 failed or fewer than 2 targets are registered on an axis being checked.
@@ -312,6 +337,8 @@ be refused as vacuous.
 | **Self-test only** | `.\gates\realization\shared-rdbms-realization-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; generate nothing |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.realization.shared_rdbms_realization_gate`; POSIX twin `gates/realization/shared-rdbms-realization-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] shared-rdbms-realization PASSED|FAILED exit=<n> log=<path>`.
 
 **Exit codes:** 0 = every registered language realizes shared consumption, 1 = at least one language
 has a gap, 2 = the non-vacuity self-test failed or fewer than 2 languages are registered.
@@ -372,6 +399,8 @@ gate, with no input that excuses it. Fails loud (exit 2) if fewer than 2 languag
 
 **Parameters:** `-Dbg`, `-SelfTest`, `-UpdateCoverageBaseline`
 
+**Module:** `datrix_scripts.gates.realization.documentation_realization_parity_gate`; POSIX twin `gates/realization/documentation-realization-parity-gate.sh` (`--dbg`, `--self-test`, `--update-coverage-baseline`). The last line is `[GATE] documentation-realization-parity PASSED|FAILED exit=<n> log=<path>`.
+
 **Coverage census:** the same run re-parses the fixture with the shipped
 capture pipeline, collects every comment run ATTACHED to a node, and counts how many reach no
 generated artifact at all on each target. Comparison is marker- and whitespace-normalized (a
@@ -426,6 +455,8 @@ next package's own corpus does not actually resolve on its own).
 | **Self-test** | `.\gates\realization\dgen-corpus-resolution-gate.ps1 -SelfTest` | The gate's non-vacuity proof over planted inputs only |
 
 **Parameters:** `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.gates.realization.dgen_corpus_resolution_gate`; POSIX twin `gates/realization/dgen-corpus-resolution-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] dgen-corpus-resolution PASSED|FAILED exit=<n> log=<path>`.
 
 **Exit codes:** 0 = every discovered target's DAL generator corpus resolved at import, 1 = at least one
 target failed to resolve or import.

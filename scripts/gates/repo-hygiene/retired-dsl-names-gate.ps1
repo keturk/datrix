@@ -4,11 +4,11 @@
  Repo-level gate: no retired internal-DSL name appears in a Datrix framework repo.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs lib\retired_dsl_names.py, which scans
+ Runs datrix_scripts.gates.repo_hygiene.retired_dsl_names_gate in the shared venv, which scans
  every publishable file (tracked plus untracked-but-not-ignored) of every framework repo in
  the workspace (datrix plus every datrix-* clone, discovered from disk) -- file content,
  file names and directory names -- for the retired spellings listed in
- lib\retired_dsl_names.json, and fails listing path:line per hit.
+ scripts\config\retired-dsl-names.json, and fails listing path:line per hit.
 
  WHY IT EXISTS: when an internal language is renamed or replaced, its old name must leave
  every identifier, module, package, entry-point group, feature tag, script, resource file
@@ -33,7 +33,7 @@
  Run only the self-test and skip the real scan.
 
 .PARAMETER Dbg
- Print the python invocation before running.
+ Print the interpreter and arguments before running, and log at DEBUG level.
 
 .EXAMPLE
  .\retired-dsl-names-gate.ps1
@@ -59,12 +59,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-foreach ($name in $Repo) { $pythonArgs += @("--repo", $name) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\retired_dsl_names.py") -Arguments $pythonArgs -Gate "retired-dsl-names" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.retired_dsl_names_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

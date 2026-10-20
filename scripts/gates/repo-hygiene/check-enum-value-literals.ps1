@@ -4,6 +4,7 @@
  Hard-zero gate: no generator may branch on a user enum's member values.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.check_enum_value_literals in the shared venv, which
  AST-scans every scanned package's src/ tree for two shapes:
 
    A. <expr>.get_value("X") / .require_value("X")  -- member looked up by literal
@@ -64,13 +65,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($ShowFiles) { $pythonArgs += "--verbose" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_enum_value_literals.py") -Arguments $pythonArgs -Gate "enum-value-literals" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.check_enum_value_literals" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

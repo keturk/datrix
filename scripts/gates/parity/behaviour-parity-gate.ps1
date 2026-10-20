@@ -4,7 +4,7 @@
  Language-axis and platform-axis behaviour-parity gate.
 
 .DESCRIPTION
- Wraps datrix/scripts/gates/parity/lib/behaviour_parity.py. Groups functions
+ Runs datrix_scripts.gates.parity.behaviour_parity_gate. Groups functions
  across registered target packages into roles (on the platform axis, first by
  the block type a platform's own realization table registers the function a
  plan builder for; then by shared-typed signature or normalized name),
@@ -44,7 +44,8 @@
  failing-role count or the exit code.
 
 .PARAMETER Dbg
- Enable debug logging.
+ Enable debug logging, and print every role line, not just the failing and
+ divergent ones.
 
 .PARAMETER SelfTest
  Run only the non-vacuity self-test and skip the real scan.
@@ -91,15 +92,11 @@ param(
     [Parameter()]
     [switch]$Fingerprint
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @("--axis", $Axis)
-if ($Scope) { $pythonArgs += @("--scope", ($Scope -join ",")) }
-if ($Buckets) { $pythonArgs += @("--buckets", ($Buckets -join ",")) }
-if ($Dbg) { $pythonArgs += "--debug" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Fingerprint) { $pythonArgs += "--fingerprint" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\behaviour_parity.py") -Arguments $pythonArgs -RequirePackages -Gate "behaviour-parity")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.parity.behaviour_parity_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

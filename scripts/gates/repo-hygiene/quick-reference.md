@@ -12,7 +12,7 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 ## `gates\repo-hygiene\customer-domain-isolation-gate.ps1`
 
-**The repo's proof that no customer/project domain language lives in a framework repo.** Scans the git-TRACKED content of every framework repo in the workspace (`datrix` plus every `datrix-*` clone, discovered from disk) against the hashed customer-term corpus at `scripts/config/customer-term-hashes.json`. The rule ("no customer name, no customer-specific service names, no terms from a customer's business domain in framework code, docs, tests, or examples") was prose only until this gate: customer cloud-resource names and paths into a customer checkout reached committed files through Claude Code permission entries, and a customer deployment target reached a hook's docstring example.
+**The repo's proof that no customer/project domain language lives in a framework repo.** Scans every PUBLISHABLE file of every framework repo in the workspace (`datrix` plus every `datrix-*` clone, discovered from disk) — tracked files plus untracked-but-not-ignored ones, since a new file is untracked right up until the `git add` that commits it — against the hashed customer-term corpus at `scripts/config/customer-term-hashes.json`. One hit fails the gate. The rule ("no customer name, no customer-specific service names, no terms from a customer's business domain in framework code, docs, tests, or examples") was prose only until this gate: customer cloud-resource names and paths into a customer checkout reached committed files through Claude Code permission entries, and a customer deployment target reached a hook's docstring example.
 
 **The corpus stores digests, not terms.** A plaintext denylist naming the customer would itself be the violation it polices. Only SHA-256 digests of lowercased terms are committed, so the term never exists in any repo, while the check still travels with the checkout and enforces on every machine — an out-of-repo term file would silently not exist on a second machine, which is exactly the failure mode a guard must not have. Register a term with `-AddTerm`; the plaintext is hashed and discarded.
 
@@ -20,7 +20,7 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **Run the gate** | `.\gates\repo-hygiene\customer-domain-isolation-gate.ps1` | Scan every tracked file in every framework repo |
+| **Run the gate** | `.\gates\repo-hygiene\customer-domain-isolation-gate.ps1` | Scan every publishable file in every framework repo |
 | **One repo** | `.\gates\repo-hygiene\customer-domain-isolation-gate.ps1 -Repo datrix` | Scan only the named repo(s) |
 | **Pending changes only** | `.\gates\repo-hygiene\customer-domain-isolation-gate.ps1 -PendingOnly` | Scan only what a `git add -A` would stage |
 | **Register a term** | `.\gates\repo-hygiene\customer-domain-isolation-gate.ps1 -AddTerm acmecorp -Hint "customer project"` | Append the term's digest to the corpus and exit |
@@ -28,13 +28,15 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 **Parameters:** `-Repo <name[,name...]>`, `-PendingOnly`, `-AddTerm <term>`, `-Hint <text>` (default: `customer project`), `-SelfTest` (only the synthetic-occurrence self-test below; scans nothing real), `-Dbg`
 
-**Self-test runs automatically, every invocation.** Before any real scan, the scanner is fed four synthetic occurrence shapes it must detect (hyphenated resource name, path segment, camelCase identifier, upper-case identifier), two clean strings it must NOT flag, a redaction check (the reported excerpt must not contain the term), and an empty-corpus check (must report nothing). A detector that stopped detecting reports a clean tree, which is indistinguishable from a clean tree — so a self-test failure aborts before any result is trusted.
+**Self-test runs automatically, every invocation.** Before any real scan, the scanner is fed four synthetic occurrence shapes it must detect (hyphenated resource name, path segment, camelCase identifier, upper-case identifier), two clean strings it must NOT flag, a redaction check (the reported excerpt must not contain the term), and an empty-corpus check (must report nothing). On real temp git repos it then proves the file listings reach what a commit would publish: an untracked file is listed and its term found, an ignored one is not scanned, an untracked path holding a space and a non-ASCII character is listed verbatim, and a `git mv` rename is listed under its new name only. Planted files prove every file is read: a term in UTF-16, Latin-1, past 2 MB and behind binary bytes is found, a path that cannot be read stops the scan, and a corpus that is not a JSON object is refused. The `-AddTerm` checks prove only a digest is stored, a term that could never match or that a hint would leak is refused, and the `-Dbg` echo redacts the term. A detector that stopped detecting reports a clean tree, which is indistinguishable from a clean tree — so a self-test failure aborts before any result is trusted.
 
 **Matching shape:** content is split into alphanumeric tokens, each token is additionally camel-split, and every piece of at least `min_token_length` (default 5) characters is lowercased and hashed. That covers `<term>-system-kv-dev`, `//d/g/<Term>/**`, `<term>_rg`, and `<term>Backend`. It does NOT match a term glued to another word with neither separator nor case boundary (`<term>dev`) — a hash denylist cannot substring-search without the plaintext it deliberately does not hold; register such a variant as its own term.
 
-**Also enforced at the commit seam and on every edit.** `git\commit-and-push.ps1` runs the same scanner over every dirty repo's pending changes before it generates a message or stages anything, and refuses the whole run on a violation (`-SkipCustomerDomainCheck` overrides, loudly); the `guard-committed-content.py` hook refuses an edit that adds a registered term. This gate is the tracked-tree counterpart: it also catches what is already committed.
+**Also enforced at the commit seam and on every edit.** `git\commit-and-push.ps1` runs the same scanner over every dirty repo's pending changes before it generates a message or stages anything, and refuses the whole run on a violation (`-SkipCustomerDomainCheck` overrides, loudly); the `guard-committed-content.py` hook refuses an edit that adds a registered term. This gate is the whole-tree counterpart: it also catches what is already committed.
 
-**Exit codes:** 0 = no violations (or zero terms registered, reported as `NOT ENFORCED`), 1 = at least one violation or a failing self-test, 2 = usage error or a missing/malformed corpus.
+**Exit codes:** 0 = no violations (or zero terms registered, reported as `NOT ENFORCED`), 1 = at least one violation or a failing self-test, 2 = usage error, a missing/malformed corpus, a repo git cannot list, or a publishable file that exists but cannot be read. Every file is read whatever its size or encoding (NUL bytes dropped, so UTF-16 text is matched too); an unreadable one is never skipped, so the gate names it and stops.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.customer_domain_isolation_gate`; POSIX twin `gates/repo-hygiene/customer-domain-isolation-gate.sh` (`--repo`, `--pending-only`, `--add-term`, `--hint`, `--self-test`, `--dbg`). The last line is `[GATE] customer-domain-isolation PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -42,7 +44,7 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 **The repo's proof that no retired internal-DSL name survives a rename.** When an internal language is renamed or replaced, its old name leaves every identifier, module, package, entry-point group, feature tag, script, resource file and document. The gate scans every publishable file (tracked plus untracked-but-not-ignored) of every framework repo, discovered from disk — file content, file names and directory names — and fails listing `path:line` per hit (`path: name segment '<segment>'` for a file or directory name; a directory is reported once). The terminal state is zero: there is no baseline and no allowlist.
 
-**The spellings are data.** `gates/repo-hygiene/lib/retired_dsl_names.json` holds one entry per retired family: `name`, `replacement` (printed in the failure message), `patterns` (case-insensitive regular expressions) and `samples` (concrete spellings the self-test plants; each must match one of its family's patterns or the gate refuses to run). That file is the only path the scan skips, so the gate's own module, wrapper and this page are scanned and never spell a retired name. Retiring another language is one new entry.
+**The spellings are data.** `config/retired-dsl-names.json` holds one entry per retired family: `name`, `replacement` (printed in the failure message), `patterns` (case-insensitive regular expressions) and `samples` (concrete spellings the self-test plants; each must match one of its family's patterns or the gate refuses to run). That file is the only path the scan skips, so the gate's own module, wrapper and this page are scanned and never spell a retired name. Retiring another language is one new entry.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -57,6 +59,8 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 **Exit codes:** 0 = no retired name (or the self-test passed, with `-SelfTest`), 1 = at least one retired name or a failing self-test, 2 = usage error, a malformed spellings file, a repo git cannot list, or a publishable file that exists but cannot be read (for example, locked by another process on Windows). An unreadable file is never skipped: skipping it would leave its content unscanned and report a clean tree, so the gate names the file and stops.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.retired_dsl_names_gate`; POSIX twin `gates/repo-hygiene/retired-dsl-names-gate.sh` (`--repo`, `--self-test`, `--dbg`). The last line is `[GATE] retired-dsl-names PASSED|FAILED exit=<n> log=<path>`.
+
 **Security posture.** The gate only reads files (and, in the self-test, writes a scratch repo under `D:\datrix\.tmp\`); it opens no network connection and changes nothing in the repos it scans.
 
 ---
@@ -65,13 +69,13 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 **The repo's proof that no committed artifact cites a design document or a task file.** `design/` and `.tasks/` are gitignored and are developed on more than one machine, so their numbering collides: two different `044-*` documents can exist, and after a clone neither is present. A reference to one from anything committed is a dangling pointer — it resolves to nothing, or to a different artifact elsewhere. The gate scans the committed trees for the SHAPE of such a reference and fails on any hit.
 
-**Roots are derived from disk, never hand-authored.** Every `datrix*` directory contributes its `src`, `tests`, `docs` and `scripts` subtrees (the `datrix` showcase repo contributes `scripts`, `docs`, `examples` instead — it has no `src`), so a new package is scanned the day it appears. The gitignored orchestration trees themselves (`.tasks/`, `.bugs/`, `design/`) plus build noise are skipped: design and task files referencing **each other** is allowed and expected.
+**Roots are derived from disk, never hand-authored.** Every package directory `framework_repos.workspace_package_dirs` discovers (`datrix` and every `datrix-*`) contributes its `src`, `tests`, `docs` and `scripts` subtrees (the `datrix` showcase repo contributes `scripts`, `docs`, `examples` instead — it has no `src`), so a new package is scanned the day it appears. The gitignored orchestration trees themselves (`.tasks/`, `.bugs/`, `design/`) plus build noise are skipped: design and task files referencing **each other** is allowed and expected.
 
 **Item labels are policed too, in every label letter.** Findings, reviews and designs number their own items with a capital letter and digits, in parentheses or before a colon, and a comment carrying one points into a gitignored document. Two shapes, over the same extensions, inside a package's `src`, `tests` and `scripts` and the `datrix` repo's `scripts` — never under `docs` or `examples`, where committed documents number their own items: a parenthesized label (`D`/`G`/`I` with any digit count, every other capital letter with one or two digits, optionally a `/` or `,` list) and a heading label (the same letters followed by a colon, refusing a preceding `.` or word character so `StorageProvider.S3:` is attribute access). One or two digits for the other letters keeps ruff/pylint codes (`F821`, `A002`, `R0801`, `F401/F811/I001`) out. The possessive of a bare task id (`NN-MM's`) is matched in every root; a bare `NN-MM` is not, because dates and line ranges look the same. `LABEL_TOKEN_EXCEPTIONS` in the library module holds exact `(workspace-relative path, token)` pairs with a written reason — today the emitted `P95` percentile chart title in the Azure monitor workbook generator; the token anywhere else is a hit. Hit lines name the shape: `[item label (parenthesized)]`, `[item label (heading)]`, `[task-file id (possessive)]`.
 
 **Also enforced at the commit seam and on every edit.** `git\commit-and-push.ps1` runs the same scan over the pending files of every dirty repo before it generates a message or stages anything, and refuses the whole run on a hit; there is no skip switch. The `guard-committed-content.py` hook applies the same detector to the lines an edit adds.
 
-**Four reference shapes are matched, over all of `.py .ps1 .json .md .j2 .ts .mts .cts .js .mjs .cjs .cs .java .toml .yaml .yml .dtrx`** (spelled here with `N`/`M` placeholders so this page is not itself a hit): a task-file id (`task-NN-MM`, the prose `task NN-MM`, and the three-digit `task-NN-MMM`, case-insensitively), a design path (`design/NNN-slug`), a design number (`design NNN`, `design-NNN`, `design doc NNN` — the word `doc` is optional), and a phase directory (`.tasks/phase-NN`). Each line is also matched joined to the next with that line's comment leader (`#`, `//`, ` * `, `--`) removed, because a wrapped comment splits a reference across the break (`(design` / `# NNN section …`) and a line-at-a-time match sees neither half; a hit is reported at the line it starts on. A **bare** `Phase NN` is deliberately NOT matched: the committed architecture docs use it as product vocabulary for delivery waves, self-contained text rather than a pointer into a gitignored tree.
+**Four reference shapes are matched, over every text type the framework repos commit** (`SCAN_EXTENSIONS` in the library module: source and templates, the `.ps1` wrappers and their `.sh` twins, `.psm1`/`.psd1` modules, Dart, C, web assets, data files, prose, and the Datrix documents and fixtures `.dtrx .dcfg .dseed .dal`, including disabled `*.dtrx.false` fixtures; only binaries are left out) (spelled here with `N`/`M` placeholders so this page is not itself a hit): a task-file id (`task-NN-MM`, the prose `task NN-MM`, and the three-digit `task-NN-MMM`, case-insensitively), a design path (`design/NNN-slug`), a design number (`design NNN`, `design-NNN`, `design doc NNN` — the word `doc` is optional), and a phase directory (`.tasks/phase-NN`). Each line is also matched joined to the next with that line's comment leader (`#`, `//`, ` * `, `--`) removed, because a wrapped comment splits a reference across the break (`(design` / `# NNN section …`) and a line-at-a-time match sees neither half; a hit is reported at the line it starts on. A **bare** `Phase NN` is deliberately NOT matched: the committed architecture docs use it as product vocabulary for delivery waves, self-contained text rather than a pointer into a gitignored tree.
 
 **The terminal state is zero.** There is no baseline and no count to ratchet down. `ALLOWLIST` in `scripts/common/lib/datrix_scripts/design_task_references.py` is the only escape hatch and is for files that document the ID *format* itself (the task-ID parser, the review runner's usage examples, this gate's own patterns) — never for a file that merely happens to carry a reference.
 
@@ -84,9 +88,11 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 
 **Parameters:** `-Roots <dir[,dir...]>` (default: every committed tree), `-SelfTest`
 
-**Self-test runs automatically, every invocation.** One line per reference shape is planted in a temp directory and every one must be flagged; a clean file must produce zero; and a bare `### Phase 01 capabilities` heading must NOT be flagged. A second fixture workspace with `src/`, `tests/`, `scripts/` and `docs/` trees plants every label shape (each must hit exactly once) and the near misses (attribute access, lint codes, line ranges, a label under `docs/`, the excepted token in its own file) that must hit zero; the same `P95` in another file must hit, and `scan_paths` (the commit-time entry) must agree with `scan` over the same files. A scan that silently matches nothing returns a confident "clean" that will be believed — which is exactly how two holes in this gate let whole phases' worth of references through: matching only the hyphenated `task-NN-MM` form missed the prose `task NN-MM` an agent actually writes, and requiring the literal word `doc` missed the bare `design NNN` entirely.
+**Self-test runs automatically, every invocation.** One line per reference shape is planted in a temp directory and every one must be flagged, including in a `.sh` twin, a `.psm1` module and a `.dcfg` fixture; a clean file must produce zero; a path that cannot be read must stop the scan rather than be skipped; and a bare `### Phase 01 capabilities` heading must NOT be flagged. A second fixture workspace with `src/`, `tests/`, `scripts/` and `docs/` trees plants every label shape (each must hit exactly once) and the near misses (attribute access, lint codes, line ranges, a label under `docs/`, the excepted token in its own file) that must hit zero; the same `P95` in another file must hit, and `scan_paths` (the commit-time entry) must agree with `scan` over the same files. A scan that silently matches nothing returns a confident "clean" that will be believed — which is exactly how two holes in this gate let whole phases' worth of references through: matching only the hyphenated `task-NN-MM` form missed the prose `task NN-MM` an agent actually writes, and requiring the literal word `doc` missed the bare `design NNN` entirely.
 
-**Exit codes:** 0 = no references found (or a successful `-SelfTest`), 1 = at least one reference found or the self-test failed.
+**Exit codes:** 0 = no references found (or a successful `-SelfTest`), 1 = at least one reference found, a scanned file that could not be read (never skipped: the gate names it and stops), or the self-test failed.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.design_task_reference_gate`; POSIX twin `gates/repo-hygiene/design-task-reference-gate.sh` (`--roots`, `--self-test`). The last line is `[GATE] design-task-reference PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -110,6 +116,8 @@ must satisfy, and code shapes held at zero. Repo-level validation **scripts**, n
 **Self-test runs automatically, every invocation.** A planted package whose glob is `**/templates/*.j2` must report its nested `templates/messaging/consumer.py.j2`, and only that file. A recursive `templates/**/*.j2` over the same tree must report nothing.
 
 **Exit codes:** 0 = every runtime resource ships, 1 = at least one resource ships with no glob or the self-test failed, 2 = an unknown `-Package` name.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.package_data_coverage_gate`; POSIX twin `gates/repo-hygiene/package-data-coverage-gate.sh` (`--package`, `--self-test`, `--dbg`). The last line is `[GATE] package-data-coverage PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -138,6 +146,8 @@ A per-extension `eol=crlf` line (`*.ps1`) is untouched by either rule: the index
 **Self-test runs automatically, every invocation.** Two scratch git repos under `D:\datrix\.tmp\` stage the same CRLF text file and a binary file carrying CR LF bytes: the one with no attributes must report exactly the `policy` fact and the text file, and the one under `* text=auto eol=lf` must report nothing. A self-test failure aborts before any real result is trusted (exit 1).
 
 **Exit codes:** 0 = every scanned repo holds both facts (or the self-test passed, with `-SelfTest`), 1 = at least one violation or a failing self-test, 2 = usage error (unknown `-Repo` name, no framework repo found) or a failing git command.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.line_ending_gate`; POSIX twin `gates/repo-hygiene/line-ending-gate.sh` (`--repo`, `--self-test`, `--dbg`). `-SelfTest` also runs the wrapper seam checks. The last line is `[GATE] line-ending PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -185,6 +195,8 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 **Exit codes:** 0 = every unstaged working-tree path is a reviewed exemption, 1 = at least one publishable file is shadowed or the self-test failed, 2 = usage error (unknown `-Repo` name, no framework repo found) or a missing/malformed/miscounted exemption file.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.ignored_source_gate`; POSIX twin `gates/repo-hygiene/ignored-source-gate.sh` (`--repo`, `--self-test`, `--show-exempt`, `--dbg`). The last line is `[GATE] ignored-source PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\polystring-case-roundtrip-gate.ps1`
@@ -220,6 +232,8 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 **Exit codes:** 0 = zero round trips in every scanned file, 1 = at least one round trip or the self-test failed, 2 = usage error (unknown `-Repo` name, no framework repo found) or a scanned file that could not be parsed.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.polystring_case_roundtrip_gate`; POSIX twin `gates/repo-hygiene/polystring-case-roundtrip-gate.sh` (`--repo`, `--self-test`, `--pending-only`, `--dbg`). The last line is `[GATE] polystring-case-roundtrip PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\python-lint-correctness-gate.ps1`
@@ -241,6 +255,8 @@ A self-test failure aborts before any real result is trusted (exit 1).
 **Also enforced at the commit seam.** `git\commit-and-push.ps1` runs the same two passes over the pending `.py` files of every dirty repo before it generates a message or stages anything, and refuses the whole run on a finding. There is no skip switch. This gate is the whole-workspace counterpart.
 
 **Exit codes:** 0 = zero findings, 1 = at least one finding or the self-test failed, 2 = usage error or ruff could not run.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.python_lint_correctness_gate`; POSIX twin `gates/repo-hygiene/python-lint-correctness-gate.sh` (`--self-test`, `--dbg`). The last line is `[GATE] python-lint-correctness PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -269,6 +285,8 @@ A self-test failure aborts before any real result is trusted (exit 1).
 
 **Exit codes:** 0 = every import name resolves (or a successful `-SelfTest`), 1 = at least one dead name found or the self-test failed, 2 = no datrix `src/` tree found to resolve against.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.import_name_existence_gate`; POSIX twin `gates/repo-hygiene/import-name-existence-gate.sh` (`--roots`, `--self-test`). The last line is `[GATE] import-name-existence PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\check-docs-conformance.ps1`
@@ -294,7 +312,7 @@ It also checks **class member claims**: when a doc binds a class name to a works
 
 **Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-SelfTest`, `-Dbg`
 
-**Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements) covers `extract_path_candidates`, `extract_module_candidates`, `resolve_path_candidate` (Tier 1 + Tier 2, including the adversarial ambiguous-Tier-2-match case, which must stay unresolved), `resolve_module_candidate`, `load_exceptions`, and `check_against_exceptions`. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `--harness-self-test` (no `.ps1` switch -- diagnostic only) registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
+**Self-test runs automatically, every invocation.** A plain-Python self-test suite (`--self-test` on the underlying `.py`; no pytest -- real `tempfile.TemporaryDirectory()` fixtures and `assert` statements) covers `extract_path_candidates`, `extract_module_candidates`, `resolve_path_candidate` (Tier 1 + Tier 2, including the adversarial ambiguous-Tier-2-match case, which must stay unresolved), `resolve_module_candidate`, `load_exceptions`, and `check_against_exceptions`. This suite runs, unconditionally, as step 1 of every invocation (self-test failure aborts before the real scan, exit 2); `-SelfTest` runs it in isolation and skips the real scan. `-SelfTest` first runs the harness self-test, which registers one intentionally-failing dummy check to prove the `[OK]`/`[FAIL]` harness itself is not vacuous.
 
 **Assertions:**
 - Every single-backtick inline code span in each curated architecture doc is extracted as a path-reference or module-reference candidate per the fixed extraction rules (package/drive-prefixed for paths, import-name-prefixed dotted chains for modules); a span containing `...`, `<`/`>`, or `*` is rejected outright.
@@ -308,7 +326,9 @@ It also checks **class member claims**: when a doc binds a class name to a works
 - Every tool the overview's `## Technology Stack` / `### Code Quality` lines name (`- **tool**`) appears, as a whole word, in some `datrix/scripts/**/quick-reference.md`. A missing subsection, or one naming no tool, fails. Reported with kind `tooling`.
 - The self-test plants a reversed edge, a missing edge, an unreadable graph line, a "17 packages" sentence (bare, emphasized, and through two qualifiers) and an undocumented tool (each must fail) beside the accepted shapes (the exact manifest graph, a count of another noun or inside a fence, tools outside the Code Quality subsection).
 
-**Exit codes:** 0 = no unresolved references (or a successful `-Warn` or `-SelfTest` run), 1 = at least one unresolved, non-excepted reference found (or `-SelfTest`/`--harness-self-test` reports a failing check), 2 = usage error, missing exceptions baseline, a doc in `ARCHITECTURE_DOC_FILES` (or the architecture overview the graph and tooling checks read) that no longer exists, or the automatic self-test step failing on a normal invocation.
+**Exit codes:** 0 = no unresolved references (or a successful `-Warn` or `-SelfTest` run), 1 = at least one unresolved, non-excepted reference found (or `-SelfTest` reports a failing check), 2 = usage error, missing exceptions baseline, a doc in `ARCHITECTURE_DOC_FILES` (or the architecture overview the graph and tooling checks read) that no longer exists, or the automatic self-test step failing on a normal invocation.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.check_docs_conformance`; POSIX twin `gates/repo-hygiene/check-docs-conformance.sh` (`--warn`, `--show-files`, `--base-dir`, `--self-test`, `--dbg`). The last line is `[GATE] docs-conformance PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -334,6 +354,8 @@ A `-Tag` run and a `-ListTags` listing are never hits (targeted / runs nothing).
 
 **Exit codes:** 0 = zero un-exempted whole-suite forms (or a successful `-SelfTest` run), 1 = at least one un-exempted whole-suite form found, or the self-test failed, 2 = usage error, or `_suite_invocation.py`/`_command_shape.py` could not be loaded.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.instruction_surface_gate`; POSIX twin `gates/repo-hygiene/instruction-surface-gate.sh` (`--self-test`, `--dbg`). The last line is `[GATE] instruction-surface PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\check-cross-package-fixture-reads.ps1`
@@ -356,6 +378,8 @@ A `-Tag` run and a `-ListTags` listing are never hits (targeted / runs nothing).
 
 **Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = a cross-package reference or missing fixture was found, 2 = usage error, no packages discovered, or the self-test failed.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.check_cross_package_fixture_reads`; POSIX twin `gates/repo-hygiene/check-cross-package-fixture-reads.sh` (`--base-dir`, `--self-test`, `--show-files`, `--dbg`). The last line is `[GATE] cross-package-fixture-reads PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\check-enum-value-literals.ps1`
@@ -377,6 +401,8 @@ A `-Tag` run and a `-ListTags` listing are never hits (targeted / runs nothing).
 **Self-test runs automatically, every invocation.** It plants one instance of each detected shape and requires both to be found, then requires clean source to report none — so a scanner that can only return zero fails here rather than being believed. A run that discovers no package source also fails rather than passing vacuously.
 
 **Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = a violation was found, 2 = usage error, no packages discovered, or the self-test failed.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.check_enum_value_literals`; POSIX twin `gates/repo-hygiene/check-enum-value-literals.sh` (`--base-dir`, `--self-test`, `--show-files`, `--dbg`). The last line is `[GATE] enum-value-literals PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -401,6 +427,8 @@ A `-Tag` run and a `-ListTags` listing are never hits (targeted / runs nothing).
 **Self-test runs automatically, every invocation.** It plants each retired form (a path-fold de-duplicator, a nested-handler de-duplicator, and a nested-action de-duplicator whose function name says "method" rather than "handler" and is caught by the module path) and requires each to be detected, then plants each legitimate near-miss (serverless shadow avoidance, generated-test-method disambiguation, local-variable allocation) and requires each to be reported clean — so neither a scanner that can only return zero nor one that flags everything is believed. A run that discovers fewer than two `datrix-codegen-*` packages with a `src/` tree, or no Python source in them, fails rather than passing vacuously.
 
 **Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = a violation was found, 2 = usage error, too few packages discovered, or the self-test failed.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.check_handler_name_dedup`; POSIX twin `gates/repo-hygiene/check-handler-name-dedup.sh` (`--base-dir`, `--self-test`, `--show-files`, `--dbg`). The last line is `[GATE] handler-name-dedup PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -428,6 +456,8 @@ Native-only observability providers conformance gate: scans every `datrix/exampl
 
 **Exit codes:** 0 = no violations found (or a successful `-Warn` or `-SelfTest` run), 1 = at least one violation found (or `-SelfTest` reports a failing check), 2 = usage error, missing examples root, or the automatic self-test step failing on a normal invocation.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.check_observability_native_only`; POSIX twin `gates/repo-hygiene/check-observability-native-only.sh` (`--warn`, `--examples-root`, `--self-test`, `--show-files`, `--dbg`). The last line is `[GATE] observability-native-only PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\emitted-escape-integrity-gate.ps1`
@@ -441,7 +471,7 @@ Escaped-escape gate for **Python-emitting** templates. Jinja copies template tex
 | **Custom base dir** | `.\gates\repo-hygiene\emitted-escape-integrity-gate.ps1 -BaseDir D:\datrix` | Specify monorepo root explicitly |
 | **Self-test only** | `.\gates\repo-hygiene\emitted-escape-integrity-gate.ps1 -SelfTest` | Run only the detector's non-vacuity self-test; skip the real scan |
 
-**Parameters:** `-BaseDir` (default: the workspace root, `Get-DatrixWorkspaceRoot`), `-ShowFiles`, `-SelfTest`
+**Parameters:** `-BaseDir` (default: the workspace root), `-ShowFiles`, `-SelfTest`
 
 **Self-test runs automatically, every invocation.** The run length IS the rule — one backslash is the correct escape, two are the defect, four are a deliberate deeper escape — so the self-test covers all three and requires the detector to flag exactly the middle one. A detector that cannot tell them apart would either miss the defect or flag correct code until someone exempted it away. Self-test failure aborts before the real scan (exit 2).
 
@@ -451,7 +481,9 @@ Escaped-escape gate for **Python-emitting** templates. Jinja copies template tex
 - Every exemption in `scripts/config/emitted-escape-exemptions.json` still matches a live line; one that matches nothing fails the gate rather than lingering.
 - Every baseline entry names a file, the exact matched line, and a reason.
 
-**Exit codes:** 0 = clean, 1 = an escaped escape was found or an exemption matches nothing, 2 = usage error, unreadable/self-inconsistent exemptions baseline, no templates discovered, or a failing self-test.
+**Exit codes:** 0 = clean, 1 = an escaped escape was found or an exemption matches nothing, 2 = usage error, unreadable/self-inconsistent exemptions baseline, no templates discovered, a template that cannot be read (never skipped: the gate names it and stops), or a failing self-test.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.emitted_escape_integrity_gate`; POSIX twin `gates/repo-hygiene/emitted-escape-integrity-gate.sh` (`--base-dir`, `--show-files`, `--self-test`). The last line is `[GATE] emitted-escape-integrity PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -474,6 +506,8 @@ Application probe-path literal gate: no platform package may hardcode a route a 
 
 **Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = an unexempted hit or a stale exemption was found, 2 = the self-test failed, too few packages/languages were discovered, or a manifest/exemption file could not be parsed.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.app_probe_path_literal_gate`; POSIX twin `gates/repo-hygiene/app-probe-path-literal-gate.sh` (`--base-dir`, `--self-test`, `--show-files`, `--dbg`). The last line is `[GATE] app-probe-path-literal PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\template-reachability-gate.ps1`
@@ -495,6 +529,8 @@ Template reachability gate: every Jinja template a framework package ships is na
 - Non-vacuity self-test (every invocation): a planted workspace with a literal-named, a pattern-named, an included, a docstring-only and an unnamed template yields exactly the docstring-only and unnamed ones; the live DAL generator walk must find template names; and the real workspace must hold templates.
 
 **Exit codes:** 0 = every template is named (or a successful `-SelfTest`), 1 = an unnamed template, a dangling DAL generator name or a stale exemption was found, 2 = the self-test failed, a template does not parse, or the exemptions file is missing or malformed.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.template_reachability_gate`; POSIX twin `gates/repo-hygiene/template-reachability-gate.sh` (`--base-dir`, `--self-test`, `--dbg`). The last line is `[GATE] template-reachability PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -522,6 +558,8 @@ The gate also enforces the examples tree's layout contract, since an example's i
 
 **Exit codes:** 0 = registry and layout both consistent (or a successful `-SelfTest`), 1 = at least one violation, 2 = the self-test failed, zero examples exist on disk, or a config file is missing/malformed/miscounted.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.example_registry_gate`; POSIX twin `gates/repo-hygiene/example-registry-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] example-registry PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\example-snapshot-gate.ps1`
@@ -544,6 +582,8 @@ It does not regenerate and diff (a whole-system generation per language per run)
 **Self-test (every invocation):** a fixture holding every registered language passes; a planted unregistered language fails naming it; a fixture missing one registered language fails naming it; a planted `datrix_common.migration.live_snapshot_export` fails and `datrix_migration.live_snapshot_export` passes; `datrix_common.utils.text.to_snake_case` passes and a missing attribute fails; a file-local import alias is exempt only in the file that binds it.
 
 **Exit codes:** 0 = clean (or a successful `-SelfTest`), 1 = at least one violation (each names `file:line` and the reference, or the directory, the installed sets and the refresh command), 2 = fewer than two registered languages, a failed self-test, no snapshot on disk, or no template reference found.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.example_snapshot_gate`; POSIX twin `gates/repo-hygiene/example-snapshot-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] example-snapshot PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -569,6 +609,8 @@ A citation that resolves none of those ways still passes when it names a file th
 **Self-test (every invocation):** a planted three-package workspace (a core package and two packages depending on it) carries every passing shape — an own module, a dependency's module, anchored repository and import-name paths, template/DAL generator/code-string emitted names, a template name, placeholders and globs, a URL, a resolving dotted reference, a `datrix_*` segment inside a longer chain, an instance attribute, a model field, a resolving package-relative reference — and every failing shape: a bare name owned only by a package outside the closure, a name owned by nobody, a name only an error message mentions, an anchored path to a missing file, a removed dotted module, a missing member and a missing package-relative reference. Exactly the failing lines must be reported, with the expected citation counts.
 
 **Exit codes:** 0 = every citation resolves (or a successful `-SelfTest`), 1 = at least one violation (each names `file:line`, the citation and the citing package's dependency closure), 2 = a failed self-test, no package found, or a scan that saw no citation of either shape.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.source_comment_reference_gate`; POSIX twin `gates/repo-hygiene/source-comment-reference-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] source-comment-reference PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -602,6 +644,8 @@ configs are skipped) through `datrix_common.config.unified_loader.load_service_c
 
 **Exit codes:** 0 = every handle seeded (or a successful `-SelfTest`), 1 = at least one unseeded handle, 2 = the self-test failed, zero examples or zero service configs exist on disk, or a config fails to parse or resolve.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.example_secret_seed_gate`; POSIX twin `gates/repo-hygiene/example-secret-seed-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] example-secret-seed PASSED|FAILED exit=<n> log=<path>`.
+
 ---
 
 ## `gates\repo-hygiene\example-config-load-gate.ps1`
@@ -626,6 +670,8 @@ any parse, resolution or validation error.
 - Non-vacuity self-test (every invocation): a planted temp `.dcfg` with an unknown nested key is reported with the key named and the value not echoed, and its clean twin loads.
 
 **Exit codes:** 0 = every profile loads (or a successful `-SelfTest`), 1 = at least one profile failed to load, 2 = the self-test failed, zero `.dcfg` files exist on disk, or a file does not parse.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.example_config_load_gate`; POSIX twin `gates/repo-hygiene/example-config-load-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] example-config-load PASSED|FAILED exit=<n> log=<path>`.
 
 ---
 
@@ -652,11 +698,13 @@ codes its `expect=` names, and `rejected` syntax stays rejected.
 
 **Exit codes:** 0 = every fence holds (or a successful `-SelfTest`), 1 = at least one fence fails or is refused, 2 = the self-test failed.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.docs_fence_gate`; POSIX twin `gates/repo-hygiene/docs-fence-gate.sh` (`--dbg`, `--self-test`). The last line is `[GATE] docs-fence PASSED|FAILED exit=<n> log=<path>`.
+
 ## `gates\repo-hygiene\no-body-walk-gate.ps1`
 
-**A generator function walks a model body only where the allowlist says so.** Analysis records what every body reads, calls, writes and resolves (`datrix_common.datrix_model` `effects` / `usage` / `reads` / `resolution`); a generator reads those facts instead of walking the body again. `lib\no_body_walk_gate.py` parses every `*.py` under every `datrix-codegen-*/src` (globbed from the workspace root, so a new target repo is covered the moment it exists) with Python `ast` and flags, by innermost enclosing function (`<path>::<function>`, `<module>` at module level), a call of a walk function (`iter_tree`, `iter_expressions`, `walk_expression`, `expression_children`, `find_call_nodes`, `iter_ast_walk_edges`, `iter_body_nodes`, by bare name or as an attribute), a walk method (`.walk()`, `.child_nodes()`, `.children()`, `.child_expressions()`, `.child_statements()`, except on the bare receivers `ast` and `os`), or `getattr(<x>, "<walk method>")`. Recursion by `isinstance` dispatch without those calls is not flagged. The definition is syntactic: receiver types are never inferred, so a false-positive form (a renderer's `context.children(...)`) is listed once with its category.
+**A generator function walks a model body only where the allowlist says so.** Analysis records what every body reads, calls, writes and resolves (`datrix_common.datrix_model` `effects` / `usage` / `reads` / `resolution`); a generator reads those facts instead of walking the body again. The gate parses every `*.py` under every `datrix-codegen-*/src` (globbed from the workspace root, so a new target repo is covered the moment it exists) with Python `ast` and flags, by innermost enclosing function (`<path>::<function>`, `<module>` at module level), a call of a walk function (`iter_tree`, `iter_expressions`, `walk_expression`, `expression_children`, `find_call_nodes`, `iter_ast_walk_edges`, `iter_body_nodes`, by bare name or as an attribute), a walk method (`.walk()`, `.child_nodes()`, `.children()`, `.child_expressions()`, `.child_statements()`, except on the bare receivers `ast` and `os`), or `getattr(<x>, "<walk method>")`. Recursion by `isinstance` dispatch without those calls is not flagged. The definition is syntactic: receiver types are never inferred, so a false-positive form (a renderer's `context.children(...)`) is listed once with its category.
 
-The flagged set must equal `lib\no_body_walk_allowlist.json` exactly — an array of `{"site", "category", "reason"}` whose category is one of `render-traversal`, `emission-syntax`, `emission-decision`, `literal-content`, `no-facts-boundary`. An unlisted function fails (`UNLISTED path::function  .walk()@604`), and so does an entry whose function no longer walks (`STALE`), so the list only shrinks when code is removed. Adding an entry needs Jon's approval; a new category is a design change. `guard-code-standards.py` imports the same matcher and refuses an edit that adds a flagged call to an unlisted function.
+The flagged set must equal `scripts\config\no_body_walk_allowlist.json` exactly — an array of `{"site", "category", "reason"}` whose category is one of `render-traversal`, `emission-syntax`, `emission-decision`, `literal-content`, `no-facts-boundary`. An unlisted function fails (`UNLISTED path::function  .walk()@604`), and so does an entry whose function no longer walks (`STALE`), so the list only shrinks when code is removed. Adding an entry needs Jon's approval; a new category is a design change. `guard-code-standards.py` imports the same matcher and refuses an edit that adds a flagged call to an unlisted function.
 
 | Category | Meaning |
 |---|---|
@@ -682,9 +730,11 @@ A function flagged on neither the list nor a pending deletion is new code: it is
 
 **Security posture.** The gate only reads files; it opens no network connection and changes nothing.
 
+**Module:** `datrix_scripts.gates.repo_hygiene.no_body_walk_gate`; POSIX twin `gates/repo-hygiene/no-body-walk-gate.sh` (`--self-test`, `--dbg`). `-SelfTest` also runs the wrapper seam checks. The last line is `[GATE] no-body-walk PASSED|FAILED exit=<n> log=<path>`.
+
 ## `gates\repo-hygiene\no-import-registration-gate.ps1`
 
-**Importing a framework module registers nothing.** A registry filled as a side effect of importing a module answers differently depending on what was imported first, so registries are handed to the run as values: the builtin definitions are the `BUILTIN_OBJECTS` tuple plus each extension's `builtin_objects()`, type maps are plugin declarations, and a run builds its registries from what it discovered. `lib\no_import_registration.py` parses every `*.py` under every `datrix-*/src` tree on disk (a new package is covered the moment it carries `src/`) with Python `ast` and fails on two shapes:
+**Importing a framework module registers nothing.** A registry filled as a side effect of importing a module answers differently depending on what was imported first, so registries are handed to the run as values: the builtin definitions are the `BUILTIN_OBJECTS` tuple plus each extension's `builtin_objects()`, type maps are plugin declarations, and a run builds its registries from what it discovered. `datrix_scripts.gates.repo_hygiene.no_import_registration` parses every `*.py` under every `datrix-*/src` tree on disk (a new package is covered the moment it carries `src/`) with Python `ast` and fails on two shapes:
 
 - **import-time-register-call** — a call statement that runs on import (the module body, or an `if`/`for`/`while`/`try`/`with`/`match`/`class` body beneath it; never inside a function) whose callee name (`f` of `f()`, `g` of `a.b.g()`) contains `register`, case-insensitively. `X = register_capability(...)` is an assignment of a value the module keeps, not a call statement, and is not reported.
 - **registration-import** — an `import` or `from … import` carrying `# noqa: F401` whose comment mentions registration (`regist…`): an import kept only for what importing it does.
@@ -708,7 +758,7 @@ The terminal state is zero: there is no baseline and no allowlist. One gate cove
 
 ## `gates\repo-hygiene\stateless-generator-gate.ps1`
 
-**A generator holds no run state.** A generator is a function of `(Application, CodegenContext, output_dir)`: the context is a `generate` argument, and nothing a run computes is kept on the instance, so a second run never answers with the first run's facts. `lib\stateless_generator.py` parses every `*.py` under every `datrix-*/src` tree on disk (a new package is covered the moment it carries `src/`) with Python `ast`, builds the class graph of every scanned module (top-level classes and classes local to a function, each base resolved through the module's imports with re-exports followed), takes every class whose base chain reaches the kernel's `datrix_codegen_kernel.generation.generator.Generator` together with every scanned class such a class mixes in, and fails on two shapes:
+**A generator holds no run state.** A generator is a function of `(Application, CodegenContext, output_dir)`: the context is a `generate` argument, and nothing a run computes is kept on the instance, so a second run never answers with the first run's facts. `datrix_scripts.gates.repo_hygiene.stateless_generator` parses every `*.py` under every `datrix-*/src` tree on disk (a new package is covered the moment it carries `src/`) with Python `ast`, builds the class graph of every scanned module (top-level classes and classes local to a function, each base resolved through the module's imports with re-exports followed), takes every class whose base chain reaches the kernel's `datrix_codegen_kernel.generation.generator.Generator` together with every scanned class such a class mixes in, and fails on two shapes:
 
 - **generator-attribute-assigned** — inside any method of a generator class other than `__init__`, an assignment to an attribute of `self` (or `cls`): plain, augmented or annotated assignment, a `for` or `with ... as` target, tuple unpacking, `setattr(self, ...)` / `object.__setattr__(self, ...)`, or `self.__dict__[...] =`; and, in any function, an assignment to an attribute of a name typed as a generator class (a parameter or variable annotation naming one, or a `for` target iterating such a name). Writing into an attribute's own value (`self.cache[key] = ...`) is not reported.
 - **generator-init-takes-context** — a parameter of a generator class's `__init__` annotated with `CodegenContext` (string annotations included).
@@ -732,7 +782,7 @@ The terminal state is zero: there is no baseline and no allowlist. It is a gate 
 
 ## `gates\repo-hygiene\seal-integrity-gate.ps1`
 
-**Only the model seals or unseals a node.** A sealed `Node` refuses every attribute assignment; the flag that marks it sealed lives in the node's `__dict__` under `_SEAL_FLAG` (`"_sealed"`), and only `Node.seal()` and `Node.__deepcopy__` in `datrix_common/datrix_model/base.py` write it. `lib\seal_integrity.py` parses every `*.py` under every `datrix-*/src` tree on disk with Python `ast` and fails on every other write of the flag, where the key is the literal `"_sealed"`, the name `_SEAL_FLAG` (or a name it is imported as, or a module-level name bound to `"_sealed"`) or an attribute `<module>._SEAL_FLAG`:
+**Only the model seals or unseals a node.** A sealed `Node` refuses every attribute assignment; the flag that marks it sealed lives in the node's `__dict__` under `_SEAL_FLAG` (`"_sealed"`), and only `Node.seal()` and `Node.__deepcopy__` in `datrix_common/datrix_model/base.py` write it. `datrix_scripts.gates.repo_hygiene.seal_integrity` parses every `*.py` under every `datrix-*/src` tree on disk with Python `ast` and fails on every other write of the flag, where the key is the literal `"_sealed"`, the name `_SEAL_FLAG` (or a name it is imported as, or a module-level name bound to `"_sealed"`) or an attribute `<module>._SEAL_FLAG`:
 
 - **seal-flag-dict-write** — `X.__dict__[key]` or `vars(X)[key]` assigned (plain, augmented, annotated, unpacked, a `for` or `with` target) or deleted, and `__setitem__` / `__delitem__` / `pop` / `setdefault` with the key, or `update` carrying it, called on `X.__dict__` or `vars(X)`.
 - **seal-flag-attribute-write** — `X._sealed` assigned or deleted, and `setattr` / `delattr` / `__setattr__` / `__delattr__` called with the key.
@@ -756,7 +806,7 @@ A write is permitted only directly inside `seal` or `__deepcopy__` of the top-le
 
 ## `gates\repo-hygiene\script-catalogue-gate.ps1`
 
-Holds the scripts tree's documentation to what the tree holds (`lib\script_catalogue.py`), reading Markdown's token stream (`markdown-it-py`) and PowerShell's own parser, never regex over prose. Four rules, each a hard zero:
+Holds the scripts tree's documentation to what the tree holds, reading Markdown's token stream (`markdown-it-py`) and PowerShell's own parser, never regex over prose. Four rules, each a hard zero:
 
 1. **undocumented-script** — every `.ps1` directly in a folder that has a `quick-reference.md` is a `##`/`###` heading of it (the root `scripts\quick-reference.md` is the folder index and is exempt).
 2. **undeclared-flag** — every `-Flag` written after a script's name in one inline code span or one fence line is a parameter or alias the script's `param()` block declares (PowerShell's common parameters excepted). A flag after `|`, `;` or `&&` belongs to the next command.
@@ -773,3 +823,27 @@ Holds the scripts tree's documentation to what the tree holds (`lib\script_catal
 **Parameters:** `-SelfTest`, `-Only <prefix>`, `-Dbg`
 
 **Output:** one line per hit, `[<rule>] <path>[:<line>]: <detail>`, then the verdict line `[GATE] script-catalogue PASSED|FAILED exit=<n> log=<path>`. **Exit codes:** 0 = no hit, 1 = a hit or a failed self-test, 2 = usage error.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.script_catalogue_gate`; POSIX twin `gates/repo-hygiene/script-catalogue-gate.sh` (`--self-test`, `--only`, `--dbg`). The last line is `[GATE] script-catalogue PASSED|FAILED exit=<n> log=<path>`.
+
+## `gates\repo-hygiene\thin-entrypoint-gate.ps1`
+
+Holds every `.ps1` under `scripts\` (the template `common\templates\entrypoint.ps1` excepted) to a thin wrapper whose behaviour lives in a `datrix_scripts` module, read with PowerShell's own parser. Four rules, each a hard zero with no baseline:
+
+1. **code-lines** — at most 40 lines carry a token other than a comment. The comment-based help is the wrapper's documentation and does not count; the `param()` block and the template's lines do.
+2. **not-rendered** — the wrapper is `common\templates\entrypoint.ps1` rendered with its parameter block and module, and its twin is `common\templates\entrypoint.sh` rendered with the same module (text compared after the substitution, so a byte-order mark is a difference; line endings are the checkout's and belong to `line-ending-gate.ps1`).
+3. **missing-twin** — a `.sh` twin sits beside the wrapper.
+4. **parse-error** — PowerShell parses the wrapper.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\thin-entrypoint-gate.ps1` | Self-test checks, then the real tree |
+| **Self-test only** | `.\gates\repo-hygiene\thin-entrypoint-gate.ps1 -SelfTest` | Planted trees: one defect of every rule, a help-heavy wrapper and one at the limit that pass |
+| **Real tree only** | `.\gates\repo-hygiene\thin-entrypoint-gate.ps1 -Only scripts_tree` | Skip the planted checks |
+| **Debug** | `.\gates\repo-hygiene\thin-entrypoint-gate.ps1 -Dbg` | Debug logging, print the python invocation |
+
+**Parameters:** `-SelfTest`, `-Only <prefix>`, `-Dbg`
+
+**Output:** one line per hit, `[<rule>] <path>: <detail>`, then the verdict line `[GATE] thin-entrypoint PASSED|FAILED exit=<n> log=<path>`. **Exit codes:** 0 = no hit, 1 = a hit or a failed self-test, 2 = usage error.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.thin_entrypoint_gate`; POSIX twin `gates/repo-hygiene/thin-entrypoint-gate.sh` (`--self-test`, `--only`, `--dbg`). The last line is `[GATE] thin-entrypoint PASSED|FAILED exit=<n> log=<path>`.

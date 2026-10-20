@@ -4,6 +4,8 @@
  Observability native-only example-conformance guard.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.check_observability_native_only in the shared venv.
+
  Scans every datrix/examples/**/config/system.dcfg for a portable
  observability provider (prometheus/datadog metrics, jaeger/zipkin tracing,
  loki logging, grafana visualization, alertmanager alerting) paired with a
@@ -58,14 +60,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Warn) { $pythonArgs += "--warn" }
-if ($ExamplesRoot) { $pythonArgs += @("--examples-root", $ExamplesRoot) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($ShowFiles) { $pythonArgs += "--verbose" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_observability_native_only.py") -Arguments $pythonArgs -Gate "observability-native-only" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.check_observability_native_only" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

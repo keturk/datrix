@@ -4,7 +4,8 @@
  Hard-zero gate: no platform package may hardcode a language's probe route.
 
 .DESCRIPTION
- Scans every datrix.platforms package's src/ tree (Python string constants via
+ Runs datrix_scripts.gates.repo_hygiene.app_probe_path_literal_gate in the shared venv,
+ which scans every datrix.platforms package's src/ tree (Python string constants via
  ast, docstrings excluded; quoted literals in .j2 templates, comment lines
  excluded) for a string literal equal to any route a registered language
  declares on its LanguageRuntimeSpec -- readiness_probe_path() or
@@ -40,7 +41,8 @@
  Print each file as it is scanned.
 
 .PARAMETER Dbg
- Print the interpreter and arguments before running.
+ Print the interpreter and arguments before running, and log at DEBUG level (the
+ language plugins' discovery included).
 
 .EXAMPLE
  .\app-probe-path-literal-gate.ps1
@@ -65,13 +67,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($ShowFiles) { $pythonArgs += "--verbose" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\app_probe_path_literal_gate.py") -Arguments $pythonArgs -Gate "app-probe-path-literal" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.app_probe_path_literal_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

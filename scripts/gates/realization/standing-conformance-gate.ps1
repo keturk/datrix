@@ -4,14 +4,12 @@
  Standing conformance-spec corpus gate.
 
 .DESCRIPTION
- Runs every committed conformance_gate.py spec under
+ Runs every committed conformance spec under
  datrix/scripts/config/conformance-specs/ (top-level *.json files only --
  fixture subdirectories such as _fixtures/ are never spec sources and are
- never swept). Each spec's own self-test runs first, exactly as
- conformance_gate.py's single-spec CLI already guarantees on every
- invocation (main(): the self-test runs before any spec is evaluated,
- aborting with exit 2 before a real result is trusted) -- this wrapper adds
- no second self-test layer: conformance_gate.py --spec-dir runs the corpus.
+ never swept). The runner's own self-test runs first, exactly as
+ conformance-gate.ps1 runs it on every invocation, aborting with exit 2
+ before a real result is trusted.
 
  POLICY this wrapper exists to serve: a design-acceptance NEGATIVE check
  ("the old state is gone on every surface") that outlives its landing must
@@ -20,12 +18,12 @@
  never a one-off run that nobody re-executes. When you land a change whose
  acceptance proof is "the old construct no longer exists anywhere", and
  that proof cannot naturally live as a package test, add a spec JSON here
- rather than running conformance_gate.py by hand once and discarding the
+ rather than running conformance-gate.ps1 by hand once and discarding the
  command.
 
  PATH CONVENTION, enforced here before any spec runs: a committed spec's
  'target' and 'negative_control' must be RELATIVE to the spec file.
- conformance_gate.py accepts either form (an absolute path is fine for a
+ conformance-gate.ps1 accepts either form (an absolute path is fine for a
  one-off hand-run spec), but a committed absolute path bakes one machine's
  checkout location into the repo -- and since the runner hard-fails exit 2
  on a directory that does not exist, such a spec does not degrade
@@ -42,15 +40,19 @@
  Fails loud (exit 2) if the spec directory is missing or contains zero
  *.json files -- an empty corpus would make this gate vacuously pass.
 
+ The last line is the gate verdict, "[GATE] standing-conformance
+ PASSED|FAILED exit=<n> log=<path>".
+
  Repo-level validation script (per the datrix showcase boundary -- no
  pytest suite lives in datrix).
 
 .PARAMETER Dbg
- Enable debug logging (forwarded to conformance_gate.py as --debug).
+ Enable debug logging.
 
 .PARAMETER SelfTest
  Run only the runner's self-test (every assertion type detects and passes; an
- empty corpus and a rooted spec field are refused) and run no spec.
+ empty corpus and a rooted spec field are refused) and the wrapper seam check,
+ and run no spec.
 
 .EXAMPLE
  .\standing-conformance-gate.ps1
@@ -73,17 +75,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) {
-    $pythonArgs += "--self-test"
-}
-else {
-    $pythonArgs += @("--spec-dir", (Join-Path $PSScriptRoot "..\..\config\conformance-specs"))
-}
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\conformance_gate.py") -Arguments $pythonArgs -RequirePackages -Gate "standing-conformance")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.realization.standing_conformance_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

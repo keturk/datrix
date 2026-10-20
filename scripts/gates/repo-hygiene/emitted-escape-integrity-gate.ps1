@@ -4,6 +4,8 @@
  Fail if a Python-emitting Jinja template escapes an escape sequence.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.emitted_escape_integrity_gate in the shared venv.
+
  Jinja copies template text through verbatim, so a doubled backslash before n, t
  or r in a '*.py.j2' template reaches the emitted Python source still doubled --
  an escaped BACKSLASH rather than the escape that was meant. The generated
@@ -71,17 +73,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) {
-    $pythonArgs += "--self-test"
-}
-else {
-    if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
-    if ($ShowFiles) { $pythonArgs += "--show-files" }
-}
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\emitted_escape_integrity.py") -Arguments $pythonArgs -Gate "emitted-escape-integrity")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.emitted_escape_integrity_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

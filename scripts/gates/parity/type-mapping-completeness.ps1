@@ -52,14 +52,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-# Without -Languages the runner covers every registered datrix.languages target.
-$pythonArgs = @()
-if (-not [string]::IsNullOrWhiteSpace($Languages)) { $pythonArgs += @("--languages", $Languages) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\type_mapping_completeness.py") -Arguments $pythonArgs -RequirePackages -Gate "type-mapping-completeness")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.parity.type_mapping_completeness" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

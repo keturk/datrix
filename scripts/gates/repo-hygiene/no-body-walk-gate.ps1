@@ -4,7 +4,7 @@
  Repo-level gate: a datrix-codegen-* function walks a model body only where the allowlist says so.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs lib\no_body_walk_gate.py, which parses every
+ Runs datrix_scripts.gates.repo_hygiene.no_body_walk_gate in the shared venv. It parses every
  *.py under every datrix-codegen-*/src (globbed from the workspace root, so a new target repo is
  covered the moment it exists) with Python ast and flags, by innermost enclosing function, a call
  of a walk function (iter_tree, iter_expressions, walk_expression, expression_children,
@@ -12,9 +12,9 @@
  .children(), .child_expressions(), .child_statements(), except on the bare receivers ast and os),
  or getattr(<x>, "<walk method>").
 
- The flagged set must equal lib\no_body_walk_allowlist.json exactly: an unlisted function fails,
- and so does an entry whose function no longer walks (the list only shrinks). Each difference is
- printed as path::function with the flagged call forms and their lines.
+ The flagged set must equal scripts\config\no_body_walk_allowlist.json exactly: an unlisted
+ function fails, and so does an entry whose function no longer walks (the list only shrinks). Each
+ difference is printed as path::function with the flagged call forms and their lines.
 
  WHY IT EXISTS: analysis records what every body reads, calls, writes and resolves; a generator
  reads those facts instead of walking the body again. The allowlist names the few deliberate
@@ -31,7 +31,7 @@
        does not parse or cannot be read
 
 .PARAMETER SelfTest
- Run only the self-test and skip the real scan.
+ Run only the self-test and the wrapper seam checks, and skip the real scan.
 
 .PARAMETER Dbg
  Print the python invocation before running.
@@ -44,20 +44,15 @@
  .\no-body-walk-gate.ps1 -SelfTest
  Run only the self-test.
 #>
-
 [CmdletBinding()]
 param(
-    [Parameter()]
-    [switch]$SelfTest,
-
-    [Parameter()]
-    [switch]$Dbg
+ [switch]$SelfTest, [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\no_body_walk_gate.py") -Arguments $pythonArgs -Gate "no-body-walk" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.no_body_walk_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -5,6 +5,8 @@
  something that can render it.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.template_reachability_gate in the shared venv.
+
  Discovers every .j2 file below a templates/ directory of every datrix-*/src
  tree on disk and fails on any that nothing names: no Python string constant,
  f-string or concatenation in any framework package's src/ (docstrings
@@ -37,7 +39,7 @@
  Run only the self-test and exit, skipping the real scan.
 
 .PARAMETER Dbg
- Print the python invocation.
+ Print the interpreter and arguments before running, and log at DEBUG level.
 
 .EXAMPLE
  .\template-reachability-gate.ps1
@@ -59,12 +61,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\template_reachability.py") -Arguments $pythonArgs -Gate "template-reachability" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.template_reachability_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

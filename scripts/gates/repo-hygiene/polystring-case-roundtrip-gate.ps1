@@ -4,8 +4,8 @@
  Repo-level gate: a name never goes str() -> to_*_case().
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs the shared module
- datrix_scripts.polystring_case_roundtrip (scripts/common/lib), which parses every
+ Runs datrix_scripts.gates.repo_hygiene.polystring_case_roundtrip_gate in the shared
+ venv, over the shared scan datrix_scripts.polystring_case_roundtrip, which parses every
  publishable .py file in the datrix showcase repo and every datrix-* clone in
  the workspace (discovered at runtime) and fails on any call to a
  datrix_common.utils.text case function whose argument is:
@@ -73,20 +73,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-# `powershell -File` binds "a,b" as one string rather than an array, so
-# split every element on commas: a repo name never contains one.
-foreach ($name in ($Repo -split ",")) {
-    $trimmed = $name.Trim()
-    if ($trimmed) { $pythonArgs += @("--repo", $trimmed) }
-}
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($PendingOnly) { $pythonArgs += "--pending-only" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-# Shared with git/commit-and-push, so it lives in the shared scripts package and runs as a module.
-exit (Invoke-DatrixPythonScript -Module "datrix_scripts.polystring_case_roundtrip" -Arguments $pythonArgs -Gate "polystring-case-roundtrip" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.polystring_case_roundtrip_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

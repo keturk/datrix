@@ -4,6 +4,8 @@
  Enforce the I5 docs-conformance gate across Datrix architecture docs.
 
 .DESCRIPTION
+ Runs datrix_scripts.gates.repo_hygiene.check_docs_conformance in the shared venv.
+
  Extracts repo-relative path references and Python module references from the
  curated 38-file architecture-doc set and fails if any reference does not
  resolve to a real file/directory/module in the tree, unless it is recorded
@@ -69,14 +71,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Warn) { $pythonArgs += "--warn" }
-if ($ShowFiles) { $pythonArgs += "--verbose" }
-if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_docs_conformance.py") -Arguments $pythonArgs -Gate "docs-conformance" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.check_docs_conformance" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

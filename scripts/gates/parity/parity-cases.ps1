@@ -18,9 +18,11 @@
             -Replaces names the probe-backed gate the rows replace.
    accept   Move an approved proposal's rows into cases\<area>.parity.yaml; refuses a
             proposal no approval covers and a row without an expectation. A proposal
-            that replaces a gate also deletes the gate's wrapper, its lib\ module and its
-            quick-reference section.
+            that replaces a gate also deletes the gate's wrapper, its .sh twin, the
+            module it runs and its quick-reference section.
    check    Check every committed row.
+
+ A missing field is a usage error (exit 2) before the tool runs.
 
 .PARAMETER Command
  observe, new, migrate, accept or check.
@@ -61,6 +63,13 @@
 .PARAMETER Replaces
  migrate: the probe-backed gate the rows replace, by wrapper name without .ps1.
 
+.PARAMETER Dbg
+ Print the interpreter and the tool's arguments before the run.
+
+.PARAMETER SelfTest
+ Run the module's self-test (the command lines it builds, its usage refusals and the
+ wrapper seam); runs no command.
+
 .EXAMPLE
  .\parity-cases.ps1 observe rest-api route_wire_contracts "{facet: route, verb: get, path: /api/v1/books}"
 
@@ -69,51 +78,39 @@
 
 .EXAMPLE
  .\parity-cases.ps1 check
+
+.EXAMPLE
+ .\parity-cases.ps1 -SelfTest
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
- [Parameter(Position=0, Mandatory=$true)]
+ [Parameter(Position=0, Mandatory=$true, ParameterSetName="Run")]
  [ValidateSet("observe", "new", "migrate", "accept", "check")]
  [string]$Command,
 
- [Parameter(Position=1, ValueFromRemainingArguments=$true)]
- [string[]]$Arguments = @(),
+ [Parameter(Position=1, ValueFromRemainingArguments=$true, ParameterSetName="Run")]
+ [string[]]$Arguments,
 
- [string]$Id,
- [string]$Tags,
- [Alias("Input")]
- [string]$CaseInput,
- [string]$Probe,
- [string]$Selector,
- [string]$Expectation,
- [string]$Reason,
- [string]$Area,
- [string]$Replaces,
- [switch]$Dbg
+ [Parameter(ParameterSetName="Run")][string]$Id,
+ [Parameter(ParameterSetName="Run")][string]$Tags,
+ [Parameter(ParameterSetName="Run")][Alias("Input")][string]$CaseInput,
+ [Parameter(ParameterSetName="Run")][string]$Probe,
+ [Parameter(ParameterSetName="Run")][string]$Selector,
+ [Parameter(ParameterSetName="Run")][string]$Expectation,
+ [Parameter(ParameterSetName="Run")][string]$Reason,
+ [Parameter(ParameterSetName="Run")][string]$Area,
+ [Parameter(ParameterSetName="Run")][string]$Replaces,
+ [switch]$Dbg,
+
+ [Parameter(Mandatory=$true, ParameterSetName="SelfTest")]
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-function Get-CommandArguments {
- $pythonArgs = @($Command) + $Arguments
- switch ($Command) {
-  "new" {
-   foreach ($field in @(@("--id", $Id), @("--tags", $Tags), @("--input", $CaseInput), @("--probe", $Probe),
-                        @("--selector", $Selector), @("--expectation", $Expectation), @("--reason", $Reason))) {
-    if (-not $field[1]) { throw "new needs $($field[0] -replace '--', '-'): every field of a row comes from you." }
-    $pythonArgs += $field
-   }
-  }
-  "migrate" {
-   if (-not $Area) { throw "migrate needs -Area <area>: the file the proposed rows belong to." }
-   $pythonArgs += @("--area", $Area)
-   if ($Tags) { $pythonArgs += @("--tags", $Tags) }
-   if ($Replaces) { $pythonArgs += @("--replaces", $Replaces) }
-  }
- }
- return ,$pythonArgs
-}
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\parity_cases_tool.py") -Arguments (Get-CommandArguments) -RequirePackages -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.parity.parity_cases" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

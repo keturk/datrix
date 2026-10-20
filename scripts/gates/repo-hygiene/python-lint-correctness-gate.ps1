@@ -5,8 +5,8 @@
  --select E302,E305) findings are a hard zero in every package.
 
 .DESCRIPTION
- Activates the Datrix virtual environment and runs the shared module
- datrix_scripts.python_lint_correctness (scripts/common/lib), which lints the src/ and
+ Runs datrix_scripts.gates.repo_hygiene.python_lint_correctness_gate in the shared
+ venv, over the shared scan datrix_scripts.python_lint_correctness, which lints the src/ and
  tests/ trees of every workspace datrix* directory holding a pyproject.toml
  (plus the datrix showcase repo's scripts/), discovered at runtime. Each tree
  is linted from its package root so that package's own per-file-ignores
@@ -52,13 +52,11 @@ param(
     [Parameter()]
     [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-# Shared with git/commit-and-push, so it lives in the shared scripts package and runs as a module.
-exit (Invoke-DatrixPythonScript -Module "datrix_scripts.python_lint_correctness" -Arguments $pythonArgs -Gate "python-lint-correctness" -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.repo_hygiene.python_lint_correctness_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

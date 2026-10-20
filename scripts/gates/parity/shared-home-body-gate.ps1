@@ -4,7 +4,7 @@
  Shared-home body gate: no function outside a shared home may carry the body of a shared-home function.
 
 .DESCRIPTION
- Wraps datrix/scripts/gates/parity/lib/shared_home_bodies.py. AST-walks every function, public or
+ Runs datrix_scripts.gates.parity.shared_home_body_gate. AST-walks every function, public or
  private, of datrix-common, datrix-codegen-kernel and datrix-codegen-common and every function of
  every other datrix-* package's src/ tree. A function qualifies at 8 lines and 40 AST nodes; its body is
  normalized (docstring, annotations and decorators dropped, parameter and local names renamed to
@@ -61,15 +61,11 @@ param(
     [Parameter()]
     [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @()
-if ($Hits) { $pythonArgs += "--show-hits" }
-if ($Symbol) { $pythonArgs += @("--symbol", ($Symbol -join ",")) }
-if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
-if ($Dbg) { $pythonArgs += "--debug" }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\shared_home_bodies.py") -Arguments $pythonArgs -RequirePackages -Gate "shared-home-body")
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.parity.shared_home_body_gate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE
