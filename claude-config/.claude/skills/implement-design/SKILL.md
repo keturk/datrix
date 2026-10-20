@@ -55,7 +55,7 @@ FIX: false             # verify-implementation reports only, changes no code
 
 ## Run it from the CLI
 
-Typed here, the whole run is on this skill's model: a skill invoked through the Skill tool runs on the caller's model, not its own. Two scripts run each step in its own headless session on its own skill's model, with the checks between steps done by the script: `datrix/scripts/skill/implement-design.ps1 -Design <path>` (the tasks path: operationalize, orchestrate, verify, absorb) and `datrix/scripts/skill/implement-design-direct.ps1 -Design <path>` (the direct path). The scripts do not make the Step 1 decision: Jon picks the path by picking the script.
+Typed here, the whole run is on this skill's model: a skill invoked through the Skill tool runs on the caller's model, not its own. `datrix/scripts/skill/implement-design.ps1 -Design <path>` runs the direct path with each step in its own headless session on its own skill's model, with the checks between steps done by the script. It does not make the Step 1 decision: it always takes the direct path. The tasks path has no script; it runs only as this skill, typed.
 
 ## Prereqs — read first
 

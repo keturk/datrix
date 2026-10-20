@@ -290,13 +290,24 @@ _MODULE_FORM_RE = re.compile(
     r"(?<![\w.-])-m\s+(" + "|".join(sorted(_TYPE_CHECKERS)) + r")\b", re.IGNORECASE
 )
 
-# The repo's own type-check entry points: the `test/mypy.ps1` wrapper and the
-# `test/lib/mypy_check.py` it runs. Bounded on the left so `check_mypy.py` and
-# `run-mypy.ps1` are not read as these files.
-_WRAPPER_RE = re.compile(r"(?<![\w.-])(?:mypy\.ps1|mypy(?:_check)?\.py)\b", re.IGNORECASE)
+# The repo's own type-check entry points: the `test/mypy.ps1` wrapper, its `mypy.sh`
+# twin and the `datrix_scripts.test.mypy_check` module they run (as a file or with
+# `-m`). Bounded on the left so `check_mypy.py` and `run-mypy.ps1` are not read as
+# these files.
+_WRAPPER_RE = re.compile(r"(?<![\w.-])(?:mypy\.(?:ps1|sh)|mypy(?:_check)?\.py)\b", re.IGNORECASE)
+_WRAPPER_MODULE_RE = re.compile(
+    r"(?<![\w.-])-m\s+datrix_scripts\.test\.mypy_check(?![\w.])", re.IGNORECASE
+)
 
-# affected-gate.ps1 only type-checks when its opt-in switch is passed.
-_AFFECTED_GATE_RE = re.compile(r"(?<![\w.-])affected-gate\.ps1\b", re.IGNORECASE)
+# What a wrapper or module run may carry and still launch no type-checker: its
+# self-test, which checks the wrapper seam and the command it would build over
+# planted inputs. Words compared whole, so `-SelfTest:$false` or a project named
+# beside the flag is still a type-check run.
+_SELF_TEST_WORDS = frozenset({"-selftest", "--self-test"})
+_SELF_TEST_RUN_WORDS = _SELF_TEST_WORDS | {"-dbg", "--dbg"}
+
+# affected-gate.ps1 (and its .sh twin) only type-checks when its opt-in switch is passed.
+_AFFECTED_GATE_RE = re.compile(r"(?<![\w.-])affected-gate\.(?:ps1|sh)\b", re.IGNORECASE)
 _MYPY_SWITCH_RE = re.compile(r"(?<![\w.-])-{1,2}mypy\b", re.IGNORECASE)
 
 _TYPE_CHECKER_TAIL = (
@@ -380,11 +391,39 @@ def _script_run_by(segment: str, token: str) -> str:
     A wrapper is run either directly (`& ...\\mypy.ps1`) or as the script
     argument of an interpreter or shell host (`powershell -File ...`).
     """
-    if token.endswith((".ps1", ".py")):
+    if token.endswith((".ps1", ".py", ".sh")):
         return token
     if token in _EXECUTORS or token in _PY_LAUNCHERS:
         return _script_argument(segment)
     return ""
+
+
+def _words(text: str) -> list[str]:
+    try:
+        tokens = shlex.split(text, posix=False)
+    except ValueError:
+        tokens = text.split()
+    return [token.strip("\"'") for token in tokens]
+
+
+def _is_self_test_run(arguments: list[str]) -> bool:
+    """True when *arguments* are a self-test and nothing else (an optional debug flag)."""
+    lowered = {word.lower() for word in arguments}
+    return bool(lowered & _SELF_TEST_WORDS) and lowered <= _SELF_TEST_RUN_WORDS
+
+
+def _wrapper_self_test(segment: str) -> bool:
+    """True when the segment runs the type-check wrapper (or its module file) with only its self-test."""
+    words = _words(segment)
+    for index, word in enumerate(words):
+        if _WRAPPER_RE.search(word):
+            return _is_self_test_run(words[index + 1:])
+    return False
+
+
+def _module_self_test(segment: str, match: re.Match[str]) -> bool:
+    """True when `-m datrix_scripts.test.mypy_check` runs with only its self-test."""
+    return _is_self_test_run(_words(segment[match.end():]))
 
 
 def _check_type_checker(command: str) -> None:
@@ -410,20 +449,29 @@ def _check_type_checker(command: str) -> None:
                     f"BLOCKED: `-m {match.group(1)}` runs a standalone type-checker.",
                     _TYPE_CHECKER_TAIL,
                 )
+            module = _WRAPPER_MODULE_RE.search(segment)
+            if module and not _module_self_test(segment, module):
+                _block(
+                    "BLOCKED: `-m datrix_scripts.test.mypy_check` runs a standalone type-checker "
+                    "(only its --self-test, alone, launches none).",
+                    _TYPE_CHECKER_TAIL,
+                )
 
         script = _script_run_by(segment, token)
         if not script:
             continue
 
-        if _WRAPPER_RE.search(script):
+        if _WRAPPER_RE.search(script) and not _wrapper_self_test(segment):
             _block(
-                "BLOCKED: `mypy.ps1` / `mypy_check.py` runs a standalone type-checker.",
+                "BLOCKED: `mypy.ps1` / `mypy.sh` / `mypy_check.py` runs a standalone type-checker "
+                "(only its -SelfTest / --self-test, alone, launches none).",
                 _TYPE_CHECKER_TAIL,
             )
 
         if _AFFECTED_GATE_RE.search(script) and _MYPY_SWITCH_RE.search(segment):
             _block(
-                "BLOCKED: `affected-gate.ps1 -Mypy` type-checks the changed packages.",
+                "BLOCKED: `affected-gate.ps1 -Mypy` / `affected-gate.sh --mypy` type-checks the "
+                "changed packages.",
                 _TYPE_CHECKER_TAIL,
             )
 

@@ -10,7 +10,8 @@ result carries the answer, for three shapes of run:
   (``failure-data.json`` via ``collect-failure-data.ps1``).
 * **Gate.** A script run whose console holds a gate's verdict line
   ``[GATE] <name> FAILED exit=<n> log=<path>`` (printed by ``Write-DatrixGateVerdict`` /
-  ``Invoke-DatrixPythonScript -Gate``): the digest is of ``<path>``.
+  ``Invoke-DatrixPythonScript -Gate``, or ``datrix_scripts.gate_log.run_as_gate`` for a gate behind a
+  rendered wrapper): the digest is of ``<path>``.
 * **Generation.** A ``dev/generate.ps1`` run whose "Generation Summary" reports ``Failed: N`` with
   N > 0 and whose console holds ``Log saved to: <path>`` (printed on every exit path): the digest
   is of ``<path>``.
@@ -53,7 +54,8 @@ _GENERATE_SCRIPT_DIR: Final = "dev"
 # A package block in test.ps1's console summary: "[FAILED] <package>" then "  Details: <run>\index.json".
 _STATUS_LINE: Final = re.compile(r"^\[(?P<status>[A-Z_]+)\]\s+(?P<package>\S+)\s*$", re.MULTILINE)
 _DETAILS_LINE: Final = re.compile(r"^\s*Details:\s+(?P<index>.+?[\\/]index\.json)\s*$", re.MULTILINE)
-# The one verdict line a gate prints last (DatrixPythonScript.psm1, Write-DatrixGateVerdict).
+# The one verdict line a gate prints last (DatrixPythonScript.psm1, Write-DatrixGateVerdict;
+# datrix_scripts.gate_log.run_as_gate behind a rendered wrapper).
 GATE_FAILED_LINE: Final = re.compile(
     r"^\[GATE\]\s+(?P<gate>\S+)\s+FAILED\s+exit=(?P<exit>-?\d+)\s+log=(?P<log>.+?)\s*$", re.MULTILINE
 )

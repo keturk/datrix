@@ -66,10 +66,20 @@ _DIRECT_PYTEST_RE = re.compile(
 # the owning package would not prove permanently. Scoped to generate.ps1 alone —
 # `-All` is legitimate on test.ps1 / compile.ps1 / libcst.ps1 / semgrep.ps1.
 _GROUP_GENERATION_FLAGS = ("-all", "-domains", "-testset")
+# The same refusals spelled as the generate module's own flags: what its POSIX
+# twin `generate.sh` and a direct `python -m datrix_scripts.dev.generate` take.
+_GROUP_GENERATION_MODULE_FLAGS = ("--all", "--domains", "--test-set")
 
-# `generate.ps1` by file name, so `generate-doc-fragments.ps1` and
-# `generate-test-rules.ps1` (which legitimately take -All) never match.
+# `generate.ps1` / `generate.sh` by file name, so `generate-doc-fragments.ps1`
+# and `generate-test-rules.ps1` (which legitimately take -All) never match.
 _GENERATE_SCRIPT = "generate.ps1"
+_GENERATE_TWIN = "generate.sh"
+# The module behind both wrappers, run directly: `-m` alone or closing a group of
+# the interpreter's argument-free flags (`-Im`, lowercased here), with or without
+# a space before the module name, as the interpreter accepts each.
+_GENERATE_MODULE_RE = re.compile(
+    r"(?:^|[\s;|&(])-[bdeiopqrsuvx]*m\s*datrix_scripts\.dev\.generate(?![\w.])"
+)
 _SCRIPTS_MARKER = "datrix/scripts/"
 
 
@@ -79,12 +89,18 @@ def _block(msg: str) -> None:
     sys.exit(2)
 
 
-def _runs_generate(segment: str) -> bool:
-    """True when this statement executes `generate.ps1` (not merely names it)."""
-    return any(
-        script.path.rsplit("/", 1)[-1].lower() == _GENERATE_SCRIPT
-        for script in invoked_scripts(segment)
-    )
+def _generate_runs(segment: str) -> tuple[bool, bool]:
+    """Whether this statement executes `generate.ps1`, and whether it executes
+    its module-flag forms (`generate.sh`, `-m datrix_scripts.dev.generate`) --
+    run, not merely named."""
+    names = {script.path.rsplit("/", 1)[-1].lower() for script in invoked_scripts(segment)}
+    module_form = _GENERATE_TWIN in names or bool(_GENERATE_MODULE_RE.search(segment))
+    return _GENERATE_SCRIPT in names, module_form
+
+
+def _used_flags(text: str, flags: tuple[str, ...]) -> list[str]:
+    """The *flags* written as whole arguments in *text* (`--test-set=x` counts)."""
+    return [flag for flag in flags if re.search(rf"(?:^|\s){re.escape(flag)}(?![\w-])", text)]
 
 
 def _scripts_paths_run(command: str) -> list[str]:
@@ -161,31 +177,31 @@ def main() -> None:
     # 3. generate.ps1 must never run group generation. Verification regenerates
     #    the ONE affected project; a corpus sweep is wasted minutes per example
     #    and belongs in a unit test in the owning package instead. The flags are
-    #    read from the statements that execute generate.ps1.
-    generate_text = "\n".join(
-        part for part in segments(normalized) if _runs_generate(part)
-    )
-    if generate_text:
-        used = [
-            flag
-            for flag in _GROUP_GENERATION_FLAGS
-            if re.search(rf"(?:^|\s){re.escape(flag)}(?![\w-])", generate_text)
-        ]
-        if used:
-            _block(
-                f"BLOCKED: generate.ps1 must not be run with {' or '.join(used)}.\n"
-                "CLAUDE.md (Generation granularity): regenerate only the AFFECTED "
-                "project's system.dtrx. Never run group/-All/-TestSet/-Domains "
-                "generation.\n"
-                "Each example costs minutes to generate, and which example is worked "
-                "next is Jon's call, not an agent's.\n"
-                "To verify one project:\n"
-                '  powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" '
-                '"d:/datrix/datrix/examples/{group}/{example}/system.dtrx" -L {language}\n'
-                "To prove a fix generalizes beyond one example, write a test in the "
-                "owning datrix-codegen-* package — it proves the invariant forever, "
-                "whereas a sweep proves it once and evaporates."
-            )
+    #    read from the statements that execute generate.ps1, its twin
+    #    generate.sh or its module, each in that form's own spelling.
+    used: list[str] = []
+    for part in segments(normalized):
+        runs_wrapper, runs_module_form = _generate_runs(part)
+        if runs_wrapper:
+            used += _used_flags(part, _GROUP_GENERATION_FLAGS)
+        if runs_module_form:
+            used += _used_flags(part, _GROUP_GENERATION_MODULE_FLAGS)
+    if used:
+        _block(
+            f"BLOCKED: generate.ps1 (generate.sh, datrix_scripts.dev.generate) must not be run with "
+            f"{' or '.join(dict.fromkeys(used))}.\n"
+            "CLAUDE.md (Generation granularity): regenerate only the AFFECTED "
+            "project's system.dtrx. Never run group/-All/-TestSet/-Domains "
+            "generation.\n"
+            "Each example costs minutes to generate, and which example is worked "
+            "next is Jon's call, not an agent's.\n"
+            "To verify one project:\n"
+            '  powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" '
+            '"d:/datrix/datrix/examples/{group}/{example}/system.dtrx" -L {language}\n'
+            "To prove a fix generalizes beyond one example, write a test in the "
+            "owning datrix-codegen-* package — it proves the invariant forever, "
+            "whereas a sweep proves it once and evaporates."
+        )
 
     # Only a command that RUNS a script under datrix/scripts/ needs the marker. A
     # path held in a variable, listed in a `for`, or written in a heredoc body is

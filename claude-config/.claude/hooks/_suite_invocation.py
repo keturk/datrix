@@ -1,5 +1,5 @@
 """Shared whole-suite invocation classifier for `guard-full-suite-runs.py` and
-`instruction-surface-gate.ps1` (loaded by `datrix/scripts/gates/repo-hygiene/lib/instruction_surface.py`).
+`instruction-surface-gate.ps1` (loaded by `datrix/scripts/common/lib/datrix_scripts/gates/repo_hygiene/instruction_surface_gate.py`).
 
 WHY THIS IS A SIBLING, NOT A LIBRARY MODULE
 --------------------------------------------
@@ -11,7 +11,7 @@ standard library and modules sitting beside it in this same `hooks/` directory
 (the precedent: `_command_shape.py`, already imported this way by
 `guard-full-suite-runs.py` and `validate-script-invocation.py`).
 
-`instruction-surface-gate.ps1` runs a `datrix/scripts/gates/repo-hygiene/lib/`
+`instruction-surface-gate.ps1` runs a `datrix_scripts.gates.repo_hygiene`
 module under the venv interpreter, and it needs this IDENTICAL
 classification -- a whole-suite `test.ps1`/`affected-gate.ps1` form the census
 finds must be the same set of commands the hook blocks, or the hook and the
@@ -34,7 +34,7 @@ runs no test at all (a
 self-test or a tag listing), and which packages a whole-suite tail would run. It
 never decides whether that is ALLOWED -- the block/audit policy stays in
 `guard-full-suite-runs.py`, and the census/report policy stays in
-`instruction_surface.py`. Splitting it this way is what lets two very different
+`instruction_surface_gate.py`. Splitting it this way is what lets two very different
 enforcement points (a live PreToolUse block; a static markdown census) share one
 fact without sharing a policy.
 """
@@ -52,24 +52,37 @@ from _command_shape import invoked_scripts
 #: merely CONTAINING "test" never match. `affected-gate.ps1` schedules
 #: whole-suite `test.ps1 <pkg>` children concurrently -- a second door onto the
 #: same whole-suite act as a bare `test.ps1` run, and blocked under the identical
-#: rule.
-SUITE_SCRIPT_NAMES: Final = frozenset({"test.ps1", "affected-gate.ps1"})
+#: rule. `test.sh` is `test.ps1`'s POSIX twin: the same runner module, reached
+#: from a POSIX shell with the module's own `--kebab-name` flags (`--specific`,
+#: `--tag`, `--list-tags`), which every matcher below reads alongside the
+#: PowerShell spellings; `affected-gate.sh` is `affected-gate.ps1`'s twin, read the
+#: same way (`--self-test`).
+SUITE_SCRIPT_NAMES: Final = frozenset({"test.ps1", "test.sh", "affected-gate.ps1", "affected-gate.sh"})
 
 #: The flags that make a `test.ps1` tail genuinely targeted: named files/node-IDs
-#: (`-Specific`), a keyword expression (`-Keyword`), or feature tags (`-Tag`).
-#: `affected-gate.ps1`'s own argument grammar carries none of them under any
-#: spelling, so an affected-gate tail can never look targeted by accident.
-NARROWING_FLAGS: Final = ("-specific", "-keyword", "-tag")
+#: (`-Specific`), a keyword expression (`-Keyword`), or feature tags (`-Tag`), and
+#: their `test.sh` spellings. `affected-gate.ps1`'s own argument grammar carries
+#: none of them under any spelling, so an affected-gate tail can never look
+#: targeted by accident.
+NARROWING_FLAGS: Final = ("-specific", "-keyword", "-tag", "--specific", "--keyword", "--tag")
 
 #: Flags that widen a run back to whole package suites whatever else narrows it:
 #: `-All` names every package, `-Rerun` re-runs whole failing packages.
-WIDENING_FLAGS: Final = ("-all", "-rerun")
+WIDENING_FLAGS: Final = ("-all", "-rerun", "--all", "--rerun")
 
 #: Flags under which the runner starts no test at all: `affected-gate.ps1
 #: -SelfTest` runs the scheduler's own pure-function self-test, and `test.ps1
-#: -ListTags` only collects and prints feature tags. Checked before targeting and
-#: package extraction, so such an invocation is never classified whole-suite.
-NO_TEST_FLAG_RE: Final = re.compile(r"(?:^|\s)-(?:selftest|listtags)\b", re.IGNORECASE)
+#: -ListTags` (`test.sh --list-tags`) only collects and prints feature tags.
+#: Checked before targeting and package extraction, so such an invocation is
+#: never classified whole-suite.
+NO_TEST_FLAG_RE: Final = re.compile(
+    r"(?:^|\s)(?:-(?:selftest|listtags)|\"?--(?:self-test|list-tags))\b", re.IGNORECASE
+)
+
+#: A `--kebab` flag word holding whitespace (`--specific="a.py b.py"` as one word)
+#: is re-quoted whole by `_render_arguments`, so its matcher allows that opening
+#: quote. A PowerShell `-Name` never does: quoted, it is a string, not a parameter.
+_LONG_FLAG_PREFIX: Final = "--"
 
 #: Stands in for the package list when `-All` was passed.
 ALL_SENTINEL: Final = "*ALL-PACKAGES*"
@@ -113,7 +126,8 @@ def runs_no_test(tail: str) -> bool:
 
 
 def _has_flag(lowered_tail: str, flag: str) -> bool:
-    return re.search(rf"(?:^|\s){re.escape(flag)}\b", lowered_tail) is not None
+    quote = '"?' if flag.startswith(_LONG_FLAG_PREFIX) else ""
+    return re.search(rf"(?:^|\s){quote}{re.escape(flag)}\b", lowered_tail) is not None
 
 
 def is_targeted(tail: str) -> bool:
@@ -138,12 +152,16 @@ MAX_TAGS_PER_RUN: Final = 3
 MAX_PACKAGES_PER_KEYWORD_RUN: Final = 1
 
 _TAG_VALUE_RE: Final = re.compile(
-    r"""(?:^|\s)-tag\s+(?:"([^"]*)"|'([^']*)'|(\S+))""", re.IGNORECASE
+    r"""(?:^|\s)(?:"""
+    r"""-tag\s+(?:"([^"]*)"|'([^']*)'|(\S+))"""
+    r"""|"--tag=([^"]*)"|--tag=(\S+)"""
+    r"""|--tag\s+(?:"([^"]*)"|'([^']*)'|(\S+)))""",
+    re.IGNORECASE,
 )
 
 
 def tag_names(tail: str) -> list[str]:
-    """The feature tags a `-Tag` argument names (comma-separated, quoted or bare)."""
+    """The feature tags a `-Tag` (or `test.sh --tag`) argument names (comma-separated, quoted or bare)."""
     names: list[str] = []
     for match in _TAG_VALUE_RE.finditer(tail):
         value = next(group for group in match.groups() if group is not None)
@@ -152,8 +170,9 @@ def tag_names(tail: str) -> list[str]:
 
 
 def has_keyword(tail: str) -> bool:
-    """True when the invocation selects by `-Keyword`."""
-    return _has_flag(tail.lower(), "-keyword")
+    """True when the invocation selects by `-Keyword` (`test.sh --keyword`)."""
+    lowered = tail.lower()
+    return any(_has_flag(lowered, flag) for flag in ("-keyword", "--keyword"))
 
 
 def packages(tail: str) -> list[str]:
@@ -164,14 +183,15 @@ def packages(tail: str) -> list[str]:
     the SAME tokenizer: splitting on whitespace/comma/semicolon/pipe and keeping
     only tokens matching the `datrix(-...)*` package-name shape already drops
     the `-projects`/`-all` flag tokens themselves (they fail `_PACKAGE_RE`), so
-    no `affected-gate`-specific parsing branch is needed.
+    no `affected-gate`-specific parsing branch is needed. `=` splits too, so the
+    `--projects=pkg-a` a `test.sh` caller may write yields its package.
     """
     lowered = tail.lower()
-    if re.search(r"(?:^|\s)-all\b", lowered):
+    if any(_has_flag(lowered, flag) for flag in ("-all", "--all")):
         return [ALL_SENTINEL]
 
     found: list[str] = []
-    for raw in re.split(r"[\s,;|]+", tail):
+    for raw in re.split(r"[\s,;|=]+", tail):
         token = raw.strip("\"'()").rstrip("\\/").lstrip(".").lstrip("\\/").lower()
         if not token or "/" in token or "\\" in token:
             continue

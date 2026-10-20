@@ -63,6 +63,37 @@ check("-ListRules is a read of the rule set",
       cmd('powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" -ListRules',
           "SCAN_QUESTION: which rules exist"), ALLOW)
 
+print("== a scanner's POSIX twin and its module are the same scan ==")
+SEMGREP_TWIN = "d:/datrix/datrix/scripts/scan/semgrep.sh"
+LIBCST_TWIN = "d:/datrix/datrix/scripts/scan/libcst.sh"
+AST_GREP_TWIN = "d:/datrix/datrix/scripts/scan/ast-grep.sh"
+VENV_PYTHON = r"D:\datrix\.venv\Scripts\python.exe"
+check("twin --all blocks", cmd(f"bash {SEMGREP_TWIN} --all"), BLOCK)
+check("twin --all blocks even with a rule", cmd(f"bash {AST_GREP_TWIN} --all --rule=empty-except-pass"), BLOCK)
+check("twin run directly, bare package", cmd(f"{LIBCST_TWIN} --projects=datrix-common"), BLOCK)
+check("twin one package, no rule", cmd(f"bash {SEMGREP_TWIN} --projects=datrix-common"), BLOCK)
+check("twin in a subagent blocks even with a rule",
+      cmd(f"bash {SEMGREP_TWIN} --projects=datrix-common --rule=missing-encoding-read", agent_id="agent-1"), BLOCK)
+check("module --all blocks", cmd(f"{VENV_PYTHON} -m datrix_scripts.scan.semgrep --all"), BLOCK)
+check("module under -I, bare package", cmd(f"{VENV_PYTHON} -Im datrix_scripts.scan.ast_grep --projects=datrix-cli"), BLOCK)
+check("module libcst, bare package", cmd(f"{VENV_PYTHON} -m datrix_scripts.scan.libcst --projects=datrix-cli"), BLOCK)
+check("twin with a named rule", cmd(f"bash {SEMGREP_TWIN} --projects=datrix-common --rule=missing-encoding-read"), ALLOW)
+check("twin with a rule, space form", cmd(f"bash {AST_GREP_TWIN} --projects=datrix-cli --rule empty-except-pass"), ALLOW)
+check("twin with a one-off pattern", cmd(f"bash {AST_GREP_TWIN} --projects=datrix-cli --pattern='raise Exception($M)'"), ALLOW)
+check("module with a named rule",
+      cmd(f"{VENV_PYTHON} -m datrix_scripts.scan.semgrep --projects=datrix-common --rule=empty-except-pass"), ALLOW)
+check("twin with a stated question",
+      cmd(f"bash {LIBCST_TWIN} --projects=datrix-common", "SCAN_QUESTION: silent fallbacks in the new loader"), ALLOW)
+check("twin self-test reads planted inputs only", cmd(f"bash {LIBCST_TWIN} --self-test"), ALLOW)
+check("module self-test", cmd(f"{VENV_PYTHON} -m datrix_scripts.scan.semgrep --self-test"), ALLOW)
+check("wrapper self-test", cmd('powershell -File "d:/datrix/datrix/scripts/scan/ast-grep.ps1" -SelfTest'), ALLOW)
+check("-All -SelfTest still sweeps", cmd('powershell -File "d:/datrix/datrix/scripts/scan/semgrep.ps1" -All -SelfTest'), BLOCK)
+check("reading a twin", cmd(f"cat {SEMGREP_TWIN}"), ALLOW)
+check("another scan module is not a scanner",
+      cmd(f"{VENV_PYTHON} -m datrix_scripts.scan.syntax_checker --path=datrix-common"), ALLOW)
+check("a module whose name merely starts with a scanner's",
+      cmd(f"{VENV_PYTHON} -m datrix_scripts.scan.semgrep_rules --all"), ALLOW)
+
 print("== the parity cases gate runs tagged or as its self-test ==")
 PARITY = '"d:/datrix/datrix/scripts/gates/parity/parity-cases-gate.ps1"'
 check("untagged parity cases run blocks", cmd(f"powershell -File {PARITY}"), BLOCK)
@@ -73,6 +104,21 @@ check("tagged run", cmd(f"powershell -File {PARITY} -Tag rest-api"), ALLOW)
 check("self-test", cmd(f"powershell -File {PARITY} -SelfTest"), ALLOW)
 check("the authoring tool is not the gate", cmd('powershell -File "d:/datrix/datrix/scripts/gates/parity/parity-cases.ps1" check'), ALLOW)
 check("reading the gate", cmd("cat d:/datrix/datrix/scripts/gates/parity/parity-cases-gate.ps1"), ALLOW)
+PARITY_TWIN = "d:/datrix/datrix/scripts/gates/parity/parity-cases-gate.sh"
+PARITY_MODULE = r"D:\datrix\.venv\Scripts\python.exe -m datrix_scripts.gates.parity.parity_cases_gate"
+check("untagged POSIX twin blocks", cmd(f"bash {PARITY_TWIN}"), BLOCK)
+check("untagged POSIX twin run directly blocks", cmd(f"{PARITY_TWIN} --dbg"), BLOCK)
+check("untagged module run blocks", cmd(PARITY_MODULE), BLOCK)
+check("untagged module run under -I blocks", cmd(PARITY_MODULE.replace(" -m ", " -Im ")), BLOCK)
+check("tagged POSIX twin", cmd(f"bash {PARITY_TWIN} --tag rest-api"), ALLOW)
+check("tagged POSIX twin, = form", cmd(f"bash {PARITY_TWIN} --tag=rest-api"), ALLOW)
+check("POSIX twin self-test", cmd(f"bash {PARITY_TWIN} --self-test"), ALLOW)
+check("tagged module run", cmd(f"{PARITY_MODULE} --tag=rest-api"), ALLOW)
+check("one untagged run among tagged ones blocks",
+      cmd(f"bash {PARITY_TWIN} --tag rest-api; bash {PARITY_TWIN}"), BLOCK)
+check("reading the twin", cmd(f"cat {PARITY_TWIN}"), ALLOW)
+check("the authoring tool's module is not the gate",
+      cmd(r"D:\datrix\.venv\Scripts\python.exe -m datrix_scripts.gates.parity.parity_cases check"), ALLOW)
 
 print("== reading the scripts and unrelated commands stay allowed ==")
 check("grep the wrapper", cmd("grep -n Rule d:/datrix/datrix/scripts/scan/semgrep.ps1"), ALLOW)

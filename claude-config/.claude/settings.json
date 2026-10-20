@@ -5,6 +5,8 @@
       "mcp__datrix-code-index",
       "mcp__datrix-local-llm",
       "mcp__datrix-edit",
+      "Bash(powershell -File \"d:/datrix/datrix/scripts/skill/skill-assist.ps1\" absorb-delete *)",
+      "PowerShell(powershell -File \"d:/datrix/datrix/scripts/skill/skill-assist.ps1\" absorb-delete *)",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/dev/generate.ps1\" -Domains -L python)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-python diff --stat 2>&1)",
       "PowerShell(git -C d:\\\\datrix\\\\datrix-codegen-aws diff --stat 2>&1)",

@@ -23,6 +23,9 @@ _VERIFIED = "VERIFIED_AGAINST_QUICK_REFERENCE"
 
 _GEN = 'powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1"'
 _EXAMPLE = '"d:/datrix/datrix/examples/03-domains/finance/system.dtrx"'
+_TWIN = 'bash "d:/datrix/datrix/scripts/dev/generate.sh"'
+_PY = "D:/datrix/.venv/Scripts/python.exe"
+_MODULE = f"{_PY} -m datrix_scripts.dev.generate"
 
 #: (command, must_block, why)
 _CASES: tuple[tuple[str, bool, str], ...] = (
@@ -101,18 +104,47 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         True,
         "generate.ps1 run through a shell wrapper",
     ),
+    # ---- the POSIX twin and the module take the module's own flags ----
+    (f"{_TWIN} --all --language=python", True, "generate.sh --all sweeps the whole corpus"),
+    (f"{_TWIN} --domains --language=python", True, "generate.sh --domains sweeps every domain example"),
+    (f"{_TWIN} --test-set=foundation --language=python", True, "generate.sh --test-set=<set> sweeps a set"),
+    (f"{_TWIN} --test-set foundation --language=python", True, "generate.sh --test-set <set> sweeps a set"),
+    ("/d/datrix/datrix/scripts/dev/generate.sh --all", True, "the twin run directly"),
+    (f"{_TWIN} {_EXAMPLE} --language=python", False, "single project through the twin"),
+    (f"{_MODULE} --all --language=python", True, "the module run directly with --all"),
+    (f"{_MODULE} --domains", True, "the module run directly with --domains"),
+    (f"{_MODULE} --source={_EXAMPLE} --language=python", False, "single project through the module"),
+    (f"{_PY} -mdatrix_scripts.dev.generate --all", True, "the module named with no space after -m"),
+    (f"{_PY} -Im datrix_scripts.dev.generate --domains", True, "-m grouped with other interpreter flags"),
+    (f"{_PY} -I -m datrix_scripts.dev.generate --all", True, "-m after a separate interpreter flag"),
+    (
+        f"{_PY} -Im datrix_scripts.dev.generate --source={_EXAMPLE} --language=python",
+        False,
+        "single project through the module with grouped interpreter flags",
+    ),
+    (
+        f"{_PY} -m datrix_scripts.dev.generate_doc_fragments --all",
+        False,
+        "a module whose name merely starts with datrix_scripts.dev.generate",
+    ),
+    (
+        'bash "d:/datrix/datrix/scripts/dev/generate-test-rules.sh" --all',
+        False,
+        "generate-test-rules.sh is not generate.sh",
+    ),
+    (f"{_TWIN} {_EXAMPLE} --language=python -All", False, "the PowerShell spelling is no flag of the twin"),
 )
 
 #: (command, must_block, why) — run WITHOUT the quick-reference marker: only a
 #: command that executes a script under datrix/scripts/ needs it.
 _MARKER_CASES: tuple[tuple[str, bool, str], ...] = (
     (
-        "S=d:/datrix/datrix/scripts/scan/lib/config_linter.py; grep -n foo $S",
+        "S=d:/datrix/datrix/scripts/common/lib/datrix_scripts/scan/config_linter.py; grep -n foo $S",
         False,
         "a scripts path in a variable assignment is named, not run",
     ),
     (
-        "cat <<EOF\n  python d:/datrix/datrix/scripts/scan/lib/config_linter.py\nEOF",
+        "cat <<EOF\n  python d:/datrix/datrix/scripts/common/lib/datrix_scripts/scan/config_linter.py\nEOF",
         False,
         "a heredoc body line naming a scripts .py is data",
     ),
@@ -132,7 +164,7 @@ _MARKER_CASES: tuple[tuple[str, bool, str], ...] = (
         "the call operator runs the script",
     ),
     (
-        r"D:\datrix\.venv\Scripts\python.exe d:\datrix\datrix\scripts\scan\lib\config_linter.py",
+        r"D:\datrix\.venv\Scripts\python.exe d:\datrix\datrix\scripts\common\lib\datrix_scripts\scan\config_linter.py",
         True,
         "a Python interpreter runs the scripts .py",
     ),

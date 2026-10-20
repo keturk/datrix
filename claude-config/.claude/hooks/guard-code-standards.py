@@ -65,10 +65,10 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
   * BODY WALKS. In a `datrix-codegen-*/src/` file, a generator reads the facts analysis records on a
     body (`datrix_common.datrix_model` `effects` / `usage` / `reads` / `resolution`) instead of
     walking it again. A walk-function, walk-method or `getattr` walk call the edit adds to a function
-    not named in `gates/repo-hygiene/lib/no_body_walk_allowlist.json` is refused, naming the function
+    not named in `scripts/config/no_body_walk_allowlist.json` is refused, naming the function
     and the call. The forms are judged by that gate's own matcher
-    (`gates/repo-hygiene/lib/no_body_walk_gate.py`, `function_walks`), read with the allowlist at run
-    time; skipped when either cannot be loaded.
+    (`datrix_scripts.gates.repo_hygiene.no_body_walk_gate`, `function_walks`), read with the allowlist at
+    run time; skipped when either cannot be loaded.
   * HISTORY COMMENTS. "Comments state what the code does now; history lives in git." A comment or
     docstring the edit adds that contains one of `_local_judge.HISTORY_WORDS` (`formerly`, `no longer`,
     `legacy`, ...) is put to the local second reader (`_local_judge.judge_comments`: a model already in
@@ -114,7 +114,7 @@ from typing import Final, NoReturn, Protocol
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _hook_log import SCRIPTS_LIB_DIR, WORKSPACE, add_scripts_lib_to_path  # noqa: E402
+from _hook_log import SCRIPTS_LIB_DIR, add_scripts_lib_to_path  # noqa: E402
 from _local_judge import CommentToken, comment_tokens, history_candidates, judge_comments, quoted_candidate  # noqa: E402
 
 _FRAMEWORK_RE: Final = re.compile(r"^d:/datrix/datrix[^/]*/")
@@ -173,10 +173,8 @@ _COMPLEXITY_REMEDY: Final = "Measure the file with `metrics/complexity.ps1 -File
 _SKIPPED_NOTE: Final = (
     "guard-code-standards: {count} check(s) did not run on this edit; the other Code Standards checks did.\n{checks}"
 )
-# A generator package's source tree, whose functions read recorded facts instead of walking bodies,
-# and the no-body-walk gate's library, which owns the matcher and the allowlist.
+# A generator package's source tree, whose functions read recorded facts instead of walking bodies.
 _CODEGEN_SOURCE_RE: Final = re.compile(r"^d:/datrix/(datrix-codegen-[^/]+/src/.+)$", re.IGNORECASE)
-_BODY_WALK_LIB: Final = os.path.join(WORKSPACE, "datrix", "scripts", "gates", "repo-hygiene", "lib")
 _SITE_SEPARATOR: Final = "::"
 
 Violation = tuple[str, str]
@@ -634,10 +632,8 @@ def _body_walk_rule() -> tuple[BodyWalkMatcher, frozenset[str]] | None:
     """The no-body-walk gate's matcher and its allowlisted sites (lowercased); None when either
     cannot be loaded."""
     add_scripts_lib_to_path()
-    if _BODY_WALK_LIB not in sys.path:
-        sys.path.insert(0, _BODY_WALK_LIB)
     try:
-        from no_body_walk_gate import AllowlistError, function_walks, load_allowlist
+        from datrix_scripts.gates.repo_hygiene.no_body_walk_gate import AllowlistError, function_walks, load_allowlist
     except ImportError:
         return None
     try:
@@ -832,7 +828,7 @@ _REMEDY: Final = {
         "A generator reads the facts analysis records on a body instead of walking it again: "
         "`datrix_common.datrix_model.effects` / `usage` / `reads` / `resolution` (what a body calls, "
         "reads, writes and resolves). The walks that remain are a closed list, "
-        "`datrix/scripts/gates/repo-hygiene/lib/no_body_walk_allowlist.json`, each with one of the "
+        "`datrix/scripts/config/no_body_walk_allowlist.json`, each with one of the "
         "categories render-traversal, emission-syntax, emission-decision, literal-content or "
         "no-facts-boundary; adding a function to it needs Jon's approval, and a genuinely new category "
         "is a design change that needs it too. `gates/repo-hygiene/no-body-walk-gate.ps1` holds the "

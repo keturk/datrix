@@ -57,7 +57,7 @@ FIX: false             # verify-implementation reports only, changes no code
 
 ## Run it from the CLI
 
-Typed here, the whole run is on this skill's model: `/verify-implementation` and `/absorb-design` invoked through the Skill tool run on the caller's model, not their own. `datrix/scripts/skill/implement-design-direct.ps1 -Design <path>` runs the same chain with each step in its own headless session on its own skill's model: this skill with `STOP AFTER: implement`, then verify, then absorb, with the checks between them done by the script.
+Typed here, the whole run is on this skill's model: `/verify-implementation` and `/absorb-design` invoked through the Skill tool run on the caller's model, not their own. `datrix/scripts/skill/implement-design.ps1 -Design <path>` runs the same chain with each step in its own headless session on its own skill's model: this skill with `STOP AFTER: implement`, then verify, then absorb, with the checks between them done by the script.
 
 ## Prereqs — read first
 

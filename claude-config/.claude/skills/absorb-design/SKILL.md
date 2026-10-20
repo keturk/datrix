@@ -43,7 +43,7 @@ Read first: CLAUDE.md, MEMORY.md. Also read the design document itself in full b
 | DOCUMENT | Yes | Path to the design document to absorb |
 | DRY RUN | No | If `true`, produce the transfer plan but do not write any files |
 | KEEP SOURCE | No | If `true`, preserve the source document after transfer (default: delete source and replace all references) |
-| VERIFIED | No | A file holding the `/verify-implementation` replies for this DOCUMENT that end `Design conformance: PROVEN`. `implement-design.ps1`, `implement-design-direct.ps1`, `/implement-design` and `/implement-design-direct` pass it. It is the licence to delete (see "Deletion licence") |
+| VERIFIED | No | A file holding the `/verify-implementation` replies for this DOCUMENT that end `Design conformance: PROVEN`. `implement-design.ps1`, `/implement-design` and `/implement-design-direct` pass it. It is the licence to delete (see "Deletion licence") |
 
 ## Deletion licence
 
@@ -215,8 +215,11 @@ WAIT for user decision.
    - If a reference is a backlog/index entry → remove the line entirely
    - If a reference is in CLAUDE.md or MEMORY.md → update or remove as appropriate
 3. **If KEEP SOURCE is true** → preserve the source document and skip deletion
-4. **Otherwise (default)** → delete the source design document when the deletion licence holds (rules 1, 2 or 4); under rule 3, keep it and ask
-5. **Verify** — run `absorb-references` again **before** step 4 deletes the source (it reads the document for its title): it must exit 0 (zero remaining references)
+4. **Otherwise (default)** → under rule 3, keep the source and ask. Under rules 1, 2 or 4, delete it with the script, never with `Remove-Item`/`rm` (the workspace `settings.json` allows this one command):
+   ```bash
+   powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" absorb-delete --design "{document path}" --verified "{VERIFIED path}"
+   ```
+   Rule 1 passes `--verified`; rule 2 passes neither flag (the script reads the `Status:` line); rule 4 passes `--knowledge-only`. The script re-checks the licence and runs the reference search itself, and deletes only a `.md` file under `d:\datrix\design\`. Exit 0 = deleted; exit 2 = kept, with each reason listed (a failed proof, no licence, or lines still naming the design: handle them and run it again); exit 1 = not a design document.
 
 **End-of-phase output:**
 

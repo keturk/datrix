@@ -26,6 +26,9 @@ itself says what it is for:
     scan targets and why the targeted tests cannot answer it.
 
 Neither marker lifts an `-All` run: sweeping every package is never a per-fix act.
+Each scanner's POSIX twin (`semgrep.sh`, `libcst.sh`, `ast-grep.sh`) and its module run
+directly (`-m datrix_scripts.scan.<scanner>`) are the same scan, read in the module's own
+flags: `--all` sweeps, `--rule` / `--pattern` target.
 Subagents get no marker path at all -- a scan a subagent wants is a scan the main
 session decides on, once, at the gate.
 
@@ -49,7 +52,7 @@ import re
 import shlex
 import sys
 
-from _command_shape import executable_text, leading_token, segments
+from _command_shape import executable_text, invoked_scripts, leading_token, segments
 
 _SCANNERS = ("semgrep", "libcst", "ast-grep")
 
@@ -58,11 +61,31 @@ _SCANNER_RE = re.compile(
     re.IGNORECASE,
 )
 _ALL_RE = re.compile(r"(?<![\w-])-All\b", re.IGNORECASE)
-_TARGETED_RE = re.compile(r"(?<![\w-])-(?:Rule|Pattern|Id)\b", re.IGNORECASE)
+# A scanner's own self-test reads planted inputs only, never a package: it targets itself.
+_TARGETED_RE = re.compile(r"(?<![\w-])-(?:Rule|Pattern|Id|SelfTest)\b", re.IGNORECASE)
 _QUESTION_MARKER = "SCAN_QUESTION:"
 
-_PARITY_CASES_RE = re.compile(r"(?<![\w.-])parity-cases-gate\.ps1\b", re.IGNORECASE)
-_PARITY_SELECTED_RE = re.compile(r"(?<![\w-])-(?:Tag|SelfTest)\b", re.IGNORECASE)
+# Each scanner's POSIX twin by file name, and the module behind both wrappers run directly (`-m`
+# alone or closing a group of the interpreter's argument-free flags): both take the module's own
+# flags, `--all`, `--rule`, `--pattern`.
+_SCANNER_TWINS = {f"{scanner}.sh": scanner for scanner in _SCANNERS}
+_SCANNER_MODULE_RE = re.compile(
+    r"(?:^|[\s;|&(])-[bdeiopqrsuvx]*m\s*datrix_scripts\.scan\.(?P<module>semgrep|libcst|ast_grep)(?![\w.])(?P<args>.*)",
+    re.IGNORECASE,
+)
+_MODULE_ALL_RE = re.compile(r"(?<![\w-])--all(?![\w-])", re.IGNORECASE)
+_MODULE_TARGETED_RE = re.compile(r"(?<![\w-])--(?:rule|pattern|self-test)(?![\w-])", re.IGNORECASE)
+
+# The parity cases gate by file name: the wrapper and its POSIX twin, which runs the same module
+# with the module's own flags (`--tag`, `--self-test`).
+_PARITY_CASES_SCRIPTS = frozenset({"parity-cases-gate.ps1", "parity-cases-gate.sh"})
+# The module behind both wrappers, run directly: `-m` alone or closing a group of the
+# interpreter's argument-free flags, with or without a space before the module name.
+_PARITY_CASES_MODULE_RE = re.compile(
+    r"(?:^|[\s;|&(])-[bdeiopqrsuvx]*m\s*datrix_scripts\.gates\.parity\.parity_cases_gate(?![\w.])(?P<args>.*)",
+    re.IGNORECASE,
+)
+_PARITY_SELECTED_RE = re.compile(r"(?<![\w-])(?:-(?:Tag|SelfTest)|--(?:tag|self-test))(?![\w-])", re.IGNORECASE)
 
 _EXECUTORS = frozenset({"powershell", "pwsh", "cmd", "bash", "sh", "zsh", "start"})
 
@@ -114,42 +137,74 @@ def _scanner_run_by(segment: str) -> str:
     return match.group(1).lower() if match else ""
 
 
-def _check_parity_cases(segment: str) -> None:
-    if not _PARITY_CASES_RE.search(_script_run_by(segment)) or _PARITY_SELECTED_RE.search(segment):
+def _parity_cases_runs(command: str) -> list[str]:
+    """The argument text of every parity cases gate run *command* executes: the wrapper, its
+    POSIX twin, or the module run directly -- never a path another program merely names."""
+    runs = [
+        " ".join(script.args)
+        for script in invoked_scripts(command)
+        if script.path.rsplit("/", 1)[-1].lower() in _PARITY_CASES_SCRIPTS
+    ]
+    for segment in segments(executable_text(command)):
+        match = _PARITY_CASES_MODULE_RE.search(segment)
+        if match:
+            runs.append(match.group("args"))
+    return runs
+
+
+def _check_parity_cases(command: str) -> None:
+    if all(_PARITY_SELECTED_RE.search(arguments) for arguments in _parity_cases_runs(command)):
         return
     sys.stderr.write(
-        "BLOCKED: `parity-cases-gate.ps1` with no `-Tag` reads every parity row on every registered "
-        "target, generating every fixture: the whole corpus, which is Jon's run.\n\n"
-        "Run the rows of the behaviour you changed, `parity-cases-gate.ps1 -Tag <tag>` (at most three "
-        "tags), or the gate's own `-SelfTest`."
+        "BLOCKED: `parity-cases-gate.ps1` (or `parity-cases-gate.sh`, or its module run directly) with "
+        "no `-Tag` reads every parity row on every registered target, generating every fixture: the "
+        "whole corpus, which is Jon's run.\n\n"
+        "Run the rows of the behaviour you changed, `parity-cases-gate.ps1 -Tag <tag>` (`--tag <tag>` "
+        "on the `.sh` twin; at most three tags), or the gate's own `-SelfTest` (`--self-test`)."
     )
     sys.exit(2)
 
 
-def _check(command: str, description: str, is_subagent: bool) -> None:
+def _scanner_runs(command: str) -> list[tuple[str, str, bool]]:
+    """Every scanner run *command* executes: ``(scanner, its argument text, whether that text is in
+    the module's own --kebab flags)`` -- the ``.ps1`` wrapper, its POSIX twin, or the module run
+    directly, never a path another program merely names."""
+    runs: list[tuple[str, str, bool]] = []
     for segment in segments(executable_text(command)):
-        _check_parity_cases(segment)
         scanner = _scanner_run_by(segment)
-        if not scanner:
-            continue
-        if _ALL_RE.search(segment):
+        if scanner:
+            runs.append((scanner, segment, False))
+        match = _SCANNER_MODULE_RE.search(segment)
+        if match:
+            runs.append((match.group("module").lower().replace("_", "-"), match.group("args"), True))
+    for script in invoked_scripts(command):
+        twin = _SCANNER_TWINS.get(script.path.rsplit("/", 1)[-1].lower())
+        if twin:
+            runs.append((twin, " ".join(script.args), True))
+    return runs
+
+
+def _check(command: str, description: str, is_subagent: bool) -> None:
+    _check_parity_cases(command)
+    stated = _QUESTION_MARKER in description and bool(description.split(_QUESTION_MARKER, 1)[1].strip())
+    for scanner, arguments, module_flags in _scanner_runs(command):
+        all_re, targeted_re = (_MODULE_ALL_RE, _MODULE_TARGETED_RE) if module_flags else (_ALL_RE, _TARGETED_RE)
+        if all_re.search(arguments):
             _block(
-                f"BLOCKED: `{scanner}.ps1 -All` sweeps every package. A corpus sweep is "
-                "never a per-fix check, with or without a marker."
+                f"BLOCKED: `{scanner}.ps1 -All` (`--all` on its `.sh` twin or module) sweeps every "
+                "package. A corpus sweep is never a per-fix check, with or without a marker."
             )
         if is_subagent:
             _block(
-                f"BLOCKED: you are a subagent and may not run `{scanner}.ps1`. A scan "
-                "is a main-session, phase-boundary decision; report what your targeted "
-                "tests proved instead."
+                f"BLOCKED: you are a subagent and may not run `{scanner}.ps1` (its `.sh` twin or "
+                "module). A scan is a main-session, phase-boundary decision; report what your "
+                "targeted tests proved instead."
             )
-        if _TARGETED_RE.search(segment):
-            continue
-        if _QUESTION_MARKER in description and description.split(_QUESTION_MARKER, 1)[1].strip():
+        if targeted_re.search(arguments) or stated:
             continue
         _block(
-            f"BLOCKED: `{scanner}.ps1` over whole package(s) with no rule named and no "
-            "question stated."
+            f"BLOCKED: `{scanner}.ps1` (its `.sh` twin or module) over whole package(s) with no rule "
+            "named and no question stated."
         )
 
 

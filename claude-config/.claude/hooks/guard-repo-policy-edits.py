@@ -25,10 +25,12 @@
    row of `datrix/scripts/gates/parity/cases/<area>.parity.yaml`, read on every registered target
    by `parity-cases-gate.ps1`; each probe-backed gate module rewrote the discovery, the fixture,
    the comparison and the self-test, and compared targets only with each other. A Write creating a
-   new gate module (`datrix/scripts/gates/<family>/lib/*.py`) that imports
-   `datrix_codegen_kernel.parity.conformance_probes`, or a new gate wrapper whose `lib\\` module
-   does, is refused; a source-census gate imports no probe and passes. The parity runner's own
-   modules are the one carrier and pass.
+   new gate module (`datrix/scripts/gates/<family>/lib/*.py`, or
+   `datrix/scripts/common/lib/datrix_scripts/gates/<family>/*.py` for a family whose wrappers are
+   rendered from the entrypoint template) that imports
+   `datrix_codegen_kernel.parity.conformance_probes`, or a new gate wrapper (`.ps1` or its `.sh`
+   twin) whose `lib\\` module or `datrix_scripts.gates.*` module does, is refused; a source-census
+   gate imports no probe and passes. The parity runner's own modules are the one carrier and pass.
 
 All four fail OPEN on anything the hook cannot evaluate (unparseable input, unreadable file).
 
@@ -57,8 +59,15 @@ _TASK_FILE_RE: Final = re.compile(r"(?:^|/)\.tasks/phase-(\d+)/task-[^/]+\.md$")
 _PHASE_DIR_RE: Final = re.compile(r"^(.*?/\.tasks/phase-\d+)/")
 _COMPLETED_HEADING_RE: Final = re.compile(r"^#\s+COMPLETED:\s+Task\b", re.MULTILINE)
 
-_GATE_LIB_RE: Final = re.compile(r"(?:^|/)datrix/scripts/gates/[^/]+/lib/[^/]+\.py$")
-_GATE_WRAPPER_RE: Final = re.compile(r"(?:^|/)datrix/scripts/gates/[^/]+/[^/]+\.ps1$")
+# A gate module: in its family's `lib/`, or -- for a family whose wrappers are rendered from the
+# entrypoint template -- in that family's `datrix_scripts.gates.<family>` package.
+_GATE_LIB_RE: Final = re.compile(
+    r"(?:^|/)datrix/scripts/(?:gates/[^/]+/lib|common/lib/datrix_scripts/gates/[^/]+)/[^/]+\.py$"
+)
+_GATE_WRAPPER_RE: Final = re.compile(r"(?:^|/)datrix/scripts/gates/[^/]+/[^/]+\.(?:ps1|sh)$")
+# The module a rendered wrapper (or its `.sh` twin) runs, quoted: `-Module "datrix_scripts.gates.x.y"`.
+_WRAPPER_MODULE_RE: Final = re.compile(r"[\"'](datrix_scripts\.gates(?:\.[A-Za-z0-9_]+)+)[\"']")
+_SCRIPTS_LIB: Final = ("common", "lib")
 _PROBE_IMPORT_RE: Final = re.compile(
     r"^[ \t]*(?:from|import)[ \t]+datrix_codegen_kernel\.parity\.conformance_probes\b"
     r"|^[ \t]*from[ \t]+datrix_codegen_kernel\.parity[ \t]+import[ \t][^\n]*\bconformance_probes\b",
@@ -68,9 +77,10 @@ _WRAPPER_LIB_RE: Final = re.compile(r"lib[\\/]([A-Za-z0-9_]+\.py)")
 # The parity cases runner: the one carrier of probe-read parity facts.
 _PARITY_RUNNER_MODULES: Final = frozenset(
     {
-        "datrix/scripts/gates/parity/lib/parity_cases.py",
-        "datrix/scripts/gates/parity/lib/parity_cases_tool.py",
-        "datrix/scripts/gates/parity/lib/parity_observers.py",
+        "datrix/scripts/common/lib/datrix_scripts/gates/parity/parity_cases_gate.py",
+        "datrix/scripts/common/lib/datrix_scripts/gates/parity/parity_cases.py",
+        "datrix/scripts/common/lib/datrix_scripts/gates/parity/parity_cases_cli.py",
+        "datrix/scripts/common/lib/datrix_scripts/gates/parity/parity_observers.py",
     }
 )
 
@@ -178,10 +188,15 @@ def _probe_reading_modules(path: str, content: str) -> list[str]:
         return [path] if _PROBE_IMPORT_RE.search(content) and not _is_parity_runner(path) else []
     if not _GATE_WRAPPER_RE.search(lowered):
         return []
-    lib_dir = os.path.join(os.path.dirname(path), "lib")
+    family_dir = os.path.dirname(path)
+    scripts_dir = os.path.dirname(os.path.dirname(family_dir))
+    lib_modules = [os.path.join(family_dir, "lib", name) for name in _WRAPPER_LIB_RE.findall(content)]
+    package_modules = [
+        os.path.join(scripts_dir, *_SCRIPTS_LIB, *dotted.split(".")) + ".py"
+        for dotted in _WRAPPER_MODULE_RE.findall(content)
+    ]
     found: list[str] = []
-    for name in sorted(set(_WRAPPER_LIB_RE.findall(content))):
-        module = _normalize(os.path.join(lib_dir, name))
+    for module in sorted({_normalize(candidate) for candidate in lib_modules + package_modules}):
         if _PROBE_IMPORT_RE.search(_read(module)) and not _is_parity_runner(module):
             found.append(module)
     return found
@@ -201,7 +216,7 @@ def _check_probe_gate(tool_input: dict[str, object], path: str) -> None:
         "`datrix/scripts/gates/parity/quick-reference.md`), and `parity-cases-gate.ps1` reads it on every "
         "registered target against the expectation you author. A reading no probe returns yet is a new "
         "Protocol method in the kernel plus one implementation per target, and a facet in "
-        "`gates/parity/lib/parity_observers.py` -- still no new gate. A new gate module is reserved for a "
+        "`datrix_scripts.gates.parity.parity_observers` -- still no new gate. A new gate module is reserved for a "
         "source census, which imports no probe."
     )
 

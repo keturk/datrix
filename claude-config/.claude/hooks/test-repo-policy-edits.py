@@ -129,8 +129,34 @@ with tempfile.TemporaryDirectory(prefix="policy-gate-") as root:
           write(os.path.join(gates, "parity", "census-gate.ps1"), '$x = Join-Path $scriptDir "lib\\source_census.py"\n'),
           ALLOW)
     check("rewriting an existing probe-reading module", write(existing, PROBE_IMPORT), ALLOW)
-    check("the parity runner's own modules", write(os.path.join(lib, "parity_observers.py"), PROBE_IMPORT), ALLOW)
     check("a probe import outside the gates tree", write(os.path.join(root, "pkg", "src", "probes.py"), PROBE_IMPORT), ALLOW)
+
+    # A family whose wrappers are rendered from the entrypoint template keeps its modules in
+    # datrix_scripts.gates.<family>; the wrapper names the module, not a lib\ file.
+    package = os.path.join(root, "datrix", "scripts", "common", "lib", "datrix_scripts", "gates", "parity")
+    os.makedirs(package)
+    with open(os.path.join(package, "probe_reader_gate.py"), "w", encoding="utf-8") as handle:
+        handle.write(PROBE_IMPORT)
+    with open(os.path.join(package, "source_census_gate.py"), "w", encoding="utf-8") as handle:
+        handle.write(CENSUS_IMPORT)
+    rendered = 'Invoke-DatrixEntrypoint -Module "datrix_scripts.gates.parity.{0}" -Parameters $PSBoundParameters\n'
+    twin = 'module="datrix_scripts.gates.parity.{0}"\n'
+    check("a new package module importing the probes",
+          write(os.path.join(package, "header_parity_gate.py"), PROBE_IMPORT), BLOCK)
+    check("a probe-reading package module in another family",
+          write(os.path.join(os.path.dirname(package), "realization", "doc_parity_gate.py"), PROBE_IMPORT), BLOCK)
+    check("a new rendered wrapper running a probe-reading module",
+          write(os.path.join(gates, "parity", "probe-reader-gate.ps1"), rendered.format("probe_reader_gate")), BLOCK)
+    check("a new .sh twin running a probe-reading module",
+          write(os.path.join(gates, "parity", "probe-reader-gate.sh"), twin.format("probe_reader_gate")), BLOCK)
+    check("a new package module that is a census",
+          write(os.path.join(package, "header_census_gate.py"), CENSUS_IMPORT), ALLOW)
+    check("a new rendered wrapper running a census",
+          write(os.path.join(gates, "parity", "source-census-gate.ps1"), rendered.format("source_census_gate")), ALLOW)
+    for runner in ("parity_cases_gate.py", "parity_cases.py", "parity_cases_cli.py", "parity_observers.py"):
+        check(f"the parity runner's own module {runner}", write(os.path.join(package, runner), PROBE_IMPORT), ALLOW)
+    check("the parity runner's old lib path is no longer the runner",
+          write(os.path.join(lib, "parity_observers.py"), PROBE_IMPORT), BLOCK)
 
 print()
 if fails:

@@ -5,7 +5,7 @@ Two enforcement points consume it and must agree:
 * ``guard-repo-temp-dirs.py`` (PreToolUse hook) refuses to CREATE such a directory
   inside a repo.
 * ``datrix/scripts/common/lib/datrix_scripts/ignored_source.py`` (the ignored-source
-  gate, also the pre-stage check in ``git/lib/commit_and_push.py``) recognizes one that already
+  gate, also the pre-stage check in ``datrix_scripts.git.commit_and_push``) recognizes one that already
   EXISTS, so its contents are reported as a stray temp tree to delete rather
   than as publishable source a ``.gitignore`` rule is silently dropping.
 

@@ -37,7 +37,8 @@ WHICH SCRIPTS A COMMAND RUNS, AND WHETHER IT DEPLOYS
 `invoked_scripts` answers "which script files does this command execute, and with
 which arguments" from the command's shape: a PowerShell host given `-File`,
 `-Command` or `-EncodedCommand`, a call/dot-source operator or a first token naming
-a `.ps1`, and a Python interpreter given a `.py`. The arguments are the words that
+a `.ps1` or `.sh`, a shell host given a `.sh` (`bash test.sh pkg`; only the options
+before the script are the shell's), and a Python interpreter given a `.py`. The arguments are the words that
 follow the script in the statement that runs it, so a guard that reads a script's
 flags (`_suite_invocation.py`) reads them from that statement alone. A path that
 only appears as an argument of another program (a `for` list, a `sed` operand, a
@@ -145,10 +146,16 @@ VIA_POWERSHELL_COMMAND: Final = "powershell-command"
 VIA_CALL: Final = "call"
 VIA_DIRECT: Final = "direct"
 VIA_PYTHON: Final = "python"
+VIA_SHELL: Final = "shell"
 
 _POWERSHELL_HOSTS: Final = frozenset({"powershell", "pwsh"})
 _PYTHON_HOST_RE: Final = re.compile(r"^(?:python[\d.]*|py|.*python[\d.]*)$")
 _SHELL_HOSTS: Final = frozenset({"bash", "sh", "zsh", "dash"})
+#: Shell host options that take the next word as their value (`bash -o pipefail x.sh`).
+_SHELL_VALUE_OPTIONS: Final = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
+_END_OF_OPTIONS: Final = "--"
+#: A POSIX shell script, run by a shell host (`bash x.sh`) or directly (`./x.sh`).
+_SH_SUFFIX: Final = ".sh"
 _CMD_HOSTS: Final = frozenset({"cmd"})
 _EVAL_COMMANDS: Final = frozenset({"invoke-expression", "iex", "eval"})
 _PREFIX_COMMANDS: Final = frozenset({"env", "nohup", "time", "exec", "command", "xargs", "start"})
@@ -348,13 +355,45 @@ def _python_host(args: list[str]) -> list[InvokedScript]:
     return []
 
 
+def _shell_operand(args: list[str]) -> tuple[int, bool]:
+    """Where a shell host's operands start, and whether a `-c` option precedes them.
+
+    Only the options before the first operand belong to the shell: in `bash test.sh pkg -Specific x`
+    the `-Specific` is the script's argument, never the shell's `-c`. With `-c` the first operand
+    is the command text; without it, the script file the shell runs.
+    """
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in _SHELL_VALUE_OPTIONS:
+            index += 2
+            continue
+        if arg == _END_OF_OPTIONS:
+            return index + 1, False
+        if not arg.startswith(("-", "+")):
+            return index, False
+        if arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]:
+            return index + 1, True
+        index += 1
+    return index, False
+
+
+def _shell_script(args: list[str]) -> list[InvokedScript]:
+    """The `.sh` script a shell host runs with its arguments (`bash test.sh pkg`); empty for `-c`."""
+    index, command_text = _shell_operand(args)
+    if command_text or index >= len(args):
+        return []
+    path = _normalise_path(args[index])
+    if not path.lower().endswith(_SH_SUFFIX):
+        return []
+    return [InvokedScript(path, VIA_SHELL, tuple(args[index + 1 :]))]
+
+
 def _wrapped_command(program: str, args: list[str]) -> str | None:
     """The command text a shell/eval wrapper runs, or None when `program` is not one."""
     if program in _SHELL_HOSTS:
-        for index, arg in enumerate(args):
-            if arg.startswith("-") and "c" in arg.lstrip("-"):
-                return " ".join(args[index + 1 : index + 2])
-        return None
+        index, command_text = _shell_operand(args)
+        return " ".join(args[index : index + 1]) if command_text else None
     if program in _CMD_HOSTS:
         for index, arg in enumerate(args):
             if arg.lower() in ("/c", "/k"):
@@ -402,8 +441,10 @@ def _segment_scripts(tokens: list[str], depth: int, via_command: str) -> list[In
         return _powershell_host(tokens[1:], depth)
     if _PYTHON_HOST_RE.match(program) and not program.endswith(".py"):
         return _python_host(tokens[1:])
-    if program.endswith(".ps1"):
+    if program.endswith((".ps1", _SH_SUFFIX)):
         return [InvokedScript(_normalise_path(first), via_command, tuple(tokens[1:]))]
+    if program in _SHELL_HOSTS and (scripts := _shell_script(tokens[1:])):
+        return scripts
     wrapped = _wrapped_command(program, tokens[1:])
     if wrapped is not None:
         return _scripts_in(wrapped, depth + 1, via_command)

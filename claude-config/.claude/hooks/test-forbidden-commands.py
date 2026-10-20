@@ -67,17 +67,46 @@ check("the wrapper, call operator",
       cmd(r'& "d:\datrix\datrix\scripts\test\mypy.ps1" datrix-common', tool="PowerShell"),
       BLOCK)
 check("the wrapper's Python entry point",
-      cmd("D:/datrix/.venv/Scripts/python.exe d:/datrix/datrix/scripts/test/lib/mypy_check.py datrix-cli"),
+      cmd("D:/datrix/.venv/Scripts/python.exe d:/datrix/datrix/scripts/common/lib/datrix_scripts/test/mypy_check.py datrix-cli"),
+      BLOCK)
+check("the wrapper's module form",
+      cmd(r"D:\datrix\.venv\Scripts\python.exe -m datrix_scripts.test.mypy_check datrix-common"), BLOCK)
+check("the module form with a narrowing flag",
+      cmd("python -m datrix_scripts.test.mypy_check --specific=src datrix-common"), BLOCK)
+check("the module form with its self-test and a project",
+      cmd("python -m datrix_scripts.test.mypy_check --self-test datrix-common"), BLOCK)
+check("the POSIX twin through bash", cmd("bash d:/datrix/datrix/scripts/test/mypy.sh datrix-common"), BLOCK)
+check("the POSIX twin run directly", cmd("./mypy.sh --all"), BLOCK)
+check("the wrapper -All", cmd('powershell -File "d:/datrix/datrix/scripts/test/mypy.ps1" -All'), BLOCK)
+check("the wrapper's self-test switch turned off",
+      cmd('powershell -File "d:/datrix/datrix/scripts/test/mypy.ps1" -SelfTest:$false datrix-common'), BLOCK)
+check("a self-test flag does not exempt bare mypy", cmd("mypy --self-test"), BLOCK)
+check("a self-test flag does not exempt -m mypy", cmd("python -m mypy --self-test"), BLOCK)
+check("a wrapper self-test does not vouch for a type-check chained after it",
+      cmd('powershell -File "d:/datrix/datrix/scripts/test/mypy.ps1" -SelfTest; python -m mypy src'), BLOCK)
+check("a wrapper self-test does not vouch for a wrapper run chained after it",
+      cmd('bash d:/datrix/datrix/scripts/test/mypy.sh --self-test && bash d:/datrix/datrix/scripts/test/mypy.sh datrix-cli'),
       BLOCK)
 check("affected-gate with the opt-in switch",
       cmd('powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects datrix-common -Mypy'),
       BLOCK)
+check("affected-gate.sh with the opt-in switch",
+      cmd("bash d:/datrix/datrix/scripts/test/affected-gate.sh --projects=datrix-common --mypy"), BLOCK)
+
+print("== type-checkers: the wrapper's self-test launches none ==")
+check("the wrapper's self-test",
+      cmd('powershell -File "d:/datrix/datrix/scripts/test/mypy.ps1" -SelfTest'), ALLOW)
+check("the wrapper's self-test, call operator",
+      cmd(r'& "d:\datrix\datrix\scripts\test\mypy.ps1" -SelfTest -Dbg', tool="PowerShell"), ALLOW)
+check("the POSIX twin's self-test", cmd("bash d:/datrix/datrix/scripts/test/mypy.sh --self-test"), ALLOW)
+check("the module's self-test",
+      cmd(r"D:\datrix\.venv\Scripts\python.exe -m datrix_scripts.test.mypy_check --self-test"), ALLOW)
 
 print("== type-checkers: reading, cleaning up and neighbours stay allowed ==")
 check("reading the wrapper",
       cmd('grep -n "cache-dir" d:/datrix/datrix/scripts/test/mypy.ps1'), ALLOW)
 check("paging the wrapper's Python entry point",
-      cmd("sed -n '1,80p' /d/datrix/datrix/scripts/test/lib/mypy_check.py"), ALLOW)
+      cmd("sed -n '1,80p' /d/datrix/datrix/scripts/common/lib/datrix_scripts/test/mypy_check.py"), ALLOW)
 check("deleting a stray cache",
       cmd(r"Remove-Item -Recurse -Force d:\datrix\datrix-cli\.mypy_cache", tool="PowerShell"),
       ALLOW)
@@ -94,9 +123,9 @@ check("a file merely named check_mypy.py",
       cmd("python d:/datrix/.scripts/check_mypy.py"), ALLOW)
 check("installing is not running", cmd("pip show mypy"), ALLOW)
 check("syntax-checking the guarded script (-m consumes the module)",
-      cmd("python -m py_compile d:/datrix/datrix/scripts/test/lib/mypy_check.py"), ALLOW)
-check("compiling the wrapper's directory",
-      cmd("python -m compileall d:/datrix/datrix/scripts/test/lib"), ALLOW)
+      cmd("python -m py_compile d:/datrix/datrix/scripts/common/lib/datrix_scripts/test/mypy_check.py"), ALLOW)
+check("compiling the wrapper's module directory",
+      cmd("python -m compileall d:/datrix/datrix/scripts/common/lib/datrix_scripts/test"), ALLOW)
 
 print("== /resolve-conflicts: the window opens only on Jon's own invocation ==")
 TRANSCRIPT_DIR = r"D:\datrix\.tmp"

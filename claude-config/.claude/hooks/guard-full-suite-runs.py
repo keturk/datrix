@@ -26,7 +26,8 @@ or a tier sweep (`-Unit` / `-Integration` / `-E2E` / `-Fast` / `-Slow`).
 `affected-gate.ps1` schedules whole-suite `test.ps1` children, so every
 invocation of it is a whole-suite run too. The only shapes that start no test at
 all -- `affected-gate.ps1 -SelfTest` and `test.ps1 -ListTags` -- are allowed.
-The classification lives in the sibling `_suite_invocation.py`, shared with the
+`test.sh`, the runner's POSIX twin (`bash test.sh <pkg> --tag x`, `./test.sh`), is
+classified by the same rules over its `--kebab` flags. The classification lives in the sibling `_suite_invocation.py`, shared with the
 instruction-surface census that keeps agent-facing documents from prescribing a
 whole-suite form.
 

@@ -30,6 +30,9 @@ _AUDIT = Path("D:/datrix/.tmp/full-suite-audit.jsonl")
 _TEST = 'powershell -File "d:/datrix/datrix/scripts/test/test.ps1"'
 _SINGLE = 'powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1"'
 _AFFECTED_GATE = 'powershell -File "d:/datrix/datrix/scripts/test/affected-gate.ps1"'
+_TEST_SH = "d:/datrix/datrix/scripts/test/test.sh"
+_AFFECTED_GATE_SH = "d:/datrix/datrix/scripts/test/affected-gate.sh"
+_SINGLE_SH = "d:/datrix/datrix/scripts/test/test-single.sh"
 
 _AGENT = "a188ff1324c21f55e"
 _MAIN = ""
@@ -64,6 +67,8 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
     ),
     (f"{_AFFECTED_GATE} -Projects datrix-common", True, "affected-gate.ps1 sweep"),
     (f"{_AFFECTED_GATE} -All", True, "affected-gate.ps1 -All"),
+    (f"bash {_AFFECTED_GATE_SH} --projects=datrix-common", True, "affected-gate.sh sweep through bash"),
+    ("./affected-gate.sh --all", True, "affected-gate.sh --all run directly"),
     (
         f'{_TEST} datrix-common -Specific "tests/unit/a.py"; {_AFFECTED_GATE} -Projects datrix-language',
         True,
@@ -148,6 +153,7 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
     (f"{_TEST} datrix-codegen-python -ListTags", False, "-ListTags runs no test"),
     (f"{_TEST} -All -ListTags", False, "-All -ListTags runs no test"),
     (f"{_AFFECTED_GATE} -SelfTest", False, "affected-gate.ps1 -SelfTest runs no suite child"),
+    (f"bash {_AFFECTED_GATE_SH} --self-test", False, "affected-gate.sh --self-test runs no suite child"),
     (
         f"{_AFFECTED_GATE} -Projects datrix-common,datrix-codegen-aws -SelfTest",
         False,
@@ -231,6 +237,28 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         False,
         "a variable assignment holding a runner command",
     ),
+    # ---- test.sh, the runner's POSIX twin, read with its --kebab flags ----
+    (f"bash {_TEST_SH} datrix-common", True, "test.sh: bare full suite through bash"),
+    (f"sh {_TEST_SH} datrix-common --all", True, "test.sh: --all"),
+    (f"bash {_TEST_SH} --projects=datrix-common", True, "test.sh: a --projects= package with no narrowing"),
+    (f"bash {_TEST_SH} datrix-common --unit", True, "test.sh: a tier sweep"),
+    (f"bash {_TEST_SH} datrix-common --rerun --specific=tests/unit/a.py", True, "test.sh: --rerun widens --specific"),
+    ("./test.sh datrix-common --tag pubsub,outbox,storage,jobs", True, "test.sh: four tags run directly"),
+    (f'bash {_TEST_SH} datrix-common "--tag=a, b, c, d"', True, "test.sh: four tags in one quoted --tag= word"),
+    (f"bash {_TEST_SH} datrix-common datrix-cli --keyword=enum", True, "test.sh: --keyword across two packages"),
+    (
+        f"bash {_TEST_SH} datrix-common --specific=tests/unit/a.py; bash {_TEST_SH} datrix-language",
+        True,
+        "test.sh: a targeted first invocation must not vouch for a bare second one",
+    ),
+    (f"bash {_TEST_SH} datrix-common -Specific tests/unit/a.py -c x", False, "test.sh: script arguments are not the shell's -c"),
+    (f"bash {_TEST_SH} datrix-common --list-tags", False, "test.sh: --list-tags runs no test"),
+    (f"bash {_TEST_SH} --self-test", False, "test.sh: --self-test runs no test"),
+    (f"bash {_TEST_SH} datrix-common --specific=tests/unit/a.py", False, "test.sh: --specific= is targeted"),
+    (f"bash {_TEST_SH} datrix-common --tag=gateway", False, "test.sh: --tag= is targeted"),
+    (f"bash -o pipefail {_TEST_SH} datrix-common --tag gateway", False, "test.sh: a shell value option before the script"),
+    (f"grep -n list-tags {_TEST_SH}", False, "test.sh: reading the twin runs nothing"),
+    (f"bash {_SINGLE_SH} tests/unit/a.py --project=datrix-common", False, "test-single.sh is not the runner"),
 )
 
 

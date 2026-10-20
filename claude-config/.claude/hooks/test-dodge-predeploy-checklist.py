@@ -212,7 +212,7 @@ for label, command in [
     ("for list naming a deploy script",
      'for f in test/status-deploy-tests.ps1; do sed -n 1,5p "$f"; done'),
     ("grep for a deploy script name", "grep -rn deploy-staging.ps1 docs"),
-    ("scripts path in a variable", "S=d:/datrix/datrix/scripts/scan/lib/config_linter.py; grep -n foo $S"),
+    ("scripts path in a variable", "S=d:/datrix/datrix/scripts/common/lib/datrix_scripts/scan/config_linter.py; grep -n foo $S"),
     ("heredoc body naming a deploy script",
      "cat <<EOF\npowershell -File deploy-staging.ps1\nEOF"),
     ("status script run", 'powershell -File "d:/datrix/datrix/scripts/test/status-deploy-tests.ps1"'),

@@ -12,8 +12,9 @@ override: a `test.ps1` run naming a package without `-Specific`/`-Keyword`/`-Tag
 documents from prescribing one.
 
 Type-checking is not part of verification: never run `mypy` or any standalone type-checker
-(`guard-forbidden-commands.py` refuses the binaries, `python -m mypy`, `test\mypy.ps1`,
-`test/lib/mypy_check.py` and the `-Mypy` switch of `affected-gate.ps1`).
+(`guard-forbidden-commands.py` refuses the binaries, `python -m mypy`, `test\mypy.ps1`, its `test/mypy.sh`
+twin, `-m datrix_scripts.test.mypy_check` and the `-Mypy` switch of `affected-gate.ps1`; a mypy wrapper's
+`-SelfTest` alone, which launches no type-checker, passes).
 
 This file is git-tracked in the `datrix` repository via the `d:\datrix\.claude` ->
 `d:\datrix\datrix\claude-config\.claude` symlink, so an edit through either path modifies
