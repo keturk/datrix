@@ -15,6 +15,9 @@
       findings-index     [--dir D]                  atomic-finding index of the findings inbox
       findings-check     --delete F... [--dir D]    would deleting F lose a citation or leave a dangling
                          [--keep-raw]               Related pointer? (--keep-raw: raw files may remain)
+      findings-plan      [--dir D] [--no-model]     theme plan for the findings inbox: plan JSON + review view
+      findings-assemble  [--plan P] [--apply]       write the theme files from the plan, carrying every unit
+                                                    verbatim; --apply writes, checks, deletes the sources
       finding-select     [--count N] [--dir D]      the first N findings files by name (/implement-finding)
       finding-close      --finding F                delete F unless another findings file names it;
                          [--session-log L]          with L (a step's .stream.jsonl), also unless its
@@ -63,7 +66,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "finding-select",
+    [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "findings-plan",
+        "findings-assemble", "finding-select",
         "finding-close", "checklist", "absorb-transfer", "absorb-references", "bug-resolution")]
     [string]$Command,
     [Parameter(Position = 1, ValueFromRemainingArguments = $true)] [string[]]$Arguments = @(),
@@ -78,7 +82,7 @@ Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -For
 Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
 
 # The commands that may ask a local model; the others are exact and take no model flags.
-$modelCommands = @("readiness", "findings-index", "checklist", "absorb-transfer", "bug-resolution")
+$modelCommands = @("readiness", "findings-index", "findings-plan", "checklist", "absorb-transfer", "bug-resolution")
 
 $pyArgs = @($Command) + @($Arguments)
 if ($modelCommands -contains $Command) {

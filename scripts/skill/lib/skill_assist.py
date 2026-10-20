@@ -9,6 +9,8 @@ Commands:
     findings-index     [--dir D]                 atomic-finding index of the findings inbox (model, checked)
     findings-check     --delete F... [--dir D] [--keep-raw]
                                                  would deleting F lose a citation? (exact)
+    findings-plan      [--dir D] [--no-model]    theme plan for the findings inbox (model, checked)
+    findings-assemble  [--plan P] [--apply]      write the theme files from a plan, verbatim (exact)
     finding-select     [--count N] [--dir D]     the first N findings files by name (exact)
     finding-close      --finding F [--session-log L]
                                                  delete F unless a findings file names it or L shows
@@ -55,7 +57,9 @@ from common import (
     EXIT_NO_MODEL,
     EXIT_OK,
     AssistError,
+    ContentFilter,
     NoModelAnswer,
+    output_dir,
     workspace_label,
     write_output,
 )
@@ -71,6 +75,17 @@ from datrix_scripts.local_reading import ReadScopeError
 from datrix_scripts.task_metadata import format_phase
 from datrix_scripts.paths import WORKSPACE_DIR
 from findings import build_index, check_consolidation, render_check, render_index
+from findings_assemble import (
+    apply_assembly,
+    assemble,
+    draft_plan,
+    load_plan,
+    load_sources,
+    plan_json,
+    render_assembly,
+    render_plan,
+    write_assembly,
+)
 from implement_finding import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
 from implement_finding import close_finding, finding_files, findings_dir
 from phase_tasks import phase_tasks
@@ -178,6 +193,47 @@ def cmd_findings_check(args: argparse.Namespace) -> int:
     return EXIT_OK if result.passed else EXIT_CHECK_FAILED
 
 
+def cmd_findings_plan(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _findings_dir(workspace, args.dir)
+    themes = draft_plan(directory, workspace, None if args.no_model else _pool(args))
+    if not themes:
+        print("The findings folder holds no *.md file.")
+        return EXIT_OK
+    plan = write_output(workspace, "findings-plan.json", plan_json(themes))
+    units = {u.unit_id: u for source in load_sources(directory) for u in source.units}
+    view = write_output(workspace, "findings-plan.md", render_plan(themes, units, plan))
+    flagged = sum(1 for theme in themes if theme.review)
+    print(f"Plan JSON: {plan}")
+    return _done(view, f"{len(units)} unit(s) into {len(themes)} theme(s); {flagged} theme(s) flagged for review.")
+
+
+def cmd_findings_assemble(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _findings_dir(workspace, args.dir)
+    plan = Path(args.plan) if args.plan else output_dir(workspace) / "findings-plan.json"
+    assembly = assemble(load_plan(plan), load_sources(directory), ContentFilter(workspace))
+    if not assembly.safe:
+        print(render_assembly(assembly, directory), end="")
+        print("Nothing written: fix the plan or the sources named above, then run again.")
+        return EXIT_CHECK_FAILED
+    if not args.apply:
+        preview = output_dir(workspace) / "findings-preview"
+        preview.mkdir(exist_ok=True)
+        for stale in preview.glob("*.md"):
+            stale.unlink()
+        write_assembly(preview, assembly)
+        print(render_assembly(assembly, preview), end="")
+        print("Preview only. Run again with --apply to write the files and delete the superseded sources.")
+        return EXIT_OK
+    result = apply_assembly(directory, assembly)
+    print(render_assembly(assembly, directory), end="")
+    print(render_check(result), end="")
+    if result.passed:
+        print(f"Deleted {len(assembly.delete)} superseded source(s).")
+    return EXIT_OK if result.passed else EXIT_CHECK_FAILED
+
+
 def cmd_checklist(args: argparse.Namespace) -> int:
     workspace = _workspace(args)
     design = _design(workspace, args.design)
@@ -261,6 +317,14 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_argument("--delete", nargs="+", action="extend", required=True, help="The files you are about to delete")
     sub.add_argument("--keep-raw", action="store_true",
                      help="Raw files may remain (/merge-findings keeps every distinct finding in place)")
+    sub = command("findings-plan", cmd_findings_plan, model=True)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--no-model", action="store_true", help="Every raw finding becomes its own new theme")
+    sub = command("findings-assemble", cmd_findings_assemble, model=False)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--plan", help="Plan JSON (default: <workspace>/.tmp/assist/findings-plan.json)")
+    sub.add_argument("--apply", action="store_true",
+                     help="Write the theme files and delete the superseded sources (default: a preview)")
     sub = command("finding-select", cmd_finding_select, model=False)
     sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
     sub.add_argument("--count", type=int, default=DEFAULT_FINDING_COUNT)

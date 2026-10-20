@@ -39,6 +39,7 @@ from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from datrix_scripts.local_reading import WITHHELD_LINE
 from datrix_scripts.paths import script_env
 from findings import build_index, check_consolidation, extract_file
+from findings_assemble import Theme, apply_assembly, assemble, draft_plan, load_sources, parse_source
 from implement_finding import EXIT_DELETED, EXIT_KEPT, EXIT_UNUSABLE, finding_files, test_runs
 from phase_tasks import phase_tasks
 from readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules
@@ -226,6 +227,84 @@ def check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_cit
         write_file(survivor, "# Same\n\nAt `a/b.py:1` and `a/c.py:2`.\n")
         passed = check_consolidation(folder, [duplicate], raw_may_remain=True)
         assert passed.passed, passed
+
+
+_ALPHA_THEME = ("# Alpha seam\n\n**Scope:** alpha things\n\n## 1. First alpha defect\n\n"
+                "Body one at `datrix-alpha/src/a.py:1`.\n\n## 2. Second alpha defect\n\nBody two.\n")
+
+
+def _placement_reply(chat: Chat) -> str:
+    if "sort new findings" not in chat.system:
+        return json.dumps({"folds": []})
+    return json.dumps({"placements": [
+        {"unit": "20261001-000000-dup", "theme": "C001", "duplicate_of": "C001.1", "new_theme": ""},
+        {"unit": "20261001-000001-lost", "theme": "C999", "duplicate_of": "", "new_theme": ""},
+        {"unit": "20261001-000002-new", "theme": "NEW", "duplicate_of": "", "new_theme": "Beta seam"}]})
+
+
+def check_findings_plan_checks_every_placement_and_never_sends_a_customer_term() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        write_file(folder / "consolidated-001-alpha.md", _ALPHA_THEME)
+        write_file(folder / "20261001-000000-dup.md", "# Same as first\n\nBody dup.\n")
+        write_file(folder / "20261001-000001-lost.md", "# Lost one\n\nBody lost.\n")
+        write_file(folder / "20261001-000002-new.md", f"# New seam thing\n\nThe {_GATE_TERM} line.\nBody new.\n")
+        with LoopbackOllama(_placement_reply) as server:
+            themes = draft_plan(folder, root, _pool(server))
+        by_title = {theme.title: theme for theme in themes}
+        alpha = by_title["Alpha seam"]
+        assert alpha.sections == [["C001.1", "20261001-000000-dup"], ["C001.2"]], alpha.sections
+        assert any("merged into section C001.1" in line for line in alpha.review), alpha.review
+        assert by_title["Beta seam"].sections == [["20261001-000002-new"]], by_title["Beta seam"]
+        lost = by_title["Lost one"]
+        assert lost.sections == [["20261001-000001-lost"]] and "does not exist" in " ".join(lost.review), lost
+        sent = " ".join(chat.user for chat in server.chats)
+        assert _GATE_TERM not in sent and "Body new." in sent, "a registered customer term reached the model"
+
+
+def check_findings_assemble_refuses_a_dropped_unit_and_repoints_a_folded_file() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        write_file(folder / "consolidated-001-alpha.md", _ALPHA_THEME)
+        write_file(folder / "consolidated-002-beta.md",
+                   "# Beta\n\n**Related:** consolidated-001-alpha (alpha)\n\n## 1. Beta defect\n\nBody beta.\n")
+        write_file(folder / "consolidated-003-gamma.md",
+                   "# Gamma\n\n**Related:** consolidated-002-beta (beta)\n\n## 1. Gamma defect\n\nBody gamma.\n")
+        sources = load_sources(folder)
+        alpha = Theme("consolidated-001-alpha.md", "alpha", "Alpha seam", "alpha things",
+                      [["C001.1"], ["C001.2"], ["C002.1"]])
+        gamma = Theme("consolidated-003-gamma.md", "gamma", "Gamma", "", [["C003.1"]])
+        try:
+            assemble([alpha], sources, ContentFilter(root))
+        except AssistError as exc:
+            assert "C003.1" in str(exc) and "placed nowhere" in str(exc), exc
+        else:
+            raise AssertionError("a plan that drops unit C003.1 was assembled")
+        assembly = assemble([alpha, gamma], sources, ContentFilter(root))
+        assert assembly.safe and assembly.delete == ["consolidated-002-beta.md"], assembly
+        texts = {f.name: f.text for f in assembly.files}
+        assert "**Related:** consolidated-001-alpha (beta)" in texts["consolidated-003-gamma.md"], texts
+        assert "**Related:**" not in texts["consolidated-001-alpha.md"], "a folded file left a pointer to itself"
+        assert "## 3. Beta defect" in texts["consolidated-001-alpha.md"], texts["consolidated-001-alpha.md"]
+        result = apply_assembly(folder, assembly)
+        assert result.passed and not (folder / "consolidated-002-beta.md").exists(), result
+
+
+def check_findings_parse_repairs_mojibake_and_nests_raw_headings() -> None:
+    with _workspace() as root:
+        raw = write_file(root / "reports/finding/20261001-000000-m.md",
+                         "# Mojibake\n\n## Detail\n\nA â€” B\n")
+        unit = parse_source(raw).units[0]
+        assert unit.title == "Mojibake" and unit.body == ("### Detail", "", "A — B"), unit.body
+
+
+def check_findings_assemble_flags_a_customer_term_in_the_output() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        write_file(folder / "20261001-000000-t.md", f"# Term\n\nThe {_GATE_TERM} service breaks.\n")
+        theme = Theme("", "term", "Term", "", [["20261001-000000-t"]])
+        assembly = assemble([theme], load_sources(folder), ContentFilter(root))
+        assert not assembly.safe and assembly.term_files == ["consolidated-001-term.md"], assembly
 
 
 # ===========================================================================
@@ -535,6 +614,10 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_never_send_a_registered_customer_term,
     check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer,
     check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_citation,
+    check_findings_plan_checks_every_placement_and_never_sends_a_customer_term,
+    check_findings_assemble_refuses_a_dropped_unit_and_repoints_a_folded_file,
+    check_findings_parse_repairs_mojibake_and_nests_raw_headings,
+    check_findings_assemble_flags_a_customer_term_in_the_output,
     check_implement_finding_selects_the_first_files_by_name,
     check_implement_finding_test_runs_reads_foreground_test_ps1_results_only,
     check_implement_finding_test_runs_judges_a_gate_run_by_its_verdict_line,
