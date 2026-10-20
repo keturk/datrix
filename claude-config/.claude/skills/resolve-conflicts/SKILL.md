@@ -25,9 +25,9 @@ incoming change.
 ## What this invocation unlocks
 
 `guard-forbidden-commands.py` normally refuses every stash, reset, restore, and path
-checkout. Once **Jon has typed `/resolve-conflicts` in the session** (it reads this from
-the transcript; follow-up prompts keep the window open for the rest of the session), it
-allows exactly these:
+checkout, and `datrix/scripts/git/resolve-pull.ps1`. Once **Jon has typed
+`/resolve-conflicts` in the session** (it reads this from the transcript; follow-up prompts
+keep the window open for the rest of the session), it allows the script and exactly these:
 
 | Allowed | Use |
 |---|---|
@@ -48,7 +48,50 @@ Arguments name repos (`datrix-common`, `datrix-codegen-python`, …). With no ar
 take every directory under `d:\datrix` that carries a `.git` — discovered, never a
 hardcoded list — and work the ones whose pull is blocked.
 
-## Workflow (per repo)
+## Workflow — run the script first
+
+`resolve-pull.ps1` does steps 1–5 below for every repo, mechanically, and stops only where
+judgement is needed:
+
+```bash
+powershell -File "d:/datrix/datrix/scripts/git/resolve-pull.ps1" <repo> <repo> ...   # no repo: every git repo in the workspace
+```
+
+Per repo it fetches, measures the overlap and the untracked collisions, restores line endings
+on paths whose only local difference is line endings, shelves **only** the overlapping paths
+(stash message `resolve-conflicts <repo> <stamp>`), sets aside untracked collisions under
+`d:/datrix/.tmp/resolve-conflicts/<repo>/untracked/`, pulls, reapplies with `stash apply`,
+verifies, and drops the stash entry. Its state lives in
+`d:/datrix/.tmp/resolve-conflicts/<repo>/state.json`. It prints one outcome per repo:
+
+| Outcome | What you do |
+|---|---|
+| `up to date` / `finished` | nothing; report the HEAD line it printed |
+| `NEEDS HAND MERGE` (packet named) | merge each listed path with **Edit** from the packet (below), then `resolve-pull.ps1 <repo> -Finish` |
+| `NEEDS HAND MERGE` (history conflicted) | resolve each listed file as in step 3, `git add`, `git commit --no-edit`, then `-Finish` (it reapplies the shelved paths) |
+| `UNFINISHED` | an earlier run is mid-merge here: finish that merge, then `-Finish` |
+| `CONFLICT ALREADY IN PROGRESS` | a merge you did not start; read `git status` and finish it by hand before running again |
+| `FAILED` | read the error lines it printed; `-Finish` reapplies the shelved work; fall back to the steps below |
+
+**The packet** — `d:/datrix/.tmp/resolve-conflicts/<repo>/conflicts.md` holds, per conflict hunk,
+the LOCAL, BASE and INCOMING text and, for framework repos, a local model's merge draft. A draft is
+a lead: it is marked `CHECKED` only when it carries every line either side added (`UNCHECKED`
+names the lines it drops), and says so when the model reads the sides as mutually exclusive (a
+possible B2, below). No hunk carrying a
+registered customer term, and nothing from a non-framework repo, is ever sent to a model. Read the
+packet instead of running the diffs of step 4 yourself, then write each merged result with Edit.
+
+**`-Finish`** refuses while any conflict marker remains, unstages the shelved paths, and proves
+every line the local side added is in the working tree, and every line of a set-aside file is in
+the pulled file. Only then does it drop the stash entry and remove the state. A local line you
+deliberately merged with the incoming change (so it no longer appears verbatim) is refused until
+you name its path: `resolve-pull.ps1 <repo> -Finish -Merged <path>` — then it is reported, not
+refused. Name a path in `-Merged` only after reading that the local intent survived.
+
+`-NoModel` skips the merge drafts. Nothing in the script discards work; a refusal leaves the stash
+entry and the state in place.
+
+## By hand (what the script does, and the fallback when it reports FAILED)
 
 Run git as `git -C d:/datrix/<repo> …`. Keep repos independent: one repo's trouble never
 stops the others.

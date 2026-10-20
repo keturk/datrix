@@ -25,6 +25,12 @@ one section; distinct defects stay distinct sections, side by side inside their 
 
 This skill only tidies findings files. It fixes no code, files no tasks, and edits no repo.
 
+**How the work is split.** You decide the grouping; scripts do the reading and the writing. A local
+model drafts where each new finding goes, you correct the plan, and the assembler writes every theme
+file by carrying each source's text verbatim, so no defect, citation or wording is retyped. Do not
+read the inbox file by file and do not write theme files by hand: on a real inbox that costs
+hundreds of thousands of tokens and is where defects get dropped.
+
 ## How to invoke
 
 ```
@@ -33,71 +39,49 @@ This skill only tidies findings files. It fixes no code, files no tasks, and edi
 
 ## Inputs
 
-Every `*.md` file directly in `d:\datrix\reports\finding\`. List them with
-`Get-ChildItem d:\datrix\reports\finding -File -Filter *.md | Sort-Object Name`.
+Every `*.md` file directly in `d:\datrix\reports\finding\`:
 
-- **Raw files** — agent-written `YYYYMMDD-HHMMSS-<slug>.md`: the inbox.
-- **Consolidated files** — `consolidated-NNN-<slug>.md`: results of earlier runs, read so new
-  findings can be merged into them.
+- **Raw files** — agent-written `YYYYMMDD-HHMMSS-<slug>.md`: the inbox. Each is one **unit**, id = its
+  file stem.
+- **Consolidated files** — `consolidated-NNN-<slug>.md`: results of earlier runs. Each `## N.` section
+  is one unit, id `CNNN.N` (so `C009.3` is section 3 of `consolidated-009-…`).
 
 If there are no raw files, say so in one line and stop.
 
-## Phase 1 — Index, then read everything
-
-First have a local model draft the atomic-finding index:
+## Phase 1 — Draft the plan
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-index
+powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-plan
 ```
 
-`d:\datrix\.tmp\assist\findings-index.md` lists every atomic finding of every file (raw and
-consolidated) as `seam | packages | defect | source | citations`, sorted by seam, and under
-"Check these files yourself" each file whose citations the model left unassigned or invented. It is
-a draft: Phase 2 and the Phase 3 index start from it instead of from nothing. Exit 3 means no local
-model answered: build the index by hand as below.
+It writes two files under `d:\datrix\.tmp\assist\`:
 
-Then read every file **in full** with `Read`. Do not skim, grep for headings, or sample — an umbrella
-file can hold twenty defects under one title, and a heading scan finds one; the sections you write
-carry each source's own evidence and wording, so you need the text. The files are small; read them
-yourself and do not dispatch subagents.
+- `findings-plan.json` — the plan: every theme as `file` (the consolidated file it keeps, or `""` for
+  a new theme), `slug`, `title`, `scope`, and `sections` (a list of sections, each a list of unit
+  ids; the first unit of a section is its heading, every further one is the same defect reported
+  again).
+- `findings-plan.md` — the review view: only the themes the model changed, each section with its unit
+  titles, and a `REVIEW` line for every decision the model made (a unit added, a duplicate merged, a
+  new theme, a fold, a unit it could not place).
 
-## Phase 2 — Extract atomic findings
+The model saw only each unit's title and opening lines, with any line carrying a registered customer
+term withheld. Every id it answered was checked; a unit it misplaced or skipped becomes its own new
+theme flagged `not placed`. Exit 3 means no local model answered: run it again with `--no-model`
+(every raw unit becomes its own theme) and do the placing yourself in Phase 2.
 
-Correct the drafted index against what you read: split or merge where the model got the root cause
-wrong, and give every citation listed as unassigned a home. Each atomic finding is one defect, one
-root cause. For each, note:
-title (one line, the defect — not the symptom list), what is wrong and the evidence, every
-`file:line` cited (verbatim), the impact, a direction only if the source gave one, severity only if
-the source gave one, and the file name(s) it came from.
+## Phase 2 — Correct the plan
 
-**Splitting.** A file listing several independent defects (numbered residual lists, "also in this
-file" sections) becomes several atomic findings, so each can be grouped with the findings it belongs
-with. Keep a sub-item with its parent only when it has the same root cause. Splitting is for
-grouping: the pieces may land in different themes, or all in one.
+Read `findings-plan.md` and settle every `REVIEW` line by editing `findings-plan.json` with `Edit`.
+Open a source file only to settle a decision its title does not; read it by range.
 
-**Carry, don't rewrite.** Keep the source's evidence, citations and wording of the defect. Shorten
-prose; never change a claim, a path, a line number, or a severity the source stated. A guess the
-source labelled as a guess stays labelled.
-
-**Leave out what must not be in a shareable file:** secrets, credentials, and customer or project
-domain names. If a source contains one, describe the defect without it and say in your reply that
-the source had to be redacted.
-
-## Phase 3 — Group into themes, collapse duplicates
-
-**The failure this phase exists to prevent:** renaming each raw file to `consolidated-NNN-…`, or
-merging only findings that say the identical thing. Both leave a folder as long as the inbox. A real
+**The failure this phase exists to prevent:** a plan that leaves each raw file its own theme, or
+merges only findings that say the identical thing. Both leave a folder as long as the inbox. A real
 inbox holds clusters of *related* findings — the same seam seen from the python side, the
 typescript side and a test side; five different symptoms of one broken contract; a subsystem with a
-handful of unrelated small defects. They belong in one file.
+handful of unrelated small defects. They belong in one theme.
 
-**Step 1 — build the index first.** Before writing any file, list every atomic finding (including
-those in existing `consolidated-*` files) as one line: `source file | seam or construct | owning
-package(s) | one-clause defect`. Sort and group the lines by seam, construct and owning area, not by
-file name or date. Read the grouped index top to bottom and name each theme.
-
-**Step 2 — a theme is anything one person would fix and review together.** Findings belong to one
-theme when any of these holds:
+**A theme is anything one person would fix and review together.** Units belong to one theme when any
+of these holds:
 
 - They share a seam, construct or contract (serverless handler parameters, docker config-store
   environment, API-key verification, gateway edge auth, redis connection) — even if the defects
@@ -110,114 +94,90 @@ theme when any of these holds:
 
 Different severity, kind (bug, test gap, doc drift) or target does **not** separate them. Do not
 create a theme per defect "because the fixes are independent": independence decides whether two
-findings are the same *section*, not whether they share a *file*. When unsure whether a finding
-fits a theme, put it in — a slightly broad theme is cheaper to read than the folder it replaces.
+units are the same *section*, not whether they share a *theme*. When unsure, put it in — a slightly
+broad theme is cheaper to read than the folder it replaces.
 
-A theme should stay readable: when one would pass about twelve sections, split it along its most
-natural seam into two themes, each named for what it covers. A finding that truly belongs to
-nothing else becomes a single-section file; that should be the exception.
+**Sections.** Two units are the **same section** only when they name the same defect — the same root
+cause, or the same wrong behaviour of the same construct, including across targets when the remedy
+is one design. Different defects in one theme are separate sections.
 
-**Step 3 — collapse duplicates inside a theme.** Two atomic findings are the **same section** only
-when they name the same defect — the same root cause, or the same wrong behaviour of the same
-construct, including across targets when the remedy is one design.
+**What you edit in the JSON:**
 
-- **Same defect** → one section. Union the `file:line` lists and the evidence; when the sources
-  cover different sites, give each site its own bullet. Keep the higher stated severity.
-- **Different defects in the same theme** → separate sections, each carrying its own evidence in
-  full. Where useful, a section names the sections it depends on or contradicts.
-- **Sources disagree** (one says a thing is realized, another says it is not) → one section marked
-  `**Conflict:**`, quoting both claims. Do not pick a side without reading the code; if you do read
-  it, cite what you read.
+- Move a unit id between sections or themes; put two ids in one section to collapse a duplicate;
+  split a section into two lists to separate defects the model merged.
+- Fold two themes into one by moving one theme's sections into the other and deleting the emptied
+  theme (keep the lower-numbered `file`; the folded file is deleted, its number retired, and every
+  `**Related:**` pointer to it is repointed by the assembler).
+- Give every new theme a `title` naming the seam or subsystem and a lowercase-hyphenated `slug`, and
+  a `scope` (one or two sentences) when it has more than one section. When a kept theme broadens,
+  change its `title` and `slug`; its number stays and the file is renamed.
+- A theme passing about twelve sections (the view flags it): split it along its most natural seam
+  into two themes.
 
-**Step 4 — check the ratio.** Count atomic findings in and theme files out. A run that turns N
-inputs into roughly N files has not grouped; go back to the index and name the themes the lone
-files belong to. Report both numbers.
+Every unit id must appear exactly once. A dropped, repeated or invented id, a bad slug, or one
+`file` used by two themes is refused by Phase 3 with the list of what is wrong.
 
-## Phase 4 — Write the resulting files
+**Check the ratio.** Count units in and themes out (the view's header). A plan that turns N new
+findings into roughly N new themes has not grouped; go back and name the themes the lone units
+belong to.
 
-Each theme gets exactly one **consolidated file** in `d:\datrix\reports\finding\`, named
-`consolidated-NNN-<slug>.md` (`NNN` three digits, `<slug>` naming the theme).
-
-- **Numbering.** Continue from the highest `NNN` among existing `consolidated-*` files (start at
-  `001`). Numbers are never reused or renumbered.
-- **Raw files** (anything not prefixed `consolidated-`) are always superseded. Each defect in them
-  goes **first** into an existing consolidated file whose theme it fits, as a new section or as
-  added evidence on a section it duplicates. Only a defect that fits no existing file and no other
-  new theme gets a new file. A raw file never becomes a consolidated file by being renamed.
-- **Existing consolidated files** keep their number and are in scope for grouping: earlier runs
-  saw only part of the inbox, and an earlier run may have written one file per defect. Fold files
-  of one theme into the lowest-numbered of them, carrying each file's defects over as sections, and
-  delete the others. When a file's theme broadens, update its title and slug (the number stays;
-  rename the file to match) and repoint any **Related** lines in other files that named the old
-  name.
-- Raw files and folded-away consolidated files are deleted in Phase 6.
-
-Layout of a file the skill writes:
-
-```markdown
-# <theme — the seam, subsystem or defect class>
-
-**Scope:** <one or two sentences: what this theme covers and how its defects relate>
-**Where:** `repo/path/…`, `…`   (the packages and areas it spans)
-**Related:** <other consolidated files, if any>
-
-## 1. <the defect, one line>
-
-**Severity:** <only if a source stated it>  ·  **Kind:** <bug / security / design flaw / test gap / doc drift / tooling, as the sources say>
-**Where:** `repo/path/file.py:48-61`, `...`
-
-**Issue.** ...
-
-**Impact.** ...
-
-**Direction.** ...   (only if a source gave one)
-
-## 2. <next defect>
-...
-```
-
-A single-section file may omit **Scope** and put the defect's fields directly under the title.
-
-Do not add status fields, IDs, or a "merged from" list: the folder is a working inbox, not a
-history.
-
-**Encoding.** Write files with the `Write` tool as plain UTF-8. Source text may arrive already
-garbled (`â€¦` for `…`, `Â§` for `§`, `â€”` for `—`); restore the intended character when carrying it
-and never copy the garbling forward. Never write a file through a shell redirect or `Set-Content`.
-
-**Related lines.** Every `consolidated-NNN` named under **Related** must exist after Phase 6. Check
-after deleting; a pointer to a deleted file is a defect in the consolidation.
-
-## Phase 5 — Prove nothing was lost
-
-Before deleting anything, run the exact check over the files you are about to delete:
+## Phase 3 — Preview the assembly
 
 ```bash
-powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-check --delete <file> <file> ...
+powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-assemble
 ```
 
-It passes (exit 0) only when every `path:line` citation and every backticked file path of each file
-to delete appears in a file that remains, every `**Related:**` pointer in a remaining file names a
-consolidated file that remains, no remaining file carries mojibake, and no raw file is left that is
-neither superseded nor in the delete list. Exit 2 lists what fails: fix the remaining files, then run
-it again.
+It writes every theme file into `d:\datrix\.tmp\assist\findings-preview\` and changes nothing in the
+inbox. Each theme file is `# title`, its preamble (**Scope**, **Where**, **Related**, merged from every
+file folded into it), then `## 1.` … one section per plan section: the first unit's title and body,
+and each further unit as an `**Also reported as:** <title>` paragraph with its own body. Raw files'
+headings are nested one level, garbled characters (`â€”` for `—`) are restored, line ends are LF.
 
-The script cannot tell whether a *defect* landed, only its citations. So, for **every file you are
-about to delete**, also list the defects you counted in it (the index rows of that source) and, for
-each, the remaining file and section number that now states it. Do this by re-reading the files you
-wrote, not from memory. A defect without a home is a defect in your consolidation: fix the remaining
-file, then re-check.
+Before writing, it proves that every non-blank line of every source — titles, bodies, preamble —
+appears in the output, and that no output carries a registered customer term. Exit 2 names what
+failed and writes nothing:
 
-## Phase 6 — Delete the superseded sources
+- **A customer term** — redact the source file itself with `Edit` (describe the defect without the
+  term), say in your report that it was redacted, and run again.
+- **Lost lines** — the plan or a source is malformed; fix it and run again.
 
-Only after Phase 5 passes (the script's exit 0 and every defect mapped), delete each superseded file (grouped-away sources and split umbrellas)
-with `Remove-Item`. Do not copy, move or rename them anywhere, and do not create an `archive`
-folder or any other file recording what was deleted.
+Read the preview of any theme you are unsure of; you need not read them all.
+
+## Phase 4 — Apply
+
+```bash
+powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-assemble --apply
+```
+
+It writes the theme files into the inbox, runs the no-loss check (`findings-check`: every `path:line`
+and backticked file path of each superseded file appears in a remaining file, every `**Related:**`
+pointer names a remaining consolidated file, no mojibake, no raw file left), and deletes the
+superseded sources **only when that check passes**. Exit 2 deletes nothing and lists what fails: fix
+the remaining files with `Edit`, then run `findings-check --delete <the superseded files>` yourself
+and delete them with `Remove-Item` once it passes.
+
+Do not copy, move or rename the superseded files anywhere, and do not create an `archive` folder or
+any other file recording what was deleted.
+
+## Phase 5 — Finish by hand, only where a script cannot
+
+Edit the written files with `Edit` only for what the assembler does not do:
+
+- **Sources disagree** (one says a thing is realized, another says it is not): mark that section
+  `**Conflict:**`, quoting both claims. Do not pick a side without reading the code; if you do read
+  it, cite what you read.
+- **An umbrella raw file** that listed several independent defects arrived as one section: split it
+  into sections, or move a defect to the theme it belongs to, carrying its text unchanged.
+- **Secrets or credentials** in a source (the term check covers customer terms only): remove them and
+  say so in your report.
+
+Never shorten a claim, change a path, a line number or a stated severity, and never add status
+fields, IDs or a "merged from" list. When you move a defect between files, add it at its new place
+before removing it from the old one, and give the receiving section its own `## N.` number.
 
 ## Report to Jon
 
-Keep it short: raw files in, existing consolidated files in, atomic findings in, theme files out
-(the Phase 3 ratio) with their numbers and one-line themes, which existing files were folded
-together, any conflicts flagged, any redaction, and the Phase 5 result (the counts, not "looks
-fine"). If theme files out is close to atomic findings in on ten or more findings, say why the
-findings did not group.
+Keep it short: raw files in, existing consolidated files in, units in, theme files out (the Phase 2
+ratio), the new theme files with their numbers and one-line themes, which existing files were folded
+together, any conflicts flagged, any redaction, and the Phase 4 check result (the counts, not "looks
+fine"). If theme files out is close to units in on ten or more findings, say why they did not group.

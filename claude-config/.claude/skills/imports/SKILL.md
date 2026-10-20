@@ -27,7 +27,7 @@ disable-model-invocation: true
 - `datrix_codegen_kernel.generation.discovery` → `discover_generators`, `discover_platforms`
 - `datrix_codegen_common.generation.orchestrator` → `ServiceOrchestrator`
 - `datrix_codegen_common.generation.language_generator` → `LanguageGenerator`
-- `datrix_codegen_kernel.generation.type_mapping_registry` → `TypeMappingRegistry`, `global_registry`
+- `datrix_codegen_kernel.generation.type_mapping_registry` → `TypeMappingRegistry`
 - `datrix_codegen_common.transpiler.language_transpiler` → `LanguageTranspiler`, `LiteralKeywords`
 - `datrix_codegen_common.transpiler.protocols` → `TranspilerStateProtocol`
 - `datrix_codegen_kernel.generation.language_helpers` → `_derive_default_dialect`, `_build_service_map`, `_register_module_level_names`, `effective_observability_config`

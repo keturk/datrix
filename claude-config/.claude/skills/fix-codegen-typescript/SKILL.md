@@ -64,7 +64,7 @@ Also relevant for collection-time `TypeError` triage: `conftest.py`, `ts_test_de
 | File | Purpose |
 |---|---|
 | `plugin.py` | `TypeScriptGenerator` — main entry, creates transpiler, resolvers, orchestrators |
-| `registry.py` | `TS_SUB_GENERATORS` — ordered list of sub-generators with feature gates |
+| `registry.py` | `build_ts_sub_generators` — ordered sub-generator specs with feature gates, built from the plugin's held definitions |
 | `type_resolver.py` | `TypeScriptTypeResolver` — Datrix types → TS types |
 | `type_mappings.py` | `TYPESCRIPT_TYPE_MAP` — static type mapping dictionary |
 | `profile.py` | `TS_PROFILE` — `LanguageProfile` for `SharedTranspiler` |

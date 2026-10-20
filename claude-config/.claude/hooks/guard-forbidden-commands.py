@@ -26,6 +26,9 @@ the session (any HUMAN prompt in the transcript), these become allowed:
   git reset [-q] [HEAD] [-- <paths>] unstage (mixed, index only -- the tree is kept)
   git restore --staged <paths>      unstage, never touching the working tree
 
+  scripts/git/resolve-pull.ps1      the same sequence, run by a script (blocked
+                                    outside the window like the git calls it makes)
+
 Everything that destroys work stays blocked even then: `reset --hard/--keep/--soft`
 or to another commit, `restore` of the working tree, `checkout -- <path>`, a bare
 or path-less `stash`/`stash clear`, `revert`, and `clean -f`.
@@ -245,6 +248,20 @@ _RESOLVABLE: Final = {
     "reset": _reset_resolvable,
     "restore": _restore_resolvable,
 }
+
+
+#: The script that runs the skill's stash/pull/apply sequence itself (scripts/git/resolve-pull.ps1 and
+#: the lib/resolve_pull.py it wraps): it shelves work exactly as `git stash push -- <paths>` does.
+_RESOLVE_PULL_RE: Final = re.compile(r"(?<![\w.-])(?:resolve-pull\.ps1|resolve_pull\.py)\b", re.IGNORECASE)
+
+
+def _check_resolve_pull(command: str, transcript_path: str) -> None:
+    """Block running the resolve-pull script unless Jon has typed `/resolve-conflicts` this session."""
+    for segment in segments(executable_text(command)):
+        script = _script_run_by(segment, leading_token(segment))
+        if script and _RESOLVE_PULL_RE.search(script) and not _resolve_conflicts_active(transcript_path):
+            _block("BLOCKED: `resolve-pull.ps1` shelves and reapplies uncommitted work; it runs only inside "
+                   "Jon's `/resolve-conflicts`.")
 
 
 def _exempt(subcommand: str, args: list[str], transcript_path: str) -> bool:
@@ -494,6 +511,7 @@ def main() -> None:
     command = data.get("tool_input", {}).get("command", "")
     if command:
         _check_command(command, data.get("transcript_path") or "")
+        _check_resolve_pull(command, data.get("transcript_path") or "")
         _check_type_checker(command)
         _check_pytest(command)
         _check_polling(command)

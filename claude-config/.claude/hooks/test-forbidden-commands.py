@@ -190,6 +190,17 @@ check("open, still blocks: reset --hard after a follow-up",
 check("closed: the tag quoted mid-prompt", in_window(STASH_PATHS, QUOTED), BLOCK)
 check("closed: meta text is not Jon's prompt", in_window(STASH_PATHS, MODEL_INVOKED), BLOCK)
 
+RESOLVE_PULL = 'powershell -File "d:/datrix/datrix/scripts/git/resolve-pull.ps1" datrix-common'
+check("window: resolve-pull.ps1", in_window(RESOLVE_PULL), ALLOW)
+check("window, PowerShell: resolve-pull.ps1 -Finish",
+      in_window(r"& D:\datrix\datrix\scripts\git\resolve-pull.ps1 datrix-common -Finish", tool="PowerShell"), ALLOW)
+check("closed: resolve-pull.ps1 with no transcript", cmd(RESOLVE_PULL), BLOCK)
+check("closed: resolve_pull.py run directly",
+      cmd("D:/datrix/.venv/Scripts/python.exe d:/datrix/datrix/scripts/git/lib/resolve_pull.py datrix-common"), BLOCK)
+check("closed: meta text does not open resolve-pull", in_window(RESOLVE_PULL, MODEL_INVOKED), BLOCK)
+check("closed, reading it is fine: grep resolve-pull.ps1",
+      cmd("grep -n Finish d:/datrix/datrix/scripts/git/resolve-pull.ps1"), ALLOW)
+
 print("== pytest invoked directly (test.ps1 owns the interpreter and the guards) ==")
 check("bare pytest", cmd("pytest tests/unit/test_a.py"), BLOCK)
 check("pytest -x", cmd("pytest -x -q"), BLOCK)
