@@ -1,6 +1,8 @@
 # Fix-Package Playbook (shared by all /fix-* package skills)
 
-Shared workflow for diagnosing and fixing failures, errors, and warnings in a single `datrix-*` package from a structured test-results `index.json` — without exploring the codebase first — and proving the result with the tests of every behaviour the fixes changed (never a whole suite).
+Shared workflow for diagnosing and fixing failures, errors, and warnings in a single `datrix-*` package from a structured test-results `index.json` — without exploring the codebase first — and proving the result with the tests of every behaviour the fixes changed, in `{PACKAGE}` (never a whole suite).
+
+**Single-repo scope (Jon's standing order).** A `/fix-{suffix}` agent works in `{PACKAGE}` only: it reads, edits, and runs tests only there. It never runs tests (`-Specific`, `-Tag`, `-Keyword`, `test-single.ps1`) in any other package, even one a changed shared surface reaches, and never names another package in a `test.ps1` call. When a fix reaches other packages, list them in the report under `Reaches (not run)` and stop there; running them is Jon's call, and only his explicit instruction in the current request lifts this rule.
 
 The invoking skill (`/fix-{suffix}`) defines these parameters — substitute them everywhere below:
 - `{PACKAGE}` — package name (e.g. `datrix-common`)
@@ -99,8 +101,8 @@ Read `{PACKAGE_PATH}.project-structure.md`. Regenerate if missing: `powershell -
 powershell -File "d:/datrix/datrix/scripts/test/test-single.ps1" "tests/path/to/test_file.py::TestClass::test_method" -Project {PACKAGE} -VerboseOutput
 # Batched targeted set:
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Specific "tests/unit/test_a.py,tests/unit/test_b.py"
-# The tests of a behaviour, by feature tag, in every package it reaches:
-powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} {other-package} -Tag {tag}
+# The tests of a behaviour, by feature tag, in {PACKAGE} only:
+powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Tag {tag}
 # The tags a package carries (runs nothing):
 powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -ListTags
 ```
@@ -165,13 +167,12 @@ After errors and failures: per unique warning in `warnings.json` (file + categor
 Once, after ALL fixes (the dispatcher does it once over the union when fixes were dispatched):
 
 1. Re-run every originally-failing test plus every test file you added or edited, batched per package with `-Specific`.
-2. Name the behaviours your fixes changed and run their feature tags in `{PACKAGE}` and in every other package the fixes reach — per "Which packages a change reaches" in `d:\datrix\.claude\skills\_shared\verification-strategy.md` (for a shared-layer fix in `datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract: the packages whose code or tests reference the changed surface or an unchanged caller of it, plus the pipeline-running packages when a generator's behaviour changed):
+2. Name the behaviours your fixes changed and run their feature tags in `{PACKAGE}` only:
    ```
-   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} {consumer1} {consumer2} -Tag {tag1},{tag2}
+   powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {PACKAGE} -Tag {tag1},{tag2}
    ```
-3. A changed behaviour no tagged test covers gets a new, tagged test now.
-
-Consuming packages get the tag runs above, never their whole suites.
+3. A changed behaviour no tagged test covers gets a new, tagged test now (in `{PACKAGE}`).
+4. If the changed surface is consumed by other packages (a shared-layer fix in `datrix-common`, `datrix-codegen-common`, `datrix-language`, or a shared contract), do NOT run their tests. Name the packages and tags in the report's `Reaches (not run)` line, found by reading, per "Which packages a change reaches" in `d:\datrix\.claude\skills\_shared\verification-strategy.md`.
 
 **Step 9 is the proof; no whole-suite run follows it** (Jon runs full suites himself). A **FAILED** run here is your input: it writes a new `.test_results/test-results-*/` run, so return to Step 1 with its `index.json` and work every cluster it reports, whether your fixes caused it or it was already there (a failure you found is yours). Then Steps 7–9 again. The turn ends when every originally-failing test and every changed behaviour's tags pass, or at a valid B1–B4 blocker with its four-part proof — never at "the originally reported clusters pass" while a tagged test of a behaviour you changed is red.
 
@@ -182,7 +183,8 @@ FIX-{PACKAGE} COMPLETE
 Test results: {index.json path}
 Original issues: {E} errors, {F} failures in {C} clusters, {W} warnings
 Fixed: {file:line} — {what changed} — {cluster #id / warning category}   (one line each)
-Verification: originally-failing tests {PASS/FAIL}; warnings resolved {N}/{total}; regression check {PASS/FAIL} ({pass}/{total}; tags {list} over packages {list})
+Verification: originally-failing tests {PASS/FAIL}; warnings resolved {N}/{total}; regression check {PASS/FAIL} ({pass}/{total}; tags {list} in {PACKAGE})
+Reaches (not run): {other packages and tags the change touches, or "none"}
 Unresolved (if any): {cluster/warning} — {reason}
 ```
 
@@ -192,7 +194,7 @@ STOP immediately if: more than 5 distinct clusters (propose splitting); a fix re
 
 ## Cross-Project Root Cause
 
-If the root cause is in a different project, do NOT fix it directly. Report the finding (project, file:line, why), then invoke `/fix-{suffix}` for that project (drop the `datrix-` prefix: `datrix-codegen-typescript` → `/fix-codegen-typescript`). Hand it a decisive package: the index.json path, the cluster IDs traced there, your root-cause evidence (file:line + reasoning), and what "fixed" looks like — so the receiving skill does not re-triage.
+If the root cause is in a different project, do NOT fix it, do NOT invoke that project's `/fix-*` skill, and do NOT write a findings file about it (Jon's standing order: a `/fix-{suffix}` agent stays inside `{PACKAGE}`, including its findings; this overrides the findings-file rule in CLAUDE.md for defects in other repos). Stop work on the affected clusters and state in the report, under `Unresolved`, the other project, `file:line`, the evidence, and the cluster IDs traced there. Jon decides what happens next. Findings files are still written for defects inside `{PACKAGE}` that the task does not need.
 
 ## Anti-Patterns
 
@@ -202,6 +204,8 @@ If the root cause is in a different project, do NOT fix it directly. Report the 
 - **NO editing on a hint** — a family `hint` says where to look first; the code you read says what is wrong
 - **NO whole-suite runs, ever** — verify individual tests per fix; one tag-based regression check (Step 9) is the proof
 - **NO cross-package fixes** — hand off via the other project's fix skill
+- **NO findings files about other repos** — a defect seen outside `{PACKAGE}` goes in the report's `Unresolved` line only
+- **NO tests in other packages** — no `-Specific`, `-Tag`, `-Keyword` or `test-single.ps1` run outside `{PACKAGE}`, however far the change reaches, unless Jon says so in the current request
 - **NO security downgrade to reach green** — no disabled/loosened auth, TLS, CORS, permission, or validation check; no hardcoded or logged secret; no fail-open guard; no widened permission. The control is the requirement (§13)
 - **NO expedient fix** — nothing whose justification is "for now", "temporary", "minimal to get it green", or "to save context". Fix what the defect deserves (§14)
 - Plus the CLAUDE.md invariants: no workarounds, no debug scatter, no git restore/checkout/reset/stash/revert (undo edits manually)
