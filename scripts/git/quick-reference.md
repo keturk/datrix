@@ -89,8 +89,9 @@ A conflict stops with the markers in place and a packet at `<workspace>\.tmp\res
 | **Pull over local work** | `.\git\resolve-pull.ps1 datrix-common datrix-cli` | The named repositories (none: every git repository in the workspace) |
 | **Finish a hand merge** | `.\git\resolve-pull.ps1 datrix-common -Finish` | Verify, then drop the stash entry |
 | **Finish, a line merged on purpose** | `.\git\resolve-pull.ps1 datrix-common -Finish -Merged docs/a.md` | A local line missing from a named path is reported instead of refused |
+| **Self-test** | `.\git\resolve-pull.ps1 -SelfTest` | The wrapper seam checks: the wrapper and its `.sh` twin are the templates rendered with exactly the module's options |
 
-**Parameters:** `-Repo` (positional), `-Finish`, `-Merged <path,...>`, `-NoModel`, `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default 300)
+**Parameters:** `-Repo` (positional), `-Finish`, `-Merged <path,...>`, `-NoModel`, `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default 300), `-SelfTest`
 
 **Outcomes per repo:** `up to date`, `finished`, `nothing to finish`, `NEEDS HAND MERGE`, `UNFINISHED` (an earlier run's state is present), `CONFLICT ALREADY IN PROGRESS`, `FAILED`. **Exit codes:** 0 = every repository up to date or finished, 1 = at least one needs a hand merge, has a conflict in progress, or failed, 2 = the run could not start.
 
