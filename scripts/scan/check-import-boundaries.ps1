@@ -4,8 +4,9 @@
  Enforce cross-package import boundary rules for Datrix monorepo.
 
 .DESCRIPTION
- Scans all Python source files in each package's src/ directory and checks imports
- against forbidden prefix rules. Uses AST parsing - no package installation required.
+ The behaviour is datrix_scripts.scan.check_import_boundaries. Scans all Python source files in
+ each package's src/ directory and checks imports against forbidden prefix rules. Uses AST
+ parsing - no package installation required.
 
  Enforces architectural dependency rules documented in:
  datrix-common/docs/architecture/import-boundaries.md
@@ -22,7 +23,7 @@
  Print each file being scanned (verbose mode)
 
 .PARAMETER BaseDir
- Monorepo root directory (default: auto-detect by walking up from script location)
+ Monorepo root directory (default: the workspace holding this scripts tree)
 
 .PARAMETER CheckTargetLiterals
  Run the I1 target-literal ratchet check (invariant I1) in addition
@@ -155,7 +156,7 @@
  (with or without this switch); pass -SelfTest to run only the self-test.
 
 .PARAMETER Dbg
- Print the interpreter and arguments before running
+ Print the interpreter and arguments before running, and log at DEBUG level
 
 .NOTES
  Every check invocation -- the default run and any -Check* run, i.e. every run
@@ -253,86 +254,29 @@
 
 [CmdletBinding()]
 param(
-    [Parameter()]
     [switch]$Warn,
-
-    [Parameter()]
     [switch]$ShowFiles,
-
-    [Parameter()]
     [string]$BaseDir = "",
-
-    [Parameter()]
     [switch]$CheckTargetLiterals,
-
-    [Parameter()]
     [switch]$UpdateBaseline,
-
-    [Parameter()]
     [switch]$CheckProviderConditionals,
-
-    [Parameter()]
     [switch]$CheckFunctionLevelImports,
-
-    [Parameter()]
     [switch]$CheckSharedVocabulary,
-
-    [Parameter()]
     [switch]$CheckSharedTargetNames,
-
-    [Parameter()]
     [switch]$CheckCrossPackageVocabulary,
-
-    [Parameter()]
     [switch]$CheckOwnTargetNames,
-
-    [Parameter()]
     [switch]$CheckReexportFacades,
-
-    [Parameter()]
     [string[]]$FacadeModule = @(),
-
-    [Parameter()]
     [string[]]$ConsumerPackage = @(),
-
-    [Parameter()]
     [switch]$SelfTest,
-
-    [Parameter()]
     [switch]$Dbg
 )
 
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-# The function-level-import, cross-package-vocabulary, and re-export-
-# facade ratchets run on every check invocation -- the default run and
-# every -Check* run alike -- so a new deferred import, a re-spelled
-# vocabulary, or a new re-export facade fails the gate run in the change
-# that introduces it, whichever other check that run asked for. Only a
-# baseline update (which touches just the baselines it names) and a
-# self-test-only run leave them to their explicit flags.
-if (-not $UpdateBaseline -and -not $SelfTest) {
-    $CheckFunctionLevelImports = [switch]$true
-    $CheckCrossPackageVocabulary = [switch]$true
-    $CheckReexportFacades = [switch]$true
-}
-
-$pythonArgs = @()
-if ($Warn) { $pythonArgs += "--warn" }
-if ($ShowFiles) { $pythonArgs += "--verbose" }
-if ($BaseDir) { $pythonArgs += @("--base-dir", $BaseDir) }
-if ($CheckTargetLiterals) { $pythonArgs += "--check-target-literals" }
-if ($UpdateBaseline) { $pythonArgs += "--update-baseline" }
-if ($CheckProviderConditionals) { $pythonArgs += "--check-provider-conditionals" }
-if ($CheckFunctionLevelImports) { $pythonArgs += "--check-function-level-imports" }
-if ($CheckSharedVocabulary) { $pythonArgs += "--check-shared-vocabulary" }
-if ($CheckSharedTargetNames) { $pythonArgs += "--check-shared-target-names" }
-if ($CheckCrossPackageVocabulary) { $pythonArgs += "--check-cross-package-vocabulary" }
-if ($CheckOwnTargetNames) { $pythonArgs += "--check-own-target-names" }
-if ($CheckReexportFacades) { $pythonArgs += "--check-reexport-facades" }
-foreach ($module in $FacadeModule) { $pythonArgs += @("--facade-module", $module) }
-foreach ($repo in $ConsumerPackage) { $pythonArgs += @("--consumer-package", $repo) }
-if ($SelfTest) { $pythonArgs += "--self-test" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_import_boundaries.py") -Arguments $pythonArgs -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.scan.check_import_boundaries" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

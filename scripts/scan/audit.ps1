@@ -1,14 +1,19 @@
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
     Audit generated Python code for placeholders and syntax errors.
 
 .DESCRIPTION
-    Scans .generated/python/docker for:
+    The behaviour is datrix_scripts.scan.audit. Scans <OutputBase>\python\docker under the
+    workspace root for:
     - Python syntax errors (ast.parse)
     - Placeholder patterns: pass, raise NotImplementedError, "# Test fixtures placeholder"
-    Run from repository root (directory containing .generated and datrix).
-    When -Report is used, the report is written to the given path under the repository root
-    (e.g. examples-generated-audit-report.md -> <repo>\examples-generated-audit-report.md).
+    When -Report is used, the report is written to the given path under the workspace root
+    (e.g. examples-generated-audit-report.md -> <workspace>\examples-generated-audit-report.md),
+    and its full path is printed. With no parameter at all the usage is printed (exit 1).
+
+    Exit codes: 0, 1 the generated root is missing, 2 a syntax error under -FailOnSyntax, 3 an
+    actionable placeholder under -FailOnPlaceholders.
 
 .PARAMETER OutputBase
     Output base directory (default: .generated).
@@ -37,13 +42,18 @@
     Models to use for advisory triage, best first. Omit to use any model already in memory.
 
 .PARAMETER LlmTimeout
-    Request timeout in seconds for advisory triage.
+    Request timeout in seconds for advisory triage. Default: 180.
 
 .PARAMETER LlmNumPredict
-    Max generated tokens for advisory triage.
+    Max generated tokens for advisory triage. Default: 4096.
 
 .PARAMETER LlmTemperature
-    Sampling temperature for advisory triage.
+    Sampling temperature for advisory triage. Default: 0.1.
+
+.PARAMETER SelfTest
+    Run only the module's self-test: a planted syntax error and placeholder set exit 2 / 3, an
+    allowlisted placeholder is not actionable, the report is written, a missing generated root is
+    refused, the usage is printed with no parameter, and the wrapper seam holds.
 
 .EXAMPLE
     .\audit.ps1 -Report examples-generated-audit-report.md
@@ -53,54 +63,26 @@
     .\audit.ps1 -Report examples-generated-audit-report.md -FailOnSyntax -FailOnPlaceholders
     Run audit, write report, and exit non-zero if syntax errors or actionable placeholders.
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [string]$OutputBase = ".generated",
-    [string]$Report = "",
-    [switch]$FailOnSyntax,
-    [switch]$FailOnPlaceholders,
-    [switch]$LlmTriage,
-    [int]$LlmLimit = 30,
-    [string[]]$LocalMachines = @(),
-    [string[]]$LlmModel = @(),
-    [int]$LlmTimeout = 180,
-    [int]$LlmNumPredict = 4096,
-    [double]$LlmTemperature = 0.1
+    [Parameter(ParameterSetName = "Run")][string]$OutputBase,
+    [Parameter(ParameterSetName = "Run")][string]$Report,
+    [Parameter(ParameterSetName = "Run")][switch]$FailOnSyntax,
+    [Parameter(ParameterSetName = "Run")][switch]$FailOnPlaceholders,
+    [Parameter(ParameterSetName = "Run")][switch]$LlmTriage,
+    [Parameter(ParameterSetName = "Run")][int]$LlmLimit,
+    [Parameter(ParameterSetName = "Run")][string[]]$LocalMachines,
+    [Parameter(ParameterSetName = "Run")][string[]]$LlmModel,
+    [Parameter(ParameterSetName = "Run")][int]$LlmTimeout,
+    [Parameter(ParameterSetName = "Run")][int]$LlmNumPredict,
+    [Parameter(ParameterSetName = "Run")][double]$LlmTemperature,
+    [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-# Show usage when no parameters provided (mimic compile.ps1)
-if ($PSBoundParameters.Count -eq 0) {
-    Write-Host "Usage:" -ForegroundColor Yellow
-    Write-Host "  .\audit.ps1 -Report <path>" -ForegroundColor White
-    Write-Host "  .\audit.ps1 -Report examples-generated-audit-report.md [-FailOnSyntax] [-FailOnPlaceholders]" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Report path is under repository root. Use Get-Help .\audit.ps1 -Full for detailed help." -ForegroundColor Yellow
-    exit 1
-}
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pyArgs = @("--output-base", $OutputBase)
-if ($Report) { $pyArgs += @("--report", $Report) }
-if ($FailOnSyntax) { $pyArgs += "--fail-on-syntax" }
-if ($FailOnPlaceholders) { $pyArgs += "--fail-on-placeholders" }
-if ($LlmTriage) {
-    $pyArgs += @(
-        "--llm-triage",
-        "--llm-limit", "$LlmLimit",
-        "--llm-num-predict", "$LlmNumPredict",
-        "--llm-temperature", "$LlmTemperature"
-    )
-    $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-}
-
-$exitCode = Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\audit_generated.py") -Arguments $pyArgs
-
-if ($Report) {
-    $reportFullPath = if ([System.IO.Path]::IsPathRooted($Report)) { $Report } else { Join-Path (Get-DatrixWorkspaceRoot) $Report }
-    Write-Host "Report written to: $reportFullPath"
-}
-exit $exitCode
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.scan.audit" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

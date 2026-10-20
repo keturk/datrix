@@ -8,7 +8,7 @@ reports (duplicated function bodies, unimplemented abstract methods).
 >
 > **Base path:** `d:/datrix/datrix/scripts/`
 >
-> **Whole-package scans are phase-boundary acts.** Inside a fix, run `semgrep.ps1`/`libcst.ps1`/`ast-grep.ps1` only with a named `-Rule` or a stated `SCAN_QUESTION:` (`guard-untargeted-scans.py` refuses the rest).
+> **Whole-package scans are phase-boundary acts.** Inside a fix, run `semgrep.ps1`/`libcst.ps1`/`ast-grep.ps1` only with a named `-Rule` (or `-Pattern`, or `-SelfTest`) or a stated `SCAN_QUESTION:`. `guard-untargeted-scans.py` refuses the rest, and it applies the same refusal to their `.sh` twins and to `python -m datrix_scripts.scan.{semgrep,libcst,ast_grep}`, reading `--rule` / `--pattern` / `--all` / `--self-test` there. The guard parses these flags by name, so `-Rule`, `-All` and their `--kebab` forms keep exactly these spellings.
 
 ---
 
@@ -25,7 +25,9 @@ Validates `.dtrx` file syntax using the tree-sitter parser.
 | **Directory** | `.\scan\syntax-checker.ps1 examples/` | Check all .dtrx in a directory |
 | **With debug** | `.\scan\syntax-checker.ps1 . -Dbg` | Debug logging |
 
-**Parameters:** `-Path` (positional, default: all repos), `-Dbg`
+**Parameters:** `-Path` (positional, default: all repos), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.scan.syntax_checker`; POSIX twin `scan\syntax-checker.sh` (`--path`, `--dbg`, `--self-test`) — `bash scan/syntax-checker.sh --path examples/`.
 
 ### `scan\config-linter.ps1`
 
@@ -41,7 +43,9 @@ Lint/format `.dcfg` config documents using the `.dcfg` parser.
 
 **Parameters:** `-All`, `-Path` (positional, variadic), `-Check`, `-SelfTest`, `-Dbg`
 
-**Self-test detail:** `-SelfTest` runs `config_linter.py --self-test`, which regression-tests `format_dcfg`'s round-trip fidelity against a fixed `.dcfg` fixture: the name-less `service` wildcard must render as `service from ...`, never the invalid token `service *`; a `replace ... from tpl() { body }` body and an `inheriting base` clause must survive formatting; `format(format(x)) == format(x)` (idempotence); and a comment-bearing file must be left byte-for-byte unchanged with a blocking issue explaining why (the formatter does not preserve `//` comments). Prints `[OK]`/`[FAIL]` per check. Exit codes: 0 = all checks passed, 1 = at least one check failed.
+**Module:** `datrix_scripts.scan.config_linter`; POSIX twin `scan\config-linter.sh` (`--path`, `--all`, `--check`, `--self-test`, `--dbg`) — `bash scan/config-linter.sh --all --check`.
+
+**Self-test detail:** `-SelfTest` runs the module's `--self-test`, which regression-tests `format_dcfg`'s round-trip fidelity against a fixed `.dcfg` fixture: the name-less `service` wildcard must render as `service from ...`, never the invalid token `service *`; a `replace ... from tpl() { body }` body and an `inheriting base` clause must survive formatting; `format(format(x)) == format(x)` (idempotence); and a comment-bearing file must be left byte-for-byte unchanged with a blocking issue explaining why (the formatter does not preserve `//` comments). Prints `[OK]`/`[FAIL]` per check. Exit codes: 0 = all checks passed, 1 = at least one check failed.
 
 ### `scan\datrix-linter.ps1` / `scan\datrix-format.ps1`
 
@@ -50,6 +54,8 @@ given paths and reports each diagnostic (code, severity, message, location); exi
 (or a warning under `-Strict`). `datrix-format.ps1` formats `.dtrx` files losslessly with the same
 formatter as `datrix format`, verifying every token and comment before an atomic write, and writes
 nothing if any file fails. `Get-Help .\scan\<script>.ps1 -Full` lists each one's parameters.
+
+**Module:** `datrix_scripts.scan.datrix_linter` (`--path`, `--all`, `--strict`, `--dbg`, `--resolve-configs`, `--profile`, `--self-test`) and `datrix_scripts.scan.datrix_format` (`--path`, `--all`, `--check`, `--diff`, `--indent-size`, `--dbg`, `--self-test`); POSIX twins `scan\datrix-linter.sh`, `scan\datrix-format.sh` — `bash scan/datrix-format.sh --all --check`.
 
 ---
 
@@ -66,11 +72,11 @@ Scans for anti-patterns using LibCST: silent-fallback, empty-except, missing-enc
 | **All projects** | `.\scan\libcst.ps1 -All` | Scan entire monorepo |
 | **With report** | `.\scan\libcst.ps1 -All -Report libcst-report.md` | Write markdown report |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Report <path>`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Report <path>`, `-SelfTest`
 
 **Patterns detected:** `silent-fallback` (`dict.get(key, None)` — use explicit lookup + raise on missing), `empty-except` (`except: pass` / `except Exception: pass` — handle or re-raise), `missing-encoding` (`read_text()` / `write_text()` / `open()` without `encoding="utf-8"`), `banned-test-import` (`MagicMock` / `Mock` / `patch` / `SimpleNamespace` in test files), `placeholder-body` (`pass` or `raise NotImplementedError` as sole function body).
 
-**Implementation:** `scripts/scan/lib/libcst_scanner.py` — a LibCST visitor that traverses the concrete syntax tree and collects findings.
+**Module:** `datrix_scripts.scan.libcst` — a LibCST visitor that traverses the concrete syntax tree and collects findings; POSIX twin `scan\libcst.sh` (`--projects`, `--all`, `--report`, `--self-test`) — `bash scan/libcst.sh --projects datrix-common`. The twin's `--all`, and a bare `--projects` run with no stated `SCAN_QUESTION:`, are refused like the wrapper's.
 
 ### `scan\semgrep.ps1`
 
@@ -86,11 +92,11 @@ Runs Semgrep with Datrix-specific rules from `scripts/config/semgrep-rules/`.
 | **With report** | `.\scan\semgrep.ps1 -All -Report semgrep-report.md` | Write markdown report |
 | **Show raw output** | `.\scan\semgrep.ps1 -All -ShowRaw` | Show raw semgrep output |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`, `-SinglePass`, `-SelfTest`
 
 **Rules** (one or a closely related set per YAML file in `scripts/config/semgrep-rules/`; `-ListRules` prints the current set): `silent-fallback-none` (`dict.get(key, None)`, WARNING), `default-type-mapping` (`type_map.get(t, "Any")`, ERROR), `empty-except-pass` (WARNING), `missing-encoding-read` / `missing-encoding-write` (`Path.read_text()` / `write_text()` without `encoding=`, WARNING), `banned-mock-import` (ERROR), `banned-simple-namespace` (in tests, ERROR), `return-none-lookup` (`return None` in `get_*/find_*/lookup_*/resolve_*`, WARNING), `string-concat-codegen` (`code += f"..."`, WARNING), `todo-comment` (INFO), `magic-number-status` (bare `200`/`404`/`500` in comparisons, WARNING). Adding a rule: [config/semgrep-rules/README.md](../config/semgrep-rules/README.md).
 
-**Implementation:** `scripts/scan/lib/semgrep_scanner.py` discovers the rules, expands directories into file lists, runs semgrep per rule and aggregates the findings.
+**Module:** `datrix_scripts.scan.semgrep` discovers the rules, expands directories into file lists, runs semgrep per rule and aggregates the findings; POSIX twin `scan\semgrep.sh` (`--projects`, `--all`, `--rule`, `--list-rules`, `--report`, `--show-raw`, `--single-pass`, `--self-test`) — `bash scan/semgrep.sh --projects datrix-common --rule empty-except-pass`.
 
 **Installation:** semgrep is declared in the `scripts` dependency group of `datrix/pyproject.toml`,
 which the shared venv installs. semgrep publishes no Windows ARM64 wheel, so the group leaves it out
@@ -114,11 +120,11 @@ Runs ast-grep structural Python rules from `scripts/config/ast-grep-rules/`, or 
 | **With report** | `.\scan\ast-grep.ps1 -All -Report ast-grep-report.md` | Write markdown report |
 | **Show raw output** | `.\scan\ast-grep.ps1 -All -Rule empty-except-pass -ShowRaw` | Show raw ast-grep output |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Pattern <pattern>`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Pattern <pattern>`, `-Rule <name>` (repeatable), `-ListRules`, `-Report <path>`, `-ShowRaw`, `-SelfTest`
 
 **Rules** (one per YAML file in `scripts/config/ast-grep-rules/`; `-ListRules` prints the current set): `silent-fallback-none`, `default-type-mapping-any` (error), `empty-except-pass`, `return-none-lookup`, `missing-encoding-read-text`, `missing-encoding-write-text`, `open-without-encoding`, `placeholder-function-body`, `placeholder-notimplemented-body`, `generic-exception-raise`, `legacy-compatibility-call`, `banned-mock-import` (error), `banned-simple-namespace` (error), `codegen-string-append`, `flattened-entity-iteration` (error), `ad-hoc-plugin-registry` (error). Rule details: [config/ast-grep-rules/README.md](../config/ast-grep-rules/README.md).
 
-**Implementation:** `scripts/scan/lib/ast_grep.py` discovers the rules, expands directories into file lists, runs ast-grep per rule and aggregates the findings. A package contributes its `src/` and `tests/`; the showcase repo (`datrix`, also covered by `-All`) contributes `scripts/`, its only Python.
+**Module:** `datrix_scripts.scan.ast_grep`; POSIX twin `scan\ast-grep.sh` (`--projects`, `--all`, `--pattern`, `--rule`, `--list-rules`, `--report`, `--show-raw`, `--self-test`) — `bash scan/ast-grep.sh --projects datrix-common --rule empty-except-pass`. It discovers the rules, expands directories into file lists, runs ast-grep per rule and aggregates the findings. A package contributes its `src/` and `tests/`; the showcase repo (`datrix`, also covered by `-All`) contributes `scripts/`, its only Python.
 
 **Notes:** PowerShell expands `$NAME` in double-quoted strings, so pass metavariable patterns in single quotes (`-Pattern 'raise Exception($MSG)'`). The npm install exposes `sg.cmd` and `ast-grep.cmd` on Windows; the wrapper prefers those shims. Jinja2 templates (`.j2`) are excluded.
 
@@ -140,6 +146,8 @@ Detects leftover debug/logging artifacts in source code (print, breakpoint, cons
 
 **Exit codes:** 0 = clean, 1 = artifacts found, 2 = usage error or self-test failure
 
+**Module:** `datrix_scripts.scan.check_debug_artifacts`; POSIX twin `scan\check-debug-artifacts.sh` (`--project-dir`, `--all`, `--strict`, `--include-generated`, `--self-test`, `--dbg`) — `bash scan/check-debug-artifacts.sh --project-dir datrix-common`.
+
 **String-literal awareness:** Python files are scanned string-literal-aware — a pattern matching inside a string literal is data, not code, and is never reported. This is what keeps a test that embeds a child-process checker script as a triple-quoted source string from being flagged for every `print(` that child uses to report its result back over stdout (its only channel to the parent). Spans come from `tokenize`, so an f-string's interpolated `{...}` expressions stay scannable while its literal text does not; a file that cannot be tokenized is named loudly on stderr and then scanned line-based, so nothing is ever silently skipped. TypeScript files stay line-based (no correct TS lexer is available here), so the equivalent TS case — a `console.log` inside a template literal — is still reported.
 
 **Self-test detail:** proves both directions — a real artifact IS detected, the same artifact inside a string literal is NOT, and (non-vacuity) those same lines DO match when string-awareness is disabled, so the second check passes because the span logic works rather than because the patterns stopped matching. Runs automatically as **step 1 of every invocation** (not only under `-SelfTest`); a self-test failure exits 2 before any scan result is reported.
@@ -147,9 +155,12 @@ Detects leftover debug/logging artifacts in source code (print, breakpoint, cons
 ### `scan\check-python-bytecode.ps1` / `scan\extra-parens.ps1`
 
 `check-python-bytecode.ps1` fails when `.pyc`/`.pyo` files or `__pycache__` directories sit under a
-package's `src/` tree; it is standalone (no venv), so it can run before other checks.
+package's `src/` tree; it needs only the standard library, and runs with `PYTHONPYCACHEPREFIX` set, so
+the check itself writes no bytecode into any `src/`.
 `extra-parens.ps1` removes extraneous parentheses with Ruff rule `UP034` only, over named projects
 or `-All`. `Get-Help .\scan\<script>.ps1 -Full` lists each one's parameters.
+
+**Module:** `datrix_scripts.scan.check_python_bytecode` (`--base-dir`, `--project-dir`, `--self-test`) and `datrix_scripts.scan.extra_parens` (`--projects`, `--all`, `--dry-run`, `--diff`, `--self-test`); POSIX twins `scan\check-python-bytecode.sh`, `scan\extra-parens.sh` — `bash scan/check-python-bytecode.sh --project-dir datrix-common`.
 
 ### `scan\ruff-checker.ps1`
 
@@ -161,7 +172,9 @@ Checks Jinja2 Python templates by rendering them with mock values and running ru
 | **One template folder** | `.\scan\ruff-checker.ps1 -TemplatesDir D:\datrix\datrix-codegen-python\src\datrix_codegen_python\templates` |
 | **Debug** | `.\scan\ruff-checker.ps1 -Dbg` |
 
-**Parameters:** `-TemplatesDir` (default: the current directory), `-Dbg`
+**Parameters:** `-TemplatesDir` (default: the current directory), `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.scan.ruff_checker`; POSIX twin `scan\ruff-checker.sh` (`--templates-dir`, `--dbg`, `--self-test`).
 
 ---
 
@@ -169,7 +182,7 @@ Checks Jinja2 Python templates by rendering them with mock values and running ru
 
 ### `scan\check-import-boundaries.ps1`
 
-Enforces cross-package import boundary rules across the monorepo. Scans each package's `src/`, `tests/`, `fixtures/`, and `helpers/` directories for forbidden imports using Python AST analysis (`scan\lib\check_import_boundaries.py`). See [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table.
+Enforces cross-package import boundary rules across the monorepo. Scans each package's `src/`, `tests/`, `fixtures/`, and `helpers/` directories for forbidden imports using Python AST analysis (`datrix_scripts.scan.import_boundaries`). See [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md) for the full rule table.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -184,7 +197,7 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 | **Shared-package provider-literal zero-tolerance check** | `.\scan\check-import-boundaries.ps1 -CheckProviderConditionals` | Runs automatically alongside the provider-conditional ratchet above (same flag, no separate switch) — held at a hard zero for the DERIVED shared-package set (today `datrix_common`/`datrix_codegen_kernel`/`datrix_codegen_common`/`datrix_codegen_typescript_core`/`datrix_cli`/`datrix_language`/`datrix_semantic`/`datrix_migration`/`datrix_testing`), with **no baseline file**; any hit fails, always |
 | **Function-level-import ratchet check** | `.\scan\check-import-boundaries.ps1 -CheckFunctionLevelImports` | Run the function-level-import ratchet (structural layering — see [Architecture Overview — Decision 20](../../../datrix/docs/architecture/architecture-overview.md#decision-20-sealed-generated-ast-model-adopted)) against the frozen baseline. Also runs on every invocation that is not `-SelfTest`/`-UpdateBaseline` — see the detail below |
 | **Lower function-level-import baseline** | `.\scan\check-import-boundaries.ps1 -CheckFunctionLevelImports -UpdateBaseline` | Lower each entry to its current count, drop emptied entries (named on stdout) and keep every surviving entry's `reason`; refuses (exit 1, baseline untouched) if any count would rise |
-| **Shared-vocabulary ratchet check** | `.\scan\check-import-boundaries.ps1 -CheckSharedVocabulary` | Run the shared-vocabulary ratchet (Decision 34 invariant 2) against the frozen baseline — fails when a `datrix-codegen-{lang}` module declares a module-level set/frozenset/dict whose normalized member set equals one already declared in `datrix_codegen_kernel.enums`, or in one of the additional non-`enums.py` canonical vocabulary homes the scanner declares (`_ADDITIONAL_SHARED_VOCABULARY_SOURCES` in `scan\lib\check_import_boundaries.py`, for a vocabulary moved out of `enums.py`, e.g. `LOG_BUILTIN_METHODS` in `datrix_codegen_common.transpiler.builtin_registry`) |
+| **Shared-vocabulary ratchet check** | `.\scan\check-import-boundaries.ps1 -CheckSharedVocabulary` | Run the shared-vocabulary ratchet (Decision 34 invariant 2) against the frozen baseline — fails when a `datrix-codegen-{lang}` module declares a module-level set/frozenset/dict whose normalized member set equals one already declared in `datrix_codegen_kernel.enums`, or in one of the additional non-`enums.py` canonical vocabulary homes the scanner declares (`_ADDITIONAL_SHARED_VOCABULARY_SOURCES` in `datrix_scripts.scan.import_boundaries.shared_vocabulary`, for a vocabulary moved out of `enums.py`, e.g. `LOG_BUILTIN_METHODS` in `datrix_codegen_common.transpiler.builtin_registry`) |
 | **Freeze/update shared-vocabulary baseline** | `.\scan\check-import-boundaries.ps1 -CheckSharedVocabulary -UpdateBaseline` | Recompute and overwrite the frozen shared-vocabulary baseline |
 | **Shared-layer target-name ratchet check** | `.\scan\check-import-boundaries.ps1 -CheckSharedTargetNames` | Run the shared-layer target-name ratchet (Decision 34 invariant 3) against the frozen baseline — fails when a class, dataclass field, or type alias declared in `datrix_codegen_common` or `datrix_codegen_kernel` carries a registered **language** name or one of that language's declared alias tokens (`declaration_for_language(lang).name_tokens`, such as `ts`) as an identifier segment. Complements `-CheckTargetLiterals`, which matches a frozen list of central table names rather than the identifier shape. Language names and aliases come from the installed `datrix.languages` entry-point group and each language's own declaration at runtime, never a hardcoded literal. A short alias can be an ordinary abbreviation, so each hit is either renamed or becomes a reviewed baseline entry with a written `reason`; an entry without a reason fails the check. Deliberately scoped to **languages** — each name and its aliases, never platform names (excluded: the registered platform name `local` is a common English word and returns hundreds of spurious hits) — and **`datrix_codegen_common` plus the generation kernel `datrix_codegen_kernel` only** (`datrix_common`/`datrix_cli` hold platform config-schema models and canonical-import API — see Decision 34's scope boundaries). The segment matcher treats `TypeScript` as one segment; a naive CamelCase split yields `type`+`script` and misses every TypeScript-named symbol |
 | **Freeze/update shared-target-name baseline** | `.\scan\check-import-boundaries.ps1 -CheckSharedTargetNames -UpdateBaseline` | Recompute and overwrite the frozen shared-target-name baseline counts; every written `reason` is preserved, and a reasoned entry that no longer has a hit is named on stderr and dropped |
@@ -198,6 +211,8 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 
 **Parameters:** `-Warn`, `-ShowFiles`, `-BaseDir`, `-CheckTargetLiterals`, `-UpdateBaseline`, `-CheckProviderConditionals`, `-CheckFunctionLevelImports`, `-CheckSharedVocabulary`, `-CheckSharedTargetNames`, `-CheckOwnTargetNames`, `-CheckCrossPackageVocabulary`, `-CheckReexportFacades`, `-FacadeModule`, `-ConsumerPackage`, `-SelfTest`, `-Dbg`
 
+**Module:** `datrix_scripts.scan.check_import_boundaries` (the wrapper's options, the always-on ratchets and the self-test) over the `datrix_scripts.scan.import_boundaries` package (the rule model, the scanners and the ratchets; `python -m datrix_scripts.scan.import_boundaries` runs the scan alone); POSIX twin `scan\check-import-boundaries.sh` (`--warn`, `--show-files`, `--base-dir`, `--check-target-literals`, `--update-baseline`, `--check-provider-conditionals`, `--check-function-level-imports`, `--check-shared-vocabulary`, `--check-shared-target-names`, `--check-own-target-names`, `--check-cross-package-vocabulary`, `--check-reexport-facades`, `--facade-module`, `--consumer-package`, `--self-test`, `--dbg`) — `bash scan/check-import-boundaries.sh --check-target-literals`.
+
 **Exit codes:** 0 = clean (or warning mode), 1 = violations found (import-boundary, target-literal ratchet, provider-conditional ratchet, function-level-import ratchet, shared-vocabulary ratchet, shared-target-name ratchet, own-target-name ratchet, cross-package-vocabulary ratchet, the re-export-facade check, or a self-test failure), 2 = usage/config error (including a missing baseline file when `-CheckTargetLiterals`, `-CheckProviderConditionals`, `-CheckFunctionLevelImports`, `-CheckSharedVocabulary`, `-CheckSharedTargetNames`, `-CheckOwnTargetNames`, or `-CheckCrossPackageVocabulary` is passed without having frozen one yet)
 
 **Self-test detail:** the script's own non-vacuity proof (rule-model invariants for `BOUNDARY_RULES`/allowed-subtree carve-outs, the provider-conditional and function-level-import AST scanners' detection + exclusion cases, both ratchet comparators' regression/no-regression/missing-baseline-as-zero behavior, and a real mutation-based CLI proof that plants a regression in an isolated fixture monorepo, proves detection, and proves it clears on revert). Runs automatically as **step 1 of every invocation** of this script (not only when `-SelfTest` is passed) — a self-test failure aborts before any real finding is reported. Pass `-SelfTest` alone to run only the self-test and skip the real scan.
@@ -208,7 +223,7 @@ Enforces cross-package import boundary rules across the monorepo. Scans each pac
 
 **Function-level-import ratchet detail:** scans for function-level imports — any `Import`/`ImportFrom` AST node that is not a direct top-level statement of its module (nested in a function/method body, an `if TYPE_CHECKING:` block, or a `try`/`except`). Scope: every `src/` `.py` file of `datrix-common`, `datrix-semantic`, `datrix-migration` and `datrix-testing` (the code that was `datrix-common`'s before those packages were extracted from it; a policed package missing from disk exits 2), plus every file a baseline entry names in another package — a former core module that moved up a layer keeps its entry under its new path at the same count and stays policed there. Baseline: `datrix/scripts/config/function-level-import-baseline.toml`; decrease-only. Every entry carries a `reason` naming the import cycle that forces its deferrals (both modules) or their measured import cost. The check fails closed on an inert entry: one with no reason, a count of zero or less, a file that does not exist, or a file outside every package's `src/` tree fails the flag (exit 1), since an entry no scan reads would hold a count that polices nothing. A malformed or duplicate entry exits 2.
 
-**Always-on wiring:** `check-import-boundaries.ps1` adds `-CheckFunctionLevelImports`, `-CheckCrossPackageVocabulary`, and `-CheckReexportFacades` to every invocation that is not `-SelfTest` or `-UpdateBaseline`. Any gate that runs the script — the default run, `-CheckTargetLiterals`, `-CheckProviderConditionals`, or any other flag — therefore enforces both ratchets and the facade hard zero without naming them.
+**Always-on wiring:** `check-import-boundaries.ps1` (its module) adds `-CheckFunctionLevelImports`, `-CheckCrossPackageVocabulary`, and `-CheckReexportFacades` to every invocation that is not `-SelfTest` or `-UpdateBaseline`. Any gate that runs the script — the default run, `-CheckTargetLiterals`, `-CheckProviderConditionals`, or any other flag — therefore enforces both ratchets and the facade hard zero without naming them.
 
 **Own-target-name ratchet detail:** the mirror image of the shared-layer target-name ratchet above — that check holds the shared layer to zero symbols carrying ANY registered language's name; this one holds EVERY registered language package to zero function/method DEFINITIONS carrying THAT SAME package's own registered language id or declared alias (a `build_python_thing` inside `datrix_codegen_python` does not need "python" in its name; the package already says it — this is the token that hides a parallel implementation from a name-keyed behaviour-parity scan). The policed package set is the discovered taxonomy's `language_packages` — never a hardcoded per-language tuple, so a new `datrix-codegen-<lang>` package is policed automatically the moment its manifest registers a `datrix.languages` entry point. The per-package vocabulary is read live from `declaration_for_language(lang).name_tokens | {lang}`, never a hardcoded per-language literal set. Scope is FUNCTION/METHOD DEFINITION names only — never a class name, dataclass field, or type reference. A clean run prints each policed package's live count unconditionally (not only under `-ShowFiles`). Baseline: `datrix/scripts/config/own-target-name-baseline.toml`, keyed by package import name (e.g. `datrix_codegen_python`), seeded from the real per-package count and driven to zero as later migration work renames each remaining hit.
 
@@ -234,11 +249,11 @@ Syntax + import check of Python, in two parameter sets. **Projects:** every Pyth
 | **Several paths** | `.\scan\compile.ps1 -Path path1,path2` | Check multiple paths |
 | **With debug** | `.\scan\compile.ps1 -All -Dbg` | Debug output |
 
-**Parameters:** Projects set: `-All`, `-ProjectDir` (positional, variadic); Path set: `-Path` (one or more); both: `-Dbg`
+**Parameters:** Projects set: `-All`, `-ProjectDir` (positional, variadic); Path set: `-Path` (one or more); both: `-Dbg`; SelfTest set: `-SelfTest`
 
 **What it does:** (1) **syntax check** — every discovered `.py` file goes through `py_compile`; (2) **import check** — each installable package (`src/` and `pyproject.toml`) is imported with **all its submodules** in a subprocess whose `PYTHONPATH` holds every Datrix project's `src`, which exercises cross-package imports: a module doing `from datrix_language.parser import ModuleNode` that fails is reported as an import error.
 
-**Implementation:** `scripts/scan/lib/compile.py` (Projects set: file discovery, `py_compile`, per-package import check with the submodule walk) and `scripts/scan/lib/compile_any_path.py` (Path set: finds the package containing each path and runs that package's check).
+**Module:** `datrix_scripts.scan.compile` — the Projects set (file discovery, `py_compile`, per-package import check with the submodule walk) and the Path set (`compile_any_path`: finds the package containing each path and runs that package's check); POSIX twin `scan\compile.sh` (`--all`, `--project-dir`, `--path`, `--dbg`, `--self-test`) — `bash scan/compile.sh --project-dir datrix-common`.
 
 ### `scan\audit.ps1`
 
@@ -250,7 +265,9 @@ Audits generated Python code for placeholders and syntax errors under `.generate
 | **Fail on issues** | `.\scan\audit.ps1 -Report report.md -FailOnSyntax -FailOnPlaceholders` | Non-zero exit on issues |
 | **Custom output base** | `.\scan\audit.ps1 -OutputBase .generated2 -Report report.md` | Different generated root |
 
-**Parameters:** `-OutputBase` (default: .generated), `-Report <path>`, `-FailOnSyntax`, `-FailOnPlaceholders`
+**Parameters:** `-OutputBase` (default: .generated), `-Report <path>`, `-FailOnSyntax`, `-FailOnPlaceholders`, the local-model triage set (`-LlmTriage`, `-LlmLimit`, `-LocalMachines`, `-LlmModel`, `-LlmTimeout`, `-LlmNumPredict`, `-LlmTemperature`), `-SelfTest`
+
+**Module:** `datrix_scripts.scan.audit`; POSIX twin `scan\audit.sh` (`--output-base`, `--report`, `--fail-on-syntax`, `--fail-on-placeholders`, `--llm-triage`, `--llm-limit`, `--local-machines`, `--llm-model`, `--llm-timeout`, `--llm-num-predict`, `--llm-temperature`, `--self-test`) — `bash scan/audit.sh --report report.md`.
 
 ### `scan\dgen-census.ps1`
 
@@ -263,6 +280,8 @@ Per-domain census of a language's compiled DAL generator definitions: file-claus
 | **Self-test only** | `.\scan\dgen-census.ps1 -SelfTest` | Run only the non-vacuity self-test; no `-Language` needed |
 
 **Parameters:** `-Language <name>` (required unless `-SelfTest`), `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no double-emit offenders, 1 = double-emit offenders found, 2 = usage / unknown target / the non-vacuity self-test failed.
+
+**Module:** `datrix_scripts.scan.dgen_census`; POSIX twin `scan\dgen-census.sh` (`--language`, `--output`, `--dbg`, `--self-test`) — `bash scan/dgen-census.sh --language python`.
 
 ---
 
@@ -285,7 +304,9 @@ home: the hoist candidates. Cross-package groups are listed first, largest first
 | **One package** | `.\scan\find-duplicate-bodies.ps1 -Package datrix_codegen_python -Limit 0` | Every group with a member in that package (import name) |
 | **JSON** | `.\scan\find-duplicate-bodies.ps1 -Limit 0 -JsonOut D:\datrix\.tmp\duplicate-bodies.json` | Also write every selected group as JSON |
 
-**Parameters:** `-CrossPackage`, `-Package <import name,...>`, `-Limit <n>` (default 25; 0 = all), `-JsonOut <path>`, `-Dbg`. **Exit codes:** 0 = report printed, 2 = a source file did not parse (named) or a bad argument.
+**Parameters:** `-CrossPackage`, `-Package <import name,...>`, `-Limit <n>` (default 25; 0 = all), `-JsonOut <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = report printed, 1 = the package install check failed, 2 = a source file did not parse (named) or a bad argument.
+
+**Module:** `datrix_scripts.scan.find_duplicate_bodies`; POSIX twin `scan\find-duplicate-bodies.sh` (`--cross-package`, `--package`, `--limit`, `--json-out`, `--dbg`, `--self-test`) — `bash scan/find-duplicate-bodies.sh --cross-package`.
 
 ### `scan\find-unimplemented-abstracts.ps1`
 
@@ -302,4 +323,6 @@ is listed, never skipped.
 | **All packages** | `.\scan\find-unimplemented-abstracts.ps1` | Every incomplete class |
 | **One package, with bases** | `.\scan\find-unimplemented-abstracts.ps1 -Package datrix_codegen_python -ShowBases` | Also list the intended abstract bases |
 
-**Parameters:** `-Package <import name,...>` (default: every `datrix-*` package), `-ShowBases`, `-Dbg`. **Exit codes:** 0 = no incomplete class, 1 = incomplete class(es) found, 2 = a module failed to import or a bad argument.
+**Parameters:** `-Package <import name,...>` (default: every `datrix-*` package), `-ShowBases`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = no incomplete class, 1 = incomplete class(es) found or the package install check failed, 2 = a module failed to import or a bad argument.
+
+**Module:** `datrix_scripts.scan.find_unimplemented_abstracts`; POSIX twin `scan\find-unimplemented-abstracts.sh` (`--package`, `--show-bases`, `--dbg`, `--self-test`) — `bash scan/find-unimplemented-abstracts.sh --package datrix_codegen_python --show-bases`.

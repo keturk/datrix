@@ -4,10 +4,10 @@
  Detect leftover debug/logging artifacts in source code.
 
 .DESCRIPTION
- Scans Python and TypeScript source files for common debug patterns that should not
- be committed: print() statements, console.log(), logger.warning/debug calls used
- as temporary instrumentation, breakpoint(), debugger statements, and TODO/FIXME
- markers tied to debugging sessions.
+ The behaviour is datrix_scripts.scan.check_debug_artifacts. Scans Python and TypeScript
+ source files for common debug patterns that should not be committed: print() statements,
+ console.log(), logger.warning/debug calls used as temporary instrumentation, breakpoint(),
+ debugger statements, and TODO/FIXME markers tied to debugging sessions.
 
  Designed to run as a quick pre-commit or post-fix check to catch "debug scatter"
  before it breaks builds or pollutes the codebase.
@@ -18,19 +18,20 @@
  TypeScript files stay line-based.
 
  A self-test proving both directions (a real artifact is detected; the same artifact
- inside a string literal is not) runs as step 1 of every invocation.
+ inside a string literal is not) runs as step 1 of every scan. -All wins over named
+ projects.
 
  Exit codes:
    0 = clean (no debug artifacts found)
    1 = debug artifacts detected (prints details)
-   2 = usage error, or the self-test failed
+   2 = usage error (nothing selected, a path that does not exist), or the self-test failed
+
+.PARAMETER All
+ Scan all datrix repositories.
 
 .PARAMETER ProjectDir
  One or more project directories to scan (positional). Can be names (e.g., datrix-common)
  or full paths.
-
-.PARAMETER All
- Scan all datrix repositories.
 
 .PARAMETER Strict
  Enable strict mode: also flag logger.debug() and logger.info() calls that contain
@@ -40,10 +41,11 @@
  Also scan .generated/ directory (normally excluded to focus on source code).
 
 .PARAMETER SelfTest
- Run only the scanner's own detection/false-positive self-test and exit.
+ Run only the module's self-test: the detection/false-positive check, the usage when nothing
+ is selected, the refusal of a missing path, and the wrapper seam. No project argument needed.
 
 .PARAMETER Dbg
- Enable debug logging.
+ Print each file scanned and each finding's matching line.
 
 .EXAMPLE
  .\check-debug-artifacts.ps1 datrix-codegen-python
@@ -61,64 +63,20 @@
  .\check-debug-artifacts.ps1 datrix-common -Strict
  Strict mode: also flag suspicious logger.debug/info with f-strings.
 #>
-
 [CmdletBinding()]
 param(
- [Parameter()]
- [switch]$All,
-
- [Parameter(Position=0, ValueFromRemainingArguments=$true)]
- [string[]]$ProjectDir = @(),
-
- [Parameter()]
- [switch]$Strict,
-
- [Parameter()]
- [switch]$IncludeGenerated,
-
- [Parameter()]
- [switch]$SelfTest,
-
- [Parameter()]
- [switch]$Dbg
+    [switch]$All,
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$ProjectDir,
+    [switch]$Strict,
+    [switch]$IncludeGenerated,
+    [switch]$SelfTest,
+    [switch]$Dbg
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-# Require -All or ProjectDir (-SelfTest needs neither)
-if (-not $SelfTest -and -not $All -and (-not $ProjectDir -or $ProjectDir.Count -eq 0)) {
- Write-Host "Usage:" -ForegroundColor Yellow
- Write-Host "  .\check-debug-artifacts.ps1 -All" -ForegroundColor White
- Write-Host "  .\check-debug-artifacts.ps1 datrix-common [datrix-language ...]" -ForegroundColor White
- Write-Host "  .\check-debug-artifacts.ps1 D:\datrix\datrix-common" -ForegroundColor White
- Write-Host "  .\check-debug-artifacts.ps1 -SelfTest" -ForegroundColor White
- Write-Host ""
- Write-Host "Use Get-Help .\check-debug-artifacts.ps1 -Full for detailed help." -ForegroundColor Yellow
- exit 2
-}
-
-# Determine which directories to check (-SelfTest scans nothing; it runs entirely in memory)
-$pathsToCheck = @()
-if ($All -and -not $SelfTest) {
- $pathsToCheck = @(Get-DatrixDirectoryPaths | Where-Object { Test-Path $_ })
-} elseif (-not $SelfTest) {
- $datrixWorkspaceRoot = Get-DatrixWorkspaceRoot
- foreach ($p in $ProjectDir) {
-  $fullPath = if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $datrixWorkspaceRoot $p }
-  if (-not (Test-Path $fullPath)) {
-   Write-Host "Error: path not found: $fullPath. Expected a project name under the workspace or a full path." -ForegroundColor Red
-   exit 2
-  }
-  $pathsToCheck += $fullPath
- }
-}
-
-$pythonArgs = @($pathsToCheck)
-if ($SelfTest) { $pythonArgs += "--self-test" }
-if ($Strict) { $pythonArgs += "--strict" }
-if ($IncludeGenerated) { $pythonArgs += "--include-generated" }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\check_debug_artifacts.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.scan.check_debug_artifacts" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

@@ -4,17 +4,17 @@
     Run Semgrep with Datrix-specific rules across the monorepo.
 
 .DESCRIPTION
-    Runs individual YAML rules from scripts/config/semgrep-rules/, in the shared
-    venv, on one or more projects (or all with -All). semgrep is declared in the
-    "scripts" dependency group of datrix/pyproject.toml, which the shared venv
-    installs; semgrep ships no Windows ARM64 wheel, so a native Windows ARM64 venv
-    lacks it. The scanner refuses when it is missing, naming the platform or the
+    The behaviour is datrix_scripts.scan.semgrep. Runs individual YAML rules from
+    scripts/config/semgrep-rules/, in the shared venv, on one or more projects (or all with
+    -All). semgrep is declared in the "scripts" dependency group of datrix/pyproject.toml,
+    which the shared venv installs; semgrep ships no Windows ARM64 wheel, so a native Windows
+    ARM64 venv lacks it. The scanner refuses when it is missing, naming the platform or the
     install step.
 
     Each rule is run independently, making it easy to test and debug.
-    Use -Rule to run a specific rule, -ListRules to see all available rules.
-
-    Uses the Python implementation in scripts/scan/lib/semgrep_scanner.py.
+    Use -Rule to run a specific rule, -ListRules to see all available rules. -ListRules wins
+    over a scan, and -All over named projects; neither a project nor -All prints the usage and
+    exits 1.
 
 .PARAMETER Projects
     One or more project names to scan (e.g. datrix-common datrix-language).
@@ -38,7 +38,12 @@
 
 .PARAMETER SinglePass
     Run all selected rules in one semgrep process per file batch (faster when
-    using multiple -Rule values). Forwarded as --single-pass to semgrep_scanner.py.
+    using multiple -Rule values).
+
+.PARAMETER SelfTest
+    Run only the module's self-test: the rule set lists and resolves, an unknown rule and an
+    unknown project are refused, the usage is printed when nothing is selected, and the
+    wrapper seam holds. Runs no semgrep process.
 
 .EXAMPLE
     .\semgrep.ps1 -All
@@ -60,45 +65,22 @@
     .\semgrep.ps1 datrix-common -Report semgrep-report.md
     Scan one project and write a report.
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
-    [string[]]$Projects = @(),
-
-    [switch]$All,
-
-    [string[]]$Rule = @(),
-
-    [switch]$ListRules,
-
-    [string]$Report = "",
-
-    [switch]$ShowRaw,
-
-    [switch]$SinglePass
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true, ParameterSetName = "Run")][string[]]$Projects,
+    [Parameter(ParameterSetName = "Run")][switch]$All,
+    [Parameter(ParameterSetName = "Run")][string[]]$Rule,
+    [Parameter(ParameterSetName = "Run")][switch]$ListRules,
+    [Parameter(ParameterSetName = "Run")][string]$Report,
+    [Parameter(ParameterSetName = "Run")][switch]$ShowRaw,
+    [Parameter(ParameterSetName = "Run")][switch]$SinglePass,
+    [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-if ($Projects.Count -eq 0 -and -not $All -and -not $ListRules) {
-    Write-Host "Usage:" -ForegroundColor Yellow
-    Write-Host "  .\semgrep.ps1 <project> [project2 ...]" -ForegroundColor White
-    Write-Host "  .\semgrep.ps1 -All [-Rule <name>] [-Report <path>]" -ForegroundColor White
-    Write-Host "  .\semgrep.ps1 -ListRules" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Use Get-Help .\semgrep.ps1 -Full for detailed help." -ForegroundColor Yellow
-    exit 1
-}
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-# @(...) around the whole expression: an if-expression yielding one element unwraps it to a scalar
-# string, and "+=" would then concatenate "--rule <name>" onto the project name.
-$pyArgs = @(if ($ListRules) { "--list-rules" } elseif ($All) { "--all" } else { $Projects })
-foreach ($r in $Rule) { $pyArgs += @("--rule", $r) }
-if ($Report) { $pyArgs += @("--report", $Report) }
-if ($ShowRaw) { $pyArgs += "--verbose" }
-if ($SinglePass) { $pyArgs += "--single-pass" }
-
-# semgrep_scanner.py refuses, naming the platform or the install step, when semgrep is not in the shared venv.
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\semgrep_scanner.py") -Arguments $pyArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.scan.semgrep" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

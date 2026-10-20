@@ -4,9 +4,10 @@
  Report function bodies duplicated anywhere across the Datrix package source trees.
 
 .DESCRIPTION
- Wraps scan\lib\find_duplicate_bodies.py. Walks every module-level function and class
- method in every datrix-* package's src/ tree, keeps those at or above the body floor
- (8 lines, 40 AST nodes) and groups them two ways:
+ The behaviour is datrix_scripts.scan.find_duplicate_bodies; the editable installs are
+ checked first. Walks every module-level function and class method in every datrix-*
+ package's src/ tree, keeps those at or above the body floor (8 lines, 40 AST nodes) and
+ groups them two ways:
 
    exact       identical bodies, every name and constant kept (a straight copy)
    normalized  identical once parameters/locals become positional tokens and constants
@@ -16,13 +17,14 @@
  same normalization (datrix_scripts.body_digest) but only pins copies of a PUBLIC
  shared-home function. This report also shows copies where neither side lives in a
  shared home: the hoist candidates. Report only; exit 0 unless the scan fails
- (2 = a source file did not parse, or a bad argument).
+ (2 = a source file did not parse, or a bad argument; 1 = the package install check failed).
 
 .PARAMETER CrossPackage
  Show only groups spanning two or more packages.
 
 .PARAMETER Package
  Show only groups with a member in these packages (import names, e.g. datrix_codegen_python).
+ A list or one comma-separated value.
 
 .PARAMETER Limit
  Number of groups to print (0 = all). Default: 25.
@@ -33,6 +35,10 @@
 
 .PARAMETER Dbg
  Debug logging (per-package function counts).
+
+.PARAMETER SelfTest
+ Run only the module's self-test (a planted copy and a planted renamed copy are grouped,
+ -Package and -CrossPackage select, a negative -Limit is refused, the wrapper seam holds).
 
 .EXAMPLE
  .\scan\find-duplicate-bodies.ps1 -CrossPackage
@@ -45,29 +51,24 @@
 .EXAMPLE
  .\scan\find-duplicate-bodies.ps1 -Limit 0 -JsonOut D:\datrix\.tmp\duplicate-bodies.json
  Every group, also as JSON.
+
+.EXAMPLE
+ .\scan\find-duplicate-bodies.ps1 -SelfTest
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [switch]$CrossPackage,
-    [string[]]$Package = @(),
-    [ValidateRange(0, [int]::MaxValue)]
-    [int]$Limit = 25,
-    [string]$JsonOut = "",
-    [switch]$Dbg
+    [Parameter(ParameterSetName = "Run")][switch]$CrossPackage,
+    [Parameter(ParameterSetName = "Run")][string[]]$Package,
+    [Parameter(ParameterSetName = "Run")][ValidateRange(0, [int]::MaxValue)][int]$Limit,
+    [Parameter(ParameterSetName = "Run")][string]$JsonOut,
+    [Parameter(ParameterSetName = "Run")][switch]$Dbg,
+    [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-# `powershell -File` passes "a,b" as one string; accept both that and a real array.
-$Package = @($Package | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pythonArgs = @("--limit", "$Limit")
-if ($CrossPackage) { $pythonArgs += "--cross-package" }
-foreach ($name in $Package) { $pythonArgs += @("--package", $name) }
-if ($JsonOut) { $pythonArgs += @("--json-out", $JsonOut) }
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\find_duplicate_bodies.py") -Arguments $pythonArgs -RequirePackages)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.scan.find_duplicate_bodies" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

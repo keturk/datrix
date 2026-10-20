@@ -4,11 +4,14 @@
     Remove extraneous parentheses in Datrix Python code using Ruff (UP034).
 
 .DESCRIPTION
-    Activates the Datrix virtual environment, ensures ruff is installed, and runs
-    extra_parens.py on one or more projects (or the entire monorepo with -All).
+    The behaviour is datrix_scripts.scan.extra_parens, run in the shared venv (ruff comes with
+    its dev install) on one or more projects (or the entire monorepo with -All).
 
     Uses rule UP034 (pyupgrade extraneous-parentheses) only, so project
     pyproject ignore lists do not need to enable UP for this pass.
+
+    -All wins over named projects; neither prints the usage and exits 1, and -DryRun with -Diff
+    is refused (exit 1). Otherwise the exit code is Ruff's.
 
 .PARAMETER Projects
     One or more project names (e.g. datrix-common datrix-language). Positional.
@@ -22,6 +25,10 @@
 .PARAMETER Diff
     Print fix diffs to stdout; do not write files.
 
+.PARAMETER SelfTest
+    Run only the module's self-test: the usage and the -DryRun/-Diff refusal, each mode's Ruff
+    command, a planted UP034 violation reported by a dry run, and the wrapper seam.
+
 .EXAMPLE
     .\extra-parens.ps1 -All
     Fix extraneous parentheses across the monorepo.
@@ -34,39 +41,19 @@
     .\extra-parens.ps1 -All -DryRun
     List UP034 findings without changing files.
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
-    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
-    [string[]]$Projects = @(),
-
-    [switch]$All,
-
-    [switch]$DryRun,
-
-    [switch]$Diff
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true, ParameterSetName = "Run")][string[]]$Projects,
+    [Parameter(ParameterSetName = "Run")][switch]$All,
+    [Parameter(ParameterSetName = "Run")][switch]$DryRun,
+    [Parameter(ParameterSetName = "Run")][switch]$Diff,
+    [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-if ($Projects.Count -eq 0 -and -not $All) {
-    Write-Host "Usage:" -ForegroundColor Yellow
-    Write-Host "  .\extra-parens.ps1 <project> [project2 ...] [-DryRun] [-Diff]" -ForegroundColor White
-    Write-Host "  .\extra-parens.ps1 -All [-DryRun] [-Diff]" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Use Get-Help .\extra-parens.ps1 -Full for detailed help." -ForegroundColor Yellow
-    exit 1
-}
-
-if ($DryRun -and $Diff) {
-    Write-Error "Specify only one of -DryRun or -Diff."
-    exit 1
-}
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pyArgs = @(if ($All) { "--all" } else { $Projects })
-if ($DryRun) { $pyArgs += "--dry-run" }
-if ($Diff) { $pyArgs += "--diff" }
-
-# Ruff comes with the shared venv's dev install.
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\extra_parens.py") -Arguments $pyArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.scan.extra_parens" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

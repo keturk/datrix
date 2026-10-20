@@ -4,16 +4,20 @@
  Syntax Checker for Datrix .dtrx Files
 
 .DESCRIPTION
- Validates the syntax of .dtrx files using the tree-sitter parser.
- Activates the datrix virtual environment, installs required dependencies,
- and runs syntax_checker.py. Ensures virtual environment is deactivated even
- if the script is interrupted (Ctrl-C).
+ The behaviour is datrix_scripts.scan.syntax_checker. Validates the syntax of .dtrx files using
+ the tree-sitter parser (no ERROR or MISSING node, plus the contextual-keyword check), in the
+ shared venv where datrix-language and tree-sitter are installed. .dtrx.false files
+ (intentionally invalid fixtures) are skipped. Exit 0 when every file is valid, 1 otherwise.
 
 .PARAMETER Path
  File or directory to check (default: all datrix repositories).
 
 .PARAMETER Dbg
- Enable debug logging (DEBUG level instead of INFO).
+ Print each file checked, and log at DEBUG level.
+
+.PARAMETER SelfTest
+ Run only the module's self-test: a planted valid model passes, a planted broken one fails, a
+ .dtrx.false fixture is skipped, and the wrapper seam holds.
 
 .EXAMPLE
  .\syntax-checker.ps1
@@ -31,24 +35,17 @@
  .\syntax-checker.ps1 . -Dbg
  Check with debug logging enabled.
 #>
-
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
- [Parameter(Position=0)]
- [string]$Path = "",
-
- [Parameter()]
- [switch]$Dbg
+ [Parameter(Position = 0, ParameterSetName = "Run")][string]$Path,
+ [switch]$Dbg,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-# Default: check all datrix repositories. tree-sitter comes with the installed datrix-language package.
-$pathsToCheck = if ([string]::IsNullOrEmpty($Path)) { @(Get-DatrixDirectoryPaths | Where-Object { Test-Path $_ }) } else { @($Path) }
-
-$pythonArgs = @($pathsToCheck)
-if ($Dbg) { $pythonArgs += "--debug" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\syntax_checker.py") -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.scan.syntax_checker" -Parameters $PSBoundParameters
+exit $LASTEXITCODE
