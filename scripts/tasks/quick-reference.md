@@ -3,6 +3,8 @@
 > **Bash invocation:** Prefix with `powershell -File`, use forward slashes, quote paths. See [../quick-reference.md](../quick-reference.md) for full details.
 >
 > **Base path:** `d:/datrix/datrix/scripts/`
+>
+> **Modules:** every script here is a wrapper rendered from `common/templates/entrypoint.ps1` around a Python module in `common/lib/datrix_scripts/tasks/` (named under each section), run in the shared venv. Each has a POSIX twin `tasks\<name>.sh` that takes the module's own flags, each parameter as `--kebab-name` (`bash tasks/todo.sh --filter parser`). Options are spelled in full: an abbreviation is a usage error (exit 2), never expanded. `-SelfTest` runs the module's checks over a planted workspace in a temporary directory, then the wrapper seam checks; it never reads the real `.tasks` folders.
 
 ---
 
@@ -26,7 +28,9 @@ Lists incomplete tasks (without `COMPLETED:` prefix) and incomplete bugs (withou
 | **Filter** | `.\tasks\todo.ps1 -Filter "parser"` | Filter by filename or title (case-insensitive) |
 | **Custom base dir** | `.\tasks\todo.ps1 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** `-BaseDir`, `-Filter`, `-Dbg`
+**Module:** `datrix_scripts.tasks.todo` (the scan it shares with `completed.ps1` in `datrix_scripts.tasks.task_listing`). The filter matches the file name or title as a substring, with `*` and `?` as wildcards.
+
+**Parameters:** `-BaseDir` (position 0), `-Filter` (position 1), `-Dbg`, `-SelfTest`. **Exit codes:** 0 = listed, 1 = the base directory does not exist.
 
 ---
 
@@ -41,7 +45,9 @@ Marks a task markdown file as completed by updating its heading from `# Task ...
 | **Mark complete (filename only)** | `.\tasks\complete.ps1 "task-05-01.md"` | Searches all `.tasks/` folders for matching filename |
 | **With debug** | `.\tasks\complete.ps1 "task-05-01.md" -Dbg` | Enable debug logging |
 
-**Parameters:** `task_file` (required), `-Dbg`
+**Module:** `datrix_scripts.tasks.complete`. It refuses (exit 1, file untouched) a reference that matches no file or several, and a file whose first heading is not a task title.
+
+**Parameters:** `-TaskFile` (position 0, required), `-Dbg`, `-SelfTest`. **Exit codes:** 0 = marked or already completed, 1 = not found, ambiguous, not a task title or not writable, 2 = usage error.
 
 **Note:** This script only marks the task heading as COMPLETED. You must manually add the `## How Solved` section with implementation details and proof-of-work.
 
@@ -57,13 +63,15 @@ Lists completed tasks (`COMPLETED:` prefix) and fixed bugs (`FIXED:` prefix) fro
 | **Filter** | `.\tasks\completed.ps1 -Filter "parser"` | Filter by filename or title |
 | **Custom base dir** | `.\tasks\completed.ps1 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** `-BaseDir`, `-Filter`, `-Dbg`
+**Module:** `datrix_scripts.tasks.completed` (the scan it shares with `todo.ps1` in `datrix_scripts.tasks.task_listing`).
+
+**Parameters:** `-BaseDir` (position 0), `-Filter` (position 1), `-Dbg`, `-SelfTest`. **Exit codes:** 0 = listed, 1 = the base directory does not exist.
 
 ---
 
 ## `tasks\cleanup.ps1`
 
-Lists/deletes task files from `.tasks/` folders. Optionally filters by phase number.
+Lists/deletes task artifacts (files named `task-*` or `dependencies.md`, at any depth) from `.tasks/` folders, then removes the folders they leave empty. Optionally filters by phase number. Nothing is deleted without `-Force` and a typed `yes`; an end of input answers no. No symbolic link or junction is entered.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -71,7 +79,9 @@ Lists/deletes task files from `.tasks/` folders. Optionally filters by phase num
 | **Delete all** | `.\tasks\cleanup.ps1 -Force` | Delete after confirmation |
 | **Delete phases < N** | `.\tasks\cleanup.ps1 -Force -Phase 60` | Delete only phases before 60 |
 
-**Parameters:** `-BaseDir`, `-Force`, `-Phase` (delete phases < N), `-Dbg`
+**Module:** `datrix_scripts.tasks.cleanup` (the confirmation and folder removal in `datrix_scripts.cleanup_utils`).
+
+**Parameters:** `-BaseDir` (position 0), `-Force`, `-Phase` (position 1; delete phases < N), `-Dbg`, `-SelfTest`. **Exit codes:** 0 = listed, deleted or cancelled, 1 = the base directory does not exist.
 
 ---
 
@@ -85,7 +95,9 @@ Returns the highest phase number found in `.tasks/` folders. Outputs only the nu
 | **With debug** | `.\tasks\latest-phase.ps1 -Dbg` | Shows all found phases |
 | **Custom base dir** | `.\tasks\latest-phase.ps1 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** `-BaseDir`, `-Dbg`
+**Module:** `datrix_scripts.tasks.latest_phase`. With no phase folder it prints nothing (with `-Dbg`, a line saying so).
+
+**Parameters:** `-BaseDir` (position 0), `-Dbg`, `-SelfTest`. **Exit codes:** 0 = done, 1 = the base directory does not exist.
 
 ---
 
@@ -102,7 +114,9 @@ Full metadata snapshot of a phase: per task — `task_id`, `task_path`, `title`,
 | **Snapshot a phase** | `.\tasks\phase-status.ps1 31` | All repos' phase-31 tasks → `D:\datrix\.tmp\tasks\phase-31-status.json` |
 | **Custom base dir** | `.\tasks\phase-status.ps1 31 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** phase number (positional, required), `-BaseDir`, `-Output <path>` (override the default JSON path), `-Dbg`. **Exit codes:** 0 = done, 2 = usage / phase not found.
+**Module:** `datrix_scripts.tasks.phase_status`.
+
+**Parameters:** phase number (positional, required), `-BaseDir`, `-Output <path>` (override the default JSON path), `-Dbg`, `-SelfTest`. **Exit codes:** 0 = done, 2 = usage / phase not found.
 
 ## `tasks\plan-waves.ps1`
 
@@ -114,7 +128,9 @@ Computes the execution plan for a phase: Kahn topological waves over the depende
 | **Include completed** | `.\tasks\plan-waves.ps1 31 -IncludeCompleted` | Full-phase wave structure (audit/compare use) |
 | **Custom base dir** | `.\tasks\plan-waves.ps1 31 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** phase number (positional, required), `-IncludeCompleted`, `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** 0 = plan clean, 1 = blockers/cycle present (read the JSON), 2 = usage error.
+**Module:** `datrix_scripts.tasks.plan_waves`.
+
+**Parameters:** phase number (positional, required), `-IncludeCompleted`, `-BaseDir`, `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** 0 = plan clean, 1 = blockers/cycle present (read the JSON), 2 = usage error.
 
 ## `tasks\plan-waves-multi.ps1`
 
@@ -128,7 +144,7 @@ Batching also hides a conflict `plan-waves.ps1` cannot see — it plans one phas
 | **Plan a phase list** | `.\tasks\plan-waves-multi.ps1 5,6,7,8` | Same, comma form (mixes allowed: `5-6,8`) |
 | **Include completed** | `.\tasks\plan-waves-multi.ps1 5-8 -IncludeCompleted` | Full batch wave structure (audit/compare use) |
 
-**Parameters:** phase spec (positional, required — range `5-8`, list `5,6,7,8`, or mix `5-6,8`; at least two phases), `-IncludeCompleted`, `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** 0 = plan clean, 1 = blockers/cycle/residual conflicts present (read the JSON), 2 = usage error.
+**Parameters:** phase spec (positional, required — range `5-8`, list `5,6,7,8`, or mix `5-6,8`; at least two phases), `-IncludeCompleted`, `-BaseDir`, `-Output <path>`, `-Dbg`, `-SelfTest`. **Module:** `datrix_scripts.tasks.plan_waves_multi`. **Exit codes:** 0 = plan clean, 1 = blockers/cycle/residual conflicts present (read the JSON), 2 = usage error.
 
 **Output fields beyond `plan-waves.ps1`'s:** `phases`, `implicit_order_edges` (each with the task pair, the shared file, and why the edge was added), `order_repair_passes`, `residual_file_conflicts` (must be empty), and a `phases` list on every `wave_details` entry.
 
@@ -144,7 +160,9 @@ Validates a phase's `dependencies.md` + task numbering: valid Step-7 JSON (legac
 | **Next free task number** | `.\tasks\validate-dependencies.ps1 -Phase 31 -NextTaskNumber` | Prints only the number (e.g. `18`) |
 | **Custom base dir** | `.\tasks\validate-dependencies.ps1 -Phase 31 -BaseDir D:\other` | Different workspace |
 
-**Parameters:** `-Phase <NN>` (required), `-NextTaskNumber`, `-BaseDir`, `-Output <path>`, `-Dbg`. **Exit codes:** validate mode 0 = PASS / 1 = FAIL / 2 = usage; `-NextTaskNumber` 0 with the number on stdout.
+**Module:** `datrix_scripts.tasks.validate_dependencies`.
+
+**Parameters:** `-Phase <NN>` (position 0, required), `-NextTaskNumber`, `-BaseDir`, `-Output <path>`, `-Dbg`, `-SelfTest`. **Exit codes:** validate mode 0 = PASS / 1 = FAIL / 2 = usage; `-NextTaskNumber` 0 with the number on stdout.
 
 ## `tasks\retrofit-orientation.ps1`
 
@@ -158,7 +176,9 @@ Left alone: quality-gate tasks (reading the code is the job), tasks that already
 | **Apply** | `.\tasks\retrofit-orientation.ps1 -Phase 61 -Apply` | Writes the rewritten tasks (originals copied aside first) |
 | **Given tasks** | `.\tasks\retrofit-orientation.ps1 -Task D:\datrix\<repo>\.tasks\phase-NN\task-NN-TT-<slug>.md` | One or more task files |
 
-**Parameters:** `-Task <file>[,<file>...]`, `-Phase <NN>`, `-Apply`, `-BaseDir`. **Exit codes:** 0 = done, 2 = usage error. Run `validate-task.ps1 -Phase <NN>` afterwards.
+**Module:** `datrix_scripts.tasks.retrofit_orientation`.
+
+**Parameters:** `-Task <file>[,<file>...]` (position 0), `-Phase <NN>` (position 1), `-Apply`, `-BaseDir` (position 2), `-SelfTest`. **Exit codes:** 0 = done, 2 = usage error. Run `validate-task.ps1 -Phase <NN>` afterwards.
 
 ## `tasks\validate-task.ps1`
 
@@ -175,13 +195,15 @@ Validates task files **against the tree as it is now**, deterministically and wi
 | **Warnings fail** | `.\tasks\validate-task.ps1 -Phase 61 -Strict` | A moved line fails the run |
 | **Orientation required** | `.\tasks\validate-task.ps1 -Phase 62 -RequireOrientation` | A task with no `## Orientation` is an error (for tasks written to the new template) |
 
-**Parameters:** `-Task <file>[,<file>...]`, `-Phase <NN>`, `-Strict`, `-RequireOrientation`, `-BaseDir`. **Exit codes:** 0 = no errors (and, with `-Strict`, no warnings), 1 = errors, 2 = usage error.
+**Module:** `datrix_scripts.tasks.validate_task` (the citation checker in `datrix_scripts.tasks.task_citations`).
+
+**Parameters:** `-Task <file>[,<file>...]` (position 0), `-Phase <NN>` (position 1), `-Strict`, `-RequireOrientation`, `-BaseDir` (position 2), `-SelfTest`. **Exit codes:** 0 = no errors (and, with `-Strict`, no warnings), 1 = errors, 2 = usage error.
 
 ---
 
 ## `tasks\task-orientation-gate.ps1`
 
-Behaviour checks for task orientation and citation validation (`common/lib/datrix_scripts/task_orientation.py`, `tasks/lib/task_citations.py`, `tasks/lib/validate_task.py`, wrapped by `tasks\validate-task.ps1`). Each check builds a real workspace in a temporary directory (framework repositories with real Python, task files under `.tasks/phase-NN`) and runs the real code index over it; explanations are answered by a real model server on loopback, never the network's. The checks cover:
+Behaviour checks for task orientation and citation validation (`common/lib/datrix_scripts/task_orientation.py`, `datrix_scripts.tasks.task_citations`, `datrix_scripts.tasks.validate_task`, wrapped by `tasks\validate-task.ps1`). Each check builds a real workspace in a temporary directory (framework repositories with real Python, task files under `.tasks/phase-NN`) and runs the real code index over it; explanations are answered by a real model server on loopback, never the network's. The checks cover:
 
 - the `## Orientation` block read by the one task parser (`parse_task_file`), and prose lines that exclude code fences
 - every malformed entry rejected with what to write instead; every question that asks where something is defined or who calls it rejected (a local model invents those answers; `symbol` / `refs` answer them exactly)
@@ -197,6 +219,8 @@ It is a repo-level validation **script**, not a pytest suite.
 | **One area** | `.\tasks\task-orientation-gate.ps1 -Only check_citations` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\tasks\task-orientation-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
 | **Self-test** | `.\tasks\task-orientation-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
+
+**Module:** `datrix_scripts.tasks.task_orientation_gate`.
 
 **Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 

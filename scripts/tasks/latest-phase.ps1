@@ -1,82 +1,40 @@
-# Get Latest Phase Number from .tasks Folders
-# Scans all .tasks folders in datrix projects to find the highest phase number
-# Returns only the phase number (no deletion, no other output)
-# Usage: .\scripts\tasks\latest-phase.ps1 [-BaseDir <path>] [-Dbg]
+#!/usr/bin/env pwsh
+<#
+.SYNOPSIS
+ Print the highest phase number of the workspace's .tasks folders.
 
-[CmdletBinding()]
+.DESCRIPTION
+ The behaviour is datrix_scripts.tasks.latest_phase. It reads the phase-<number> folders of the
+ workspace root's .tasks and of every datrix and datrix-* repository's .tasks, and prints only the
+ highest number (31, not phase-31), for use in scripts; nothing when there is no phase folder.
+
+ Exit codes:
+   0 = done (a phase found or not)
+   1 = the base directory does not exist (or a self-test check failed)
+
+.PARAMETER BaseDir
+ Workspace root holding .tasks and the datrix* repos (default: this workspace).
+
+.PARAMETER Dbg
+ Print every phase number found and the latest, instead of the number alone.
+
+.PARAMETER SelfTest
+ Run only the module's self-test over planted folders, and the wrapper seam checks.
+
+.EXAMPLE
+ .\tasks\latest-phase.ps1
+#>
+[CmdletBinding(DefaultParameterSetName = "Run")]
 param(
- [string]$BaseDir = $(if ($PSScriptRoot) { Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) } else { "D:\datrix" }),
- [switch]$Dbg
+ [Parameter(Position = 0, ParameterSetName = "Run")][string]$BaseDir,
+ [switch]$Dbg,
+ [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-# Find all datrix projects
-$projects = Get-ChildItem -Path $BaseDir -Directory | Where-Object { $_.Name -like "datrix*" }
-
-$allPhaseNumbers = @()
-
-# Function to collect phase numbers from a .tasks folder
-function Get-PhaseNumbers {
- param(
- [string]$TasksFolderPath
- )
- 
- if (-not (Test-Path $TasksFolderPath)) {
- return
- }
- 
- # Find all phase-* directories
- $phaseDirs = Get-ChildItem -Path $TasksFolderPath -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^phase-\d+$' }
- 
- # Handle case where Get-ChildItem returns a single object instead of an array
- if ($null -eq $phaseDirs) {
- return
- }
- if ($phaseDirs -isnot [System.Array]) {
- $phaseDirs = @($phaseDirs)
- }
- if ($phaseDirs.Count -eq 0) {
- return
- }
- 
- foreach ($phaseDir in $phaseDirs) {
- # Extract phase number from folder name (e.g., "phase-01" -> 1)
- if ($phaseDir.Name -match '^phase-(\d+)$') {
- $phaseNumber = [int]$matches[1]
- if ($phaseNumber -notin $script:allPhaseNumbers) {
- $script:allPhaseNumbers += $phaseNumber
- }
- }
- }
-}
-
-# Process root .tasks folder
-$rootTasksFolder = Join-Path $BaseDir ".tasks"
-Get-PhaseNumbers -TasksFolderPath $rootTasksFolder
-
-# Process all datrix projects
-foreach ($project in $projects) {
- $tasksFolder = Join-Path $project.FullName ".tasks"
- Get-PhaseNumbers -TasksFolderPath $tasksFolder
-}
-
-# Return the latest phase number
-if ($allPhaseNumbers.Count -eq 0) {
- if ($Dbg) {
- Write-Host "No phase folders found in .tasks directories." -ForegroundColor Yellow
- }
- exit 0
-}
-
-$latestPhase = ($allPhaseNumbers | Measure-Object -Maximum).Maximum
-
-if ($Dbg) {
- Write-Host "Found phase numbers: $($allPhaseNumbers -join ', ')" -ForegroundColor Cyan
- Write-Host "Latest phase: $latestPhase" -ForegroundColor Green
-} else {
- # Output only the phase number (for use in scripts)
- Write-Output $latestPhase
-}
-
-exit 0
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.tasks.latest_phase" -Parameters $PSBoundParameters
+exit $LASTEXITCODE
