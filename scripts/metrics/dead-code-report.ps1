@@ -4,7 +4,7 @@
  Dead-code report: never referenced vs only referenced by tests (two-pass Vulture).
 
 .DESCRIPTION
- Runs datrix_scripts.dead_code_report with two-pass Vulture in the shared venv.
+ Runs datrix_scripts.metrics.dead_code_report with two-pass Vulture in the shared venv.
 Reports dead code in src/ only, classified as "never referenced" or "only referenced by tests".
 With -MakeWhitelist it writes Vulture's whitelist candidates per package instead of the report.
 
@@ -65,6 +65,9 @@ every datrix-* package discovered on disk with a pyproject.toml (except datrix) 
 .PARAMETER Quiet
  Only write to -OutputPath (if set); do not print the report to the console.
 
+.PARAMETER SelfTest
+ Run only the self-test over planted packages (Vulture runs for real), then exit.
+
 .EXAMPLE
   .\dead-code-report.ps1
   .\dead-code-report.ps1 -All -Output json -OutputPath D:\datrix\.test-output\dead-code.json
@@ -73,6 +76,7 @@ every datrix-* package discovered on disk with a pyproject.toml (except datrix) 
   .\dead-code-report.ps1 datrix-cli -MakeWhitelist
   .\dead-code-report.ps1 -All -Raw
   .\dead-code-report.ps1 datrix-cli -LlmReview -LlmLimit 20
+  .\dead-code-report.ps1 -SelfTest
 #>
 
 [CmdletBinding()]
@@ -96,50 +100,14 @@ param(
  [int]$LlmTimeout = 180,
  [int]$LlmNumPredict = 4096,
  [double]$LlmTemperature = 0.1,
- [switch]$Quiet
+ [switch]$Quiet,
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$normalizedProjects = @()
-if ($Projects.Count -gt 0) {
- $normalizedProjects = @(($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) |
-  Where-Object { $_ -ne "datrix" } |
-  Select-Object -Unique)
- if ($normalizedProjects.Count -eq 0) {
-  Write-Host "ERROR: No valid projects selected. Pass one or more datrix-* package names or paths (excluding 'datrix')." -ForegroundColor Red
-  exit 1
- }
-}
-
-$pythonArgs = @(
- "--workspace-root", (Get-DatrixWorkspaceRoot),
- "--min-confidence", $MinConfidence,
- "--output", $Output
-)
-if ($All) { $pythonArgs += "--all" }
-elseif ($normalizedProjects.Count -gt 0) {
- $pythonArgs += "--projects"
- $pythonArgs += $normalizedProjects
-}
-if ($SortBySize) { $pythonArgs += "--sort-by-size" }
-if ($MakeWhitelist) { $pythonArgs += "--make-whitelist" }
-if ($VerboseOutput) { $pythonArgs += "--verbose" }
-if ($Raw) { $pythonArgs += "--raw" }
-if ($OutputPath) { $pythonArgs += @("--output-file", $OutputPath) }
-if ($Quiet) { $pythonArgs += "--quiet" }
-if ($LlmReview) {
- $pythonArgs += @(
-  "--llm-review",
-  "--llm-limit", $LlmLimit,
-  "--llm-num-predict", $LlmNumPredict,
-  "--llm-temperature", $LlmTemperature
- )
- $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-}
-
-# Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
-exit (Invoke-DatrixPythonScript -Module "datrix_scripts.dead_code_report" -Arguments $pythonArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.dead_code_report" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

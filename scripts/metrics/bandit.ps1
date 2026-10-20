@@ -4,8 +4,9 @@
  Run Bandit security scanner for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs lib\bandit_report.py
- for each project. Finds common security issues in Python code.
+ Runs datrix_scripts.metrics.bandit for each project. Finds common security issues in Python code.
+ Bandit comes with the shared venv (the scripts dependency group); the module refuses, naming the
+ declaring manifest and the venv repair, when it is missing.
 
 .PARAMETER Projects
  One or more project names or folder paths.
@@ -26,7 +27,10 @@
  Stop on first project failure.
 
 .PARAMETER VerboseOutput
- Verbose output.
+ Verbose output: Bandit's own output streamed as it runs.
+
+.PARAMETER SelfTest
+ Run only the module's self-test (planted projects, no real workspace) and exit.
 
 .EXAMPLE
  .\bandit.ps1 datrix-common
@@ -47,62 +51,14 @@ param(
  [ValidateSet("screen", "json", "csv", "html", "yaml", "sarif")]
  [string]$Format = "screen",
  [switch]$StopOnError,
- [switch]$VerboseOutput
+ [switch]$VerboseOutput,
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$workspaceRoot = Get-DatrixWorkspaceRoot
-# bandit comes with the shared venv (the scripts dependency group); bandit_report.py refuses, naming the declaring manifest and the venv repair, when it is missing.
-$banditScript = Join-Path $PSScriptRoot "lib\bandit_report.py"
-
- $projectsToAnalyze = @()
- if ($All) {
- $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No Datrix projects in: $workspaceRoot" -ForegroundColor Red; exit 1 }
- Write-Host "Running Bandit security scan for all projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } elseif ($Projects.Count -gt 0) {
- $projectsToAnalyze = ($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No valid projects (datrix excluded)." -ForegroundColor Red; exit 1 }
- Write-Host "Running Bandit security scan for: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } else {
- Write-Host "Usage: .\bandit.ps1 <project> [options] or .\bandit.ps1 -All [options]" -ForegroundColor Yellow
- Write-Host " -Severity low|medium|high -Confidence low|medium|high -Format screen|json|csv|html|yaml|sarif" -ForegroundColor Cyan
- exit 1
- }
-
- $results = @{}
- foreach ($project in $projectsToAnalyze) {
- Write-Host ""
- Write-Host "======== $project ========" -ForegroundColor Cyan
- $projectRoot = Join-Path $workspaceRoot $project
- $projectArgs = @(
- "--project-root", $projectRoot,
- "--severity", $Severity,
- "--confidence", $Confidence,
- "--format", $Format
- )
- if ($VerboseOutput) { $projectArgs += "--verbose" }
-
- $projectExit = Invoke-DatrixPythonScript -Script $banditScript -Arguments $projectArgs
- $results[$project] = ($projectExit -eq 0)
- if ($projectExit -ne 0 -and $StopOnError) {
- Write-Host "Stopping due to -StopOnError" -ForegroundColor Red
- break
- }
- }
-
- Write-Host ""
- Write-Host "Bandit Security Summary" -ForegroundColor Cyan
- foreach ($p in ($results.Keys | Sort-Object)) {
- $status = if ($results[$p]) { "[PASS]" } else { "[FAIL]" }
- $color = if ($results[$p]) { "Green" } else { "Red" }
- Write-Host " $status : $p" -ForegroundColor $color
- }
- $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
- if ($failed -gt 0) { exit 1 }
- exit 0
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.bandit" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

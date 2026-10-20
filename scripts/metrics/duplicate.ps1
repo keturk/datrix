@@ -4,8 +4,8 @@
  Run Pylint duplicate-code detection (R0801) for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs datrix_scripts.duplicate
- for each project. Finds similar/duplicated code blocks across files.
+ Runs datrix_scripts.metrics.duplicate in the shared venv for each project.
+ Finds similar/duplicated code blocks across files.
 
 .PARAMETER Projects
  One or more project names or folder paths.
@@ -51,6 +51,9 @@
 .PARAMETER LlmTemperature
  Sampling temperature for advisory refactor plan.
 
+.PARAMETER SelfTest
+ Run only the module's self-test (planted packages) and the wrapper seam checks, and exit.
+
 .EXAMPLE
  .\duplicate.ps1 datrix-common
  .\duplicate.ps1 datrix-common -MinLines 6
@@ -77,99 +80,14 @@ param(
  [string[]]$LlmModel = @(),
  [int]$LlmTimeout = 180,
  [int]$LlmNumPredict = 4096,
- [double]$LlmTemperature = 0.1
+ [double]$LlmTemperature = 0.1,
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$workspaceRoot = Get-DatrixWorkspaceRoot
-# Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
-# pylint comes with the shared venv's dev install.
-$duplicateModule = "datrix_scripts.duplicate"
-
-if ($All -and $Mono) {
- Write-Host "Error: -All and -Mono are mutually exclusive. Use one or the other." -ForegroundColor Red
- exit 1
-}
-
- $projectsToAnalyze = @()
- $isMonoRun = $false
- if ($All) {
- $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No Datrix projects in: $workspaceRoot" -ForegroundColor Red; exit 1 }
- Write-Host "Running duplicate-code detection for all projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } elseif ($Mono) {
- $projectsToAnalyze = Get-DatrixMonoProjectNames -WorkspaceRoot $workspaceRoot
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No mono project directories found under: $workspaceRoot" -ForegroundColor Red; exit 1 }
- $isMonoRun = $true
- Write-Host "Running duplicate-code detection across monorepo (Mono): $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } elseif ($Projects.Count -gt 0) {
- $projectsToAnalyze = ($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No valid projects (datrix excluded)." -ForegroundColor Red; exit 1 }
- Write-Host "Running duplicate-code detection for: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } else {
- Write-Host "Usage: .\duplicate.ps1 <project> [options] or .\duplicate.ps1 -All [options] or .\duplicate.ps1 -Mono [options]" -ForegroundColor Yellow
- Write-Host " -MinLines N -Tests -StopOnError -VerboseOutput" -ForegroundColor Cyan
- exit 1
- }
-
- # Filter out projects without src/ — they have nothing to scan for duplicates
- $projectsToAnalyze = @($projectsToAnalyze | Where-Object {
-  $projectDir = Join-Path $workspaceRoot $_
-  $hasSrc = Test-Path (Join-Path $projectDir "src")
-  if (-not $hasSrc) { Write-Host "Skipping $_ (no src/ directory)" -ForegroundColor Yellow }
-  $hasSrc
- })
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "No projects with src/ to scan." -ForegroundColor Yellow; exit 0 }
-
- # The options every run shares, after its --project-root arguments.
- $commonArgs = @()
- if ($PSBoundParameters.ContainsKey('MinLines')) { $commonArgs += @("--min-lines", "$MinLines") }
- if ($Tests) { $commonArgs += "--tests" }
- if ($VerboseOutput) { $commonArgs += "--verbose" }
- if ($LlmRefactorPlan) {
- $commonArgs += @(
- "--llm-refactor-plan",
- "--llm-limit", "$LlmLimit",
- "--llm-num-predict", "$LlmNumPredict",
- "--llm-temperature", "$LlmTemperature"
- )
- $commonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
- }
-
- $results = @{}
- if ($isMonoRun) {
- Write-Host ""
- Write-Host "======== mono (all projects) ========" -ForegroundColor Cyan
- $projectArgs = @()
- foreach ($project in $projectsToAnalyze) { $projectArgs += @("--project-root", (Join-Path $workspaceRoot $project)) }
- $monoExit = Invoke-DatrixPythonScript -Module $duplicateModule -Arguments ($projectArgs + $commonArgs)
- $results["mono"] = ($monoExit -eq 0)
- } else {
- foreach ($project in $projectsToAnalyze) {
- Write-Host ""
- Write-Host "======== $project ========" -ForegroundColor Cyan
- $projectArgs = @("--project-root", (Join-Path $workspaceRoot $project))
- $projectExit = Invoke-DatrixPythonScript -Module $duplicateModule -Arguments ($projectArgs + $commonArgs)
- $results[$project] = ($projectExit -eq 0)
- if ($projectExit -ne 0 -and $StopOnError) {
- Write-Host "Stopping due to -StopOnError" -ForegroundColor Red
- break
- }
- }
- }
-
- Write-Host ""
- Write-Host "Duplicate-Code Summary" -ForegroundColor Cyan
- foreach ($p in ($results.Keys | Sort-Object)) {
- $status = if ($results[$p]) { "[PASS]" } else { "[FAIL]" }
- $color = if ($results[$p]) { "Green" } else { "Red" }
- Write-Host " $status : $p" -ForegroundColor $color
- }
- $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
- if ($failed -gt 0) { exit 1 }
- exit 0
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.duplicate" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

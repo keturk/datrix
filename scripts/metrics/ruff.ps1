@@ -4,9 +4,8 @@
  Run Ruff (lint/format) for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs lib\ruff_report.py
- for each project. Modes: check (lint), format. Supports output-format,
- fix, diff, statistics for check; check (dry run), diff for format.
+ Runs datrix_scripts.metrics.ruff for each project. Modes: check (lint), format. Supports
+ output-format, fix, diff, statistics for check; check (dry run), diff for format.
  Console output is written to a timestamped log under the workspace-level
  .test-output\ruff\<project>\ folder
  (e.g. D:\datrix\.test-output\ruff\datrix-common\ruff-20260207-143022.log).
@@ -45,7 +44,10 @@
  Stop on first project failure.
 
 .PARAMETER VerboseOutput
- Verbose output.
+ Verbose output (Ruff's -v).
+
+.PARAMETER SelfTest
+ Run only the module's self-test (planted projects, no real workspace) and exit.
 
 .EXAMPLE
  .\ruff.ps1 datrix-common
@@ -69,83 +71,14 @@ param(
  [switch]$Check,
  [switch]$Test,
  [switch]$StopOnError,
- [switch]$VerboseOutput
+ [switch]$VerboseOutput,
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$workspaceRoot = Get-DatrixWorkspaceRoot
-# Ruff comes with the shared venv's dev install.
-$ruffScript = Join-Path $PSScriptRoot "lib\ruff_report.py"
-
- $projectsToAnalyze = @()
- if ($All) {
- $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No Datrix projects in: $workspaceRoot" -ForegroundColor Red; exit 1 }
- $targetLabel = if ($Test) { "tests/" } else { "src/" }
- Write-Host "Running Ruff (mode=$Mode, target=$targetLabel) for all projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } elseif ($Projects.Count -gt 0) {
- $projectsToAnalyze = ($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
- if ($projectsToAnalyze.Count -eq 0) { Write-Host "ERROR: No valid projects (datrix excluded)." -ForegroundColor Red; exit 1 }
- $targetLabel = if ($Test) { "tests/" } else { "src/" }
- Write-Host "Running Ruff (mode=$Mode, target=$targetLabel) for: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } else {
- Write-Host "Usage: .\ruff.ps1 <project> [options] or .\ruff.ps1 -All [options]" -ForegroundColor Yellow
- Write-Host " -Mode check|format -OutputFormat full|json|... -Fix -Diff -Statistics -Check -Test" -ForegroundColor Cyan
- exit 1
- }
-
- # Run logs go to the workspace-level output tree, never inside a package repo:
- # every datrix-* package is its own git repository, and anything dropped in one
- # is committed and pushed unless a human notices. See repo-boundaries in the
- # agent rules; the ignored-source gate fails on any such stray output.
- $RUFF_LOG_ROOT = Join-Path $workspaceRoot ".test-output\ruff"
- $results = @{}
- foreach ($project in $projectsToAnalyze) {
- Write-Host ""
- $targetLabel = if ($Test) { "tests" } else { "src" }
- Write-Host "======== $project (mode=$Mode, $targetLabel) ========" -ForegroundColor Cyan
- $projectRoot = Join-Path $workspaceRoot $project
- $ruffLogDir = Join-Path $RUFF_LOG_ROOT $project
- if (-not (Test-Path $ruffLogDir)) {
- New-Item -Path $ruffLogDir -ItemType Directory -Force | Out-Null
- }
- $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
- $logFileName = "ruff-$timestamp.log"
- $logFile = Join-Path $ruffLogDir $logFileName
- Write-Host "Log file: $logFile" -ForegroundColor Gray
-
- $projectArgs = @(
- "--project-root", $projectRoot,
- "--mode", $Mode,
- "--output-format", $OutputFormat
- )
- if ($Test) { $projectArgs += "--target"; $projectArgs += "tests" }
- if ($Fix) { $projectArgs += "--fix" }
- if ($Diff) { $projectArgs += "--diff" }
- if ($Statistics) { $projectArgs += "--statistics" }
- if ($Check) { $projectArgs += "--check" }
- if ($VerboseOutput) { $projectArgs += "--verbose" }
-
- $ruffExitCode = Invoke-DatrixPythonScript -Script $ruffScript -Arguments $projectArgs -TeePath $logFile
- $results[$project] = ($ruffExitCode -eq 0)
- if ($ruffExitCode -ne 0 -and $StopOnError) {
- Write-Host "Stopping due to -StopOnError" -ForegroundColor Red
- break
- }
- }
-
- Write-Host ""
- Write-Host "Ruff Summary (mode=$Mode)" -ForegroundColor Cyan
- foreach ($p in ($results.Keys | Sort-Object)) {
- $status = if ($results[$p]) { "[PASS]" } else { "[FAIL]" }
- $color = if ($results[$p]) { "Green" } else { "Red" }
- Write-Host " $status : $p" -ForegroundColor $color
- }
- $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
- if ($failed -gt 0) { exit 1 }
- exit 0
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.ruff" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

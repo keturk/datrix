@@ -4,8 +4,8 @@
  Report dependency relationships between Datrix packages.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs lib\dependency.py
- to report which datrix-* packages depend on which (from pyproject.toml).
+ Runs datrix_scripts.metrics.dependency to report which datrix-* packages depend on which
+ (from pyproject.toml).
  Modes: tree (default), list, json, third-party (every non-datrix runtime dependency
  with each declaring package and its spec; SPEC DRIFT marks differing specifiers).
 
@@ -19,10 +19,13 @@
  Output mode: tree, list, json, third-party. Default: tree.
 
 .PARAMETER VerboseOutput
- Verbose output.
+ Debug logging: names the packages discovered.
 
 .PARAMETER Dbg
- Debug output.
+ Debug logging.
+
+.PARAMETER SelfTest
+ Run only the module's self-test (planted packages, no real workspace) and exit.
 
 .EXAMPLE
  .\dependency.ps1 -All
@@ -50,60 +53,14 @@ param(
  [ValidateSet("tree", "list", "json", "third-party")]
  [string]$Mode = "tree",
  [switch]$VerboseOutput,
- [switch]$Dbg
+ [switch]$Dbg,
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$workspaceRoot = Get-DatrixWorkspaceRoot
-
- $useAll = $false
- $packageFilter = @()
-
- if ($All) {
- $useAll = $true
- Write-Host "Dependency (mode=$Mode) for all Datrix packages" -ForegroundColor Cyan
- } elseif ($Projects.Count -gt 0) {
- $packageFilter = ($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
- if ($packageFilter.Count -eq 0) {
- Write-Host "ERROR: No valid projects specified (datrix is excluded)." -ForegroundColor Red
- exit 1
- }
- Write-Host "Dependency (mode=$Mode) for: $($packageFilter -join ', ')" -ForegroundColor Cyan
- } else {
- Write-Host ""
- Write-Host "Usage:" -ForegroundColor Yellow
- Write-Host " .\dependency.ps1 -All [options]" -ForegroundColor Cyan
- Write-Host " .\dependency.ps1 <package> [package ...] [options]" -ForegroundColor Cyan
- Write-Host ""
- Write-Host "Examples:" -ForegroundColor Yellow
- Write-Host " .\dependency.ps1 -All" -ForegroundColor Cyan
- Write-Host " .\dependency.ps1 -All -Mode list" -ForegroundColor Cyan
- Write-Host " .\dependency.ps1 -All -Mode json" -ForegroundColor Cyan
- Write-Host " .\dependency.ps1 datrix-common datrix-language -Mode tree" -ForegroundColor Cyan
- Write-Host ""
- Write-Host "Parameters:" -ForegroundColor Yellow
- Write-Host " -Mode tree | list | json | third-party (default: tree)" -ForegroundColor Gray
- Write-Host " -All Include all datrix-* packages" -ForegroundColor Gray
- Write-Host " -VerboseOutput Verbose output" -ForegroundColor Gray
- Write-Host " -Dbg Debug output" -ForegroundColor Gray
- Write-Host ""
- $available = Get-DatrixPackageNamesGlobWithPyProject -WorkspaceRoot $workspaceRoot
- if ($available.Count -gt 0) {
- Write-Host "Available packages:" -ForegroundColor Yellow
- foreach ($p in $available) { Write-Host " - $p" -ForegroundColor Cyan }
- }
- Write-Host ""
- exit 1
- }
-
- $projectArgs = @("--workspace-root", $workspaceRoot, "--mode", $Mode)
- if ($packageFilter.Count -gt 0) { $projectArgs += @("--packages") + @($packageFilter) }
- if ($VerboseOutput) { $projectArgs += "--verbose" }
- if ($Dbg) { $projectArgs += "--debug" }
-
- exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\dependency.py") -Arguments $projectArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.dependency" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

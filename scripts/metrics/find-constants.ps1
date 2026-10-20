@@ -4,7 +4,7 @@
     Find string literals in Datrix Python projects and write a grouped Markdown report.
 
 .DESCRIPTION
-    Activates the Datrix virtual environment and runs find_constants.py on one or more
+    Activates the Datrix virtual environment and runs datrix_scripts.metrics.find_constants on one or more
     projects (or the entire monorepo with -All). The report is written to the current
     working directory by default (inherited cwd), matching where you invoke this script.
 
@@ -32,6 +32,9 @@
 
 .PARAMETER MaxValueChars
     Max characters from each value shown in section headings (default 120).
+
+.PARAMETER SelfTest
+    Run only the module's self-test (planted projects, no real workspace) and exit.
 
 .EXAMPLE
     .\find-constants.ps1 -All
@@ -64,27 +67,15 @@ param(
 
     [int]$MinLength = 1,
 
-    [int]$MaxValueChars = 120
+    [int]$MaxValueChars = 120,
+
+    [switch]$SelfTest
 )
-
-if ($Projects.Count -eq 0 -and -not $All) {
-    Write-Host "Usage:" -ForegroundColor Yellow
-    Write-Host "  .\find-constants.ps1 <project> [project2 ...] [-Src] [-Tests] [-Output path] [-IncludeDocstrings] [-MinLength N] [-MaxValueChars N]" -ForegroundColor White
-    Write-Host "  .\find-constants.ps1 -All [-Src] [-Tests] [-Output path] [-IncludeDocstrings] [-MinLength N] [-MaxValueChars N]" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Use Get-Help .\find-constants.ps1 -Full for detailed help." -ForegroundColor Yellow
-    exit 1
-}
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$pyArgs = @(if ($All) { "--all" } else { $Projects })
-if ($Output) { $pyArgs += @("--output", $Output) }
-if ($IncludeDocstrings) { $pyArgs += "--include-docstrings" }
-if ($MinLength -ne 1) { $pyArgs += @("--min-length", "$MinLength") }
-if ($MaxValueChars -ne 120) { $pyArgs += @("--max-value-chars", "$MaxValueChars") }
-if ($Src) { $pyArgs += "--src" }
-if ($Tests) { $pyArgs += "--tests" }
-
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\find_constants.py") -Arguments $pyArgs)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.find_constants" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

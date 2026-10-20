@@ -5,7 +5,7 @@
     and cross-file duplicate top-level names across Datrix packages.
 
 .DESCRIPTION
-    Activates the Datrix virtual environment and runs code_analyzer.py. The report is written
+    Activates the Datrix virtual environment and runs datrix_scripts.metrics.code_analyzer. The report is written
     under the current working directory by default (inherited cwd), not next to this script.
 
 .PARAMETER Projects
@@ -24,7 +24,7 @@
     Optional report path (passed to Python as --output). Relative paths resolve against cwd.
 
 .PARAMETER Dbg
-    Pass --debug to Python (prints scan roots to stderr).
+    Log the scan roots at DEBUG level (to stderr).
 
 .PARAMETER LlmReview
     Add an advisory "Duplicate-name triage" section: a local model ranks which duplicate
@@ -44,7 +44,7 @@
     Seconds for each request to a ready local model (default 180).
 
 .PARAMETER SelfTest
-    Run only the duplicate-triage checks (planted sites, no model server) and exit.
+    Run only the duplicate-triage checks (planted sites, no model server) and the wrapper seam checks, and exit.
 
 .EXAMPLE
     .\code-analyzer.ps1 datrix-common
@@ -85,55 +85,11 @@ param(
 
     [switch]$SelfTest
 )
-
-if ($Projects.Count -eq 0 -and -not $All -and -not $SelfTest) {
-    Write-Host "Usage:" -ForegroundColor Yellow
-    Write-Host "  .\code-analyzer.ps1 <project> [project2 ...] [-Src] [-Tests] [-Output path] [-Dbg]" -ForegroundColor White
-    Write-Host "  .\code-analyzer.ps1 -All [-Src] [-Tests] [-Output path] [-Dbg]" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Default: src/ only. -Tests alone: tests/ only. -Src and -Tests: both trees." -ForegroundColor Gray
-    Write-Host "Report defaults to .\code-structure-report.md (cwd). Use Get-Help for full help." -ForegroundColor Gray
-    exit 1
-}
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-$pythonScript = Join-Path $PSScriptRoot "lib\code_analyzer.py"
-
-if ($SelfTest) {
-    exit (Invoke-DatrixPythonScript -Script $pythonScript -Arguments @("--self-test"))
-}
-
-$pythonArgs = @()
-if ($All) {
-    $pythonArgs += "--all"
-}
-else {
-    $filtered = @($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ } | Where-Object { $_ -ne "datrix" })
-    if ($filtered.Count -eq 0) {
-        Write-Host "ERROR: No valid projects (datrix meta folder is excluded)." -ForegroundColor Red
-        exit 1
-    }
-    $pythonArgs += $filtered
-}
-if ($Output) {
-    $pythonArgs += @("--output", $Output)
-}
-if ($Src) {
-    $pythonArgs += "--src"
-}
-if ($Tests) {
-    $pythonArgs += "--tests"
-}
-if ($Dbg) {
-    $pythonArgs += "--debug"
-}
-if ($LlmReview) {
-    $pythonArgs += @("--llm-review", "--llm-limit", $LlmLimit)
-    $pythonArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $LlmModel -LlmTimeoutSeconds $LlmTimeout
-}
-
-Write-Host "Python code structure analyzer (AST)..." -ForegroundColor Cyan
-Write-Host ""
-exit (Invoke-DatrixPythonScript -Script $pythonScript -Arguments $pythonArgs -ShowCommand:$Dbg)
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.code_analyzer" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

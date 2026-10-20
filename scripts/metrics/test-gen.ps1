@@ -1,9 +1,10 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
  Run coverage-driven test generation for one or more Datrix projects.
 .DESCRIPTION
- Activates the shared virtual environment and runs metrics/lib/test_gen.py.
+ Runs datrix_scripts.metrics.test_gen for each project: the project's tests under coverage,
+ then the uncovered functions ranked by priority.
  Modes:
  - report       : list uncovered functions ranked by priority
  - generate     : generate test for top-ranked (or target) function
@@ -38,8 +39,11 @@ Include only functions where uncovered/total lines > ratio (default: 0.5).
 .PARAMETER StopOnError
 Stop after first project failure.
 .PARAMETER VerboseOutput
- Enables verbose wrapper output.
+ Number the per-project lines ([i/n]).
+.PARAMETER SelfTest
+ Run only the module's self-test (planted projects; no test is run, no model is asked) and exit.
 #>
+
 [CmdletBinding()]
 param(
  [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
@@ -58,84 +62,14 @@ param(
  [string[]]$Model = @(),
  [int]$LlmTimeout = 300,
  [switch]$StopOnError,
- [switch]$VerboseOutput
+ [switch]$VerboseOutput,
+ [switch]$SelfTest
 )
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-$workspaceRoot = Get-DatrixWorkspaceRoot
-$libraryScript = Join-Path $PSScriptRoot "lib\test_gen.py"
-if ($Generate -and $GenerateAll) {
- Write-Host "ERROR: Use only one of -Generate or -GenerateAll." -ForegroundColor Red
- exit 1
-}
-if ($Generate) { $Mode = "generate" }
-if ($GenerateAll) { $Mode = "generate-all" }
- $projectsToRun = @()
- if ($All) {
-  $projectsToRun = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
-  if ($projectsToRun.Count -eq 0) {
-   Write-Host "ERROR: No Datrix projects found in: $workspaceRoot" -ForegroundColor Red
-   exit 1
-  }
- } elseif ($Projects.Count -gt 0) {
-  $projectsToRun = ($Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }) | Where-Object { $_ -ne "datrix" }
-  if ($projectsToRun.Count -eq 0) {
-   Write-Host "ERROR: No valid projects specified (datrix excluded)." -ForegroundColor Red
-   exit 1
-  }
- } else {
-  Write-Host "ERROR: No projects specified." -ForegroundColor Red
-  Write-Host "Usage: .\test-gen.ps1 <project-name> [-Mode report|generate|generate-all]" -ForegroundColor Yellow
-  exit 1
- }
- $results = @{}
- $i = 0
- foreach ($project in $projectsToRun) {
-  $i++
-  if ($VerboseOutput) {
-   Write-Host "[$i/$($projectsToRun.Count)] Running test-gen for $project (mode=$Mode)" -ForegroundColor Cyan
-  } else {
-   Write-Host "Running test-gen for $project (mode=$Mode)" -ForegroundColor Cyan
-  }
-  $projectRoot = Join-Path $workspaceRoot $project
-  # Not $args: that is PowerShell's automatic variable for unbound arguments.
-  $pyArgs = @(
-   "--project-root", $projectRoot,
-   "--mode", $Mode,
-   "--max-retries", "$MaxRetries",
-   "--min-uncovered-ratio", "$MinUncoveredRatio",
-   "--max-prompt-tokens", "$MaxPromptTokens"
-  )
-  if ($TargetFunction) {
-   $pyArgs += @("--target-function", $TargetFunction)
-  }
-  $pyArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $Model -LlmTimeoutSeconds $LlmTimeout
-  if ($VerbosePrompts) {
-   $pyArgs += "--verbose-prompts"
-  }
-  $exitCode = Invoke-DatrixPythonScript -Script $libraryScript -Arguments $pyArgs
-  $results[$project] = ($exitCode -eq 0)
-  if ($exitCode -eq 0) {
-   Write-Host "[PASS] $project" -ForegroundColor Green
-  } else {
-   Write-Host "[FAIL] $project (exit code: $exitCode)" -ForegroundColor Red
-   if ($StopOnError) {
-    Write-Host "Stopping due to -StopOnError" -ForegroundColor Red
-    break
-   }
-  }
- }
- $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
- Write-Host ""
- Write-Host "Test Generation Summary" -ForegroundColor Cyan
- foreach ($p in ($results.Keys | Sort-Object)) {
-  if ($results[$p]) {
-   Write-Host " [PASS] $p" -ForegroundColor Green
-  } else {
-   Write-Host " [FAIL] $p" -ForegroundColor Red
-  }
- }
- if ($failed -gt 0) { exit 1 }
- exit 0
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.test_gen" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

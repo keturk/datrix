@@ -4,10 +4,8 @@
  Run Radon metrics (complexity, raw, Halstead, MI) for one or more Datrix projects.
 
 .DESCRIPTION
- Activates the datrix virtual environment and runs datrix_scripts.complexity
- for each project. Mode: check (enforce max complexity), cc, raw, halstead, mi.
- Ensures virtual environment is deactivated on exit.
-
+ Runs datrix_scripts.metrics.complexity in the shared venv for each project.
+ Mode: check (enforce max complexity), cc, raw, halstead, mi.
  In mode=check, two metrics are enforced:
  - Cyclomatic complexity (Radon/McCabe): decision points and paths.
  - Cognitive complexity : understandability, including nesting.
@@ -78,6 +76,9 @@
 .PARAMETER Dbg
  Enable debug logging.
 
+.PARAMETER SelfTest
+ Run only the module's self-test (planted packages) and the wrapper seam checks, and exit.
+
 .EXAMPLE
  .\complexity.ps1 datrix-common
  Check datrix-common with default max complexity 15 (mode=check).
@@ -115,7 +116,6 @@ param(
  [switch]$All,
  [ValidateSet("check", "cc", "raw", "halstead", "mi")]
  [string]$Mode = "check",
- [Parameter()]
  [int]$Max = 15,
  [string[]]$Files = @(),
  [switch]$Fix,
@@ -130,186 +130,14 @@ param(
  [int]$MaxContextChars = 8000,
  [switch]$StopOnError,
  [switch]$VerboseOutput,
- [switch]$Dbg
+ [switch]$Dbg,
+ [switch]$SelfTest
 )
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPaths.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-
-$workspaceRoot = Get-DatrixWorkspaceRoot
-# Shared with dev\code-scan.ps1, so it lives in the shared scripts package and runs as a module.
-# radon and cognitive_complexity come with the shared venv; the module refuses, naming the
-# venv repair, when either is missing.
-$complexityModule = "datrix_scripts.complexity"
-
-if ($FixAll) { $Fix = $true }
-if ($Fix -and $Mode -ne "check") {
- Write-Host "ERROR: -Fix/-FixAll can only be used with -Mode check (the default)." -ForegroundColor Red
- exit 1
-}
-if ($Test -and -not $Fix) {
- Write-Host "ERROR: -Test can only be used with -Fix/-FixAll." -ForegroundColor Red
- exit 1
-}
-
-# `powershell -File` passes "a,b" as one string; accept both that and a real array.
-$Files = @($Files | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-if ($Files.Count -gt 0 -and ($Fix -or $Mode -ne "check" -or $All -or $Projects.Count -gt 0)) {
- Write-Host "ERROR: -Files runs mode=check on the named files only; drop -Fix/-FixAll, -Mode, -All and project names." -ForegroundColor Red
- exit 1
-}
-
- $projectsToAnalyze = @()
-
- if ($Files.Count -gt 0) {
- Write-Host "Running complexity (mode=check) for $($Files.Count) file(s)" -ForegroundColor Cyan
- } elseif ($All) {
- $projectsToAnalyze = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
- if ($projectsToAnalyze.Count -eq 0) {
- Write-Host "ERROR: No Datrix projects found in: $workspaceRoot" -ForegroundColor Red
- exit 1
- }
- Write-Host "Running complexity (mode=$Mode) for all projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } elseif ($Projects.Count -gt 0) {
- $normalized = $Projects | ForEach-Object { ConvertTo-DatrixProjectName -ProjectInput $_ }
- $projectsToAnalyze = $normalized | Where-Object { $_ -ne "datrix" }
- if ($projectsToAnalyze.Count -eq 0) {
- Write-Host "ERROR: No valid projects specified (datrix is excluded)." -ForegroundColor Red
- exit 1
- }
- Write-Host "Running complexity (mode=$Mode) for projects: $($projectsToAnalyze -join ', ')" -ForegroundColor Cyan
- } else {
- Write-Host ""
- Write-Host "ERROR: No projects specified." -ForegroundColor Red
- Write-Host ""
- Write-Host "Usage:" -ForegroundColor Yellow
- Write-Host " .\complexity.ps1 <project-name> [options]" -ForegroundColor Cyan
- Write-Host " .\complexity.ps1 <folder-path> [options]" -ForegroundColor Cyan
- Write-Host " .\complexity.ps1 -All [options]" -ForegroundColor Cyan
- Write-Host ""
- Write-Host "Examples:" -ForegroundColor Yellow
- Write-Host " .\complexity.ps1 datrix-common" -ForegroundColor Cyan
- Write-Host " .\complexity.ps1 datrix-common -Mode raw" -ForegroundColor Cyan
- Write-Host " .\complexity.ps1 -All -Mode halstead" -ForegroundColor Cyan
- Write-Host " .\complexity.ps1 datrix-language -Mode check -Max 10" -ForegroundColor Cyan
- Write-Host " .\complexity.ps1 datrix-common -Mode mi -VerboseOutput" -ForegroundColor Cyan
- Write-Host ""
- Write-Host "Parameters:" -ForegroundColor Yellow
- Write-Host " -Mode check | cc | raw | halstead | mi (default: check)" -ForegroundColor Gray
- Write-Host " -Max Max cyclomatic and cognitive complexity for mode=check (default: 15)" -ForegroundColor Gray
- Write-Host " -Fix Fix worst violation via a local model (mode=check only)" -ForegroundColor Gray
- Write-Host " -FixAll Fix ALL violations (implies -Fix), continue after each success" -ForegroundColor Gray
- Write-Host " -Test Run pytest after fix; revert if tests fail (use with -Fix/-FixAll)" -ForegroundColor Gray
- Write-Host " -MaxRetries Max model attempts per violation (default: 3, use with -Fix)" -ForegroundColor Gray
- Write-Host " -LocalMachines Machines to search for model servers (default: shared list)" -ForegroundColor Gray
- Write-Host " -Model Models for fixes, best first (default: any model in memory)" -ForegroundColor Gray
- Write-Host " -LlmNumPredict Max generated tokens per attempt (default: 4096)" -ForegroundColor Gray
- Write-Host " -MaxContextChars Max file-context chars per prompt (default: 8000)" -ForegroundColor Gray
- Write-Host " -All Run for all datrix-* projects" -ForegroundColor Gray
- Write-Host " -StopOnError Stop on first project failure" -ForegroundColor Gray
- Write-Host " -VerboseOutput Verbose output from the check script" -ForegroundColor Gray
- Write-Host " -Dbg Debug output" -ForegroundColor Gray
- Write-Host ""
- $available = Get-DatrixPackageNamesGlob -WorkspaceRoot $workspaceRoot
- if ($available.Count -gt 0) {
- Write-Host "Available projects:" -ForegroundColor Yellow
- foreach ($p in $available) { Write-Host " - $p" -ForegroundColor Cyan }
- }
- Write-Host ""
- exit 1
- }
-
- if ($Files.Count -gt 0) {
- $exitCode = Invoke-DatrixPythonScript -Module $complexityModule -Arguments (@("--files") + $Files + @("--max", "$Max"))
- if ($exitCode -eq 0) {
- Write-Host "[PASS] Complexity (check) passed for $($Files.Count) file(s)" -ForegroundColor Green
- } else {
- Write-Host "[FAIL] Complexity (check) failed (exit code: $exitCode)" -ForegroundColor Red
- }
- exit $exitCode
- }
-
- $results = @{}
- $totalProjects = $projectsToAnalyze.Count
- $currentProject = 0
-
- foreach ($project in $projectsToAnalyze) {
- $currentProject++
- Write-Host ""
- Write-Host "========================================" -ForegroundColor Cyan
- Write-Host "[$currentProject/$totalProjects] $project (mode=$Mode)" -ForegroundColor Cyan
- Write-Host "========================================" -ForegroundColor Cyan
- Write-Host ""
-
- $projectRoot = Join-Path $workspaceRoot $project
- $projectArgs = @(
- "--project-root", $projectRoot,
- "--mode", $Mode,
- "--max", "$Max"
- )
- if ($project -eq "datrix-common") {
-   $projectArgs += "--ignore-path-contains", "builtins,objects"
- }
- if ($VerboseOutput) { $projectArgs += "--verbose" }
- if ($Dbg) { $projectArgs += "--debug" }
- if ($Fix) {
-   $projectArgs += "--fix"
-   if ($FixAll) { $projectArgs += "--fix-all" }
-   if ($MaxRetries -ne 3) { $projectArgs += @("--max-retries", "$MaxRetries") }
-   $projectArgs += @("--llm-num-predict", "$LlmNumPredict")
-   $projectArgs += @("--llm-temperature", "$LlmTemperature")
-   $projectArgs += Get-DatrixLocalLlmArguments -LocalMachines $LocalMachines -LlmModel $Model -LlmTimeoutSeconds $LlmTimeout
-   $projectArgs += @("--max-context-chars", "$MaxContextChars")
- }
- if ($Test) { $projectArgs += "--test" }
-
- $exitCode = Invoke-DatrixPythonScript -Module $complexityModule -Arguments $projectArgs
-
- if ($exitCode -eq 0) {
- $results[$project] = $true
- Write-Host ""
- if ($Fix) {
- Write-Host "[DONE] Complexity fix operation completed for $project" -ForegroundColor Green
- } else {
- Write-Host "[PASS] Complexity ($Mode) passed for $project" -ForegroundColor Green
- }
- } else {
- $results[$project] = $false
- Write-Host ""
- Write-Host "[FAIL] Complexity ($Mode) failed for $project (exit code: $exitCode)" -ForegroundColor Red
- if ($StopOnError) {
- Write-Host "Stopping due to -StopOnError flag" -ForegroundColor Red
- break
- }
- }
- }
-
- Write-Host ""
- Write-Host "========================================" -ForegroundColor Cyan
- Write-Host "Complexity Summary (mode=$Mode)" -ForegroundColor Cyan
- Write-Host "========================================" -ForegroundColor Cyan
-
- $passed = ($results.Values | Where-Object { $_ -eq $true }).Count
- $failed = ($results.Values | Where-Object { $_ -eq $false }).Count
-
- foreach ($p in ($results.Keys | Sort-Object)) {
- if ($Fix) {
- $status = if ($results[$p]) { "[DONE]" } else { "[FAIL]" }
- } else {
- $status = if ($results[$p]) { "[PASS]" } else { "[FAIL]" }
- }
- $color = if ($results[$p]) { "Green" } else { "Red" }
- Write-Host " $status : $p" -ForegroundColor $color
- }
-
- Write-Host ""
- if ($Fix) {
- Write-Host "Total: $totalProjects | Completed: $passed | Failed: $failed" -ForegroundColor Cyan
- } else {
- Write-Host "Total: $totalProjects | Passed: $passed | Failed: $failed" -ForegroundColor Cyan
- }
-
- if ($failed -gt 0) { exit 1 }
- exit 0
+# Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
+# Python module named below, run in the shared venv with each bound parameter passed as --kebab-name.
+$scripts = $PSScriptRoot
+while ($scripts -and -not (Test-Path -LiteralPath (Join-Path $scripts "common\DatrixPythonScript.psm1"))) { $scripts = Split-Path -Parent $scripts }
+if (-not $scripts) { throw "No datrix\scripts tree holds $PSCommandPath. Expected <workspace>\datrix\scripts\common\DatrixPythonScript.psm1 above it; run the wrapper from there." }
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.metrics.complexity" -Parameters $PSBoundParameters
+exit $LASTEXITCODE

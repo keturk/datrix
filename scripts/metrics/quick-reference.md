@@ -24,12 +24,15 @@ Radon metrics: cyclomatic complexity, cognitive complexity, raw, Halstead, maint
 | **Fix + test** | `.\metrics\complexity.ps1 datrix-common -Fix -Test` | Fix and verify with pytest |
 | **Stop on first fail** | `.\metrics\complexity.ps1 -All -StopOnError` | Stop on first failure |
 | **Verbose** | `.\metrics\complexity.ps1 datrix-common -VerboseOutput` | Verbose output |
+| **Self-test** | `.\metrics\complexity.ps1 -SelfTest` | Planted packages (a violation fails only its project, `-Files` split on commas, a report mode never fails, the refused combinations, the usage) and the wrapper seam checks |
 
 The cognitive check measures `def` and `async def` alike. `-Files` runs mode=check only, and does not combine with `-Fix`/`-FixAll`, `-All` or project names.
 
 `radon` (the datrix-* packages' `[dev]` extras) and `cognitive_complexity` (the `scripts` dependency group of `datrix/pyproject.toml`) come with the shared venv. When either cannot be imported the script refuses before measuring anything, naming the tool and `common\venv.ps1 -EnsurePackages` as the repair; it never checks one metric alone.
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Files <path,...>`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Files <path,...>`, `-Mode` (check\|cc\|raw\|halstead\|mi, default: check), `-Max` (default: 15), `-Fix`, `-FixAll`, `-Test` (with -Fix), `-MaxRetries` (default: 3), `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-MaxContextChars` (default: 8000), `-StopOnError`, `-VerboseOutput`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.complexity` (also imported by `dev\code-scan.ps1` and the scripts contract checks); POSIX twin `metrics\complexity.sh`
 
 Every `-Fix`/LLM mode in this category searches the local machines' Ollama servers through `common/lib/datrix_scripts/local_llm.py`: models already in memory are used first, and a model that fails hands over to the next.
 
@@ -48,9 +51,12 @@ Error message quality checker: detects substandard error messages (missing conte
 | **Fix with a local model** | `.\metrics\error-messages.ps1 datrix-common -Fix` | Fix worst violation |
 | **Fix all** | `.\metrics\error-messages.ps1 datrix-common -FixAll -Test` | Fix all violations with test verification |
 | **Stop on first fail** | `.\metrics\error-messages.ps1 -All -StopOnError` | Stop on first failure |
-| **Verbose** | `.\metrics\error-messages.ps1 datrix-common -VerboseOutput` | Verbose output |
+| **List skipped sites** | `.\metrics\error-messages.ps1 datrix-common -Mode report -VerboseOutput` | Also list the error sites the exclusion list skips |
+| **Self-test** | `.\metrics\error-messages.ps1 -SelfTest` | Planted projects (check, report, skipped sites, a missing project and `-StopOnError`, refused combinations, the debug log) and the wrapper seam checks; no model is asked |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|report, default: check), `-MinScore` (default: 2), `-Fix`, `-FixAll`, `-Test` (with -Fix/-FixAll), `-MaxRetries` (default: 3), `-LocalMachines`, `-Model`, `-LlmTimeout` (default: 300), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|report, default: check), `-MinScore` (default: 2), `-Fix`, `-FixAll` (both need `-Mode check`), `-Test` (with -Fix/-FixAll), `-MaxRetries` (default: 3), `-LocalMachines`, `-Model`, `-LlmTimeout` (default: 300), `-StopOnError`, `-VerboseOutput`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.error_messages`; POSIX twin `metrics\error-messages.sh`
 
 ---
 
@@ -70,10 +76,13 @@ Two-pass Vulture dead-code report: classifies findings as "never referenced" or 
 | **Quiet** | `.\metrics\dead-code-report.ps1 -All -OutputPath report.md -Quiet` | Only write to file |
 | **Sort by size** | `.\metrics\dead-code-report.ps1 -All -SortBySize` | Largest unused functions/classes first, each with its size |
 | **Whitelist candidates** | `.\metrics\dead-code-report.ps1 datrix-common -MakeWhitelist` | Vulture's `--make-whitelist` output per package to `D:\datrix\.test-output\vulture\<package>-whitelist-candidates.py` (never into a package); review before merging into `vulture_whitelist.py` |
+| **Self-test** | `.\metrics\dead-code-report.ps1 -SelfTest` | Planted packages (showcase refusal, project normalization, whitelist path outside every package, a planted unused function reported by a real Vulture run) and the wrapper seam checks |
 
 `-OutputPath` receives the report alone (progress and model notes stay on the console), so a JSON report file is pure JSON.
 
-**Parameters:** `-Projects` (positional, variadic; package names or folder paths), `-All`, `-MinConfidence` (60-100, default: 60), `-SortBySize`, `-MakeWhitelist`, `-Output` (text\|json), `-OutputPath`, `-VerboseOutput`, `-Raw`, `-LlmReview`, `-LlmLimit` (default: 30), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-Quiet`
+**Parameters:** `-Projects` (positional, variadic; package names or folder paths), `-All`, `-MinConfidence` (60-100, default: 60), `-SortBySize`, `-MakeWhitelist`, `-Output` (text\|json), `-OutputPath`, `-VerboseOutput`, `-Raw`, `-LlmReview`, `-LlmLimit` (default: 30), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-Quiet`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.dead_code_report`; POSIX twin `metrics\dead-code-report.sh`
 
 ---
 
@@ -93,14 +102,17 @@ Ruff linter/formatter. Logs output to `D:\datrix\.test-output\ruff\<project>\ruf
 | **Lint tests** | `.\metrics\ruff.ps1 -All -Test` | Lint tests/ instead of src/ |
 | **Stop on fail** | `.\metrics\ruff.ps1 -All -StopOnError` | Stop on first failure |
 | **Verbose** | `.\metrics\ruff.ps1 datrix-common -VerboseOutput` | Verbose output |
+| **Self-test** | `.\metrics\ruff.ps1 -SelfTest` | Planted projects (a lint issue fails and is shown and logged, format check, `-Test`, every flag reaching Ruff, refusals) and the wrapper seam checks |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|format, default: check), `-OutputFormat` (full\|concise\|json\|json-lines\|junit\|grouped\|github, default: full), `-Fix`, `-Diff`, `-Statistics`, `-Check`, `-Test`, `-StopOnError`, `-VerboseOutput`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (check\|format, default: check), `-OutputFormat` (full\|concise\|json\|json-lines\|junit\|grouped\|github, default: full; any other value is refused before a project runs), `-Fix`, `-Diff`, `-Statistics`, `-Check`, `-Test`, `-StopOnError`, `-VerboseOutput`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.ruff`; POSIX twin `metrics\ruff.sh`
 
 ---
 
 ## `metrics\bandit.ps1`
 
-Bandit security scanner for Python code. Bandit comes with the shared venv (the `scripts` dependency group of `datrix/pyproject.toml`) and runs as the venv interpreter's module; when it cannot be imported the script refuses before scanning, naming that group and `common\venv.ps1 -EnsurePackages` as the repair.
+Bandit security scanner for Python code. Bandit comes with the shared venv (the `scripts` dependency group of `datrix/pyproject.toml`) and runs as the venv interpreter's module; when it cannot be imported the script refuses before scanning, naming that group and `common\venv.ps1 -EnsurePackages` as the repair. Findings are always printed; the script excludes only `tests` and `__pycache__` and passes Bandit no skip-rule or `nosec` option, so no rule is disabled to make a project pass.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -110,8 +122,11 @@ Bandit security scanner for Python code. Bandit comes with the shared venv (the 
 | **JSON output** | `.\metrics\bandit.ps1 -All -Format json` | JSON format |
 | **SARIF output** | `.\metrics\bandit.ps1 -All -Format sarif` | SARIF format |
 | **Stop on fail** | `.\metrics\bandit.ps1 -All -StopOnError` | Stop on first failure |
+| **Self-test** | `.\metrics\bandit.ps1 -SelfTest` | Planted projects scanned by the real Bandit (a high finding fails and is printed, thresholds and `-Format` reach Bandit, a missing `src/` and `-StopOnError`, refusals) and the wrapper seam checks |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Severity` (low\|medium\|high, default: medium), `-Confidence` (low\|medium\|high, default: medium), `-Format` (screen\|json\|csv\|html\|yaml\|sarif, default: screen), `-StopOnError`, `-VerboseOutput`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Severity` (low\|medium\|high, default: medium), `-Confidence` (low\|medium\|high, default: medium), `-Format` (screen\|json\|csv\|html\|yaml\|sarif, default: screen), `-StopOnError`, `-VerboseOutput`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.bandit`; POSIX twin `metrics\bandit.sh`
 
 ---
 
@@ -127,8 +142,11 @@ Pylint duplicate-code detection (R0801): similar runs of lines anywhere — insi
 | **Custom min lines** | `.\metrics\duplicate.ps1 datrix-common -MinLines 6` | Higher threshold |
 | **Include tests** | `.\metrics\duplicate.ps1 datrix-common -Tests` | Also scan tests/ |
 | **Stop on fail** | `.\metrics\duplicate.ps1 -All -StopOnError` | Stop on first failure |
+| **Self-test** | `.\metrics\duplicate.ps1 -SelfTest` | Planted packages and the wrapper seam checks |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mono` (mutually exclusive with -All), `-MinLines` (default: 4 for a single project; multi-root/`-Mono` runs default to 30 unless `-MinLines` is explicitly passed), `-Tests`, `-StopOnError`, `-VerboseOutput`, `-LlmRefactorPlan`, `-LlmLimit` (default: 20), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1)
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mono` (mutually exclusive with -All), `-MinLines` (default: 4 for a single project; multi-root/`-Mono` runs default to 30 unless `-MinLines` is explicitly passed), `-Tests`, `-StopOnError`, `-VerboseOutput`, `-LlmRefactorPlan`, `-LlmLimit` (default: 20), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default: 180), `-LlmNumPredict` (default: 4096), `-LlmTemperature` (default: 0.1), `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.duplicate` (also imported by `dev\code-scan.ps1`); POSIX twin `metrics\duplicate.sh`
 
 **Mono runs and cross-language duplication:** with `-Mono`, Pylint compares all Python under every project's `src/`. Duplicates between two language generators (same feature, different output language) are expected: the stacks implement parallel generators kept in sync by design. Mono runs therefore default to `min-similarity-lines=30` so those cross-language pairs are not reported; pass `-MinLines 4` (or lower) with `-Mono` to see every duplicate, cross-language included.
 
@@ -146,8 +164,13 @@ Pytest coverage reports via pytest-cov.
 | **XML report** | `.\metrics\coverage.ps1 datrix-common -Format xml` | XML coverage report |
 | **Fail threshold** | `.\metrics\coverage.ps1 -All -FailUnder 90` | Fail if below 90% |
 | **Stop on fail** | `.\metrics\coverage.ps1 -All -StopOnError` | Stop on first failure |
+| **Self-test** | `.\metrics\coverage.ps1 -SelfTest` | Planted projects (the coverage source and pytest command, the TOTAL line and per-file detail, why a total is unknown, a missing `tests/` or root failing before pytest, a failed install check stopping the run, refusals) and the wrapper seam checks; no test is run |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Format` (term\|term-missing\|html\|xml, default: term-missing), `-FailUnder` (default: 0), `-StopOnError`, `-VerboseOutput`
+Each project form runs that project's whole test suite under coverage: it is Jon's run, never an agent's.
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Format` (term\|term-missing\|html\|xml, default: term-missing), `-FailUnder` (default: 0), `-StopOnError`, `-VerboseOutput`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.coverage`; POSIX twin `metrics\coverage.sh`
 
 ---
 
@@ -164,8 +187,11 @@ Coverage-driven unit test generation via a local model. Finds uncovered function
 | **Pin a model** | `.\metrics\test-gen.ps1 datrix-common -Generate -Model "qwen3-coder:30b-ctx32k"` | Use only this model, on any searched machine serving it |
 | **Debug prompts** | `.\metrics\test-gen.ps1 datrix-common -Generate -VerbosePrompts -MaxPromptTokens 4000` | Print prompts and warn above the token budget |
 | **All projects report** | `.\metrics\test-gen.ps1 -All -Mode report` | Report candidates for all projects |
+| **Self-test** | `.\metrics\test-gen.ps1 -SelfTest` | Planted projects (both generate switches refused before selection, the mode shortcuts, refusals, a missing `src/`, `tests/` or root failing before pytest, candidate ranking from a coverage report) and the wrapper seam checks; no test is run, no model is asked |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (report\|generate\|generate-all, default: report), `-Generate`, `-GenerateAll`, `-TargetFunction`, `-MaxRetries` (default: 3), `-MinUncoveredRatio` (default: 0.5), `-MaxPromptTokens` (default: 6000), `-VerbosePrompts`, `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 300), `-StopOnError`, `-VerboseOutput`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (report\|generate\|generate-all, default: report), `-Generate`, `-GenerateAll` (not both), `-TargetFunction`, `-MaxRetries` (default: 3), `-MinUncoveredRatio` (default: 0.5), `-MaxPromptTokens` (default: 6000), `-VerbosePrompts`, `-LocalMachines` (default: the list in `common/lib/datrix_scripts/local_llm.py`), `-Model` (default: any model already in memory), `-LlmTimeout` (default: 300), `-StopOnError`, `-VerboseOutput`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.test_gen`; POSIX twin `metrics\test-gen.sh`
 
 ---
 
@@ -181,9 +207,11 @@ AST inventory of classes, methods, module functions, constants (UPPER_SNAKE heur
 | **Src and tests** | `.\metrics\code-analyzer.ps1 -All -Src -Tests` | Both trees, all packages |
 | **Custom output** | `.\metrics\code-analyzer.ps1 -All -Output reports\structure.md` | Markdown under cwd (or absolute path) |
 | **Duplicate-name triage** | `.\metrics\code-analyzer.ps1 -All -LlmReview -LlmLimit 10` | Adds an advisory "Duplicate-name triage" section: one local-model request ranking which duplicate names are one concept with two homes. No duplicate group → no request; a ranked name that is not a duplicate group is called out as made up. Never changes the exit code |
-| **Self-test** | `.\metrics\code-analyzer.ps1 -SelfTest` | The duplicate-triage checks (planted sites, no model server) |
+| **Self-test** | `.\metrics\code-analyzer.ps1 -SelfTest` | The duplicate-triage checks (planted sites, no model server), the refusals, a planted duplicate in the report, and the wrapper seam checks |
 
 **Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests`, `-Output`, `-Dbg`, `-LlmReview`, `-LlmLimit` (default 20), `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 180), `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.code_analyzer`; POSIX twin `metrics\code-analyzer.sh`
 
 ---
 
@@ -199,8 +227,11 @@ third-party runtime dependencies each package declares.
 | **All (json)** | `.\metrics\dependency.ps1 -All -Mode json` | JSON format |
 | **Third-party** | `.\metrics\dependency.ps1 -All -Mode third-party` | Every non-datrix runtime dependency, each declaring package and its spec; `SPEC DRIFT` marks specifiers that differ by package (the shared venv resolves one version) |
 | **Specific packages** | `.\metrics\dependency.ps1 datrix-common datrix-language -Mode tree` | Selected packages |
+| **Self-test** | `.\metrics\dependency.ps1 -SelfTest` | Planted packages (tree, list and json, third-party spec drift, an unknown package, the showcase alone refused, the usage text) and the wrapper seam checks |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (tree\|list\|json\|third-party, default: tree), `-VerboseOutput`, `-Dbg`
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Mode` (tree\|list\|json\|third-party, default: tree), `-VerboseOutput`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.dependency`; POSIX twin `metrics\dependency.sh`
 
 ---
 
@@ -217,14 +248,19 @@ Lists top N files by line count for Datrix projects.
 | **JSON format** | `.\metrics\large-files.ps1 datrix-language -Top 30 -Format json` | JSON output |
 | **All file types** | `.\metrics\large-files.ps1 -All -Suffix ""` | Include all extensions |
 | **Specific suffix** | `.\metrics\large-files.ps1 -All -Suffix "j2,py"` | Jinja + Python files |
+| **Self-test** | `.\metrics\large-files.ps1 -SelfTest` | Planted packages (a threshold filters the listing and never fails the run) and the wrapper seam checks |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Top` (default: 20), `-Threshold` (default: 0), `-Format` (summary\|json, default: summary), `-Suffix` (default: py, "" for all), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+A report only: `-Threshold` filters what is listed, and no line count fails the run.
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Top` (default: 20), `-Threshold` (default: 0), `-Format` (summary\|json, default: summary), `-Suffix` (default: py, "" for all), `-StopOnError`, `-VerboseOutput`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.large_files`; POSIX twin `metrics\large-files.sh`
 
 ---
 
 ## `metrics\call-count.ps1`
 
-Counts calls to named functions, and every subprocess launch, while one workload runs in-process: one `datrix generate`, or importing named modules (`lib\call_count.py`). The counters are installed before any workload module loads, and installing one also rebinds the names modules bound earlier with `from x import y`, so nothing is under-counted. No profiler, so the wall time is the real one. `-Expect` bounds make the run a pass/fail check, which is how a design acceptance property about call volume (registry constructions, template compiles, `resolve()` calls, subprocesses) is proved in one command. A self-test of the counter runs first on every invocation.
+Counts calls to named functions, and every subprocess launch, while one workload runs in-process: one `datrix generate`, or importing named modules. The counters are installed before any workload module loads, and installing one also rebinds the names modules bound earlier with `from x import y`, so nothing is under-counted. No profiler, so the wall time is the real one. `-Expect` bounds make the run a pass/fail check, which is how a design acceptance property about call volume (registry constructions, template compiles, `resolve()` calls, subprocesses) is proved in one command. A self-test of the counter runs first on every invocation.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -237,6 +273,8 @@ Counts calls to named functions, and every subprocess launch, while one workload
 **Parameters:** `-Source`, `-Language`, `-Import`, `-Count` (`module:qualname`, comma-separated), `-Expect` (`<target><op><n>`, op `<=`\|`==`\|`>=`, `subprocess` for launches), `-Json`, `-SelfTest`
 
 **Output:** the JSON (`counts`, `expectations`, `wall_s`, `workload_exit`), then `CALL_COUNT PASSED|FAILED wall_s=<s> workload_exit=<n>`. Generated output goes to `D:\datrix\.tmp\call-count\<timestamp>\`. **Exit codes:** 0 = workload succeeded and every bound holds, 1 = a bound failed or the workload failed, 2 = usage error or self-test failure.
+
+**Module:** `datrix_scripts.metrics.call_count`; POSIX twin `metrics\call-count.sh` (`--source`, `--language`, `--import`, `--count`, `--expect`, `--json`, `--self-test`). `-SelfTest` also checks the wrapper seam.
 
 ---
 
@@ -252,8 +290,13 @@ Lines-of-code counting using pygount. pygount comes with the shared venv (the `s
 | **CLOC XML** | `.\metrics\loc.ps1 datrix-common -Format cloc-xml` | CLOC-compatible XML |
 | **Python only** | `.\metrics\loc.ps1 -All -Suffix py` | Only Python files |
 | **Multiple suffixes** | `.\metrics\loc.ps1 -All -Suffix "py,js"` | Python + JS files |
+| **Self-test** | `.\metrics\loc.ps1 -SelfTest` | Planted packages (the `-All` rollup sums and formats, a document without a count is refused, a project without `src/` fails) and the wrapper seam checks |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Format` (summary\|cloc-xml\|json, default: summary), `-Suffix` (comma-separated, default: "" = all), `-StopOnError`, `-VerboseOutput`, `-Dbg`
+A report only: no count fails the run. With `-All`, a project whose JSON pass yields a document missing a count is named in a `[WARN]` line and left out of the rollup.
+
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Format` (summary\|cloc-xml\|json, default: summary), `-Suffix` (comma-separated, default: "" = all), `-StopOnError`, `-VerboseOutput`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.loc`; POSIX twin `metrics\loc.sh`
 
 ---
 
@@ -266,8 +309,13 @@ Cleans up Ruff check log files from the workspace-level `D:\datrix\.test-output\
 | **List (dry run)** | `.\metrics\cleanup-ruff.ps1` | Show all log files |
 | **Delete all** | `.\metrics\cleanup-ruff.ps1 -Force` | Delete all log files |
 | **Keep latest** | `.\metrics\cleanup-ruff.ps1 -Force -KeepLatest` | Delete old, keep latest per project |
+| **Self-test** | `.\metrics\cleanup-ruff.ps1 -SelfTest` | Planted logs (the listing deletes nothing, "no" and end of input cancel, `-KeepLatest`, a full delete removing only logs and emptied folders, an empty root, size units) and the wrapper seam checks |
 
-**Parameters:** `-BaseDir`, `-Force`, `-KeepLatest`, `-Dbg`
+A deletion asks for a typed "yes" first; any end of input answers no. Only files directly inside a `<BaseDir>\.test-output\ruff\<project>\` folder are deleted, and the script runs no Ruff.
+
+**Parameters:** `-BaseDir`, `-Force`, `-KeepLatest`, `-Dbg`, `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.cleanup_ruff`; POSIX twin `metrics\cleanup-ruff.sh`
 
 ---
 
@@ -281,8 +329,11 @@ Finds string literals in Datrix Python projects and writes a grouped Markdown re
 | **Multiple projects** | `.\metrics\find-constants.ps1 datrix-common datrix-language -Output D:\datrix\.test-output\strings.md` | Several projects |
 | **All projects** | `.\metrics\find-constants.ps1 -All -Output D:\datrix\.test-output\strings.md` | Entire monorepo |
 | **Tests only** | `.\metrics\find-constants.ps1 -All -Tests -Output D:\datrix\.test-output\strings.md` | Scan only tests trees |
+| **Self-test** | `.\metrics\find-constants.ps1 -SelfTest` | Planted projects (grouping, docstrings, min length, usage) and the wrapper seam checks |
 
-**Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests` (default: both trees), `-Output <path>`, `-IncludeDocstrings`, `-MinLength <n>` (default 1), `-MaxValueChars <n>` (default 120)
+**Parameters:** `-Projects` (positional, variadic), `-All`, `-Src`, `-Tests` (default: both trees), `-Output <path>`, `-IncludeDocstrings`, `-MinLength <n>` (default 1), `-MaxValueChars <n>` (default 120), `-SelfTest`
+
+**Module:** `datrix_scripts.metrics.find_constants`; POSIX twin `metrics\find-constants.sh`
 
 ---
 
@@ -307,5 +358,8 @@ This measures the spend rules (`execution-contract-spend.md` §10–§11). Token
 | **Recent subagents** | `.\metrics\agent-spend.ps1 -Days 2` | Subagents whose transcript changed in the last two days |
 | **One run** | `.\metrics\agent-spend.ps1 -Session <session-id>` | The subagents of one session (an orchestrator run) |
 | **Explicit files** | `.\metrics\agent-spend.ps1 -Transcript a.jsonl,b.jsonl` | Named transcripts |
+| **Self-test** | `.\metrics\agent-spend.ps1 -SelfTest` | A planted transcript (measured, the report names the agent and a bad line, comma lists split, out-of-range values refused with exit 2, a missing project folder names the fix) and the wrapper seam checks |
 
-**Parameters:** `-Session <id,...>`, `-Days <n>` (default 7), `-Transcript <path,...>`, `-Top <n>` (default 20). **Exit codes:** 0 = report printed, 1 = no transcript matched, 2 = a bad argument or no project folder.
+**Parameters:** `-Session <id,...>`, `-Days <n>` (default 7), `-Transcript <path,...>`, `-Top <n>` (default 20), `-SelfTest`. **Exit codes:** 0 = report printed, 1 = no transcript matched, 2 = a bad argument or no project folder.
+
+**Module:** `datrix_scripts.metrics.agent_spend`; POSIX twin `metrics\agent-spend.sh`
