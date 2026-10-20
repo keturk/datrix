@@ -190,7 +190,7 @@ config system ecommerce.System {
 }
 ```
 
-Target language is not a `.dcfg` field — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
+The system `.dcfg` carries no language: the language is the required generation parameter `--language`/`-L` on `datrix generate` (a service `.dcfg` may declare the same `language`; every service of a system resolves to one language).
 
 > **📖 Reference:** See [Configuration Guide](./configuration-guide.md#system-configuration) for complete system config reference.
 

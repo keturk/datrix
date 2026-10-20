@@ -693,13 +693,13 @@ table omits is a loud generation error, never a nearest-match.
 
 ### Language Selection
 
-Language is not a `.dcfg` field. It is a required generation-time CLI parameter, resolved against the registered `datrix.languages` set (`python`, `typescript`, …):
+The required generation-time parameter `--language`/`-L` names the language the system is generated in, resolved against the registered `datrix.languages` set (`python`, `typescript`, …):
 
 ```bash
 datrix generate --source system.dtrx --output ./generated --language python
 ```
 
-A `language` key in `config/system.dcfg` (base or any profile) is a fail-loud error at generation. See `datrix generate --help` for the full list of registered languages.
+A service `.dcfg` may also declare `language = "<id>"` (base or any profile). Every service of a system must resolve to the same language: a run whose services resolve to two or more is refused, naming the services of each. A `language` key in `config/system.dcfg` (base or any profile) is a fail-loud error at generation. See `datrix generate --help` for the full list of registered languages.
 
 ### Deployment Runtime Options
 

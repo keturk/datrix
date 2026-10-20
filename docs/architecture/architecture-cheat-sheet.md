@@ -62,7 +62,7 @@ for service in app.services.values():
 
 ## Plugin Architecture
 
-Entry-point groups: `datrix.generators`, `datrix.platforms`, `datrix.languages` (`LanguagePlugin` aggregate), `datrix.extensions` (`DatrixExtension`). Language generators subclass `LanguageGenerator` (10 abstract methods). Type mappings register with `TypeMappingRegistry.global_registry`. Details: [target-plugins](./packs/target-plugins.md).
+Entry-point groups: `datrix.generators`, `datrix.platforms`, `datrix.languages` (`LanguagePlugin` aggregate), `datrix.extensions` (`DatrixExtension`). Language generators subclass `LanguageGenerator` (10 abstract methods). Each language plugin (and each client target's descriptor) declares a `static_type_map`; a run builds its own `TypeMappingRegistry.from_maps()` from the plugins it discovered. Details: [target-plugins](./packs/target-plugins.md).
 
 ## Standing Rules (apply to every change)
 

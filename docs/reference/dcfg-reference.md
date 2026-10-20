@@ -439,7 +439,18 @@ config system ecommerce.System {
 }
 ```
 
-Target language is not part of `.dcfg` — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
+**Service language.** The language a service is generated in is a fact of that service. A service `.dcfg` may set it in `base` or in any profile:
+
+```dcfg
+config service shop.ProductService {
+  base {
+    language = "typescript";
+    port = 8001;
+  }
+}
+```
+
+The value must be a registered `datrix.languages` id; an unknown id fails generation, naming the installed languages. A service that declares no `language` is generated in the run's `--language`/`-L`, which is required on `datrix generate` and serves as the default. Every service of a system must resolve to the same language: a run whose services resolve to two or more languages is refused, naming the services of each. The system `.dcfg` cannot set `language`: the key is refused there, with a pointer to the service `.dcfg`.
 
 **Flavor terminology:** `.dcfg` uses `flavor` for both service runtime flavor and infrastructure provisioning flavor. Context determines the meaning:
 

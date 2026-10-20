@@ -1,10 +1,10 @@
 <!-- AUTO-GENERATED from SemanticAnalyzer.analyze() — do not edit manually -->
-The semantic analyzer runs an ordered pipeline of 26 phases:
+The semantic analyzer runs an ordered pipeline of 32 phases:
 
 1. Lower auth contracts
-2. Publish plugin discovery
-3. Register stdlib symbols
-4. Ensure foundation materialized for rest apis
+2. Register stdlib symbols
+3. Ensure foundation materialized for rest apis
+4. Synthesize job request queues
 5. Collect symbols
 6. Register builtin value struct symbols
 7. Load declared extension types
@@ -18,13 +18,19 @@ The semantic analyzer runs an ordered pipeline of 26 phases:
 15. Merge inheritance
 16. Synthesize fk fields
 17. Synthesize replay nodes
-18. Ensure foundation materialized for synthesized rest apis
-19. Ensure endpoint full paths
-20. Resolve all index fields
-21. Check types
-22. Validate code bodies
-23. Build cross service contract registry
-24. Run domain validators
-25. Annotate named call types
-26. Validate seed documents
+18. Synthesize api key verify routes
+19. Ensure foundation materialized for synthesized rest apis
+20. Ensure endpoint full paths
+21. Resolve all index fields
+22. Check types
+23. Resolve code bodies
+24. Derive callable effects
+25. Derive reads
+26. Validate code bodies
+27. Build cross service contract registry
+28. Stamp cross service contracts
+29. Derive service usage
+30. Run domain validators
+31. Annotate named call types
+32. Validate seed documents
 <!-- END AUTO-GENERATED -->

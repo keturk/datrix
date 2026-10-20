@@ -117,7 +117,7 @@ No new violations.
 Each phase is a single PR. Sub-items may be separate commits within one PR, or separate PRs if the phase is large:
 
 - **Phase 1 (Smaller Wins):** One PR — independent module-level extractions
-- **Phase 2 (Registry):** One PR — self-contained new module + import-time registration
+- **Phase 2 (Registry):** One PR — self-contained new module; each run builds its registry from the plugins' static type maps
 - **Phase 3 (LanguageGenerator):** Consider splitting: (a) extract helpers to `language_helpers.py`, (b) add `LanguageGenerator` base class, (c) migrate Python plugin, (d) migrate TypeScript plugin
 - **Phase 4 (LanguageTranspiler):** One PR if <=500 LOC changed, split if larger
 
@@ -149,7 +149,7 @@ If issues found after merge: `git revert` the PR. Language packages are independ
 
 1. **Registration:** Register, re-register (error), query registered languages
 2. **Unmapped types:** Detect gaps when one language has more types than another
-3. **Cross-language completeness:** Import real `datrix_codegen_python.type_mappings` and `datrix_codegen_typescript_core.type_mappings`, validate no gaps via `global_registry.validate_completeness()`
+3. **Cross-language completeness:** Build a registry with `TypeMappingRegistry.from_maps()` from the real `PYTHON_STATIC_TYPE_MAP` and `TYPESCRIPT_STATIC_TYPE_MAP`, validate no gaps via `validate_completeness()`
 4. **Error messages:** KeyError on unknown type/language includes available options
 
 ### LanguageTranspiler Tests
