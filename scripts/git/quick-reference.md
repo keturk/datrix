@@ -66,6 +66,28 @@ CRLF line in any index blob) is held by `gates\repo-hygiene\line-ending-gate.ps1
 
 ---
 
+## `git\resolve-pull.ps1`
+
+**Pulls repositories over uncommitted local work: the mechanical half of `/resolve-conflicts`.** Agents may run it only once Jon has typed `/resolve-conflicts` in the session (`guard-forbidden-commands.py`); Jon may run it from his own terminal at any time. Per repository whose upstream is ahead, it:
+
+- measures the tracked overlap (local modifications ∩ incoming changes) and the untracked collisions (untracked files ∩ files the pull adds), and restores line endings (`fix-line-endings`) on paths whose only local difference is line endings
+- shelves **only** the overlap (`git stash push -m "resolve-conflicts <repo> <stamp>" -- <paths>`) and sets aside each differing untracked collision under `<workspace>\.tmp\resolve-conflicts\<repo>\untracked\` (an identical one is deleted; the pull recreates it)
+- pulls (`--ff-only`, or `--no-rebase --no-edit` when diverged), reapplies with `stash apply`, verifies, and drops the stash entry
+
+A conflict stops with the markers in place and a packet at `<workspace>\.tmp\resolve-conflicts\<repo>\conflicts.md`: each hunk's local, base and incoming text, with a local model's merge draft (framework repos only, never a hunk carrying a registered customer term) marked CHECKED only when it carries every line either side added. `-Finish` refuses while a merge or a marker remains, unstages the shelved paths, proves every local added line and every set-aside line is in the working tree, and only then drops the stash entry and the state (`state.json` in the same folder).
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Pull over local work** | `.\git\resolve-pull.ps1 datrix-common datrix-cli` | The named repositories (none: every git repository in the workspace) |
+| **Finish a hand merge** | `.\git\resolve-pull.ps1 datrix-common -Finish` | Verify, then drop the stash entry |
+| **Finish, a line merged on purpose** | `.\git\resolve-pull.ps1 datrix-common -Finish -Merged docs/a.md` | A local line missing from a named path is reported instead of refused |
+
+**Parameters:** `-Repo` (positional), `-Finish`, `-Merged <path,...>`, `-NoModel`, `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (default 300)
+
+**Outcomes per repo:** `up to date`, `finished`, `nothing to finish`, `NEEDS HAND MERGE`, `UNFINISHED` (an earlier run's state is present), `CONFLICT ALREADY IN PROGRESS`, `FAILED`. **Exit codes:** 0 = every repository up to date or finished, 1 = at least one needs a hand merge, has a conflict in progress, or failed, 2 = the run could not start.
+
+---
+
 ## `git\pre-review.ps1`
 
 **First-pass review of pending changes, run before `commit-and-push.ps1`** (the `/commit-and-push` skill runs it as step 1). It checks only the lines pending changes ADD to Python files, across every repo with uncommitted changes, reading each file's syntax tree on this machine in a few seconds.
@@ -101,6 +123,31 @@ Behaviour checks for the first-pass pre-review (`git/lib/pre_review.py`, wrapped
 | **One area** | `.\git\pre-review-gate.ps1 -Only check_model` | Checks whose name starts with the prefix |
 | **Harness self-test** | `.\git\pre-review-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
 | **Self-test** | `.\git\pre-review-gate.ps1 -SelfTest` | Harness self-test, then the gate's checks over planted inputs |
+
+**Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
+
+**Exit codes:** 0 = every check passed, 1 = a check failed, 2 = usage error.
+
+---
+
+## `git\resolve-pull-gate.ps1`
+
+Behaviour checks for `git\resolve-pull.ps1` (`git/lib/resolve_pull.py`), over an origin repository and a clone of it in a temporary directory; no real checkout is touched. It covers:
+
+- a clean reapply shelving only the overlap and dropping the stash entry
+- a conflict keeping its markers and writing the packet, and `-Finish` refusing until the markers are gone
+- `-Finish` refusing a dropped local line unless its path is named in `-Merged`
+- an untracked collision set aside, and refused until merged back
+- a line-ending-only overlap restored instead of shelved
+- the diff3 hunk parser (two- and three-sided)
+- the merge draft checked against both sides, never sent for a non-framework repo or a hunk carrying a registered customer term, against a real loopback model server
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\git\resolve-pull-gate.ps1` | Run every check |
+| **One area** | `.\git\resolve-pull-gate.ps1 -Only check_conflict` | Checks whose name starts with the prefix |
+| **Harness self-test** | `.\git\resolve-pull-gate.ps1 -HarnessSelfTest` | Prove the harness reports a forced failure |
+| **Self-test** | `.\git\resolve-pull-gate.ps1 -SelfTest` | The harness self-test (the form gate runners call) |
 
 **Parameters:** `-Only`, `-HarnessSelfTest`, `-SelfTest`, `-Dbg`
 
