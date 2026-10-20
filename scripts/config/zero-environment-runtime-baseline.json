@@ -1,81 +1,67 @@
 {
   "_comment": [
     "Zero-environment runtime census, per registered datrix.languages package.",
-    "Every language entry carries a 'kind'. reviewed_exemptions: every template",
-    "that reads the environment is listed with a written reason (hand-authored;",
-    "an unlisted read and a stale entry both fail). pinned_count: a decrease-only",
-    "count of environment-reading templates, for a language that delivers runtime",
-    "facts through the environment by design; only -UpdateBaseline writes it, and",
-    "never upward. A language with no entry is held to reviewed_exemptions with an",
-    "empty list."
+    "Each language's tree is the registered 'serverless' example generated for it,",
+    "read through the language's own conformance probes. Every language entry",
+    "carries a 'kind'. reviewed_exemptions: every emitted file that reads the",
+    "environment is listed by its path relative to the generated root, with a",
+    "written reason (hand-authored; an unlisted read and a stale entry both fail).",
+    "pinned_count: a decrease-only count of environment-reading emitted files, for",
+    "a language that delivers runtime facts through the environment by design; only",
+    "-UpdateBaseline writes it, and never upward. A language with no entry is held",
+    "to reviewed_exemptions with an empty list."
   ],
   "languages": {
     "python": {
       "kind": "reviewed_exemptions",
       "exemptions": [
         {
-          "template": "templates/api/_provider_metadata_cognito.py.j2",
-          "reason": "The Cognito user-pool id is an app setting the AWS deployment delivers; read once at import via os.environ[...] and fails loud (KeyError) when absent."
-        },
-        {
-          "template": "templates/api/_provider_metadata_graph.py.j2",
-          "reason": "The Entra extension-property prefix is a deploy-time app setting the ARM deployment delivers; read once at import and fails loud when absent."
-        },
-        {
-          "template": "templates/api/_service_credential.py.j2",
-          "reason": "The machine-identity audience GUID is an ARM deployment output delivered as an app setting; _machine_identity_audience raises RuntimeError when it is unset or empty."
-        },
-        {
-          "template": "templates/api/identity.py.j2",
+          "path": "examples_order_service/src/examples_order_service/_runtime/identity_core.py",
           "reason": "allowedAudienceRefs name deploy-time app settings that hold audience values; an unset ref raises JwksValidationError, never an empty audience."
         },
         {
-          "template": "templates/service/inprocess_consumers.py.j2",
-          "reason": "The Event Hubs checkpoint account's blob endpoint is a deploy-time app setting the platform delivers under the name its declaration gives it; read once when the checkpoint store is built and fails loud (RuntimeError) when unset or empty."
-        },
-        {
-          "template": "templates/serverless/container_http_app.py.j2",
+          "path": "examples_order_service/src/examples_order_service/serverless/event_handlers/http_app.py",
           "reason": "The container-platform serverless HTTP entrypoint binds the port the compose runtime injects as PORT; fails loud (KeyError) when absent."
         },
         {
-          "template": "templates/service/settings.py.j2",
-          "reason": "_require_env reads trusted-caller and shared-UAI Redis app settings delivered as ARM outputs on Azure and raises when a required one is missing; emitted only when those features are declared."
+          "path": "examples_order_service/migration-tools/export-live-schema-db.py",
+          "reason": "Emits the operator's live-schema export tool, not service runtime: it reads the read-only DSN the operator supplies, never logs it, and exits 1 naming the variable when it is unset."
         },
         {
-          "template": "templates/project/_deploy_test_endpoints.py.j2",
-          "reason": "Emits the deploy-test harness, not service runtime."
+          "path": "scripts/deploy.py",
+          "reason": "Emits the project's deploy script, operator tooling run before any service starts, not service runtime: it honours compose's own environment overrides (the force flag, COMPOSE_PROJECT_NAME and the .env completeness check)."
         },
         {
-          "template": "templates/project/_deploy_test_main.py.j2",
-          "reason": "Emits the deploy-test harness, not service runtime."
-        },
-        {
-          "template": "templates/project/_deploy_test_preflight.py.j2",
+          "path": "tests/deploy_test.py",
           "reason": "Emits the deploy-test harness, not service runtime: its host-port preflight resolves compose's ${VAR:-default} overrides with compose's own shell-then-.env precedence."
         },
         {
-          "template": "templates/project/_deploy_test_pytest_phases.py.j2",
-          "reason": "Emits the deploy-test harness, not service runtime."
-        },
-        {
-          "template": "templates/project/_deploy_test_reporting.py.j2",
-          "reason": "Emits the deploy-test harness, not service runtime."
-        },
-        {
-          "template": "templates/project/project_conftest.py.j2",
+          "path": "tests/conftest.py",
           "reason": "Emits the generated project's pytest conftest, not service runtime."
         },
         {
-          "template": "templates/project/unit_tests.py.j2",
+          "path": "tests/unit_tests.py",
           "reason": "Emits generated unit tests, not service runtime."
         },
         {
-          "template": "templates/service/test_integration_conftest.py.j2",
+          "path": "examples_ingestion_service/tests/conftest.py",
+          "reason": "Emits the generated test-suite conftest, not service runtime."
+        },
+        {
+          "path": "examples_ingestion_service/tests/integration/conftest.py",
           "reason": "Emits the generated integration-test conftest, not service runtime."
         },
         {
-          "template": "templates/service/tests_conftest.py.j2",
+          "path": "examples_order_service/tests/conftest.py",
           "reason": "Emits the generated test-suite conftest, not service runtime."
+        },
+        {
+          "path": "examples_order_service/tests/contract/contract_support.py",
+          "reason": "Emits the generated contract-test support, not service runtime: it calls the origin BASE_URL names and raises when it is unset."
+        },
+        {
+          "path": "examples_order_service/tests/integration/conftest.py",
+          "reason": "Emits the generated integration-test conftest, not service runtime."
         }
       ]
     },
@@ -83,76 +69,44 @@
       "kind": "reviewed_exemptions",
       "exemptions": [
         {
-          "template": "templates/config/settings.ts.j2",
+          "path": "examples_ingestion_service/src/config/settings.ts",
           "reason": "The one module that reads a deploy-time application setting: deployTimeSetting/optionalSetting read the process environment for the names the emitted files declare, and fail loud (a missing required one throws naming it)."
         },
         {
-          "template": "templates/serverless/container_http_app.ts.j2",
+          "path": "examples_order_service/src/config/settings.ts",
+          "reason": "The one module that reads a deploy-time application setting: deployTimeSetting/optionalSetting read the process environment for the names the emitted files declare, and fail loud (a missing required one throws naming it)."
+        },
+        {
+          "path": "examples_order_service/src/serverless/event-handlers/http_app.ts",
           "reason": "The container-platform serverless HTTP entrypoint binds the port the compose runtime injects as PORT; fails loud when absent."
         },
         {
-          "template": "templates/api/deploy_tests.ts.j2",
+          "path": "examples_order_service/test/deploy_tests.spec.ts",
           "reason": "Emits the deploy-test harness, not service runtime."
         },
         {
-          "template": "templates/api/test_controller.spec.ts.j2",
+          "path": "examples_order_service/test/controllers/order-api.order.controller.spec.ts",
           "reason": "Emits a generated test, not service runtime."
         },
         {
-          "template": "templates/api/test_controller_auth.spec.ts.j2",
+          "path": "examples_order_service/test/controllers/order-api.order.controller.integration.spec.ts",
           "reason": "Emits a generated test, not service runtime."
         },
         {
-          "template": "templates/api/test_controller_custom.spec.ts.j2",
+          "path": "examples_order_service/test/integration/service.integration.spec.ts",
           "reason": "Emits a generated test, not service runtime."
         },
         {
-          "template": "templates/api/test_controller_integration.spec.ts.j2",
-          "reason": "Emits a generated test, not service runtime."
-        },
-        {
-          "template": "templates/api/test_controller_internal.spec.ts.j2",
-          "reason": "Emits a generated test, not service runtime."
-        },
-        {
-          "template": "templates/api/test_service_integration.spec.ts.j2",
-          "reason": "Emits a generated test, not service runtime."
-        },
-        {
-          "template": "templates/entity/test_integration_setup.ts.j2",
+          "path": "examples_order_service/test/integration/setup.ts",
           "reason": "Emits the generated integration-test setup, not service runtime."
         },
         {
-          "template": "templates/project/_deploy-test-docker-lifecycle.js.j2",
+          "path": "tests/deploy-test.js",
           "reason": "Emits the deploy-test harness, not service runtime."
         },
         {
-          "template": "templates/project/_deploy-test-main.js.j2",
-          "reason": "Emits the deploy-test harness, not service runtime."
-        },
-        {
-          "template": "templates/project/_deploy-test-reporting.js.j2",
-          "reason": "Emits the deploy-test harness, not service runtime."
-        },
-        {
-          "template": "templates/project/_deploy-test-storage.js.j2",
-          "reason": "Emits the deploy-test harness, not service runtime: its fixture seeding reads the storage server's secret key from the .env variable the server reads it from, with compose's own shell-then-.env precedence."
-        },
-        {
-          "template": "templates/project/_deploy-test-test-phases.js.j2",
-          "reason": "Emits the deploy-test harness, not service runtime."
-        },
-        {
-          "template": "templates/project/_deploy-test-workspace.js.j2",
-          "reason": "Emits the deploy-test harness, not service runtime."
-        },
-        {
-          "template": "templates/project/unit-tests.js.j2",
+          "path": "tests/unit-tests.js",
           "reason": "Emits generated unit tests, not service runtime."
-        },
-        {
-          "template": "templates/testing/spec_test_setup.ts.j2",
-          "reason": "Emits the generated test-suite setup, not service runtime."
         }
       ]
     }

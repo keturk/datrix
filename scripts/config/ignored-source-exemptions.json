@@ -151,6 +151,13 @@
     },
     {
       "repos": ["*"],
+      "gitignore": "tests/**/.datrix/secrets/.gitignore",
+      "pattern": "*",
+      "path_glob": "tests/**/.datrix/secrets/**",
+      "reason": "generated infrastructure passwords a generation run persists under a test fixture: the Docker secret store keeps each profile's values in .datrix/secrets/<profile>.json and writes a self-ignoring .gitignore containing a bare '*' beside them. Deliberately unpublished, since a credential file must never reach a clone. Because that nested file is the deepest matching rule, git blames it rather than the repo's own '.datrix/' rule the previous entry excuses. Scoped to that nested file under tests/, so a bare '*' anywhere else stays a finding."
+    },
+    {
+      "repos": ["*"],
       "gitignore": ".gitignore",
       "pattern": "*.log",
       "path_glob": "*.log",
