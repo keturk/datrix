@@ -682,6 +682,78 @@ A function flagged on neither the list nor a pending deletion is new code: it is
 
 **Security posture.** The gate only reads files; it opens no network connection and changes nothing.
 
+## `gates\repo-hygiene\no-import-registration-gate.ps1`
+
+**Importing a framework module registers nothing.** A registry filled as a side effect of importing a module answers differently depending on what was imported first, so registries are handed to the run as values: the builtin definitions are the `BUILTIN_OBJECTS` tuple plus each extension's `builtin_objects()`, type maps are plugin declarations, and a run builds its registries from what it discovered. `lib\no_import_registration.py` parses every `*.py` under every `datrix-*/src` tree on disk (a new package is covered the moment it carries `src/`) with Python `ast` and fails on two shapes:
+
+- **import-time-register-call** — a call statement that runs on import (the module body, or an `if`/`for`/`while`/`try`/`with`/`match`/`class` body beneath it; never inside a function) whose callee name (`f` of `f()`, `g` of `a.b.g()`) contains `register`, case-insensitively. `X = register_capability(...)` is an assignment of a value the module keeps, not a call statement, and is not reported.
+- **registration-import** — an `import` or `from … import` carrying `# noqa: F401` whose comment mentions registration (`regist…`): an import kept only for what importing it does.
+
+The terminal state is zero: there is no baseline and no allowlist. One gate covers every package; no package carries a test copy of the check.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\no-import-registration-gate.ps1` | Scan every `datrix-*/src` tree |
+| **Some trees** | `.\gates\repo-hygiene\no-import-registration-gate.ps1 -Roots D:/datrix/datrix-common/src` | Comma-separated source trees |
+| **Self-test only** | `.\gates\repo-hygiene\no-import-registration-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\gates\repo-hygiene\no-import-registration-gate.ps1 -Dbg` | Print the python invocation before running |
+
+**Parameters:** `-Roots <dir[,dir...]>` (default: every `datrix-*/src`), `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A planted `datrix-*` package under `D:\datrix\.tmp\` carries, in its `src/`, two registration imports, five import-time register calls (module body, `if`, `for`, `try` and `class` bodies) and four clean shapes (a re-export `noqa: F401` import, an assignment from a register call, a call to another name, a register call inside a function); the same file under its `tests/` must not be read. The gate must report exactly the seven planted lines.
+
+**Output:** one line per hit, `FAIL <path>:<line>: <kind>: <detail>`, then a count of files and trees read and the verdict line `[GATE] no-import-registration PASSED|FAILED exit=<n> log=<path>`. **Exit codes:** 0 = no import-time registration (or a successful `-SelfTest`), 1 = at least one hit, 2 = the gate cannot judge (a failed self-test, a source file that does not parse or is not UTF-8).
+
+**Security posture.** The gate only reads files (and, in the self-test, writes a scratch tree under `D:\datrix\.tmp\`); it opens no network connection and changes nothing in the repos it scans.
+
+## `gates\repo-hygiene\stateless-generator-gate.ps1`
+
+**A generator holds no run state.** A generator is a function of `(Application, CodegenContext, output_dir)`: the context is a `generate` argument, and nothing a run computes is kept on the instance, so a second run never answers with the first run's facts. `lib\stateless_generator.py` parses every `*.py` under every `datrix-*/src` tree on disk (a new package is covered the moment it carries `src/`) with Python `ast`, builds the class graph of every scanned module (top-level classes and classes local to a function, each base resolved through the module's imports with re-exports followed), takes every class whose base chain reaches the kernel's `datrix_codegen_kernel.generation.generator.Generator` together with every scanned class such a class mixes in, and fails on two shapes:
+
+- **generator-attribute-assigned** — inside any method of a generator class other than `__init__`, an assignment to an attribute of `self` (or `cls`): plain, augmented or annotated assignment, a `for` or `with ... as` target, tuple unpacking, `setattr(self, ...)` / `object.__setattr__(self, ...)`, or `self.__dict__[...] =`; and, in any function, an assignment to an attribute of a name typed as a generator class (a parameter or variable annotation naming one, or a `for` target iterating such a name). Writing into an attribute's own value (`self.cache[key] = ...`) is not reported.
+- **generator-init-takes-context** — a parameter of a generator class's `__init__` annotated with `CodegenContext` (string annotations included).
+
+The terminal state is zero: there is no baseline and no allowlist. It is a gate rather than a package test because a package test may not scan other packages' sources.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\stateless-generator-gate.ps1` | Scan every `datrix-*/src` tree |
+| **Some trees** | `.\gates\repo-hygiene\stateless-generator-gate.ps1 -Roots D:/datrix/datrix-codegen-kernel/src,D:/datrix/datrix-codegen-docker/src` | Comma-separated source trees; the kernel's `src` must be among them |
+| **Self-test only** | `.\gates\repo-hygiene\stateless-generator-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\gates\repo-hygiene\stateless-generator-gate.ps1 -Dbg` | Print the python invocation before running |
+
+**Parameters:** `-Roots <dir[,dir...]>` (default: every `datrix-*/src`), `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A planted workspace under `D:\datrix\.tmp\` holds a kernel package (`Generator`, `PlatformGenerator`, re-exported from the package `__init__`) and a target package whose `src/` carries a `PlatformGenerator` subclass imported through the re-export, a function-local subclass of it, a second `Generator` subclass that mixes in a plain class whose method writes to `self` (the mixin is a generator class too: its methods run on the generator instance), and every reported shape: a constructor parameter typed `CodegenContext` through a module alias, plain, augmented, annotated, unpacked and `for`-target writes to `self`, `setattr`, `object.__setattr__`, a `self.__dict__` write, a write in a nested function, a `cls` write in a class method, a `for` target over a parameter typed `list[Generator]` (string annotation), and a parameter typed with the subclass. Its clean shapes (writes in `__init__`, a subscript write into an attribute's value, a write to a local, a static method's parameter, an unrelated class's `self.context`) and the same file under its `tests/` must not be reported. The gate must find exactly six generator classes and report exactly the seventeen planted findings.
+
+**Output:** one line per hit, `FAIL <path>:<line>: <kind>: <detail>`, then a count of files, trees, generator classes and findings and the verdict line `[GATE] stateless-generator PASSED|FAILED exit=<n> log=<path>`. **Exit codes:** 0 = no generator run state (or a successful `-SelfTest`), 1 = at least one hit, 2 = the gate cannot judge (a failed self-test, no generator class found, a source file that does not parse or is not UTF-8).
+
+**Security posture.** The gate only reads files (and, in the self-test, writes a scratch tree under `D:\datrix\.tmp\`); it opens no network connection and changes nothing in the repos it scans.
+
+## `gates\repo-hygiene\seal-integrity-gate.ps1`
+
+**Only the model seals or unseals a node.** A sealed `Node` refuses every attribute assignment; the flag that marks it sealed lives in the node's `__dict__` under `_SEAL_FLAG` (`"_sealed"`), and only `Node.seal()` and `Node.__deepcopy__` in `datrix_common/datrix_model/base.py` write it. `lib\seal_integrity.py` parses every `*.py` under every `datrix-*/src` tree on disk with Python `ast` and fails on every other write of the flag, where the key is the literal `"_sealed"`, the name `_SEAL_FLAG` (or a name it is imported as, or a module-level name bound to `"_sealed"`) or an attribute `<module>._SEAL_FLAG`:
+
+- **seal-flag-dict-write** — `X.__dict__[key]` or `vars(X)[key]` assigned (plain, augmented, annotated, unpacked, a `for` or `with` target) or deleted, and `__setitem__` / `__delitem__` / `pop` / `setdefault` with the key, or `update` carrying it, called on `X.__dict__` or `vars(X)`.
+- **seal-flag-attribute-write** — `X._sealed` assigned or deleted, and `setattr` / `delattr` / `__setattr__` / `__delattr__` called with the key.
+
+A write is permitted only directly inside `seal` or `__deepcopy__` of the top-level class `Node` in a file ending `datrix_common/datrix_model/base.py`: a function nested inside one of them, another `Node` method, another class's `seal`, or a `Node` class in another file is reported. The terminal state is zero: there is no baseline. The real scan must find the permitted write in `Node.seal`, or it cannot tell a clean tree from a matcher that stopped matching.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run gate** | `.\gates\repo-hygiene\seal-integrity-gate.ps1` | Scan every `datrix-*/src` tree |
+| **Some trees** | `.\gates\repo-hygiene\seal-integrity-gate.ps1 -Roots D:/datrix/datrix-common/src,D:/datrix/datrix-cli/src` | Comma-separated source trees; datrix-common's `src` must be among them |
+| **Self-test only** | `.\gates\repo-hygiene\seal-integrity-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\gates\repo-hygiene\seal-integrity-gate.ps1 -Dbg` | Print the python invocation before running |
+
+**Parameters:** `-Roots <dir[,dir...]>` (default: every `datrix-*/src`), `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** A planted workspace under `D:\datrix\.tmp\` holds a model file (`datrix-common/src/datrix_common/datrix_model/base.py`) whose `Node.seal` and `Node.__deepcopy__` each write the flag (both must be recognised as permitted) beside three reported writes: one in a function nested inside `Node.seal`, one in a third `Node` method, one in another class's `seal`. A target package's `src/` carries every reported shape (twenty-three lines: the key as a literal, as `_SEAL_FLAG`, as an import alias, as `base._SEAL_FLAG` and as a module-level copy; each dict and attribute form above) and a `Node.seal` outside the model's file; its clean shapes (a `__dict__` read, other keys, a key held in a local, a write into an unrelated dict, an unrelated attribute) and the same file under its `tests/` must not be reported. The gate must report exactly the twenty-seven planted findings and the two permitted writes.
+
+**Output:** one line per hit, `FAIL <path>:<line>: <kind>: <detail>`, then a count of files, trees, permitted writes and findings and the verdict line `[GATE] seal-integrity PASSED|FAILED exit=<n> log=<path>`. **Exit codes:** 0 = no seal-flag write outside the model (or a successful `-SelfTest`), 1 = at least one hit, 2 = the gate cannot judge (a failed self-test, no permitted write found in `Node.seal`, a source file that does not parse or is not UTF-8).
+
+**Security posture.** The gate only reads files (and, in the self-test, writes a scratch tree under `D:\datrix\.tmp\`); it opens no network connection and changes nothing in the repos it scans.
+
 ## `gates\repo-hygiene\script-catalogue-gate.ps1`
 
 Holds the scripts tree's documentation to what the tree holds (`lib\script_catalogue.py`), reading Markdown's token stream (`markdown-it-py`) and PowerShell's own parser, never regex over prose. Four rules, each a hard zero:

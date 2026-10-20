@@ -7,21 +7,25 @@
  The response-bodies parity rows prove every registered language's response classes
  emit camelCase wire keys; a framework-level transform applied AFTER serialization
  (a global interceptor, a response-model setting) is invisible to them. Each
- registered language declares the regular expressions that spell such a transform in
- its framework (LanguageCapabilityDeclaration.response_body_transform_idioms). This
- gate generates the shared CQRS example once per registered language, greps the
- generated tree for them, and requires every hit to be a typed `transform_exemptions`
+ registered language declares the code idioms that spell such a transform in its
+ framework (LanguageCapabilityDeclaration.response_body_transform_idioms: parsed facts,
+ never regular expressions). This gate generates the shared CQRS example once per
+ registered language, reads the emitted source files for them through the language's
+ own conformance probes (a parse-tree reading: a string literal or a comment neither
+ hides nor fakes a hit, and a file that does not parse fails the run), and requires
+ every hit to be a typed `transform_exemptions`
  entry of datrix/scripts/config/response-body-transform-exemptions.json (language,
  path suffix, matched text, reason). An unreviewed hit, a stale entry and a language
  with no declaration each fail by name; the review file is refused if it carries any
  key other than _comment and transform_exemptions.
 
- A census over generated text: it imports no conformance probe. Derives its language
- set from the installed `datrix.languages` entry points -- never a hardcoded literal.
+ The gate holds no pattern over code. Derives its language set from the installed
+ `datrix.languages` entry points -- never a hardcoded literal.
 
- Runs a self-test on every invocation: the gate names no target, a planted transform
- line is reported at its coordinates, an exemption covers it, a stale exemption and a
- language with no declaration are reported, the review file refuses a set-aside list,
+ Runs a self-test on every invocation: the gate names no target, a planted reading is
+ reported at its coordinates and the reading is asked for exactly the declared idioms,
+ an exemption covers it, a stale exemption and a language with no declaration are
+ reported, every registered language supplies a probe reading, the review file refuses a set-aside list,
  a non-object entry and a blank reason, and fewer than two languages refuse the run.
 
 .PARAMETER Dbg

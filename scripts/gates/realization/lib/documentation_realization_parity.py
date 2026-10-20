@@ -84,6 +84,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
+    IdiomOccurrence,
     LanguageConformanceProbes,
     ResponseBodyWireField,
     RouteWireContract,
@@ -91,6 +92,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     language_conformance_probes,
 )
 from datrix_common.errors.plugin import PluginValidationError
+from datrix_common.plugin.code_idiom import CodeIdiom
 
 from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
@@ -1072,6 +1074,9 @@ class _FixtureDocumentationProbes:
 
     def event_envelopes(self, generated_root: Path) -> EventEnvelopeCensus:
         return EventEnvelopeCensus(published=(), consumed_keys={})
+
+    def idiom_occurrences(self, generated_root: Path, idioms: Sequence[CodeIdiom]) -> tuple[IdiomOccurrence, ...]:
+        return ()
 
 
 class _FixturePluginWithoutProbes:

@@ -145,26 +145,26 @@ Shared-builder reachability gate: every module-level `build_*` function declared
 
 ## `gates\realization\zero-environment-runtime-gate.ps1`
 
-Zero-environment runtime census gate: every registered language is obligated to bake deployment-static values at generation time (the running service consults no environment variable). Each language plugin states, on its `LanguageCapabilityDeclaration.zero_environment_runtime`, the regular expressions that spell an environment read in its own templates. The gate censuses every `.j2` template under the `src/` tree of every package implementing each registered language (its backend plus each language core the backend requires) against those idioms, and holds each language to the rule the KIND of its entry in `scripts/config/zero-environment-runtime-baseline.json` selects — never a field on the declaration, a reason or a gap row:
-- `reviewed_exemptions`: every template that reads the environment is listed with a written reason, as a justification of that specific read (python's reads are per-read reviewed exemptions). An unlisted read and a stale entry are both violations. A language with NO entry is held to this kind with an empty list, so adding a language needs no edit here.
-- `pinned_count`: a decrease-only count of environment-reading templates, for a language that delivers runtime facts through the environment by design (typescript). It may fall and may never rise.
+Zero-environment runtime census gate: every registered language is obligated to bake deployment-static values at generation time (the running service consults no environment variable). Each language plugin states, on its `LanguageCapabilityDeclaration.zero_environment_runtime`, the code idioms that spell an environment read in the code it emits (`environment_read_idioms`: parsed facts such as `MemberAccessIdiom(("os", "environ"))` or `ImportIdiom("@nestjs/config")`, never regular expressions). The gate generates the registered `serverless` example for every registered language into `D:\datrix\.tmp\zero-environment-runtime\<language>` and reads every emitted source file through the language's own conformance probes (`idiom_occurrences`, a parse-tree reading: a string literal or a comment neither hides nor fakes a read, and an emitted file that does not parse fails the run with exit 2). Jinja source is never read. It holds each language to the rule the KIND of its entry in `scripts/config/zero-environment-runtime-baseline.json` selects — never a field on the declaration, a reason or a gap row:
+- `reviewed_exemptions`: every emitted file that reads the environment is listed by its path relative to the generated root (`{path, reason}`), with a written reason justifying that specific read. An unlisted read and a stale entry are both violations, and the live census must read at least one listed file (a census that sees none of them is broken, not clean). A language with NO entry is held to this kind with an empty list, so adding a language needs no edit here.
+- `pinned_count`: a decrease-only count of environment-reading emitted files, for a language that delivers runtime facts through the environment by design. It may fall and may never rise.
 
-A registered language that states no idioms fails, named; a baseline entry naming an unregistered language is stale and fails. Language set from the installed `datrix.languages` entry points; idioms from each language's declaration — never a table in the script. Test-harness templates count too (a harness that reads the environment is still emitted into the generated project).
+A registered language that states no idioms, or supplies no probe reading, fails, named; a baseline entry naming an unregistered language is stale and fails. Language set from the installed `datrix.languages` entry points; idioms from each language's declaration — never a table in the script. Emitted test harnesses and operator tooling count too (they are still emitted into the generated project).
 
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Run gate** | `.\gates\realization\zero-environment-runtime-gate.ps1` | Census every registered language against its baseline entry |
-| **Debug** | `.\gates\realization\zero-environment-runtime-gate.ps1 -Dbg` | Debug logging (lists every environment-reading template) |
+| **Debug** | `.\gates\realization\zero-environment-runtime-gate.ps1 -Dbg` | Debug logging (lists every environment read in the emitted files) |
 | **Self-test only** | `.\gates\realization\zero-environment-runtime-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real census |
 | **Lower pins** | `.\gates\realization\zero-environment-runtime-gate.ps1 -UpdateBaseline` | Lower every `pinned_count` entry to its live census (the only writer of `pinned_count`; it refuses to raise one; `reviewed_exemptions` entries are hand-authored and untouched) |
 
 **Parameters:** `-Dbg`, `-SelfTest`, `-UpdateBaseline`
 
 **Assertions:**
-- `reviewed_exemptions` kind (or no entry): `reads − exemptions = ∅` and `exemptions − reads = ∅`; every exemption carries a non-empty reason.
+- `reviewed_exemptions` kind (or no entry): `reads − exemptions = ∅` and `exemptions − reads = ∅`; every exemption carries a non-empty path and reason and no other key; a duplicate path is rejected.
 - `pinned_count` kind: `len(reads) ≤ pinned_count`; a count below the pin is logged with the lower-the-pin hint, never silently accepted as the new floor.
 - Every entry's `kind` is one of the two values and carries exactly its own payload key; a missing or unknown kind, a `pinned_count` entry carrying `exemptions` (or the reverse), an entry lacking its payload, or an extra key is rejected.
-- Non-vacuity self-test (every invocation): the gate names no registered target (`datrix_scripts.registered_targets.self_test_gate_names_no_target`); a synthetic template tree yields exactly the planted read (the clean template and a non-`.j2` file are not counted); the comparator reports exactly one problem for a missing exemption, a stale exemption, a count above the pin, and no entry with a read, and none for an exact match, a count at/below the pin, or no entry with no read; the same one-read census passes against a `pinned_count` entry of 1 and fails against an empty `reviewed_exemptions` entry (the entry kind alone selects the branch); a reasonless exemption is rejected; every `entry_kind` rejection above; `-UpdateBaseline`'s writer lowers a pin, refuses to raise one and carries exemption entries through unchanged; a baseline entry naming an unregistered language is one stale-entry problem; a fixture language split into a backend and a core has a read planted in the core censused (a backend-only census misses it) and one relative template path carried by both packages refused; the **live** census finds at least one read the committed baseline lists as a reviewed exemption (derived from the baseline, never a language or path pinned in the gate); a single-language set is refused.
+- Non-vacuity self-test (every invocation): the gate names no registered target (`datrix_scripts.registered_targets.self_test_gate_names_no_target`); a planted reading (the occurrences a language's probes would return) yields exactly the files it found, and the census asks it for exactly the declared idioms; an emitted file the reading cannot parse raises through the census, never reading as no read; the comparator reports exactly one problem for a missing exemption, a stale exemption, a count above the pin, and no entry with a read, and none for an exact match, a count at/below the pin, or no entry with no read; the same one-read census passes against a `pinned_count` entry of 1 and fails against an empty `reviewed_exemptions` entry (the entry kind alone selects the branch); a reasonless exemption, a template-keyed one and one with an unknown key are rejected; a census reading none of the listed exemptions is one problem; every `entry_kind` rejection above; `-UpdateBaseline`'s writer lowers a pin, refuses to raise one and carries exemption entries through unchanged; a baseline entry naming an unregistered language is one stale-entry problem; every registered language states its idioms and supplies a probe reading, and the committed baseline is well formed; a single-language set is refused.
 
 **Exit codes:** 0 = every language matches its baseline entry (or a successful `-SelfTest` / `-UpdateBaseline`), 1 = a violation was found, 2 = the self-test failed, fewer than two languages are registered, or the baseline is malformed.
 
@@ -397,11 +397,11 @@ are registered.
 ## `gates\realization\dgen-corpus-resolution-gate.ps1`
 
 DAL generator corpus proof: eager builder/call-expression reference resolution runs when each target's
-`.dal` resource is registered (`datrix_codegen_kernel.dgen.resolver`). Importing
-each discovered target's DAL generator definitions module IS the assertion: a bad reference raises
-`DalReferenceError` at import time.
+`.dal` resource compiles (`datrix_codegen_kernel.dgen.resolver`). Compiling each discovered target's
+DAL generator definitions through `target_definitions(<target>)`, one subprocess per target, IS the
+assertion: a bad reference raises `DalReferenceError` there.
 
-**Target set is derived, never hardcoded.** The module list comes from
+**Target set is derived, never hardcoded.** The target list (every target declaring a definitions module) comes from
 `datrix_codegen_kernel.dgen.target_registry.target_kind_map()` +
 `definition_modules_for()`, folded from `datrix.dgen_generator_targets` entry-point discovery --
 every target, platforms included, self-registers its definition modules there (platform

@@ -13,7 +13,7 @@ package is picked up automatically with no edit to this script.
 
 **Property 1: domain-universe closure.** ``check_domain_universe_closure``
 computes the union of every registered language's COMPILED DAL generator IR domain
-ids (``get_definitions(<lang>)``, independent of any declaration a plugin
+ids (``target_definitions(<lang>)``, independent of any declaration a plugin
 commits) and asserts it equals ``SHARED_CONTEXT_TYPES.keys()`` exactly: a
 domain id some language's compiled IR declares but the registry omits fails
 naming the declaring language(s); a registry id no registered language's
@@ -218,7 +218,7 @@ def compiled_domain_ids_by_language(
     """Every domain id each language's COMPILED DAL generator IR declares.
 
     Unlike ``declarations_by_language`` (which reads a plugin's derived
-    ``domain_declarations``), this reads ``get_definitions(name)`` directly:
+    ``domain_declarations``), this compiles ``target_definitions(name)`` directly:
     the compiled IR is the raw fact of what a language's DAL generator source
     declares, independent of any declaration a plugin later commits. The
     domain-universe closure check measures the universe against THIS raw
@@ -231,12 +231,12 @@ def compiled_domain_ids_by_language(
         `{language_name: frozenset of every DomainDefinition.name the
         compiled IR reports for that language}`.
     """
-    from datrix_codegen_kernel.dgen.compiler import get_definitions
+    from datrix_codegen_kernel.dgen.compiler import target_definitions
 
     return {
         name: frozenset(
             domain.name
-            for definition in get_definitions(name)
+            for definition in target_definitions(name)
             for domain in definition.domains
         )
         for name in language_names

@@ -7,19 +7,22 @@ AFTER serialization: a framework-level response transform (a global interceptor,
 response-model setting that changes how field names are serialized) rewrites every outgoing
 body, so it is invisible to a reading of the response classes.
 
-Each registered language declares the regular expressions that spell such a transform in its
-own framework (``LanguageCapabilityDeclaration.response_body_transform_idioms``). This gate
-generates the shared CQRS example once per registered language and greps the generated tree for
-them; every hit must be a typed ``transform_exemptions`` entry of
+Each registered language declares the code idioms that spell such a transform in its own
+framework (``LanguageCapabilityDeclaration.response_body_transform_idioms``: a call, an import,
+a keyword argument). This gate generates the shared CQRS example once per registered language
+and has that language's own conformance probes parse every emitted source file and match the
+idioms on the parse tree (``LanguageConformanceProbes.idiom_occurrences``), so a string literal
+or a comment spelling an idiom is not a hit and a file that does not parse stops the run. Every
+hit must be a typed ``transform_exemptions`` entry of
 ``scripts/config/response-body-transform-exemptions.json`` (language, path suffix, matched text,
 reason). An unreviewed hit, an entry that matches nothing (stale) and a language with no
 declaration each fail by name, and the review file is refused if it carries any key other than
 ``_comment`` and ``transform_exemptions`` -- a response-body field that diverges from the rule
 has no review shape at all.
 
-This is a census over generated text, not a conformance-probe reading: it imports no probe.
 Target set is NEVER hardcoded: languages are enumerated from the installed
-``datrix.languages`` entry points at run time, and the self-test proves this module names none.
+``datrix.languages`` entry points at run time, each is read through its own probes, and the
+self-test proves this module names none.
 
 Repo-level validation script (per the datrix showcase boundary -- no pytest suite lives in
 datrix).
@@ -30,16 +33,17 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import shutil
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from datrix_codegen_kernel.parity.conformance_probes import IdiomOccurrence, language_conformance_probes
 from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError
 from datrix_common.plugin.capability_resolution import declaration_for_language
+from datrix_common.plugin.code_idiom import CallIdiom, CodeIdiom
 
 from datrix_scripts.generated_example import generate_example
 from datrix_scripts.paths import CONFIG_DIR, SHOWCASE_DIR, WORKSPACE_DIR
@@ -58,18 +62,18 @@ EXIT_OK: Final[int] = 0
 EXIT_VIOLATION: Final[int] = 1
 EXIT_CANNOT_RUN: Final[int] = 2
 
-#: Directories a census never descends into: dependency and VCS trees, not generated source.
-_SKIP_DIRS: Final[frozenset[str]] = frozenset({"node_modules", ".git", "__pycache__", ".venv"})
-#: A generated file larger than this is data (a lockfile, a bundle), not source an idiom could appear in.
-_MAX_BYTES: Final[int] = 2_000_000
 #: The only top-level keys the review file may carry.
 _REVIEW_FILE_KEYS: Final[frozenset[str]] = frozenset({"_comment", "transform_exemptions"})
 _ENTRY_KEYS: Final[tuple[str, ...]] = ("language", "path_suffix", "matched_text", "reason")
 
+#: Reads the occurrences of the given idioms off the parse trees of a generated root: a
+#: language's ``LanguageConformanceProbes.idiom_occurrences``.
+IdiomReader = Callable[[Path, Sequence[CodeIdiom]], tuple[IdiomOccurrence, ...]]
+
 _SELF_TEST_LANGUAGE: Final[str] = "self_test_lang"
-_SELF_TEST_INTERCEPTOR_LINE: Final[str] = "app.useGlobalInterceptors(new KeyRewriteInterceptor());"
-_SELF_TEST_INTERCEPTOR_IDIOM: Final[str] = r"\buseGlobalInterceptors\("
-_SELF_TEST_INTERCEPTOR_MATCH: Final[str] = "useGlobalInterceptors("
+_SELF_TEST_IDIOM: Final[CallIdiom] = CallIdiom("rewriteEveryResponse")
+_SELF_TEST_PATH: Final[str] = "src/main.src"
+_SELF_TEST_LINE: Final[int] = 2
 
 
 @dataclass(frozen=True)
@@ -155,8 +159,8 @@ def load_transform_exemptions(path: Path = EXEMPTIONS_PATH) -> tuple[TransformEx
     return parse_transform_exemptions(json.loads(path.read_text(encoding="utf-8")), path)
 
 
-def response_transform_idioms(language: str) -> tuple[re.Pattern[str], ...]:
-    """The compiled response-transform idioms *language* declares.
+def response_transform_idioms(language: str) -> tuple[CodeIdiom, ...]:
+    """The response-transform idioms *language* declares.
 
     Raises:
         ValueError: *language* has no capability declaration to read them from.
@@ -168,27 +172,35 @@ def response_transform_idioms(language: str) -> tuple[re.Pattern[str], ...]:
             f"language {language!r} declares no LanguageCapabilityDeclaration, so its response_body_transform_idioms "
             f"cannot be read ({exc}). Fix: add the declaration to the language package."
         ) from exc
-    return declaration.compiled_response_body_transform_idioms()
+    return declaration.response_body_transform_idioms
+
+
+def idiom_reader(language: str) -> IdiomReader:
+    """*language*'s own parse-tree reading of code idioms.
+
+    Raises:
+        ValueError: *language* is not registered or declares no (or incomplete) conformance probes.
+    """
+    try:
+        return language_conformance_probes(language).idiom_occurrences
+    except (PluginNotFoundError, PluginValidationError) as exc:
+        raise ValueError(
+            f"language {language!r} supplies no conformance probes to read its generated tree with ({exc}). "
+            f"Fix: declare complete conformance probes on the language plugin."
+        ) from exc
 
 
 def census_response_transforms(
-    language: str, generated_root: Path, idioms: Sequence[re.Pattern[str]]
+    language: str, generated_root: Path, idioms: Sequence[CodeIdiom], read: IdiomReader
 ) -> list[TransformHit]:
-    """Every line of the generated tree under *generated_root* that spells an idiom, by path then line."""
-    hits: list[TransformHit] = []
-    for path in sorted(generated_root.rglob("*")):
-        if not path.is_file() or any(part in _SKIP_DIRS for part in path.parts) or path.stat().st_size > _MAX_BYTES:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            continue
-        relative = path.relative_to(generated_root).as_posix()
-        for number, line in enumerate(text.splitlines(), start=1):
-            hits.extend(
-                TransformHit(language, relative, number, match.group(0)) for idiom in idioms for match in idiom.finditer(line)
-            )
-    return hits
+    """Every occurrence of an idiom in the generated tree under *generated_root*, by path then line.
+
+    Raises:
+        UnparseableGeneratedFileError: A generated source file does not parse (raised by *read*).
+    """
+    occurrences = read(generated_root, idioms)
+    hits = (TransformHit(language, o.relative_path, o.line, o.text) for o in occurrences)
+    return sorted(hits, key=lambda hit: (hit.relative_path, hit.line, hit.matched_text))
 
 
 def unexempted_transform_hits(hits: Sequence[TransformHit], exemptions: Sequence[TransformExemption]) -> list[TransformHit]:
@@ -209,9 +221,10 @@ def language_problems(
     """Every unreviewed hit and stale entry of *language*'s generated tree; the refusal when it declares no idioms."""
     try:
         idioms = response_transform_idioms(language)
+        read = idiom_reader(language)
     except ValueError as exc:
         return [str(exc)]
-    hits = census_response_transforms(language, generated_root, idioms)
+    hits = census_response_transforms(language, generated_root, idioms, read)
     problems = [
         f"language {language!r} spells a response-body transform at {hit.relative_path}:{hit.line} ({hit.matched_text!r}). "
         f"A transform applied to every outgoing body changes the wire names the response classes declare. Fix: delete "
@@ -264,31 +277,36 @@ def check_response_body_transforms(languages: Sequence[str] | None = None) -> in
 
 
 def _self_test_census() -> list[str]:
-    """The census reports a planted hit at its coordinates, honours an exemption, flags a stale one,
-    ignores a clean file, and refuses a language with no declaration."""
+    """The census reports what the language's reader found at its coordinates and asks it for exactly
+    the declared idioms, an exemption decides a hit, a stale one is flagged, a language with no
+    declaration is refused, and every registered language supplies a reader."""
     problems: list[str] = []
     root = _GATE_OUTPUT_ROOT / "self-test"
-    shutil.rmtree(root, ignore_errors=True)
-    (root / "src").mkdir(parents=True)
-    try:
-        (root / "src" / "main.ts").write_text(f"bootstrap();\n{_SELF_TEST_INTERCEPTOR_LINE}\n", encoding="utf-8")
-        (root / "src" / "clean.ts").write_text("app.useGlobalPipes(new ValidationPipe());\n", encoding="utf-8")
-        hits = census_response_transforms(_SELF_TEST_LANGUAGE, root, (re.compile(_SELF_TEST_INTERCEPTOR_IDIOM),))
-        planted = TransformHit(_SELF_TEST_LANGUAGE, "src/main.ts", 2, _SELF_TEST_INTERCEPTOR_MATCH)
-        if hits != [planted]:
-            problems.append(f"the census did not report exactly the planted hit at src/main.ts:2 (got {hits!r})")
-        exemption = TransformExemption(_SELF_TEST_LANGUAGE, "src/main.ts", _SELF_TEST_INTERCEPTOR_MATCH, "self-test")
-        if unexempted_transform_hits([planted], []) != [planted] or unexempted_transform_hits([planted], [exemption]):
-            problems.append("an exemption did not decide exactly whether the planted hit is reported")
-        if stale_transform_exemptions(_SELF_TEST_LANGUAGE, [], [exemption]) != [exemption]:
-            problems.append("an exemption that matches no hit was not reported as stale")
-        if stale_transform_exemptions(_SELF_TEST_LANGUAGE, [planted], [exemption]):
-            problems.append("an exemption that covers a hit was reported as stale")
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
+    asked: list[tuple[CodeIdiom, ...]] = []
+
+    def planted_reader(generated_root: Path, idioms: Sequence[CodeIdiom]) -> tuple[IdiomOccurrence, ...]:
+        asked.append(tuple(idioms))
+        return (IdiomOccurrence(_SELF_TEST_IDIOM, _SELF_TEST_PATH, _SELF_TEST_LINE, _SELF_TEST_LINE, _SELF_TEST_IDIOM.name),)
+
+    hits = census_response_transforms(_SELF_TEST_LANGUAGE, root, (_SELF_TEST_IDIOM,), planted_reader)
+    planted = TransformHit(_SELF_TEST_LANGUAGE, _SELF_TEST_PATH, _SELF_TEST_LINE, _SELF_TEST_IDIOM.name)
+    if hits != [planted] or asked != [(_SELF_TEST_IDIOM,)]:
+        problems.append(f"the census did not report exactly the reader's occurrence for the declared idiom (got {hits!r})")
+    exemption = TransformExemption(_SELF_TEST_LANGUAGE, _SELF_TEST_PATH, _SELF_TEST_IDIOM.name, "self-test")
+    if unexempted_transform_hits([planted], []) != [planted] or unexempted_transform_hits([planted], [exemption]):
+        problems.append("an exemption did not decide exactly whether the planted hit is reported")
+    if stale_transform_exemptions(_SELF_TEST_LANGUAGE, [], [exemption]) != [exemption]:
+        problems.append("an exemption that matches no hit was not reported as stale")
+    if stale_transform_exemptions(_SELF_TEST_LANGUAGE, [planted], [exemption]):
+        problems.append("an exemption that covers a hit was reported as stale")
     refusal = language_problems(_SELF_TEST_LANGUAGE, root, [])
     if len(refusal) != 1 or _SELF_TEST_LANGUAGE not in refusal[0]:
         problems.append(f"a language with no capability declaration was not refused by name (got {refusal!r})")
+    for language in sorted(registered_language_names()):
+        try:
+            idiom_reader(language)
+        except ValueError as exc:
+            problems.append(str(exc))
     return problems
 
 

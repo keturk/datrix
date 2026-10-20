@@ -13,8 +13,10 @@
  datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE (a
  dot-separated wire-name path relative to the request body root, no leading
  `body` segment, `[n]` for array elements). This gate censuses every
- registered language package's own construction technique for that shape and
- holds each language to:
+ registered language package's own construction technique for that shape (an
+ executed formatter, or the emitted code of the registered `cqrs` example,
+ generated per language and read off its parse trees through the language's
+ conformance probes) and holds each language to:
 
    * REALIZATION -- every registered language is obligated to construct the
      canonical shape for the rule's own worked example. A language that does

@@ -6,44 +6,53 @@ The zero-environment runtime architecture bakes every deployment-static value
 a generated service needs into literal constants at generation time, so the
 running service consults no environment variable. That is a portable
 decision, and every registered language is obligated to it. Each language
-plugin states the regular expressions that spell an environment read in its
-own templates on its ``LanguageCapabilityDeclaration``
-(``zero_environment_runtime``), and this gate censuses every template against
-them. What the census may find is decided by the KIND of the language's entry
-in ``scripts/config/zero-environment-runtime-baseline.json`` -- nothing else
-selects the rule:
+plugin states the code idioms that spell an environment read in its own
+emitted code on its ``LanguageCapabilityDeclaration``
+(``zero_environment_runtime``: a member access such as ``os.environ``, an
+import of an environment-reading module). This gate generates the registered
+``serverless`` example once per registered language and has that language's
+own conformance probes parse every emitted source file and match the idioms
+on the parse tree (``LanguageConformanceProbes.idiom_occurrences``): a string
+literal or a comment that spells an idiom is not a read, the same text written
+as code is, and a file that does not parse stops the census instead of reading
+as "no read". What the census may find is decided by the KIND of the
+language's entry in ``scripts/config/zero-environment-runtime-baseline.json``
+-- nothing else selects the rule:
 
-* ``reviewed_exemptions`` -- every template that reads the environment is
-  listed with a written reason, as a justification of that specific read. An
-  unlisted read and a stale entry are both violations. A registered language
-  with NO entry is held to this kind with an empty list: it may carry no
-  environment read, so adding a language needs no edit here.
-* ``pinned_count`` -- a decrease-only count of environment-reading templates,
-  for a language that delivers runtime facts through the environment by
-  design. The count may fall (``--update-baseline`` lowers it) and may never
-  rise; the writer refuses to raise it.
+* ``reviewed_exemptions`` -- every emitted file that reads the environment is
+  listed by its path relative to the generated root, with a written reason,
+  as a justification of that specific read. An unlisted read and a stale
+  entry are both violations. A registered language with NO entry is held to
+  this kind with an empty list: it may carry no environment read, so adding a
+  language needs no edit here.
+* ``pinned_count`` -- a decrease-only count of environment-reading emitted
+  files, for a language that delivers runtime facts through the environment
+  by design. The count may fall (``--update-baseline`` lowers it) and may
+  never rise; the writer refuses to raise it.
 
-A registered language that states no idioms fails the gate, naming it, and a
-baseline entry naming a language that is not registered is stale and fails.
+A registered language that states no idioms, or supplies no conformance
+probes to read its tree with, fails the gate, naming it, and a baseline entry
+naming a language that is not registered is stale and fails.
 
 The language set is derived from the installed ``datrix.languages`` entry
-points at runtime, never a hardcoded list, and each language's idioms come
-from its own declaration, never a table in this script. Templates are every
-``.j2`` file under the ``src/`` tree of every package implementing the
-language -- its backend and each language core the backend requires; test-harness
-templates count too, because a harness that reads the environment is still
-emitted into the generated project -- a ``reviewed_exemptions`` language
-lists them as exemptions with that reason.
+points at runtime, never a hardcoded list, each language's idioms come from
+its own declaration and each tree is read through that language's own probes,
+never a table in this script. Emitted test harnesses count too, because a
+harness that reads the environment is still emitted into the generated
+project -- a ``reviewed_exemptions`` language lists them as exemptions with
+that reason.
 
 Runs a built-in non-vacuity self-test on every invocation: this module names
 no registered target (``datrix_scripts.registered_targets.self_test_gate_names_no_target``),
-a synthetic template tree with one planted read and one clean file, the comparator
-against both entry kinds (missing exemption, stale exemption, count over and
-under the pin, the same census passing under one kind and failing under the
-other, no entry), the entry-kind validation, the baseline writer (lowers a
-pin, refuses to raise one, carries exemptions through), and a live-tree proof
-that the census finds at least one read the committed baseline lists as a
-reviewed exemption.
+the census over a planted idiom reading (exactly the files it reports, asked
+for exactly the declared idioms, an unparseable file raising through), the
+comparator against both entry kinds (missing exemption, stale exemption,
+count over and under the pin, the same census passing under one kind and
+failing under the other, no entry), the entry-kind validation, the baseline
+writer (lowers a pin, refuses to raise one, carries exemptions through), and
+every registered language supplying a declaration and a probe reading. The
+census run itself requires at least one read the committed baseline lists as
+a reviewed exemption: a census that sees none of them is broken, not clean.
 
 Repo-level validation script (per the datrix showcase boundary -- no pytest
 suite lives in datrix).
@@ -60,29 +69,34 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from datrix_codegen_kernel.parity.conformance_probes import (
+    IdiomOccurrence,
+    UnparseableGeneratedFileError,
+    language_conformance_probes,
+)
+from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError
 from datrix_common.plugin.capability_resolution import declaration_for_language
+from datrix_common.plugin.code_idiom import CodeIdiom, MemberAccessIdiom
 from datrix_common.plugin.language_capability import (
     ZeroEnvironmentRuntimeDeclaration,
 )
 
 from datrix_scripts.gate_harness import report_condition
-from datrix_scripts.paths import SHOWCASE_DIR
+from datrix_scripts.generated_example import generate_example
+from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
 from datrix_scripts.registered_targets import (
-    AXIS_LANGUAGES,
-    WORKSPACE_ROOT,
-    discover_target_package_src_dirs,
     registered_language_names,
     report_gate_names_no_target,
 )
+from datrix_scripts.test_projects import get_project_by_name
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +104,13 @@ DATRIX_DIR: Final[Path] = SHOWCASE_DIR
 BASELINE_PATH: Final[Path] = (
     DATRIX_DIR / "scripts" / "config" / "zero-environment-runtime-baseline.json"
 )
+#: The registered example every language's census generates: it emits the
+#: service runtime, the settings module, the container serverless entrypoint
+#: and the emitted test harnesses.
+EXAMPLE_NAME: Final[str] = "serverless"
+#: Generation scratch space, outside every package repository, cleaned per run.
+_GATE_OUTPUT_ROOT: Final[Path] = WORKSPACE_DIR / ".tmp" / "zero-environment-runtime"
 
-_TEMPLATE_SUFFIX: Final[str] = ".j2"
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
 
 EXIT_OK: Final[int] = 0
@@ -105,6 +124,8 @@ ENTRY_KIND_PINNED_COUNT: Final[str] = "pinned_count"
 _ENTRY_KIND_KEY: Final[str] = "kind"
 _EXEMPTIONS_KEY: Final[str] = "exemptions"
 _PINNED_COUNT_KEY: Final[str] = "pinned_count"
+_EXEMPTION_PATH_KEY: Final[str] = "path"
+_EXEMPTION_REASON_KEY: Final[str] = "reason"
 _ENTRY_PAYLOAD_KEYS: Final[Mapping[str, str]] = {
     ENTRY_KIND_EXEMPTIONS: _EXEMPTIONS_KEY,
     ENTRY_KIND_PINNED_COUNT: _PINNED_COUNT_KEY,
@@ -114,34 +135,40 @@ _ENTRY_PAYLOAD_KEYS: Final[Mapping[str, str]] = {
 #: carries the same text.
 _BASELINE_COMMENT: Final[tuple[str, ...]] = (
     "Zero-environment runtime census, per registered datrix.languages package.",
-    "Every language entry carries a 'kind'. reviewed_exemptions: every template",
-    "that reads the environment is listed with a written reason (hand-authored;",
-    "an unlisted read and a stale entry both fail). pinned_count: a decrease-only",
-    "count of environment-reading templates, for a language that delivers runtime",
-    "facts through the environment by design; only -UpdateBaseline writes it, and",
-    "never upward. A language with no entry is held to reviewed_exemptions with an",
-    "empty list.",
+    "Each language's tree is the registered 'serverless' example generated for it,",
+    "read through the language's own conformance probes. Every language entry",
+    "carries a 'kind'. reviewed_exemptions: every emitted file that reads the",
+    "environment is listed by its path relative to the generated root, with a",
+    "written reason (hand-authored; an unlisted read and a stale entry both fail).",
+    "pinned_count: a decrease-only count of environment-reading emitted files, for",
+    "a language that delivers runtime facts through the environment by design; only",
+    "-UpdateBaseline writes it, and never upward. A language with no entry is held",
+    "to reviewed_exemptions with an empty list.",
 )
 
+#: Reads the occurrences of the given idioms off the parse trees of a generated
+#: root: a language's ``LanguageConformanceProbes.idiom_occurrences``.
+IdiomReader = Callable[[Path, Sequence[CodeIdiom]], tuple[IdiomOccurrence, ...]]
+
 _SELF_TEST_LANGUAGE: Final[str] = "self_test_zero_env_lang"
-_SELF_TEST_IDIOM: Final[str] = r"\bSELF_TEST_ENV\.read\b"
-_SELF_TEST_TEMPLATE: Final[str] = "templates/reads.py.j2"
+_SELF_TEST_IDIOM: Final[MemberAccessIdiom] = MemberAccessIdiom(("SELF_TEST_ENV", "read"))
+_SELF_TEST_READING_PATH: Final[str] = "svc/src/reads.src"
+_SELF_TEST_HARNESS_PATH: Final[str] = "svc/tests/harness.src"
 
 
 @dataclass(frozen=True)
 class LanguageCensus:
-    """The environment-reading templates one language's packages carry."""
+    """The environment-reading emitted files of one language's generated tree."""
 
     language: str
-    src_dirs: tuple[Path, ...]
     reads: frozenset[str]
 
 
 @dataclass(frozen=True)
 class Exemption:
-    """One reviewed environment read a language carries on purpose."""
+    """One reviewed environment read a language's generated tree carries on purpose."""
 
-    template: str
+    path: str
     reason: str
 
 
@@ -150,47 +177,58 @@ class Exemption:
 # ---------------------------------------------------------------------------
 
 
-def census_templates(src_dirs: tuple[Path, ...], idioms: tuple[re.Pattern[str], ...]) -> frozenset[str]:
-    """Every ``.j2`` template under any of *src_dirs* -- every package
-    implementing one language, its backend and each language core -- that
-    matches any idiom, as a posix path relative to its own package's src root
-    (the key the baseline's exemptions use).
-
-    File-level granularity: a template is a read when any line of it matches,
-    so a docstring that mentions the idiom counts and needs an exemption too.
-    That is deliberate -- a mention is cheap to exempt with a reason, and a
-    matcher that tried to tell prose from code would be the eyeballing regex
-    the seam discipline forbids.
+def census_language(
+    language: str, generated_root: Path, idioms: Sequence[CodeIdiom], read: IdiomReader
+) -> LanguageCensus:
+    """Every emitted file under *generated_root* an environment-read idiom occurs in, as
+    the posix path relative to the root (the key the baseline's exemptions use).
 
     Raises:
-        ValueError: Two of the language's packages carry a template at the
-            same relative path, so one baseline key would name two files.
+        UnparseableGeneratedFileError: An emitted source file does not parse (raised by *read*).
     """
-    reads: dict[str, Path] = {}
-    for src_dir in src_dirs:
-        for template in sorted(src_dir.rglob(f"*{_TEMPLATE_SUFFIX}")):
-            text = template.read_text(encoding="utf-8-sig")
-            if not any(pattern.search(text) for pattern in idioms):
-                continue
-            key = template.relative_to(src_dir).as_posix()
-            if key in reads:
-                raise ValueError(
-                    f"Two packages of one language carry an environment-reading template at "
-                    f"{key!r}: {reads[key]} and {template}. A baseline key must name one file. "
-                    f"Fix: keep the template in one package."
-                )
-            reads[key] = template
-    return frozenset(reads)
-
-
-def census_language(
-    language: str, src_dirs: tuple[Path, ...], idioms: tuple[re.Pattern[str], ...]
-) -> LanguageCensus:
+    occurrences = read(generated_root, idioms)
+    for occurrence in occurrences:
+        logger.debug(
+            "READ language=%s path=%s line=%d text=%r",
+            language,
+            occurrence.relative_path,
+            occurrence.line,
+            occurrence.text,
+        )
     return LanguageCensus(
         language=language,
-        src_dirs=src_dirs,
-        reads=census_templates(src_dirs, idioms),
+        reads=frozenset(occurrence.relative_path for occurrence in occurrences),
     )
+
+
+def idiom_reader(language: str) -> IdiomReader:
+    """*language*'s own parse-tree reading of code idioms.
+
+    Raises:
+        ValueError: *language* is not registered or declares no (or incomplete) conformance probes.
+    """
+    try:
+        return language_conformance_probes(language).idiom_occurrences
+    except (PluginNotFoundError, PluginValidationError) as exc:
+        raise ValueError(
+            f"{language}: supplies no conformance probes to read its generated tree with ({exc}). "
+            f"Fix: declare complete conformance probes on the language plugin."
+        ) from exc
+
+
+def example_source() -> Path:
+    """The ``system.dtrx`` of the registered example every census generates.
+
+    Raises:
+        ValueError: The example is not in the example registry.
+    """
+    project = get_project_by_name(EXAMPLE_NAME)
+    if project is None:
+        raise ValueError(
+            f"The example {EXAMPLE_NAME!r} is not in scripts/config/test-projects.json, so no "
+            f"language's tree can be generated. Fix: restore its registry entry."
+        )
+    return DATRIX_DIR / str(project["path"])
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +246,7 @@ def load_baseline() -> dict[str, dict[str, object]]:
     if not BASELINE_PATH.exists():
         return {}
     data = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-    languages = data.get("languages") if isinstance(data, dict) else None
+    languages = data["languages"] if isinstance(data, dict) and "languages" in data else None
     if not isinstance(languages, dict):
         raise ValueError(
             f"Malformed {BASELINE_PATH}: expected an object with a 'languages' "
@@ -237,7 +275,7 @@ def entry_kind(language: str, entry: Mapping[str, object]) -> str:
     if _ENTRY_KIND_KEY not in entry:
         raise ValueError(
             f"{where} has no '{_ENTRY_KIND_KEY}'. Valid kinds: {valid}. Fix: add "
-            f"'{_ENTRY_KIND_KEY}': '{ENTRY_KIND_EXEMPTIONS}' (every environment-reading template "
+            f"'{_ENTRY_KIND_KEY}': '{ENTRY_KIND_EXEMPTIONS}' (every environment-reading emitted file "
             f"listed with a written reason) or '{ENTRY_KIND_PINNED_COUNT}' (a decrease-only count, "
             f"for a language that delivers runtime facts through the environment by design)."
         )
@@ -267,44 +305,54 @@ def entry_kind(language: str, entry: Mapping[str, object]) -> str:
     return kind
 
 
+def _carries_text(item: Mapping[str, object], key: str) -> bool:
+    """Whether *item* carries a non-blank string under *key*."""
+    return key in item and isinstance(item[key], str) and bool(str(item[key]).strip())
+
+
 def parse_exemptions(language: str, entry: Mapping[str, object]) -> tuple[Exemption, ...]:
     """The reviewed exemption list of a ``reviewed_exemptions`` entry.
 
     Raises:
         ValueError: If the entry has no ``exemptions`` list, an item lacks a
-            template or a non-empty reason, or a template is listed twice.
+            path or a non-empty reason, carries any other key, or a path is listed twice.
     """
-    raw = entry.get(_EXEMPTIONS_KEY)
+    raw = entry[_EXEMPTIONS_KEY] if _EXEMPTIONS_KEY in entry else None
     if not isinstance(raw, list):
         raise ValueError(
             f"{BASELINE_PATH}: languages.{language} is a '{ENTRY_KIND_EXEMPTIONS}' entry, so it "
-            f"must carry an '{_EXEMPTIONS_KEY}' list (each item: template + reason). Fix: add the "
+            f"must carry an '{_EXEMPTIONS_KEY}' list (each item: path + reason). Fix: add the "
             f"list, empty if the language carries no environment read."
         )
     seen: set[str] = set()
     exemptions: list[Exemption] = []
     for item in raw:
-        template = item.get("template") if isinstance(item, dict) else None
-        reason = item.get("reason") if isinstance(item, dict) else None
-        if not isinstance(template, str) or not template:
+        if not isinstance(item, dict) or not _carries_text(item, _EXEMPTION_PATH_KEY):
             raise ValueError(
                 f"{BASELINE_PATH}: languages.{language}.exemptions item {item!r} "
-                f"has no 'template'. Fix: name the template path relative to the "
-                f"package's src/<import root>/."
+                f"has no '{_EXEMPTION_PATH_KEY}'. Fix: name the emitted file by its path relative "
+                f"to the generated root."
             )
-        if not isinstance(reason, str) or not reason.strip():
+        path = str(item[_EXEMPTION_PATH_KEY])
+        if not _carries_text(item, _EXEMPTION_REASON_KEY):
             raise ValueError(
-                f"{BASELINE_PATH}: languages.{language}.exemptions[{template!r}] "
+                f"{BASELINE_PATH}: languages.{language}.exemptions[{path!r}] "
                 f"has no written reason. An exemption without a reason is silence. "
-                f"Fix: state why this template reads the environment."
+                f"Fix: state why this file reads the environment."
             )
-        if template in seen:
+        unknown = sorted(set(item) - {_EXEMPTION_PATH_KEY, _EXEMPTION_REASON_KEY})
+        if unknown:
+            raise ValueError(
+                f"{BASELINE_PATH}: languages.{language}.exemptions[{path!r}] carries unrecognized "
+                f"key(s) {unknown}. Fix: keep only '{_EXEMPTION_PATH_KEY}' and '{_EXEMPTION_REASON_KEY}'."
+            )
+        if path in seen:
             raise ValueError(
                 f"{BASELINE_PATH}: languages.{language}.exemptions lists "
-                f"{template!r} twice. Fix: keep one entry."
+                f"{path!r} twice. Fix: keep one entry."
             )
-        seen.add(template)
-        exemptions.append(Exemption(template=template, reason=reason))
+        seen.add(path)
+        exemptions.append(Exemption(path=path, reason=str(item[_EXEMPTION_REASON_KEY])))
     return tuple(exemptions)
 
 
@@ -314,7 +362,7 @@ def parse_pinned_count(language: str, entry: Mapping[str, object]) -> int:
     Raises:
         ValueError: If the entry has no non-negative integer ``pinned_count``.
     """
-    count = entry.get(_PINNED_COUNT_KEY)
+    count = entry[_PINNED_COUNT_KEY] if _PINNED_COUNT_KEY in entry else None
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
         raise ValueError(
             f"{BASELINE_PATH}: languages.{language} is a '{ENTRY_KIND_PINNED_COUNT}' entry, so it "
@@ -331,20 +379,20 @@ def parse_pinned_count(language: str, entry: Mapping[str, object]) -> int:
 
 def _exemption_problems(census: LanguageCensus, exemptions: tuple[Exemption, ...]) -> list[str]:
     problems: list[str] = []
-    exempted = {exemption.template for exemption in exemptions}
-    for template in sorted(census.reads - exempted):
+    exempted = {exemption.path for exemption in exemptions}
+    for path in sorted(census.reads - exempted):
         problems.append(
-            f"{census.language}: {template} reads the environment but carries no reviewed "
+            f"{census.language}: {path} reads the environment but carries no reviewed "
             f"exemption. Fix: bake the value at generation time, or add an exemption with a "
             f"written reason to {BASELINE_PATH} (a language that delivers runtime facts through "
             f"the environment by design carries a '{ENTRY_KIND_PINNED_COUNT}' entry at its live "
             f"count instead)."
         )
-    for template in sorted(exempted - census.reads):
+    for path in sorted(exempted - census.reads):
         problems.append(
-            f"{census.language}: exemption {template} names a template with no "
-            f"environment read (or no such template). Fix: remove the stale "
-            f"entry from {BASELINE_PATH}."
+            f"{census.language}: exemption {path} names an emitted file with no "
+            f"environment read (or no such file in the generated '{EXAMPLE_NAME}' example). "
+            f"Fix: remove the stale entry from {BASELINE_PATH}."
         )
     return problems
 
@@ -353,13 +401,13 @@ def _pinned_count_problems(census: LanguageCensus, pinned: int) -> list[str]:
     live = len(census.reads)
     if live > pinned:
         return [
-            f"{census.language}: {live} template(s) read the environment, "
+            f"{census.language}: {live} emitted file(s) read the environment, "
             f"above the pinned decrease-only count of {pinned}. A new environment read "
             f"appeared. Fix: bake the new value at generation time instead."
         ]
     if live < pinned:
         logger.info(
-            "%s: %d environment-reading template(s), below the pinned %d -- "
+            "%s: %d environment-reading emitted file(s), below the pinned %d -- "
             "run with --update-baseline to lower the pin.",
             census.language,
             live,
@@ -393,6 +441,41 @@ def stale_entry_problems(
     ]
 
 
+def _listed_exemptions(baseline: Mapping[str, Mapping[str, object]]) -> dict[str, frozenset[str]]:
+    """Language -> the emitted paths its baseline entry lists as reviewed
+    exemptions, for every ``reviewed_exemptions`` entry that lists at least one."""
+    listed: dict[str, frozenset[str]] = {}
+    for language, entry in sorted(baseline.items()):
+        if entry_kind(language, entry) != ENTRY_KIND_EXEMPTIONS:
+            continue
+        paths = frozenset(exemption.path for exemption in parse_exemptions(language, entry))
+        if paths:
+            listed[language] = paths
+    return listed
+
+
+def live_read_problems(
+    censuses: Mapping[str, LanguageCensus], baseline: Mapping[str, Mapping[str, object]]
+) -> list[str]:
+    """The live census must find at least one read the committed baseline lists as a
+    reviewed exemption -- a census that sees none of them is broken, not clean. The
+    reads come from the baseline, never a language or path pinned in this module."""
+    listed = _listed_exemptions(baseline)
+    found = [
+        f"{language}:{path}"
+        for language, census in sorted(censuses.items())
+        for path in sorted(census.reads & listed.get(language, frozenset()))
+    ]
+    if found or not listed:
+        return []
+    return [
+        f"the census read none of the {sum(len(paths) for paths in listed.values())} environment "
+        f"read(s) {BASELINE_PATH} lists as reviewed exemptions. A census that sees none of them is "
+        f"broken, not clean. Fix: the languages' idiom reading (idiom_occurrences) or the declared "
+        f"idioms."
+    ]
+
+
 def summary_line(census: LanguageCensus, entry: Mapping[str, object] | None, problem_count: int) -> str:
     """One census line per language, naming the entry kind that selected its rule."""
     live = len(census.reads)
@@ -406,7 +489,7 @@ def summary_line(census: LanguageCensus, entry: Mapping[str, object] | None, pro
     exemptions = () if entry is None else parse_exemptions(census.language, entry)
     return (
         f"language={census.language} entry_kind={ENTRY_KIND_EXEMPTIONS}: {live} "
-        f"environment-reading template(s), {len(exemptions)} reviewed exemption(s), "
+        f"environment-reading emitted file(s), {len(exemptions)} reviewed exemption(s), "
         f"{problem_count} problem(s)"
     )
 
@@ -427,27 +510,44 @@ def _declaration_for(language: str) -> ZeroEnvironmentRuntimeDeclaration | None:
     return declaration_for_language(language).zero_environment_runtime
 
 
+def _undeclared_problem(language: str) -> str:
+    return (
+        f"{language}: states no zero_environment_runtime idioms on its "
+        f"LanguageCapabilityDeclaration, so its generated tree cannot be censused. Every "
+        f"registered language is obligated to state the code idioms that spell an "
+        f"environment read in its own emitted code. Fix: declare a "
+        f"ZeroEnvironmentRuntimeDeclaration naming them."
+    )
+
+
 def scan_all_registered_languages() -> tuple[dict[str, LanguageCensus], list[str]]:
-    """Census every registered language; a language that states no idioms is
-    reported, never skipped."""
+    """Generate the example for, and census, every registered language; a language
+    that states no idioms or supplies no probe reading is reported, never skipped.
+
+    Raises:
+        ValueError: The example is not registered.
+        RuntimeError: Generating the example for a language failed.
+        UnparseableGeneratedFileError: An emitted source file does not parse.
+    """
     language_names = registered_language_names()
     _require_min_languages(language_names)
-    src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
+    source = example_source()
+    shutil.rmtree(_GATE_OUTPUT_ROOT, ignore_errors=True)
     censuses: dict[str, LanguageCensus] = {}
-    undeclared: list[str] = []
-    for language, language_src_dirs in sorted(src_dirs.items()):
+    unread: list[str] = []
+    for language in sorted(language_names):
         declaration = _declaration_for(language)
         if declaration is None:
-            undeclared.append(
-                f"{language}: states no zero_environment_runtime idioms on its "
-                f"LanguageCapabilityDeclaration, so its templates cannot be censused. Every "
-                f"registered language is obligated to state the regular expressions that spell "
-                f"an environment read in its own templates. Fix: declare a "
-                f"ZeroEnvironmentRuntimeDeclaration naming them."
-            )
+            unread.append(_undeclared_problem(language))
             continue
-        censuses[language] = census_language(language, language_src_dirs, declaration.compiled_idioms())
-    return censuses, undeclared
+        try:
+            read = idiom_reader(language)
+        except ValueError as exc:
+            unread.append(str(exc))
+            continue
+        generated = generate_example(language, source, _GATE_OUTPUT_ROOT / language)
+        censuses[language] = census_language(language, generated, declaration.environment_read_idioms, read)
+    return censuses, unread
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +582,7 @@ def write_baseline(
         pinned = parse_pinned_count(language, entry)
         if live > pinned:
             raise ValueError(
-                f"{language}: {live} template(s) read the environment, above the pinned "
+                f"{language}: {live} emitted file(s) read the environment, above the pinned "
                 f"decrease-only count of {pinned}; --update-baseline refuses to raise a pin. "
                 f"Fix: bake the new value at generation time instead."
             )
@@ -497,61 +597,53 @@ def write_baseline(
 # ---------------------------------------------------------------------------
 
 
-def _raises_value_error(call: Callable[[], object]) -> bool:
-    """Whether calling *call* raises ``ValueError``."""
+def _raises(call: Callable[[], object], error: type[Exception] = ValueError) -> bool:
+    """Whether calling *call* raises *error*."""
     try:
         call()
-    except ValueError:
+    except error:
         return True
     return False
 
 
 def _self_test_census(tmp_root: Path) -> tuple[bool, LanguageCensus]:
-    src_dir = tmp_root / _SELF_TEST_LANGUAGE
-    (src_dir / "templates").mkdir(parents=True)
-    (src_dir / "templates" / "reads.py.j2").write_text(
-        "value = SELF_TEST_ENV.read('X')\n", encoding="utf-8"
-    )
-    (src_dir / "templates" / "clean.py.j2").write_text("value = 1\n", encoding="utf-8")
-    (src_dir / "templates" / "not_a_template.py").write_text(
-        "SELF_TEST_ENV.read('ignored: not a template')\n", encoding="utf-8"
-    )
-    census = census_language(_SELF_TEST_LANGUAGE, (src_dir,), (re.compile(_SELF_TEST_IDIOM),))
+    """The census reports exactly the files the language's reading found -- one file
+    however many reads it holds -- and asks the reading for exactly the declared idioms;
+    a file the reading cannot parse raises through instead of reading as no read."""
+    asked: list[tuple[CodeIdiom, ...]] = []
+
+    def planted_reader(generated_root: Path, idioms: Sequence[CodeIdiom]) -> tuple[IdiomOccurrence, ...]:
+        asked.append(tuple(idioms))
+        return (
+            IdiomOccurrence(_SELF_TEST_IDIOM, _SELF_TEST_READING_PATH, 1, 1, "SELF_TEST_ENV.read"),
+            IdiomOccurrence(_SELF_TEST_IDIOM, _SELF_TEST_READING_PATH, 4, 4, "SELF_TEST_ENV.read"),
+            IdiomOccurrence(_SELF_TEST_IDIOM, _SELF_TEST_HARNESS_PATH, 2, 2, "SELF_TEST_ENV.read"),
+        )
+
+    def unparseable_reader(generated_root: Path, idioms: Sequence[CodeIdiom]) -> tuple[IdiomOccurrence, ...]:
+        raise UnparseableGeneratedFileError(_SELF_TEST_READING_PATH, "planted syntax error")
+
+    census = census_language(_SELF_TEST_LANGUAGE, tmp_root, (_SELF_TEST_IDIOM,), planted_reader)
     ok = report_condition(
-        census.reads == frozenset({_SELF_TEST_TEMPLATE}),
-        "synthetic tree: exactly the planted template is a read; the clean template and "
-        "the non-template file are not",
+        census.reads == frozenset({_SELF_TEST_READING_PATH, _SELF_TEST_HARNESS_PATH})
+        and asked == [(_SELF_TEST_IDIOM,)],
+        "planted reading: exactly the two files it found are reads, and it was asked for exactly the declared idiom",
     )
-    return ok, census
-
-
-def _self_test_language_core(tmp_root: Path) -> bool:
-    """A fixture language split into a backend and a core: a template read
-    planted only in the core is part of the language's census; a backend-only
-    census (the pre-split blindness) misses it; and the same relative template
-    path carried by both packages is refused rather than folded into one key."""
-    backend = tmp_root / "split_backend"
-    core = tmp_root / "split_core"
-    (backend / "templates").mkdir(parents=True)
-    (core / "templates").mkdir(parents=True)
-    (backend / "templates" / "clean.py.j2").write_text("value = 1\n", encoding="utf-8")
-    (core / "templates" / "core_reads.py.j2").write_text("value = SELF_TEST_ENV.read('X')\n", encoding="utf-8")
-    idioms = (re.compile(_SELF_TEST_IDIOM),)
-    split = census_language(_SELF_TEST_LANGUAGE, (backend, core), idioms)
-    backend_only = census_language(_SELF_TEST_LANGUAGE, (backend,), idioms)
-    (backend / "templates" / "core_reads.py.j2").write_text("value = SELF_TEST_ENV.read('Y')\n", encoding="utf-8")
-    collision_refused = _raises_value_error(lambda: census_language(_SELF_TEST_LANGUAGE, (backend, core), idioms))
-    return report_condition(
-        split.reads == frozenset({"templates/core_reads.py.j2"}) and not backend_only.reads and collision_refused,
-        "a fixture language split into a backend and a core: a read planted in the core is censused, a "
-        "backend-only census misses it, and one relative path in both packages is refused",
+    ok &= report_condition(
+        _raises(
+            lambda: census_language(_SELF_TEST_LANGUAGE, tmp_root, (_SELF_TEST_IDIOM,), unparseable_reader),
+            UnparseableGeneratedFileError,
+        ),
+        "an emitted file the reading cannot parse raises through the census, never reads as no read",
     )
+    reading_only = LanguageCensus(_SELF_TEST_LANGUAGE, frozenset({_SELF_TEST_READING_PATH}))
+    return ok, reading_only
 
 
-def _exemptions_entry(*templates: str) -> dict[str, object]:
+def _exemptions_entry(*paths: str) -> dict[str, object]:
     return {
         _ENTRY_KIND_KEY: ENTRY_KIND_EXEMPTIONS,
-        _EXEMPTIONS_KEY: [{"template": template, "reason": "planted"} for template in templates],
+        _EXEMPTIONS_KEY: [{_EXEMPTION_PATH_KEY: path, _EXEMPTION_REASON_KEY: "planted"} for path in paths],
     }
 
 
@@ -560,10 +652,10 @@ def _pinned_entry(count: int) -> dict[str, object]:
 
 
 def _self_test_comparator(census: LanguageCensus) -> bool:
-    clean = LanguageCensus(_SELF_TEST_LANGUAGE, census.src_dirs, frozenset())
+    clean = LanguageCensus(_SELF_TEST_LANGUAGE, frozenset())
     ok = True
     ok &= report_condition(
-        evaluate(census, _exemptions_entry(_SELF_TEST_TEMPLATE)) == [],
+        evaluate(census, _exemptions_entry(_SELF_TEST_READING_PATH)) == [],
         "reviewed_exemptions + exact exemption list: no problem",
     )
     ok &= report_condition(
@@ -571,7 +663,7 @@ def _self_test_comparator(census: LanguageCensus) -> bool:
         "reviewed_exemptions + missing exemption: exactly one problem",
     )
     ok &= report_condition(
-        len(evaluate(census, _exemptions_entry(_SELF_TEST_TEMPLATE, "templates/gone.py.j2"))) == 1,
+        len(evaluate(census, _exemptions_entry(_SELF_TEST_READING_PATH, "svc/src/gone.src"))) == 1,
         "reviewed_exemptions + stale exemption: exactly one problem",
     )
     ok &= report_condition(
@@ -591,14 +683,20 @@ def _self_test_comparator(census: LanguageCensus) -> bool:
         "the same one-read census passes against a pinned_count entry of 1 and fails against an "
         "empty reviewed_exemptions entry: the entry kind alone selects the branch",
     )
+    for label, item in (
+        ("without a written reason", {_EXEMPTION_PATH_KEY: "x.src", _EXEMPTION_REASON_KEY: " "}),
+        ("keyed by a template instead of an emitted path", {"template": "x.j2", _EXEMPTION_REASON_KEY: "r"}),
+        ("carrying an unrecognized key", {_EXEMPTION_PATH_KEY: "x.src", _EXEMPTION_REASON_KEY: "r", "line": 3}),
+    ):
+        ok &= report_condition(
+            _raises(lambda item=item: parse_exemptions(_SELF_TEST_LANGUAGE, {_EXEMPTIONS_KEY: [item]})),
+            f"an exemption {label} is rejected",
+        )
     ok &= report_condition(
-        _raises_value_error(
-            lambda: parse_exemptions(
-                _SELF_TEST_LANGUAGE,
-                {_EXEMPTIONS_KEY: [{"template": "x.j2", "reason": " "}]},
-            )
-        ),
-        "an exemption without a written reason is rejected",
+        len(live_read_problems({_SELF_TEST_LANGUAGE: clean}, {_SELF_TEST_LANGUAGE: _exemptions_entry("a.src")})) == 1
+        and live_read_problems({_SELF_TEST_LANGUAGE: census}, {_SELF_TEST_LANGUAGE: _exemptions_entry(_SELF_TEST_READING_PATH)})
+        == [],
+        "a live census reading none of the listed exemptions is one problem; reading one of them is none",
     )
     return ok
 
@@ -627,7 +725,7 @@ def _self_test_entry_kind() -> bool:
     )
     for label, entry in rejected:
         ok &= report_condition(
-            _raises_value_error(lambda entry=entry: entry_kind(_SELF_TEST_LANGUAGE, entry)),
+            _raises(lambda entry=entry: entry_kind(_SELF_TEST_LANGUAGE, entry)),
             f"entry_kind rejects {label}",
         )
     return ok
@@ -649,7 +747,7 @@ def _self_test_baseline_writer(tmp_root: Path, census: LanguageCensus) -> bool:
     through unchanged, every entry keeping its kind."""
     ok = True
     target = tmp_root / "written-baseline.json"
-    exemptions = _exemptions_entry("templates/a.py.j2", "templates/b.py.j2")
+    exemptions = _exemptions_entry("svc/src/a.src", "svc/src/b.src")
     untouched_pin = _pinned_entry(9)
     existing: dict[str, dict[str, object]] = {
         "self_exemptions": exemptions,
@@ -658,7 +756,7 @@ def _self_test_baseline_writer(tmp_root: Path, census: LanguageCensus) -> bool:
     }
     censuses = {
         "self_exemptions": census,
-        "self_pinned": LanguageCensus("self_pinned", census.src_dirs, census.reads),
+        "self_pinned": LanguageCensus("self_pinned", census.reads),
     }
     write_baseline(censuses, existing, target)
     written = json.loads(target.read_text(encoding="utf-8"))["languages"]
@@ -672,9 +770,9 @@ def _self_test_baseline_writer(tmp_root: Path, census: LanguageCensus) -> bool:
         "write_baseline carries a reviewed_exemptions entry and an uncensused pinned entry through unchanged",
     )
     untouched = target.read_text(encoding="utf-8")
-    refused = _raises_value_error(
+    refused = _raises(
         lambda: write_baseline(
-            {"self_pinned": LanguageCensus("self_pinned", census.src_dirs, census.reads)},
+            {"self_pinned": LanguageCensus("self_pinned", census.reads)},
             {"self_pinned": _pinned_entry(0)},
             target,
         )
@@ -686,42 +784,29 @@ def _self_test_baseline_writer(tmp_root: Path, census: LanguageCensus) -> bool:
     return ok
 
 
-def _listed_exemptions(baseline: Mapping[str, Mapping[str, object]]) -> dict[str, frozenset[str]]:
-    """Registered language -> the templates its committed baseline entry lists
-    as reviewed exemptions, for every language that lists at least one."""
-    language_names = registered_language_names()
-    listed: dict[str, frozenset[str]] = {}
-    for language, entry in sorted(baseline.items()):
-        if language not in language_names or entry_kind(language, entry) != ENTRY_KIND_EXEMPTIONS:
+def _self_test_registered_readings() -> bool:
+    """Every registered language states its idioms and supplies its own probe reading,
+    and the committed baseline is well formed and names only registered languages."""
+    problems: list[str] = []
+    registered = registered_language_names()
+    for language in sorted(registered):
+        if _declaration_for(language) is None:
+            problems.append(_undeclared_problem(language))
             continue
-        templates = frozenset(exemption.template for exemption in parse_exemptions(language, entry))
-        if templates:
-            listed[language] = templates
-    return listed
-
-
-def _self_test_live_read() -> bool:
-    """The live census (real tree) finds at least one read the committed
-    baseline lists as a reviewed exemption -- a census that sees none of them is
-    broken, not clean. The reads come from the baseline, never a language or
-    path pinned in this module."""
+        try:
+            idiom_reader(language)
+        except ValueError as exc:
+            problems.append(str(exc))
     try:
-        listed = _listed_exemptions(load_baseline())
+        baseline = load_baseline()
+        problems.extend(stale_entry_problems(baseline, registered))
+        _listed_exemptions(baseline)
     except ValueError as exc:
-        return report_condition(False, f"committed baseline is well formed ({exc})")
-    if not listed:
-        return report_condition(False, "committed baseline lists a reviewed exemption for a registered language")
-    src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, frozenset(listed), WORKSPACE_ROOT)
-    found: list[str] = []
-    for language, templates in sorted(listed.items()):
-        declaration = _declaration_for(language)
-        if declaration is None:
-            return report_condition(False, f"live tree registers {language} with stated idioms")
-        census = census_language(language, src_dirs[language], declaration.compiled_idioms())
-        found.extend(f"{language}:{template}" for template in sorted(census.reads & templates))
+        problems.append(f"committed baseline is malformed ({exc})")
     return report_condition(
-        bool(found),
-        f"live census (real tree) finds {len(found)} read(s) the committed baseline lists as reviewed exemptions",
+        not problems,
+        f"every registered language states its idioms and supplies a probe reading, and the committed "
+        f"baseline is well formed ({problems or 'no problem'})",
     )
 
 
@@ -735,8 +820,7 @@ def self_test() -> bool:
         ok &= _self_test_entry_kind()
         ok &= _self_test_stale_entries()
         ok &= _self_test_baseline_writer(tmp_root, census)
-        ok &= _self_test_language_core(tmp_root)
-        ok &= _self_test_live_read()
+        ok &= _self_test_registered_readings()
         refused = False
         try:
             _require_min_languages(frozenset({_SELF_TEST_LANGUAGE}))
@@ -753,11 +837,38 @@ def self_test() -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _census_problems(update_baseline: bool) -> tuple[int, list[str]]:
+    """The census of every registered language against the baseline: the number of
+    languages scanned and every problem found.
+
+    Raises:
+        ValueError: The baseline is malformed, the example is unregistered, or an emitted
+            source file does not parse.
+        RuntimeError: Generating the example for a language failed.
+    """
+    censuses, unread = scan_all_registered_languages()
+    baseline = load_baseline()
+    if update_baseline:
+        write_baseline(censuses, baseline)
+        logger.info("baseline written: %s", BASELINE_PATH)
+        baseline = load_baseline()
+    problems = list(unread)
+    problems.extend(stale_entry_problems(baseline, registered_language_names()))
+    for language in sorted(censuses):
+        census = censuses[language]
+        entry = baseline[language] if language in baseline else None
+        language_problems = evaluate(census, entry)
+        logger.info("%s", summary_line(census, entry, len(language_problems)))
+        problems.extend(language_problems)
+    problems.extend(live_read_problems(censuses, baseline))
+    return len(censuses) + len(unread), problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Zero-environment runtime census: every registered language is held to the rule "
-            "its baseline entry kind selects -- reviewed per-read exemptions "
+            "Zero-environment runtime census: every registered language's generated tree is held "
+            "to the rule its baseline entry kind selects -- reviewed per-read exemptions "
             "(reviewed_exemptions) or a decrease-only pinned count (pinned_count)."
         ),
     )
@@ -782,23 +893,8 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK
 
     try:
-        censuses, undeclared = scan_all_registered_languages()
-        baseline = load_baseline()
-        if args.update_baseline:
-            write_baseline(censuses, baseline)
-            logger.info("baseline written: %s", BASELINE_PATH)
-            baseline = load_baseline()
-        problems = list(undeclared)
-        problems.extend(stale_entry_problems(baseline, registered_language_names()))
-        for language in sorted(censuses):
-            census = censuses[language]
-            entry = baseline.get(language)
-            for template in sorted(census.reads):
-                logger.debug("READ language=%s template=%s", language, template)
-            language_problems = evaluate(census, entry)
-            logger.info("%s", summary_line(census, entry, len(language_problems)))
-            problems.extend(language_problems)
-    except ValueError as exc:
+        scanned, problems = _census_problems(args.update_baseline)
+    except (ValueError, RuntimeError) as exc:
         logger.error("Zero-environment census failed: %s", exc)
         return EXIT_USAGE
 
@@ -806,7 +902,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("%s", problem)
     logger.info(
         "ZERO-ENVIRONMENT RUNTIME CENSUS: %d registered language(s) scanned, %d problem(s).",
-        len(censuses) + len(undeclared),
+        scanned,
         len(problems),
     )
     return EXIT_FAIL if problems else EXIT_OK

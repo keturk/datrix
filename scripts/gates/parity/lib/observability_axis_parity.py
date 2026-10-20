@@ -68,6 +68,7 @@ from datrix_common.plugin.capability_resolution import (
     declaration_for_language,
     declaration_for_provider,
 )
+from datrix_common.plugin.code_idiom import CallIdiom
 from datrix_common.plugin.language_capability import (
     PLATFORM_ONLY_OBSERVABILITY_CATEGORIES,
     LanguageCapabilityDeclaration,
@@ -299,7 +300,7 @@ def _assert_self_test_leg1() -> None:
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
             name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
-            response_body_transform_idioms=(r"\bselfTestResponseTransform\(",),
+            response_body_transform_idioms=(CallIdiom("selfTestResponseTransform"),),
             realized_observability_providers={c: frozenset() for c in _CATEGORY_BINDINGS},
         )
     }
@@ -315,7 +316,7 @@ def _assert_self_test_leg1() -> None:
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
             name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
-            response_body_transform_idioms=(r"\bselfTestResponseTransform\(",),
+            response_body_transform_idioms=(CallIdiom("selfTestResponseTransform"),),
             realized_observability_providers={category: frozenset({provider_value})},
         )
     }
@@ -354,7 +355,7 @@ def _assert_self_test_leg2() -> None:
         _SELF_TEST_LANGUAGE: LanguageCapabilityDeclaration(
             language_label=_SELF_TEST_LANGUAGE,
             name_tokens=frozenset({_SELF_TEST_LANGUAGE_TOKEN}),
-            response_body_transform_idioms=(r"\bselfTestResponseTransform\(",),
+            response_body_transform_idioms=(CallIdiom("selfTestResponseTransform"),),
             realized_observability_providers={category: frozenset()},
         )
     }

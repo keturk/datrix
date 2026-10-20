@@ -1552,7 +1552,7 @@ def platform_generator_roots(platform_label: str, graph: ReferenceGraph) -> froz
         ValueError: A folded name has no entry point, or its class is not
             part of the package.
     """
-    from datrix_codegen_kernel.dgen.compiler import get_definitions
+    from datrix_codegen_kernel.dgen.compiler import target_definitions
     from datrix_codegen_kernel.dgen.target_registry import target_kind_map
 
     registered = {ep.name: ep for ep in entry_points(group=_PLATFORM_ENTRY_POINT_GROUP)}
@@ -1567,7 +1567,7 @@ def platform_generator_roots(platform_label: str, graph: ReferenceGraph) -> froz
         entry_point = registered[name]
         roots |= graph.class_methods(entry_point.module, entry_point.attr)
         if name in dgen_targets:
-            roots |= _dgen_reference_roots(get_definitions(name), graph)
+            roots |= _dgen_reference_roots(target_definitions(name), graph)
     return frozenset(roots)
 
 

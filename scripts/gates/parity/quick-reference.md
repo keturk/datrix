@@ -120,23 +120,29 @@ the gate is armed for `gates\parity\cases` a row reaches it only through `accept
 The response-bodies parity rows (`cases\response-bodies.parity.yaml`) read each language's emitted
 response classes, so a transform applied after serialization (a global interceptor, a
 response-model setting that changes field names) is invisible to them. Each registered language
-declares the regular expressions that spell such a transform in its framework
-(`LanguageCapabilityDeclaration.response_body_transform_idioms`, required and non-empty); this gate
-generates the CQRS example (`datrix/examples/02-features/03-infrastructure-blocks/cqrs/`, profile
-`test`) once per registered language and greps the generated tree for them. Every hit must be a
+declares the code idioms that spell such a transform in its framework
+(`LanguageCapabilityDeclaration.response_body_transform_idioms`, required and non-empty: parsed
+facts such as `CallIdiom("useGlobalInterceptors")`, `KeywordArgumentIdiom("by_alias", False)`, never
+a regular expression); this gate generates the CQRS example
+(`datrix/examples/02-features/03-infrastructure-blocks/cqrs/`, profile `test`) once per registered
+language and reads the emitted source files through the language's own conformance probes
+(`idiom_occurrences`, a parse-tree reading), so a string literal or a comment neither hides nor fakes
+a hit, and an emitted file that does not parse fails the run. Every hit must be a
 typed `transform_exemptions` entry in `scripts/config/response-body-transform-exemptions.json`
 (`{language, path_suffix, matched_text, reason}`) -- the TypeScript `MetricsInterceptor`
 registration (`APP_INTERCEPTOR` in `src/app.module.ts`), which never touches the body, is the one
 entry. An unexempted hit, an exemption that matches nothing, an exemption naming an unregistered
 language, and a language with no declaration each fail by name. The review file is refused if it
 carries any key other than `_comment` and `transform_exemptions`: a response-body field that
-diverges from the camelCase rule has no review shape. A census over generated text; it imports no
-conformance probe. Language set from the installed `datrix.languages` entry points.
+diverges from the camelCase rule has no review shape. A census over generated files, read through
+each language's probes; the gate holds no pattern over code. Language set from the installed
+`datrix.languages` entry points.
 
-**Self-test, every invocation.** The gate names no target; a planted `useGlobalInterceptors(` line
-is reported at `src/main.ts:2` while a clean `useGlobalPipes(` line is not; an exemption covers the
-hit, an exemption covering nothing is stale, and one covering a hit is not; a language with no
-capability declaration is refused by name; the review file parses its real shape and refuses a
+**Self-test, every invocation.** The gate names no target; a planted reading (the occurrence a
+language's probes would return) is reported at its file and line, and the census asks the reading
+for exactly the declared idioms; an exemption covers the hit, an exemption covering nothing is
+stale, and one covering a hit is not; a language with no capability declaration is refused by name;
+every registered language supplies a probe reading; the review file parses its real shape and refuses a
 per-schema-kind `exemptions` list, a non-object entry and a blank reason; fewer than two languages
 refuse the run.
 
@@ -159,11 +165,11 @@ two languages are registered, or the review file is missing or malformed.
 Two independent checks over the language type-mapping surfaces, both run on every invocation:
 
 1. **Canonical-type completeness** — every canonical type in `TypeRegistry` has a mapping in
-   each requested language's `TYPE_MAP` (`global_registry.unmapped_types`). Restricted by
+   each requested language's plugin `static_type_map` (`TypeMappingRegistry.from_maps` over those
+   maps, then `unmapped_types`). Restricted by
    `-Languages` when given; defaults to every registered `datrix.languages` target (derived at
    runtime from the installed entry points — never a hardcoded literal). **SQL is not covered by
-   this leg** — it is not a `datrix.languages` plugin and its `type_mappings` module does not
-   register with `global_registry`.
+   this leg** — it is not a `datrix.languages` plugin and declares no plugin type map.
 2. **Extension-map completeness** — for every installed `datrix.extensions` pack, every
    registered language's `*_EXTENSION_MAPS` dict (`PYTHON_EXTENSION_MAPS`, `TS_EXTENSION_MAPS`,
    ...) **and SQL's** (`SQL_EXTENSION_MAPS`) must carry a
@@ -189,8 +195,8 @@ runs.
 optional — omit for every registered language; restricts the canonical-type leg only), `-SelfTest`,
 `-Dbg`
 
-**Assertions:** canonical-type leg — `global_registry.unmapped_types(language)` is empty for every
-requested language. Extension-map leg — `compare_extension_map_completeness` reports zero missing
+**Assertions:** canonical-type leg — `unmapped_types(language)` of the registry built from the
+requested languages' plugin maps is empty for every requested language. Extension-map leg — `compare_extension_map_completeness` reports zero missing
 packs for every surface (every registered language + sql).
 
 **Exit codes:** 0 = both checks pass (or a successful `-SelfTest` run), 1 = either check found a
@@ -203,7 +209,7 @@ discovery/import error occurred.
 
 Two checks, in order, both against a live-computed universe never a fixed count quoted here (the universe grows as domains are added — run the gate for its live output):
 
-1. **Domain-universe closure.** Before checking declarations, computes the union of every registered language's COMPILED DAL generator IR domain ids (`get_definitions(<lang>)`, read directly — independent of any declaration a plugin later commits) and asserts it equals `datrix_codegen_common.parity.domain_registry.SHARED_CONTEXT_TYPES.keys()` exactly. A domain id some language's compiled IR declares but the registry omits fails naming the declaring language(s); a registry id no registered language's compiled IR declares fails as a dead entry (dead surfaces are deleted, never deprecated in place). Zero tolerance, no exemption file — this check short-circuits the gate (exit 1) before the declaration-presence check runs, since a wrong universe makes that check meaningless.
+1. **Domain-universe closure.** Before checking declarations, computes the union of every registered language's COMPILED DAL generator IR domain ids (`target_definitions(<lang>)`, compiled directly — independent of any declaration a plugin later commits) and asserts it equals `datrix_codegen_common.parity.domain_registry.SHARED_CONTEXT_TYPES.keys()` exactly. A domain id some language's compiled IR declares but the registry omits fails naming the declaring language(s); a registry id no registered language's compiled IR declares fails as a dead entry (dead surfaces are deleted, never deprecated in place). Zero tolerance, no exemption file — this check short-circuits the gate (exit 1) before the declaration-presence check runs, since a wrong universe makes that check meaningless.
 2. **Per-language declaration presence.** EVERY registered `datrix.languages` plugin must declare every STRUCTURAL domain id (`datrix_codegen_kernel.parity.domain_ids.STRUCTURAL_DOMAIN_IDS`) and nothing outside the full registration universe (`SHARED_CONTEXT_TYPES`). `discovery` and `resilience` keep their DAL generator registration but carry no structural-pattern obligation: no language is required to declare either, and a language that does is not reported out-of-universe. The gate reads only membership (`domain_id in plugin.domain_declarations`) and a declaration's `structural_pattern`. A structural id a language does not declare, or an out-of-universe declaration, is a fail-loud `DECLARATION PRESENCE VIOLATION` naming the language and the id; a domain a language does not realize is accounted for only by that language's own `domain:<id>` gap row (logged as a `TRACKED GAP` line; a row for a declared domain (stale) or for a non-structural id (unknown) fails the gate). Derives its target LANGUAGE set from `importlib.metadata.entry_points(group="datrix.languages")` at runtime — never a hardcoded language literal — so a future `datrix-codegen-<lang>` package is covered automatically with no edit to this gate. This is a presence check, never an agreement check: languages may emit a domain to different globs.
 
 On success, the gate prints, for every STRUCTURAL domain id, each registered language's declared `structural_pattern` (or `no structural pattern`) as `DECLARATION: <lang>.<id> = ...`, then a divergence block listing the languages that declare a structural id with no structural pattern or do not declare it. `discovery`/`resilience` appear nowhere in the report. The report is diagnostic and never itself a failure condition.
@@ -541,7 +547,7 @@ Problem-type parity gate: every registered language answers errors with RFC 7807
 
 ## `gates\parity\field-error-path-parity-gate.ps1`
 
-Field-error-path parity gate: every registered language spells a `request-validation` problem body's `errors[].field` with the ONE shape `datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE` defines (a dot-separated wire-name path relative to the request body root, no leading `body` segment, `[n]` for array elements). Hard zero: every registered language is obligated to realize the rule and no declaration excuses one. Unlike the problem-type/framework-header registries this is not a family table — there is exactly one rule. Realization is a runtime BEHAVIOUR rather than a literal wire string, so there is no single cross-language regex: each language declares how it realizes the rule on its own `LanguageCapabilityDeclaration.field_error_path_realization`, and the gate dispatches on the declaration TYPE (a closed set of two techniques in `datrix_common.plugin.language_capability`, never a language name), across every package implementing the language (its backend plus each language core the backend requires). An `ExecutedFieldErrorPathFormatter` names a module and function inside the language's own distribution (a module outside its src dirs is a violation, never executed) that the gate imports and EXECUTES against the rule's own canonical worked example, so the produced string is real, not guessed; its optional `located_classifier` is executed too, against a located fixture (a missing path parameter, a wrongly typed query value, an unknown body field), and a path or query entry landing in the wrong `location`, `field` or `code` is a violation. A `TemplateFieldErrorPathConstruction` names a template (relative to the package's import root, in exactly one of the language's packages), the builder's anchor and every construction regex that must be present (bracket-indexed, dot-joined); an anchor present with a construction missing is a divergence naming the missing regex. Both techniques also prove the declared `call_site` matches in the language's `.j2`/`.py` sources — a realization nothing calls is not on the emission path. **Realization:** the declared realization produces the canonical path for the shared fixture with no defect; a language that declares `None` fails naming the language (no declaration says "does not realize" — a language that does not realize the rule fails until it does); a found but divergent construction (a literal `body` prefix, or an index not spelled `[n]`) fails naming the found and expected spelling. Language set from the installed `datrix.languages` entry points — never a table in the script.
+Field-error-path parity gate: every registered language spells a `request-validation` problem body's `errors[].field` with the ONE shape `datrix_common.datrix_model.problem_types.FIELD_ERROR_PATH_RULE` defines (a dot-separated wire-name path relative to the request body root, no leading `body` segment, `[n]` for array elements). Hard zero: every registered language is obligated to realize the rule and no declaration excuses one. Unlike the problem-type/framework-header registries this is not a family table — there is exactly one rule. Realization is a runtime BEHAVIOUR rather than a literal wire string, so there is no single cross-language regex: each language declares how it realizes the rule on its own `LanguageCapabilityDeclaration.field_error_path_realization`, and the gate dispatches on the declaration TYPE (a closed set of two techniques in `datrix_common.plugin.language_capability`, never a language name), across every package implementing the language (its backend plus each language core the backend requires). An `ExecutedFieldErrorPathFormatter` names a module and function inside the language's own distribution (a module outside its src dirs is a violation, never executed) that the gate imports and EXECUTES against the rule's own canonical worked example, so the produced string is real, not guessed; its optional `located_classifier` is executed too, against a located fixture (a missing path parameter, a wrongly typed query value, an unknown body field), and a path or query entry landing in the wrong `location`, `field` or `code` is a violation. A `TemplateFieldErrorPathConstruction` covers a builder in emitted code the gate cannot execute: it names the builder's definition (`anchor`, a `FunctionIdiom`), every construction that must occur inside each emitted definition (`InterpolatedStringIdiom`s: bracket-indexed, dot-joined) and the builder's call (`call_site`, a `CallIdiom`). The gate generates the registered `cqrs` example for the language into `D:\datrix\.tmp\field-error-path-parity\<language>` and reads the emitted files through the language's own conformance probes (`idiom_occurrences`, a parse-tree reading — Jinja source is never read, and a string literal or comment neither hides nor fakes an occurrence); no emitted definition is a defect, a definition missing a construction is a divergence naming it, a call only inside the builder's own definition is no call, and an emitted file that does not parse fails the run (exit 2). An executed formatter also proves its declared `call_site` matches in the language's `.j2`/`.py` sources. Either way a realization nothing calls is not on the emission path. **Realization:** the declared realization produces the canonical path for the shared fixture with no defect; a language that declares `None` fails naming the language (no declaration says "does not realize" — a language that does not realize the rule fails until it does); a found but divergent construction (a literal `body` prefix, or an index not spelled `[n]`) fails naming the found and expected spelling. Language set from the installed `datrix.languages` entry points — never a table in the script.
 
 | Mode | Command | Description |
 |------|---------|-------------|
@@ -553,7 +559,7 @@ Field-error-path parity gate: every registered language spells a `request-valida
 
 **Assertions:**
 - Realization, per language: the census produces the canonical path; an empty census is a failure.
-- Non-vacuity self-test (every invocation): the gate names no registered target (`datrix_scripts.registered_targets.self_test_gate_names_no_target`); a planted correct executed formatter's real execution produces the canonical path, a planted divergent one surfaces its actual wrong output; a planted correct template-constructed builder censuses as canonical, one missing the `[n]`-index construction censuses as divergent; a language with no known detector censuses to zero sites; a fixture language split into a backend and a core has a realization planted only in the core censused against the core package; the comparator reports exactly one problem for a divergent spelling and for a language that realizes nothing (it takes no declaration input that could excuse one), and none for two languages spelling the canonical path; the **live** census finds at least one registered language realizing the rule; a single-language set is refused.
+- Non-vacuity self-test (every invocation): the gate names no registered target (`datrix_scripts.registered_targets.self_test_gate_names_no_target`); a planted correct executed formatter's real execution produces the canonical path, a planted divergent one surfaces its actual wrong output; a planted reading of an emitted builder holding every construction and called outside itself censuses as canonical (and the census asks the reading for the anchor, every construction and the call), one missing the `[n]`-index construction, or holding it only outside its span or in another file, censuses as divergent, every emitted definition is held to the constructions, no emitted definition is a defect, a builder called nowhere or only inside its own definition is a defect, and an emitted file that does not parse fails the census; a fixture language split into a backend and a core has an executed realization planted only in the core censused against the core package; the comparator reports exactly one problem for a divergent spelling and for a language that realizes nothing (it takes no declaration input that could excuse one), and none for two languages spelling the canonical path; every registered language whose realization lives in emitted code resolves its probe reading; a single-language set is refused. The live census is a hard zero over every registered language, so a scan that sees nothing fails.
 
 **Exit codes:** 0 = every language realizes the rule (or a successful `-SelfTest`), 1 = a violation was found, 2 = the self-test failed or fewer than two languages are registered.
 

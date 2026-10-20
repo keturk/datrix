@@ -21,12 +21,17 @@ shared declaration module, never a language name:
   canonical fixture (the only way to prove what a mapping *function* produces).
   A declared request classifier is executed against the located fixture too.
 * `TemplateFieldErrorPathConstruction` -- the language builds the path in
-  template code. The gate checks the declared template exists in exactly one of
-  the language's packages, the builder's anchor is present and every declared
-  construction is present.
+  emitted code the gate cannot execute. The gate generates the registered
+  example for the language and reads the emitted files through the language's
+  own conformance probes (`idiom_occurrences`, a parse-tree reading): the
+  builder's anchor must be defined, every declared construction must occur
+  inside each emitted definition, and the declared call must occur outside
+  them. Jinja source is never read, and a string literal or comment neither
+  hides nor fakes an occurrence; an emitted file that does not parse fails the
+  run.
 
-Both techniques also prove the declared call site matches in the language's
-sources: a realization nothing calls is not on the emission path.
+Both techniques prove the realization is called: a realization nothing calls is
+not on the emission path.
 
 A language declaring nothing fails by name. Language set from the installed
 `datrix.languages` entry points at runtime -- never a table in this script. Runs
@@ -46,17 +51,29 @@ import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final
 
+from datrix_codegen_kernel.parity.conformance_probes import (
+    IdiomOccurrence,
+    UnparseableGeneratedFileError,
+    language_conformance_probes,
+)
 from datrix_common.datrix_model.problem_types import (  # noqa: E402
     FIELD_ERROR_PATH_RULE,
     FieldErrorCode,
     FieldErrorLocation,
 )
+from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError
 from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
+from datrix_common.plugin.code_idiom import (
+    CallIdiom,
+    CodeIdiom,
+    FunctionIdiom,
+    InterpolatedStringIdiom,
+)
 from datrix_common.plugin.language_capability import (  # noqa: E402
     ExecutedFieldErrorPathFormatter,
     ExecutedLocatedClassifier,
@@ -66,6 +83,8 @@ from datrix_common.plugin.language_capability import (  # noqa: E402
 
 from datrix_scripts.function_sources import iter_source_files  # noqa: E402
 from datrix_scripts.gate_harness import report_condition  # noqa: E402
+from datrix_scripts.generated_example import generate_example
+from datrix_scripts.paths import SHOWCASE_DIR, WORKSPACE_DIR
 from datrix_scripts.registered_targets import (  # noqa: E402
     AXIS_LANGUAGES,
     WORKSPACE_ROOT,
@@ -73,6 +92,7 @@ from datrix_scripts.registered_targets import (  # noqa: E402
     registered_language_names,  # noqa: E402
     report_gate_names_no_target,
 )
+from datrix_scripts.test_projects import get_project_by_name
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +103,14 @@ EXIT_USAGE: Final[int] = 2
 _SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset({".py", ".j2"})
 _SKIP_DIR_NAMES: Final[frozenset[str]] = frozenset({"__pycache__", "node_modules"})
 _MIN_LANGUAGES_FOR_COMPARISON: Final[int] = 2
+
+#: The registered example (``scripts/config/test-projects.json``) generated for
+#: every language whose realization lives in emitted code.
+EXAMPLE_NAME: Final[str] = "cqrs"
+_GATE_OUTPUT_ROOT: Final[Path] = WORKSPACE_DIR / ".tmp" / "field-error-path-parity"
+
+#: A language's parse-tree reading of code idioms under a generated root.
+IdiomReader = Callable[[Path, Sequence[CodeIdiom]], tuple[IdiomOccurrence, ...]]
 
 #: The one worked example every census and self-test measures against: a
 #: pydantic-style `loc` tuple naming a nested body field, and the dot path
@@ -115,7 +143,8 @@ class RealizationSite:
 
     language: str
     package: str
-    """The package repo the site lives in -- a language's backend or one of its cores."""
+    """Where the site lives: the package repo (a language's backend or one of its
+    cores) for an executed formatter, the generated example for emitted code."""
     relative_path: str
     line: int
     spelled_path: str
@@ -131,9 +160,9 @@ class LanguageCensus:
 
     sites: tuple[RealizationSite, ...]
     defects: tuple[str, ...]
-    """Declared-but-unproven facts: a module or template outside the language's
-    distribution, an absent anchor or function, an uncalled realization, a
-    classifier that places an entry wrongly."""
+    """Declared-but-unproven facts: a module outside the language's distribution,
+    an absent function or emitted builder, an uncalled realization, a classifier
+    that places an entry wrongly, a language with no probe reading."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,50 +320,103 @@ def _census_executed(
 # ---------------------------------------------------------------------------
 
 
-def _census_template(
-    language: str, src_dirs: tuple[Path, ...], realization: TemplateFieldErrorPathConstruction
-) -> LanguageCensus:
-    holders = [src_dir for src_dir in src_dirs if (src_dir / realization.template).is_file()]
-    if not holders:
-        return LanguageCensus(
-            (),
-            (f"declared template {realization.template!r} exists under none of this language's "
-             f"src dirs ({', '.join(str(d) for d in src_dirs)})",),
-        )
-    if len(holders) > 1:
-        return LanguageCensus(
-            (),
-            (f"declared template {realization.template!r} exists in {len(holders)} of this "
-             f"language's packages ({', '.join(_package_of(d) for d in holders)}); the path must "
-             f"name exactly one",),
-        )
-    src_dir = holders[0]
-    path = src_dir / realization.template
-    if _containing_src_dir(path, (src_dir,)) is None:
-        return LanguageCensus(
-            (), (f"declared template {realization.template!r} resolves outside {src_dir}",)
-        )
-    text = path.read_text(encoding="utf-8")
-    anchor = re.search(realization.anchor, text)
-    if anchor is None:
-        return LanguageCensus(
-            (),
-            (f"declared anchor {realization.anchor!r} is absent from {realization.template!r}: "
-             f"the builder it names is not defined there",),
-        )
-    line = text.count("\n", 0, anchor.start()) + 1
-    missing = [c for c in realization.constructions if re.search(c, text) is None]
+def _within(occurrence: IdiomOccurrence, definition: IdiomOccurrence) -> bool:
+    """Whether *occurrence* lies inside *definition*'s span in the same emitted file."""
+    return (
+        occurrence.relative_path == definition.relative_path
+        and definition.line <= occurrence.line
+        and occurrence.end_line <= definition.end_line
+    )
+
+
+def _template_site(
+    language: str,
+    realization: TemplateFieldErrorPathConstruction,
+    definition: IdiomOccurrence,
+    occurrences: Sequence[IdiomOccurrence],
+) -> RealizationSite:
+    """The site one emitted definition of the builder realizes: canonical when every
+    declared construction occurs inside it, else annotated with what is missing."""
+    missing = [
+        construction
+        for construction in realization.constructions
+        if not any(o.idiom == construction and _within(o, definition) for o in occurrences)
+    ]
     spelled = (
         _CANONICAL_PATH
         if not missing
         else f"{_CANONICAL_PATH} (missing the declared construction(s) {missing!r})"
     )
-    site = RealizationSite(language, _package_of(src_dir), realization.template, line, spelled)
-    defects: list[str] = []
-    call_defect = _call_site_defect(realization.call_site, src_dirs, excluding=frozenset())
-    if call_defect is not None:
-        defects.append(call_defect)
-    return LanguageCensus((site,), tuple(defects))
+    return RealizationSite(
+        language, f"generated {EXAMPLE_NAME}", definition.relative_path, definition.line, spelled
+    )
+
+
+def _census_template(
+    language: str,
+    generated_root: Path,
+    realization: TemplateFieldErrorPathConstruction,
+    read: IdiomReader,
+) -> LanguageCensus:
+    """Census the language's emitted files under *generated_root*, read through *read*.
+
+    Raises:
+        UnparseableGeneratedFileError: An emitted source file does not parse.
+    """
+    occurrences = read(
+        generated_root, (realization.anchor, *realization.constructions, realization.call_site)
+    )
+    definitions = [o for o in occurrences if o.idiom == realization.anchor]
+    if not definitions:
+        return LanguageCensus(
+            (),
+            (f"declared anchor {realization.anchor!r} is defined in no file the language emitted for "
+             f"the registered example {EXAMPLE_NAME!r}: the builder it names is not emitted. Fix: "
+             f"emit the builder, or correct the declared anchor.",),
+        )
+    sites = tuple(_template_site(language, realization, d, occurrences) for d in definitions)
+    called = any(
+        o.idiom == realization.call_site and not any(_within(o, d) for d in definitions)
+        for o in occurrences
+    )
+    if called:
+        return LanguageCensus(sites, ())
+    return LanguageCensus(
+        sites,
+        (f"declared call site {realization.call_site!r} occurs nowhere outside the builder's own "
+         f"definition in the emitted files: the realization is defined but not on the emission "
+         f"path. Fix: call it from the emitted code, or correct the declared call_site.",),
+    )
+
+
+def idiom_reader(language: str) -> IdiomReader:
+    """*language*'s own parse-tree reading of code idioms.
+
+    Raises:
+        ValueError: *language* is not registered or declares no (or incomplete) conformance probes.
+    """
+    try:
+        return language_conformance_probes(language).idiom_occurrences
+    except (PluginNotFoundError, PluginValidationError) as exc:
+        raise ValueError(
+            f"supplies no conformance probes to read its generated tree with ({exc}). "
+            f"Fix: declare complete conformance probes on the language plugin."
+        ) from exc
+
+
+def example_source() -> Path:
+    """The ``system.dtrx`` of the registered example the emitted-code census generates.
+
+    Raises:
+        ValueError: The example is not in the example registry.
+    """
+    project = get_project_by_name(EXAMPLE_NAME)
+    if project is None:
+        raise ValueError(
+            f"The example {EXAMPLE_NAME!r} is not in scripts/config/test-projects.json, so no "
+            f"language's emitted code can be generated. Fix: restore its registry entry."
+        )
+    return SHOWCASE_DIR / str(project["path"])
 
 
 def census_language(
@@ -342,13 +424,25 @@ def census_language(
     src_dirs: tuple[Path, ...],
     realization: FieldErrorPathRealization,
 ) -> LanguageCensus:
-    """Census one language under every package implementing it -- its backend
-    and each language core -- by the technique its declaration names. Dispatches
-    on the declaration TYPE, a closed set in the shared declaration module."""
+    """Census one language by the technique its declaration names: an executed
+    formatter under every package implementing it (its backend and each language
+    core), emitted code on the registered example generated for it. Dispatches on
+    the declaration TYPE, a closed set in the shared declaration module.
+
+    Raises:
+        ValueError: The example is not registered.
+        RuntimeError: Generating the example for the language failed.
+        UnparseableGeneratedFileError: An emitted source file does not parse.
+    """
     if isinstance(realization, ExecutedFieldErrorPathFormatter):
         return _census_executed(language, src_dirs, realization)
     if isinstance(realization, TemplateFieldErrorPathConstruction):
-        return _census_template(language, src_dirs, realization)
+        try:
+            read = idiom_reader(language)
+        except ValueError as exc:
+            return LanguageCensus((), (str(exc),))
+        generated = generate_example(language, example_source(), _GATE_OUTPUT_ROOT / language)
+        return _census_template(language, generated, realization, read)
     raise TypeError(
         f"{language}: field_error_path_realization is a {type(realization).__name__}; expected an "
         f"ExecutedFieldErrorPathFormatter or a TemplateFieldErrorPathConstruction."
@@ -420,10 +514,17 @@ def _require_min_languages(language_names: frozenset[str]) -> None:
 
 def scan_all_registered_languages() -> dict[str, LanguageCensus | None]:
     """Census every registered `datrix.languages` package by the realization it
-    declares; a language that declares none is `None`, never skipped."""
+    declares; a language that declares none is `None`, never skipped.
+
+    Raises:
+        ValueError: The example is not registered.
+        RuntimeError: Generating the example for a language failed.
+        UnparseableGeneratedFileError: An emitted source file does not parse.
+    """
     language_names = registered_language_names()
     _require_min_languages(language_names)
     src_dirs = discover_target_package_src_dirs(AXIS_LANGUAGES, language_names, WORKSPACE_ROOT)
+    shutil.rmtree(_GATE_OUTPUT_ROOT, ignore_errors=True)
     censuses: dict[str, LanguageCensus | None] = {}
     for language, language_src_dirs in sorted(src_dirs.items()):
         realization = declaration_for_language(language).field_error_path_realization
@@ -457,14 +558,6 @@ def _planted(language: str, spelled_path: str) -> LanguageCensus:
     return LanguageCensus(
         (RealizationSite(language, f"datrix-codegen-{language}", "planted.j2", 1, spelled_path),), ()
     )
-
-
-def _raises_value_error(call: Callable[[], object]) -> bool:
-    try:
-        call()
-    except ValueError:
-        return True
-    return False
 
 
 def _self_test_comparator() -> bool:
@@ -553,28 +646,52 @@ _FIXTURE_CLASSIFIER_SOURCE: Final[str] = (
     "    return Result(tuple(out))\n"
 )
 
-_FIXTURE_BUILDER_SOURCE: Final[str] = (
-    "function buildPath(parentPath: string, property: string): string {\n"
-    "  if (isArrayIndex) { return `${parentPath}[${property}]`; }\n"
-    "  return parentPath === '' ? property : `${parentPath}.${property}`;\n"
-    "}\n"
-    "const path = buildPath(parentPath, error.property);\n"
-)
-_FIXTURE_BUILDER_NO_BRACKET_SOURCE: Final[str] = (
-    "function buildPath(parentPath: string, property: string): string {\n"
-    "  return `${parentPath}.${property}`;\n"
-    "}\n"
-    "const path = buildPath(parentPath, error.property);\n"
-)
-_FIXTURE_TEMPLATE: Final[str] = "templates/request-validation.ts.j2"
 _FIXTURE_TEMPLATE_DECLARATION: Final[TemplateFieldErrorPathConstruction] = (
     TemplateFieldErrorPathConstruction(
-        template=_FIXTURE_TEMPLATE,
-        anchor=r"function\s+buildPath\(",
-        constructions=(r"\$\{parentPath\}\[\$\{property\}\]", r"\$\{parentPath\}\.\$\{property\}"),
-        call_site=r"buildPath\(parentPath, error\.property\)",
+        anchor=FunctionIdiom("buildPath"),
+        constructions=(
+            InterpolatedStringIdiom("{parentPath}[{property}]"),
+            InterpolatedStringIdiom("{parentPath}.{property}"),
+        ),
+        call_site=CallIdiom("buildPath"),
     )
 )
+#: The emitted module the planted readings place the builder in: defined on
+#: lines 1-4, both constructions inside it, called on line 6.
+_FIXTURE_EMITTED_PATH: Final[str] = "svc/src/request-validation.src"
+_FIXTURE_DEFINITION: Final[IdiomOccurrence] = IdiomOccurrence(
+    _FIXTURE_TEMPLATE_DECLARATION.anchor, _FIXTURE_EMITTED_PATH, 1, 4, "buildPath(parentPath, property)"
+)
+_FIXTURE_BRACKET: Final[IdiomOccurrence] = IdiomOccurrence(
+    _FIXTURE_TEMPLATE_DECLARATION.constructions[0], _FIXTURE_EMITTED_PATH, 2, 2, "{parentPath}[{property}]"
+)
+_FIXTURE_DOT: Final[IdiomOccurrence] = IdiomOccurrence(
+    _FIXTURE_TEMPLATE_DECLARATION.constructions[1], _FIXTURE_EMITTED_PATH, 3, 3, "{parentPath}.{property}"
+)
+_FIXTURE_CALL: Final[IdiomOccurrence] = IdiomOccurrence(
+    _FIXTURE_TEMPLATE_DECLARATION.call_site, _FIXTURE_EMITTED_PATH, 6, 6, "buildPath"
+)
+
+
+@dataclass
+class _PlantedReader:
+    """A reading that answers with planted occurrences and records what it was asked:
+    what a language's probes would read off the parse trees of an emitted tree."""
+
+    occurrences: tuple[IdiomOccurrence, ...]
+    asked: list[CodeIdiom]
+
+    def __call__(self, generated_root: Path, idioms: Sequence[CodeIdiom]) -> tuple[IdiomOccurrence, ...]:
+        self.asked.extend(idioms)
+        return tuple(o for o in self.occurrences if o.idiom in idioms)
+
+
+def _planted_reader(*occurrences: IdiomOccurrence) -> _PlantedReader:
+    return _PlantedReader(occurrences, [])
+
+
+def _unparseable_reader(generated_root: Path, idioms: Sequence[CodeIdiom]) -> tuple[IdiomOccurrence, ...]:
+    raise UnparseableGeneratedFileError(_FIXTURE_EMITTED_PATH, "unexpected token at 1:1")
 
 
 def _import_name(package: str) -> str:
@@ -641,14 +758,6 @@ def _executed_fixture(
         )
     if call_source is not None:
         (src / "handler.py.j2").write_text(call_source, encoding="utf-8")
-    return src
-
-
-def _template_fixture(tmp_root: Path, package: str, source: str | None) -> Path:
-    src = _fixture_src(tmp_root, package)
-    if source is not None:
-        (src / "templates").mkdir()
-        (src / _FIXTURE_TEMPLATE).write_text(source, encoding="utf-8")
     return src
 
 
@@ -731,68 +840,97 @@ def _self_test_executed(tmp_root: Path) -> bool:
     return ok
 
 
-def _self_test_template(tmp_root: Path) -> bool:
+def _self_test_template() -> bool:
     ok = True
+    declaration = _FIXTURE_TEMPLATE_DECLARATION
+    root = _GATE_OUTPUT_ROOT / "self-test"
 
-    good = _template_fixture(tmp_root, "fx-tpl-good", _FIXTURE_BUILDER_SOURCE)
-    census = census_language(_FIXTURE_LANGUAGE, (good,), _FIXTURE_TEMPLATE_DECLARATION)
+    good = _planted_reader(_FIXTURE_DEFINITION, _FIXTURE_BRACKET, _FIXTURE_DOT, _FIXTURE_CALL)
+    census = _census_template(_FIXTURE_LANGUAGE, root, declaration, good)
     ok &= report_condition(
-        len(census.sites) == 1 and census.sites[0].spelled_path == _CANONICAL_PATH and not census.defects,
-        f"a correct template builder with a call site censuses as canonical (got {census})",
+        len(census.sites) == 1
+        and census.sites[0].spelled_path == _CANONICAL_PATH
+        and census.sites[0].relative_path == _FIXTURE_EMITTED_PATH
+        and not census.defects,
+        f"an emitted builder holding every construction, called outside itself, censuses as canonical "
+        f"(got {census})",
+    )
+    ok &= report_condition(
+        good.asked == [declaration.anchor, *declaration.constructions, declaration.call_site],
+        f"the census asks the language's reading for the anchor, every construction and the call "
+        f"(asked {good.asked})",
     )
 
-    no_bracket = _template_fixture(tmp_root, "fx-tpl-no-bracket", _FIXTURE_BUILDER_NO_BRACKET_SOURCE)
-    census = census_language(_FIXTURE_LANGUAGE, (no_bracket,), _FIXTURE_TEMPLATE_DECLARATION)
+    no_bracket = _planted_reader(_FIXTURE_DEFINITION, _FIXTURE_DOT, _FIXTURE_CALL)
+    census = _census_template(_FIXTURE_LANGUAGE, root, declaration, no_bracket)
     ok &= report_condition(
         len(census.sites) == 1
         and census.sites[0].spelled_path != _CANONICAL_PATH
-        and repr(_FIXTURE_TEMPLATE_DECLARATION.constructions[0]) in census.sites[0].spelled_path,
-        f"a builder missing the `[n]`-index construction is divergent and names the missing regex (got {census})",
+        and repr(declaration.constructions[0]) in census.sites[0].spelled_path,
+        f"a builder missing the `[n]`-index construction is divergent and names it (got {census})",
     )
 
-    no_anchor = _template_fixture(tmp_root, "fx-tpl-no-anchor", "const x = 1;\n")
-    census = census_language(_FIXTURE_LANGUAGE, (no_anchor,), _FIXTURE_TEMPLATE_DECLARATION)
+    outside = replace(_FIXTURE_BRACKET, line=8, end_line=8)
+    elsewhere = replace(_FIXTURE_BRACKET, relative_path="svc/src/other.src")
+    census = _census_template(
+        _FIXTURE_LANGUAGE,
+        root,
+        declaration,
+        _planted_reader(_FIXTURE_DEFINITION, outside, elsewhere, _FIXTURE_DOT, _FIXTURE_CALL),
+    )
+    ok &= report_condition(
+        len(census.sites) == 1 and census.sites[0].spelled_path != _CANONICAL_PATH,
+        f"a construction outside the builder's span, or in another file, does not count (got {census})",
+    )
+
+    second = replace(_FIXTURE_DEFINITION, relative_path="svc2/src/request-validation.src")
+    census = _census_template(
+        _FIXTURE_LANGUAGE,
+        root,
+        declaration,
+        _planted_reader(_FIXTURE_DEFINITION, second, _FIXTURE_BRACKET, _FIXTURE_DOT, _FIXTURE_CALL),
+    )
+    divergent = [site.relative_path for site in census.sites if site.spelled_path != _CANONICAL_PATH]
+    ok &= report_condition(
+        len(census.sites) == 2 and divergent == [second.relative_path],
+        f"every emitted definition is held to the constructions; the one lacking them diverges "
+        f"(got {census})",
+    )
+
+    no_anchor = _planted_reader(_FIXTURE_BRACKET, _FIXTURE_DOT, _FIXTURE_CALL)
+    census = _census_template(_FIXTURE_LANGUAGE, root, declaration, no_anchor)
     ok &= report_condition(
         not census.sites and any("anchor" in defect for defect in census.defects),
-        f"a template without the declared builder anchor is a defect (got {census})",
+        f"emitted code without the declared builder definition is a defect (got {census})",
     )
 
-    missing = _template_fixture(tmp_root, "fx-tpl-missing", None)
-    census = census_language(_FIXTURE_LANGUAGE, (missing,), _FIXTURE_TEMPLATE_DECLARATION)
-    ok &= report_condition(
-        not census.sites and any("exists under none" in defect for defect in census.defects),
-        f"a declared template that exists nowhere is a defect (got {census})",
-    )
-
-    twin_a = _template_fixture(tmp_root, "fx-tpl-twin-a", _FIXTURE_BUILDER_SOURCE)
-    twin_b = _template_fixture(tmp_root, "fx-tpl-twin-b", _FIXTURE_BUILDER_SOURCE)
-    census = census_language(_FIXTURE_LANGUAGE, (twin_a, twin_b), _FIXTURE_TEMPLATE_DECLARATION)
-    ok &= report_condition(
-        not census.sites and any("exists in 2" in defect for defect in census.defects),
-        f"a template path present in two of the language's packages is refused (got {census})",
-    )
-
-    uncalled = _template_fixture(
-        tmp_root, "fx-tpl-uncalled", _FIXTURE_BUILDER_SOURCE.rsplit("const path", 1)[0]
-    )
-    census = census_language(_FIXTURE_LANGUAGE, (uncalled,), _FIXTURE_TEMPLATE_DECLARATION)
+    uncalled = _planted_reader(_FIXTURE_DEFINITION, _FIXTURE_BRACKET, _FIXTURE_DOT)
+    census = _census_template(_FIXTURE_LANGUAGE, root, declaration, uncalled)
     ok &= report_condition(
         any("not on the emission path" in defect for defect in census.defects),
         f"a builder nothing calls is a defect (got {census})",
     )
 
-    for bad_template in ("../escape.j2", "/abs/path.j2", "C:/drive/path.j2", "a\\b.j2", ""):
-        ok &= report_condition(
-            _raises_value_error(
-                lambda template=bad_template: TemplateFieldErrorPathConstruction(
-                    template=template,
-                    anchor="a",
-                    constructions=("b",),
-                    call_site="c",
-                )
-            ),
-            f"a template path {bad_template!r} is refused at declaration construction",
-        )
+    self_call = replace(_FIXTURE_CALL, line=3, end_line=3)
+    census = _census_template(
+        _FIXTURE_LANGUAGE,
+        root,
+        declaration,
+        _planted_reader(_FIXTURE_DEFINITION, _FIXTURE_BRACKET, _FIXTURE_DOT, self_call),
+    )
+    ok &= report_condition(
+        any("not on the emission path" in defect for defect in census.defects),
+        f"a call only inside the builder's own definition does not count as a call (got {census})",
+    )
+
+    try:
+        _census_template(_FIXTURE_LANGUAGE, root, declaration, _unparseable_reader)
+        refused = False
+    except UnparseableGeneratedFileError:
+        refused = True
+    ok &= report_condition(
+        refused, "an emitted file the language cannot parse fails the census, never reads as clean"
+    )
     return ok
 
 
@@ -818,15 +956,6 @@ def _self_test_language_core(tmp_root: Path) -> bool:
         f"an executed realization planted in the core is found and recorded against it (got {found}); "
         f"a backend-only census does not find it",
     )
-
-    template_core = _template_fixture(tmp_root, "datrix-codegen-tplsplit-core", _FIXTURE_BUILDER_SOURCE)
-    template_backend = _template_fixture(tmp_root, "datrix-codegen-tplsplit", None)
-    split = census_language(_FIXTURE_LANGUAGE, (template_backend, template_core), _FIXTURE_TEMPLATE_DECLARATION)
-    found = [(site.package, site.spelled_path) for site in split.sites]
-    ok &= report_condition(
-        found == [("datrix-codegen-tplsplit-core", _CANONICAL_PATH)] and not split.defects,
-        f"a template realization planted in the core is found and recorded against it (got {found})",
-    )
     return ok
 
 
@@ -842,40 +971,51 @@ def _self_test_min_languages_refusal() -> bool:
         return report_condition(exc.code == EXIT_USAGE, "a single-language set is refused")
 
 
-def _self_test_live_read() -> bool:
-    censuses = scan_all_registered_languages()
-    realizing = sorted(
+def _self_test_registered_readings() -> bool:
+    """Every registered language whose realization lives in emitted code resolves its
+    own parse-tree reading; one that cannot is reported by the census, never skipped."""
+    emitted = sorted(
         language
-        for language, census in censuses.items()
-        if census is not None
-        and any(site.spelled_path == _CANONICAL_PATH for site in census.sites)
+        for language in registered_language_names()
+        if isinstance(
+            declaration_for_language(language).field_error_path_realization,
+            TemplateFieldErrorPathConstruction,
+        )
     )
+    unread: list[str] = []
+    for language in emitted:
+        try:
+            idiom_reader(language)
+        except ValueError as exc:
+            unread.append(f"{language}: {exc}")
     return report_condition(
-        len(realizing) >= 1,
-        f"live census finds at least one language realizing the rule (found: {realizing})",
+        not unread,
+        f"every registered language realizing the rule in emitted code resolves its probe reading "
+        f"({len(emitted)} language(s); unread: {unread})",
     )
 
 
 def self_test() -> bool:
     """Non-vacuity self-test: this module names no registered target, a fixture
     language per technique (good and bad), a module outside the language's src
-    dirs, an uncalled realization, a template path that escapes its package, a
-    language declaring nothing, a realization
-    planted in a language core, fewer than two registered languages, and a live
-    census that finds at least one language realizing the rule (a scan that sees
-    nothing is broken, not clean)."""
+    dirs, an uncalled realization (a call inside the builder's own definition is
+    not a call), a construction outside the emitted builder, an emitted file that
+    does not parse, a language declaring nothing, a realization planted in a
+    language core, fewer than two registered languages, and every registered
+    emitted-code language resolving its probe reading. The live census is itself a
+    hard zero over every registered language, so a scan that sees nothing fails."""
     print("Non-vacuity self-test:")
     ok = report_gate_names_no_target(__file__)
     tmp_root = Path(tempfile.mkdtemp(prefix="field-error-path-gate-"))
     try:
         ok &= _self_test_executed(tmp_root)
-        ok &= _self_test_template(tmp_root)
         ok &= _self_test_language_core(tmp_root)
     finally:
         shutil.rmtree(tmp_root, ignore_errors=True)
+    ok &= _self_test_template()
     ok &= _self_test_comparator()
     ok &= _self_test_min_languages_refusal()
-    ok &= _self_test_live_read()
+    ok &= _self_test_registered_readings()
     return ok
 
 
@@ -893,7 +1033,11 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
     if args.self_test:
         return EXIT_OK
-    censuses = scan_all_registered_languages()
+    try:
+        censuses = scan_all_registered_languages()
+    except (ValueError, RuntimeError) as exc:
+        print(f"Error: the field-error-path census failed: {exc}", file=sys.stderr)
+        return EXIT_USAGE
     problems, verdicts = evaluate(_CANONICAL_PATH, censuses)
     print(f"\nField-error-path census ({len(censuses)} registered language(s)):")
     print(render_report(_CANONICAL_PATH, verdicts))

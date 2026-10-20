@@ -52,6 +52,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
+    IdiomOccurrence,
     RealizedRouteUrl,
     ResponseBodyWireField,
     RouteWireContract,
@@ -64,6 +65,7 @@ from datrix_common.datrix_model.containers import Application
 from datrix_common.errors.plugin import PluginValidationError
 from datrix_common.paths import ServicePaths
 from datrix_common.plugin.capability_resolution import declaration_for_language, declaration_for_provider
+from datrix_common.plugin.code_idiom import CodeIdiom
 from datrix_common.plugin.registry import plugin_registry
 from datrix_common.testing.tag_vocabulary import documented_tags
 from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
@@ -529,6 +531,9 @@ class _PlantedProbes:
 
     def event_envelopes(self, generated_root: Path) -> EventEnvelopeCensus:
         return EventEnvelopeCensus(published=(), consumed_keys={})
+
+    def idiom_occurrences(self, generated_root: Path, idioms: Sequence[CodeIdiom]) -> tuple[IdiomOccurrence, ...]:
+        return ()
 
 
 class _ProbesReturningList(_PlantedProbes):

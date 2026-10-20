@@ -25,6 +25,7 @@ from typing import Final
 
 from datrix_codegen_kernel.sql_facts import type_mappings as sql_type_mappings
 from datrix_common.plugin.registry import EXTENSION_GROUP
+from datrix_common.types.base import TypeMappingBase
 
 from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.registered_targets import registered_language_names
@@ -52,13 +53,32 @@ _SELF_TEST_SURFACE_COMPLETE: Final[str] = "self_test_surface_with_key"
 _SELF_TEST_SURFACE_MISSING: Final[str] = "self_test_surface_missing_key"
 
 
-def import_language_mappings(language: str) -> ModuleType:
-    """Return a language's ``type_mappings`` module (registering its mappings).
+def _language_type_map(language: str) -> Mapping[str, TypeMappingBase]:
+    """Return the ``static_type_map`` the registered *language* plugin declares.
 
-    Loading the language's registered ``datrix.languages`` plugin imports the
-    module that registers its type map; the global type-mapping registry then
-    names that module. So this works for every installed language with no
-    per-language branch, and wherever the map lives -- the generator package
+    Raises:
+        ValueError: If *language* is not a registered ``datrix.languages`` target.
+    """
+    registered = registered_language_names()
+    if language not in registered:
+        raise ValueError(
+            f"Unknown language: {language}. "
+            f"Registered languages: {', '.join(sorted(registered))}."
+        )
+
+    from datrix_codegen_kernel.generation.discovery import get_language_plugin
+
+    return get_language_plugin(language).static_type_map
+
+
+def import_language_mappings(language: str) -> ModuleType:
+    """Return the module that defines a language's type map.
+
+    The language's registered ``datrix.languages`` plugin declares its
+    ``static_type_map``; every entry of that map is an instance of the
+    language's own mapping class, defined in the same module as the map's
+    ``*_EXTENSION_MAPS`` table. So this works for every installed language with
+    no per-language branch, and wherever the map lives -- the generator package
     itself or a language core it builds on.
 
     Args:
@@ -69,29 +89,21 @@ def import_language_mappings(language: str) -> ModuleType:
 
     Raises:
         ValueError: If *language* is not a registered ``datrix.languages`` target.
-        ImportError: If the language's ``type_mappings`` module cannot be imported.
+        ImportError: If the language's type map is empty, its entries come from
+            more than one module, or that module cannot be imported.
     """
     logger = logging.getLogger(__name__)
 
-    registered = registered_language_names()
-    if language not in registered:
-        raise ValueError(
-            f"Unknown language: {language}. "
-            f"Registered languages: {', '.join(sorted(registered))}."
-        )
-
-    from datrix_codegen_kernel.generation.discovery import get_language_plugin
-    from datrix_codegen_kernel.generation.type_mapping_registry import global_registry
-
-    get_language_plugin(language)
-    try:
-        module_name = global_registry.mapping_module(language)
-    except ValueError as e:
+    type_map = _language_type_map(language)
+    entry_modules = sorted({type(entry).__module__ for entry in type_map.values()})
+    if len(entry_modules) != 1:
         raise ImportError(
-            f"Loading the {language} plugin registered no type map. Expected the "
-            f"plugin to import the module that calls register_language({language!r}, ...). "
-            f"Error: {e}"
-        ) from e
+            f"The {language} plugin's static_type_map must hold entries of one mapping "
+            f"class defined beside the map (found entry modules {entry_modules}). Expected "
+            f"every entry to be an instance of the language's own TypeMappingBase subclass. "
+            f"Fix: build the map from that language's type_mappings module."
+        )
+    module_name = entry_modules[0]
     try:
         module = importlib.import_module(module_name)
     except ImportError as e:
@@ -115,30 +127,25 @@ def validate_completeness(languages: list[str]) -> int:
     logger = logging.getLogger(__name__)
 
     try:
-        from datrix_codegen_kernel.generation.type_mapping_registry import global_registry
+        from datrix_codegen_kernel.generation.type_mapping_registry import TypeMappingRegistry
     except ImportError as e:
         logger.error("%s The import failed with: %s",
                      missing_declared_tool("datrix-codegen-kernel", PACKAGE_DEPENDENCIES), e)
         return 2
 
-    # Import all requested language mappings
-    for language in languages:
-        try:
-            import_language_mappings(language)
-        except (ImportError, ValueError) as e:
-            logger.error(str(e))
-            return 2
+    # One registry built from the requested languages' plugin maps.
+    try:
+        registry = TypeMappingRegistry.from_maps(
+            {language: _language_type_map(language) for language in languages}
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        return 2
 
-    # Run completeness validation for each language
     all_complete = True
     for language in languages:
         logger.info("Checking type mapping completeness for %s...", language)
-
-        try:
-            missing = global_registry.unmapped_types(language)
-        except Exception as e:
-            logger.error("Validation failed for %s: %s", language, e)
-            return 2
+        missing = registry.unmapped_types(language)
 
         if missing:
             all_complete = False

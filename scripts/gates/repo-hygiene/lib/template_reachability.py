@@ -47,7 +47,6 @@ from __future__ import annotations
 import argparse
 import ast
 import dataclasses
-import importlib
 import json
 import re
 import sys
@@ -266,14 +265,12 @@ def _template_names_in(definitions: Iterable[object]) -> Iterator[str]:
 def dgen_template_names() -> dict[str, frozenset[str]]:
     """Every compiled DAL generator ``FileDefinition`` template name, per registered target."""
     from datrix_codegen_kernel.dgen import target_registry
-    from datrix_codegen_kernel.dgen.compiler import get_definitions
+    from datrix_codegen_kernel.dgen.compiler import target_definitions
 
-    names: dict[str, frozenset[str]] = {}
-    for target in sorted(target_registry.target_kind_map()):
-        for module in target_registry.definition_modules_for(target):
-            importlib.import_module(module)
-        names[target] = frozenset(_template_names_in(get_definitions(target)))
-    return names
+    return {
+        target: frozenset(_template_names_in(target_definitions(target)))
+        for target in sorted(target_registry.target_kind_map())
+    }
 
 
 def _names_anything(pattern: str) -> bool:

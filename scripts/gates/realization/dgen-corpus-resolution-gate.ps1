@@ -7,24 +7,22 @@
  Proves the real, shipped corpus of builder/call/context/appends references
  across every DISCOVERED DAL generator target -- derived from
  datrix.dgen_generator_targets + datrix.platforms entry-point discovery,
- never a hardcoded package list -- is genuinely resolvable. Imports each
- target's DAL generator definitions module -- import succeeding IS the assertion;
- a bad reference raises DalReferenceError at import time.
+ never a hardcoded package list -- is genuinely resolvable. Compiles each
+ target's DAL generator definitions through target_definitions(<target>), one
+ subprocess per target -- the compile succeeding IS the assertion; a bad
+ reference raises DalReferenceError there.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest
- suite lives in datrix). Previously a pytest test inside datrix-codegen-common
- that imported all seven concrete target packages directly, which was both a
- cross-package import boundary violation (datrix_codegen_common must not
- import concrete target packages) and a cross-package test (prohibited
- everywhere in the repo). Moved here as the repo-level proof it always was.
+ suite lives in datrix): the proof spans every concrete target package, which
+ datrix_codegen_common may not import and no package's own suite may span.
 
 .PARAMETER Dbg
  Enable debug logging (DEBUG level instead of INFO).
 
 .PARAMETER SelfTest
  Run only the self-test: a planted definitions package naming a builder its
- namespace lacks is reported as an unresolved reference, and its twin naming a
- real builder resolves.
+ namespace lacks is reported as an unresolved reference, its twin naming a
+ real builder resolves, and the per-target compile reaches a shipped corpus.
 
 .EXAMPLE
  .\dgen-corpus-resolution-gate.ps1
