@@ -158,6 +158,50 @@ with tempfile.TemporaryDirectory(prefix="policy-gate-") as root:
     check("the parity runner's old lib path is no longer the runner",
           write(os.path.join(lib, "parity_observers.py"), PROBE_IMPORT), BLOCK)
 
+print("== every design answers the design guidelines ==")
+# The ids come from design-principles.md itself, as the hook reads them.
+with open(r"d:\datrix\datrix\docs\architecture\design-principles.md", encoding="utf-8") as handle:
+    GUIDELINE_IDS = sorted({int(n) for n in __import__("re").findall(r"(?m)^\*\*G(\d+)\.", handle.read())})
+check("design-principles.md defines guidelines", int(len(GUIDELINE_IDS) >= 1), 1)
+
+
+def conformance(ids, heading="## Design guidelines conformance"):
+    bullets = "".join(f"- G{n}: satisfied because the rule holds on every target\n" for n in ids)
+    return f"# 123-thing\n\nStatus: Draft\n\n## Design\n\nBody.\n\n{heading}\n{bullets}\n## Open questions\n\nNone.\n"
+
+
+with tempfile.TemporaryDirectory(prefix="policy-gate-") as root:
+    design = os.path.join(root, "design")
+    os.makedirs(design)
+    doc = os.path.join(design, "123-thing.md")
+    check("a design with every guideline answered", write(doc, conformance(GUIDELINE_IDS)), ALLOW)
+    check("a design with no conformance section", write(doc, "# 123-thing\n\n## Design\n\nBody.\n"), BLOCK)
+    check("a design missing the last guideline", write(doc, conformance(GUIDELINE_IDS[:-1])), BLOCK)
+    check("bullets outside the conformance section do not count",
+          write(doc, conformance(GUIDELINE_IDS, heading="## Notes")), BLOCK)
+    check("an empty answer does not count",
+          write(doc, conformance(GUIDELINE_IDS).replace(f"- G{GUIDELINE_IDS[0]}: satisfied", f"- G{GUIDELINE_IDS[0]}:   \n  satisfied")),
+          BLOCK)
+    check("bold ids and N/A answers count",
+          write(doc, conformance(GUIDELINE_IDS).replace("- G", "- **G").replace(": satisfied", "**: N/A: untouched")), ALLOW)
+    check("the design index is not a design", write(os.path.join(design, "000-implementation-order.md"), "index"), ALLOW)
+    check("a markdown file outside design/ is not a design", write(os.path.join(root, "docs", "123-thing.md"), "x"), ALLOW)
+
+    with open(doc, "w", encoding="utf-8") as handle:
+        handle.write(conformance(GUIDELINE_IDS))
+    last = f"- G{GUIDELINE_IDS[-1]}: satisfied because the rule holds on every target\n"
+    check("an edit that drops a bullet", edit(doc, last, ""), BLOCK)
+    check("an edit to the body stays allowed", edit(doc, "Body.", "A longer body."), ALLOW)
+    check("rewriting an answer stays allowed",
+          edit(doc, last, f"- G{GUIDELINE_IDS[-1]}: N/A: the design adds no seam\n"), ALLOW)
+
+    legacy = os.path.join(design, "090-older.md")
+    with open(legacy, "w", encoding="utf-8") as handle:
+        handle.write("# 090-older\n\nStatus: Draft\n\nBody.\n")
+    check("the one-line Status edit of a doc that predates the section stays allowed",
+          edit(legacy, "Status: Draft", "Status: Implemented"), ALLOW)
+    check("a full rewrite of that doc must add the section", write(legacy, "# 090-older\n\nStatus: Draft\n\nNew body.\n"), BLOCK)
+
 print()
 if fails:
     print(f"{len(fails)} FAILURE(S):")

@@ -63,6 +63,7 @@ FIX: false          # review only — report findings, do not modify code
 - **Generality-preserving.** Place fixes at the most language/platform-agnostic layer that can own them; provider/language specifics live only in the owning codegen package. Never hardcode "the currently-shipped languages/providers are the only targets".
 - **No workarounds.** Fix the root cause or STOP and report. No band-aids, no conditional guards that hide a broken path.
 - **Security is a ranked requirement, and it is a conformance dimension here.** A requirement met by a *less secure* implementation than was available is a finding, not a pass — as is a control that fails open, a hardcoded or logged secret, an over-broad permission, or an insecure default in an emitted artifact. Never propose or implement a less secure option when a more secure one exists, and never disable or loosen a control to make a check pass (`_shared/execution-contract.md` §13).
+- **The design guidelines are a conformance dimension too.** Read `datrix/docs/architecture/design-principles.md` § "Design Guidelines (Binding)". An implementation that meets the design but breaks a guideline — behaviour realized on one language or platform and not the others with no counted gap (G1, G3), a target named in shared code (G4), an inert knob (G6), a fallback (G8), a private copy of a shared behaviour (G9), an old path left alive (G10), tests that restate one another or prove nothing that could break (G11), a seam with no static check (G12) — is a finding, not a pass.
 - **No expedient fixes in Phase 3.** The size of a fix is set by the finding, not by remaining context or budget: no "quick fix for now", no "minimal change to get it green", no "harden it later". There is no later (§14).
 - **No git reverts** (`checkout`/`restore`/`reset`/`stash`/`revert`). Undo your own edits manually.
 - **Temp files** only under `D:\datrix\.scripts\`, `.test-output\`, `.tmp\`. Never scatter scratch files in the repo tree.
@@ -128,15 +129,16 @@ For each design requirement:
    - **POSITIVE:** prove the new path exists and is reachable — read the call chain that reaches it, point at the test that covers it (its existence and content, not a fresh run of it), show generation emitting it, or show the validator rejecting the bad input. Paste the command + output.
    - Put any scratch runners under `D:\datrix\.scripts\`, spec files under `D:\datrix\.tmp\`, output under `D:\datrix\.test-output\`.
 3. **Invariant-surface sweep:** for a set-invariant, check EVERY surface in the set. Record each surface's verdict individually — "the easy surface passes" is not "the invariant holds".
-4. **Code-quality review** of the changed code against `ai-agent-rules` / prohibited-patterns: placeholders/TODOs, silent fallbacks, `except: pass`, `T | None` error returns, mocks/fakes in tests, magic constants, `Any`, cognitive complexity, missing type hints. A conformant-but-shoddy implementation is still a finding.
-5. **Contradiction check:** if a task's `## How Solved` claims something the code does not support (names a file/function/flag that doesn't exist, claims a surface was migrated that still has the old construct), that is a finding — surface it, don't paper over it.
+4. **Guidelines review** of the changed code and tests against G1–G12, each over the surface set the change reaches (every registered language and platform on the axis it touches, not the one the task named). Record a verdict per guideline; "N/A" names why the change does not touch it.
+5. **Code-quality review** of the changed code against `ai-agent-rules` / prohibited-patterns: placeholders/TODOs, silent fallbacks, `except: pass`, `T | None` error returns, mocks/fakes in tests, magic constants, `Any`, cognitive complexity, missing type hints. A conformant-but-shoddy implementation is still a finding.
+6. **Contradiction check:** if a task's `## How Solved` claims something the code does not support (names a file/function/flag that doesn't exist, claims a surface was migrated that still has the old construct), that is a finding — surface it, don't paper over it.
 
-Classify each finding: **MISSING** (design requirement unimplemented), **WRONG** (implemented but violates the design), **INCOMPLETE** (some surfaces done, others dropped), **QUALITY** (conforms but breaks a code standard).
+Classify each finding: **MISSING** (design requirement unimplemented), **WRONG** (implemented but violates the design), **INCOMPLETE** (some surfaces done, others dropped), **GUIDELINE** (conforms to the design but breaks one of G1–G12; name the guideline), **QUALITY** (conforms but breaks a code standard).
 
 **End-of-phase output:**
 ```
 REVIEW: {N} requirements checked
-CONFORMS: {n}  VIOLATES: {n}  MISSING: {n}  INCOMPLETE: {n}  QUALITY: {n}
+CONFORMS: {n}  VIOLATES: {n}  MISSING: {n}  INCOMPLETE: {n}  GUIDELINE: {n}  QUALITY: {n}
 
 Findings (each with: requirement id, surface(s) affected, evidence command+output snippet, root cause):
 1. [MISSING] {requirement} — {what's absent} — {evidence}

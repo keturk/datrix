@@ -117,6 +117,7 @@ This skill executes four phases. Each phase builds on the previous.
    - **Migration/rollout requirements** — read the design's migration strategy, rollout plan, adoption steps, or similar section. List every numbered step. These are implementation work, not future aspirations. If the design says "convert X to Y", that is a task.
    - **Dual-implementation risk** — if the design introduces a new path alongside an existing one (e.g., new format alongside YAML, new API alongside old API), identify all test fixtures, examples, and project configs that currently exercise the OLD path. These must be migrated or the new path will ship untested while old tests pass on the old path.
    - **Dependencies** — what must exist before this design can be implemented
+   - **Design guidelines conformance** — read `datrix/docs/architecture/design-principles.md` § "Design Guidelines (Binding)" and check the design body against each of G1–G12, not just its `## Design guidelines conformance` section (which must be present with all twelve bullets; a design without it is incomplete, and the section is written before Phase 2). A bullet the body contradicts, or a part of the design that breaks a guideline (one language or platform left out with no counted gap, a knob no target realizes, a fact the author states twice, a dual path, a test planned to raise a count, …), is a **blocking open question for Phase 2**: the violating part is corrected or cut before any task is generated, and no task ever implements it. Every task generated for a per-target surface names every registered target on that axis in its acceptance property (G1, G3).
    - **Security posture** — every place the design touches auth, secrets, transport, input at a trust boundary, injection surfaces, permissions/exposure, error/log content, or crypto, **and every emitted default on those surfaces**. Two outputs: (a) each such surface gets a task with a *security* acceptance property (the negative form — the insecure state is absent on the whole surface — plus the positive one), and (b) **any place the design specifies a weaker option than one that is plainly available is an open question for Phase 2, never an implementation detail.** Per execution-contract §13.7, a security posture is Jon's call and is settled at design time — you do not silently implement the weaker option, and you do not silently substitute the stronger one.
 
 ## Phase 1 Completion Gate
@@ -126,6 +127,7 @@ This phase is COMPLETE when:
 - [ ] All architecture docs cross-referenced
 - [ ] Open questions identified and investigated (not just listed)
 - [ ] Decision points classified correctly
+- [ ] Design checked against G1–G12; every violation recorded as a blocking open question
 - [ ] Implementation scope determined
 - [ ] Dependencies identified
 - [ ] Output matches the format below exactly

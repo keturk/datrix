@@ -16,6 +16,43 @@ unspecified features.
   implementing straight from the design.
 - **Never modify a design doc during implementation.**
 
+## Every design passes the design guidelines
+
+The twelve binding guidelines (G1–G12, `datrix/docs/architecture/design-principles.md` §
+"Design Guidelines (Binding)") are the standard for every design, every implementation and
+every decision between options. Read that section before writing, reviewing or implementing a
+design.
+
+- **A design doc carries the conformance section**, written by its author before the doc is
+  saved: a `## Design guidelines conformance` heading, then one bullet per guideline, each
+  saying how the design satisfies it or why the design does not touch it:
+
+  ```markdown
+  ## Design guidelines conformance
+  - G1: <how every language realizes this identically> | N/A: <why no language surface is touched>
+  - G2: …
+  - …
+  - G12: …
+  ```
+
+  All twelve, every bullet with text after the colon. `guard-repo-policy-edits.py` refuses a
+  Write of a design doc under `design/` without it, and an Edit that drops a bullet.
+- **A design that breaks a guideline is a defective draft.** Fix the draft; never record the
+  violation as an accepted trade-off, a later phase, or an option for Jon. A guideline outranks
+  simplicity, size and speed exactly as security does.
+- **An implementation is checked against the guidelines, not only the design.** A design that
+  passed review can still be realized in a way that breaks one (a per-language copy, an inert
+  knob, a test written to raise a count); `/verify-implementation` treats that as a defect.
+- **A decision between options ranks by the guidelines first.** An option that breaks one is not
+  an option. Among options that satisfy all twelve, the security ranking and the rest of the
+  design principles decide.
+- **A guideline conflict an unimplemented design can fix is fixed in that design.** When a draft
+  (or a not-yet-implemented design) on the conflicting surface exists, edit its decisions, work
+  items and conformance bullets to close the conflict, citing the facts; never file a finding for
+  it and never leave the draft pointing at one. Only a conflict in already-implemented code with
+  no unimplemented design on its surface is a findings file naming both, and it is never silently
+  re-decided inside an unrelated task.
+
 **One exception, and it is exactly one line.** At the very end of a `/task-orchestrator`
 run (its Step 4), the orchestrator rewrites a design doc's `Status:` line to `Implemented`
 — and only when every task referencing that doc, across ALL phases and not just the run's,

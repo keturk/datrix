@@ -121,7 +121,9 @@ sense that a decision is "genuinely hard" — most of the time it is genuinely u
    question is actually as claimed. A conflict that evaporates on a direct read was never a decision.
 3. **Enumerate the options.** State each candidate resolution and what it costs — which files change,
    which tasks get rewritten, which invariant goes unproven.
-4. **Try to break the tie from the docs.** `design-principles.md`, the architecture cheat sheet, the
+4. **Try to break the tie from the docs.** First the design guidelines G1–G12 (`design-principles.md`
+   § "Design Guidelines (Binding)"): an option that breaks one is struck, so a tie between a
+   conforming and a violating option is no tie. Then the rest of `design-principles.md`, the architecture cheat sheet, the
    governing design doc, CLAUDE.md, and existing patterns in the codebase settle most apparent ties.
    If one of them settles it → **rung 2: decide, and proceed.** Do not escalate.
 

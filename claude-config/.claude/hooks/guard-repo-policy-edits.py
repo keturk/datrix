@@ -32,7 +32,15 @@
    twin) whose `lib\\` module or `datrix_scripts.gates.*` module does, is refused; a source-census
    gate imports no probe and passes. The parity runner's own modules are the one carrier and pass.
 
-All four fail OPEN on anything the hook cannot evaluate (unparseable input, unreadable file).
+5. EVERY DESIGN ANSWERS THE DESIGN GUIDELINES. design-and-docs.md: a design doc under `design/`
+   carries a `## Design guidelines conformance` section with one bullet per binding guideline
+   (`- G1: ...` through the last one `design-principles.md` defines), each with text after the
+   colon. A Write of a design doc without every bullet is refused, and so is an Edit that drops
+   a bullet the doc carried. The guideline ids are read from `design-principles.md` itself, so a
+   guideline added there is required here with no edit to this hook. The design index
+   (`000-*.md`) is not a design and passes.
+
+All five fail OPEN on anything the hook cannot evaluate (unparseable input, unreadable file).
 
 Exit codes:
   0 -- allow
@@ -83,6 +91,18 @@ _PARITY_RUNNER_MODULES: Final = frozenset(
         "datrix/scripts/common/lib/datrix_scripts/gates/parity/parity_observers.py",
     }
 )
+
+# A numbered design doc in a `design/` folder; the `000-` index is not a design.
+_DESIGN_DOC_RE: Final = re.compile(r"(?:^|/)design/(?!000-)\d{3}-[^/]+\.md$")
+_GUIDELINES_DOC: Final = os.path.join(_REPO_ROOT, "datrix", "docs", "architecture", "design-principles.md")
+# A guideline's definition in design-principles.md: `**G7. Secure by default ...`.
+_GUIDELINE_DEFINITION_RE: Final = re.compile(r"^\*\*G(\d+)\.", re.MULTILINE)
+_CONFORMANCE_HEADING: Final = "## Design guidelines conformance"
+_CONFORMANCE_SECTION_RE: Final = re.compile(
+    r"^##[ \t]+Design guidelines conformance[ \t]*$(.*?)(?=^##[ \t]|\Z)", re.MULTILINE | re.DOTALL | re.IGNORECASE
+)
+# One answered bullet: `- G3: <text>` (bold id allowed).
+_CONFORMANCE_BULLET_RE: Final = re.compile(r"^[ \t]*[-*][ \t]+\**G(\d+)\**[ \t]*:\**[ \t]*\S", re.MULTILINE)
 
 
 def _normalize(path: str) -> str:
@@ -221,6 +241,53 @@ def _check_probe_gate(tool_input: dict[str, object], path: str) -> None:
     )
 
 
+def _guideline_ids() -> frozenset[int]:
+    """The guideline ids design-principles.md defines; empty when it cannot be read (fail open)."""
+    return frozenset(int(found) for found in _GUIDELINE_DEFINITION_RE.findall(_read(_GUIDELINES_DOC)))
+
+
+def _answered_guidelines(content: str) -> frozenset[int]:
+    section = _CONFORMANCE_SECTION_RE.search(content)
+    if not section:
+        return frozenset()
+    return frozenset(int(found) for found in _CONFORMANCE_BULLET_RE.findall(section.group(1)))
+
+
+def _edited_content(tool_input: dict[str, object], current: str) -> str:
+    old = str(tool_input.get("old_string", ""))
+    new = str(tool_input.get("new_string", ""))
+    if not old:
+        return current
+    return current.replace(old, new) if tool_input.get("replace_all") else current.replace(old, new, 1)
+
+
+def _check_design_conformance(tool: str, tool_input: dict[str, object], path: str) -> None:
+    if not _DESIGN_DOC_RE.search(path.lower()) or any(seg in path.lower() for seg in _THIRD_PARTY_SEGMENTS):
+        return
+    required = _guideline_ids()
+    if not required:
+        return
+    if tool == "Write":
+        missing = required - _answered_guidelines(str(tool_input.get("content", "")))
+    else:
+        current = _read(path)
+        carried = _answered_guidelines(current) & required
+        missing = carried - _answered_guidelines(_edited_content(tool_input, current))
+    if not missing:
+        return
+    ids = ", ".join(f"G{number}" for number in sorted(missing))
+    _block(
+        f"BLOCKED: design doc `{path}` would lack an answer for {ids} in its "
+        f"`{_CONFORMANCE_HEADING}` section.\n\n"
+        ".claude/rules/design-and-docs.md: every design is checked against the binding design guidelines "
+        "(`datrix/docs/architecture/design-principles.md` section 'Design Guidelines (Binding)'). Read them, "
+        f"then give the doc a `{_CONFORMANCE_HEADING}` section with one bullet per guideline -- "
+        "`- G1: <how the design satisfies it>` or `- G1: N/A: <why the design does not touch it>` -- for "
+        f"every one of G{min(required)}..G{max(required)}. A design that breaks a guideline is a defective "
+        "draft: change the design, never the answer."
+    )
+
+
 def main() -> None:
     try:
         data = json.loads(sys.stdin.read())
@@ -238,6 +305,7 @@ def main() -> None:
     path = _normalize(raw_path)
     _check_workflow(path)
     _check_task_heading(tool, tool_input, path)
+    _check_design_conformance(tool, tool_input, path)
     if tool == "Write":
         _check_new_phase(path, str(data.get("session_id", "")))
         _check_probe_gate(tool_input, path)

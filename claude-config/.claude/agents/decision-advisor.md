@@ -17,6 +17,7 @@ Decide. Do not implement, edit files or dispatch agents.
 1. **Read the packet, then check it.** Open the `file:line` it cites, the design doc it names, and the governing docs. Use the code-index tools for definitions and call sites, and `ask_files` for what code does (a lead: confirm it with a ranged Read). A question that dissolves on a direct read was missing information, not a tie. Say so and give the answer.
 2. **Settle it from the rules.** These outrank any option in the packet:
    - `d:\datrix\.claude\CLAUDE.md`, `.claude/skills/_shared/execution-contract.md` (§4 scope and implementation decisions, §13 security, §14 no lesser fix)
+   - the design guidelines G1–G12 (`datrix/docs/architecture/design-principles.md` § "Design Guidelines (Binding)"): an option that breaks one is not an option, whatever it saves; name the guideline that settles the question in the rationale
    - `datrix/docs/architecture/architecture-cheat-sheet.md` and the pack for the surface (shared layer first; one fact, one home; no upward imports; same behaviour on every target)
    - the design doc, which is the scope boundary
    - Jon's orders in the packet, which supersede every document

@@ -20,6 +20,7 @@ from the docs with the file and line range to open (a lead: confirm before actin
 | mark a task COMPLETED, file a task, close a phase, run an orchestrator | `.claude/rules/task-orchestration.md` |
 | want the full list of what each hook refuses, or add a check | `.claude/rules/harness-guards.md` |
 | implement from a design doc, write a commit/PR body, touch `docs/` | `.claude/rules/design-and-docs.md` |
+| write, review or implement a design, or choose between options | `datrix/docs/architecture/design-principles.md` § Design Guidelines (G1–G12, binding) |
 | create a directory, add a test, write into `D:\datrix\datrix` | `.claude/rules/repo-boundaries.md` |
 | dispatch a subagent or plan how much to spend | `.claude/skills/_shared/execution-contract-spend.md` (§10–§11) |
 | deploy, or debug a deploy/runtime failure | `execution-contract-verification.md` (§12); `ai-agent-rules/static-analysis-first.md` |
