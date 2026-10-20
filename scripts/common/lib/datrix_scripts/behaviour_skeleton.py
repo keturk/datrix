@@ -21,10 +21,10 @@ comprehension or ``raise``, no attribute chain rooted at a parameter or
 ``self``, and every call resolving to the shared codegen layer, the standard
 library, or nothing in the function's own import table. ``behaviour_arity``
 is a second, independent fact -- the function's behaviour-bearing parameter
-count -- that ``behaviour_parity.py`` combines with the statement-line
+count -- that ``behaviour_parity_gate`` combines with the statement-line
 skeleton below when classifying a role. Arity is measured PER ROLE, not per
 member: ``plumbing_parameter_names`` names the parameters one member drops
-as language-private, ``behaviour_parity.py`` unions that set across every
+as language-private, ``behaviour_parity_gate`` unions that set across every
 member of the role, and passes it back into ``behaviour_arity`` as
 ``extra_plumbing`` so a parameter name any member drops as plumbing is
 dropped for every member -- a language whose own file-scope subclass
@@ -1007,7 +1007,7 @@ def behaviour_arity(fn: FunctionSource, *, extra_plumbing: frozenset[str] = froz
     plumbing must be dropped for every member sharing that name, even a
     member whose own annotation resolves inside the shared layer and so
     would not, on its own, be dropped by the rule above --
-    ``behaviour_parity.py``'s ``_classify_role`` computes the union of
+    ``behaviour_parity_gate``'s ``_classify_role`` computes the union of
     ``plumbing_parameter_names`` across a role's members and passes it back
     in here for each one.
 
@@ -1096,7 +1096,7 @@ def _qualified_annotation_name(node: ast.expr, import_table: dict[str, str]) -> 
     A quoted forward-reference string (``"Command"``, needed only to satisfy
     a linter under ``from __future__ import annotations``, which already
     defers evaluation of an unquoted one) is re-parsed as an expression
-    first -- the same technique ``behaviour_parity.py``'s
+    first -- the same technique ``behaviour_parity_gate``'s
     ``_parse_string_annotation`` uses for a return annotation -- then
     resolved the same way; a string that fails to parse is unresolvable,
     not an error, matching this function's own fail-open contract (unlike

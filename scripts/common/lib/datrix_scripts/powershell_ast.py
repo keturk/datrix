@@ -2,7 +2,7 @@
 
 A ``param()`` block, the commands a script calls and the parameters it passes them, and which
 variables a flow-control statement assigns and which ``+=`` grows, are structure: a regex over ``.ps1`` text misreads comments, here-strings, splatting and line
-continuations. ``parse_scripts`` hands every path to ONE ``powershell -NoProfile`` child, which
+continuations. So is how many lines hold code rather than comments, read from the parser's tokens. ``parse_scripts`` hands every path to ONE ``powershell -NoProfile`` child, which
 parses each file with ``[System.Management.Automation.Language.Parser]::ParseFile`` and prints
 one compact JSON line per script; one child per call keeps a census over hundreds of scripts to
 one process start. Every value handed to ``ConvertTo-Json`` is a plain string or array: a line
@@ -87,6 +87,12 @@ foreach ($path in $paths) {
             })
         }
     }
+    $expandableAsts = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.ExpandableStringExpressionAst] }, $true)
+    $codeLines = @{}
+    foreach ($token in $tokens) {
+        if (@('Comment', 'NewLine', 'LineContinuation', 'EndOfInput') -contains [string]$token.Kind) { continue }
+        for ($line = $token.Extent.StartLineNumber; $line -le $token.Extent.EndLineNumber; $line++) { $codeLines[$line] = $true }
+    }
     $fact = [pscustomobject]@{
         path = $path
         parse_errors = @($errors | ForEach-Object { $_.Message })
@@ -95,6 +101,8 @@ foreach ($path in $paths) {
         functions = @($functionAsts | ForEach-Object { [string]$_.Name })
         statement_assignments = @($statementAssignments)
         appended_variables = @($appended)
+        expandable_strings = @($expandableAsts | ForEach-Object { [string]$_.Extent.Text })
+        code_lines = [int]$codeLines.Count
     }
     [Console]::Out.WriteLine((ConvertTo-Json -InputObject $fact -Depth 5 -Compress))
 }
@@ -138,6 +146,11 @@ class ScriptFacts:
     statement_assignments: tuple[StatementAssignment, ...]
     #: The variable of every ``+=``, at any depth (repeats kept).
     appended_variables: tuple[str, ...]
+    #: The source text of every expandable (interpolating, double-quoted) string, at any depth.
+    expandable_strings: tuple[str, ...]
+    #: How many lines carry a token other than a comment: blank lines, comment lines and the
+    #: comment-based help block do not count; a token spanning lines (a here-string) counts each.
+    code_lines: int
 
     def unrolled_then_appended(self) -> list[StatementAssignment]:
         """The statement assignments whose variable the script also grows with ``+=``: when the
@@ -211,6 +224,8 @@ def _facts(entry: dict[str, object]) -> ScriptFacts:
         functions=tuple(str(name) for name in _as_list(entry.get("functions"))),
         statement_assignments=statement_assignments,
         appended_variables=tuple(str(name) for name in _as_list(entry.get("appended_variables"))),
+        expandable_strings=tuple(str(text) for text in _as_list(entry.get("expandable_strings"))),
+        code_lines=int(str(entry["code_lines"])),
     )
 
 

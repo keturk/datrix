@@ -96,6 +96,19 @@ def parameter_block(wrapper_text: str) -> str | None:
     return wrapper_text[first_line_end:marker]
 
 
+def rendered_module(wrapper_text: str, template: str) -> str | None:
+    """The module a wrapper rendered from *template* runs: what its copy of the template's
+    ``{{MODULE}}`` line holds in that placeholder's place. None when no line of the wrapper has that shape."""
+    module_line = next((line for line in template.splitlines() if MODULE_PLACEHOLDER in line), None)
+    if module_line is None:
+        raise ValueError(f"The wrapper template lacks {MODULE_PLACEHOLDER!r}. Expected it in {PS1_TEMPLATE}; restore it.")
+    prefix, suffix = module_line.split(MODULE_PLACEHOLDER, 1)
+    for line in wrapper_text.splitlines():
+        if len(line) > len(prefix) + len(suffix) and line.startswith(prefix) and line.endswith(suffix):
+            return line[len(prefix):len(line) - len(suffix)]
+    return None
+
+
 def _first_difference(actual: str, expected: str) -> str:
     for number, (got, want) in enumerate(zip(actual.splitlines(), expected.splitlines()), start=1):
         if got != want:
@@ -103,26 +116,35 @@ def _first_difference(actual: str, expected: str) -> str:
     return f"it has {len(actual.splitlines())} line(s), the template renders {len(expected.splitlines())}"
 
 
+def ps1_rendering_problems(wrapper_text: str, module: str, ps1_template: str) -> list[str]:
+    """Why *wrapper_text* is not the ``.ps1`` template rendered for *module*; empty when it is."""
+    block = parameter_block(wrapper_text)
+    if block is None:
+        return [f"the wrapper has no {RENDERED_MARKER!r} line, so it was not rendered from the template"]
+    expected = render_ps1(block, module, ps1_template)
+    if wrapper_text != expected:
+        return [f"the wrapper is not the template rendered for {module}: {_first_difference(wrapper_text, expected)}"]
+    return []
+
+
+def twin_rendering_problems(twin_text: str | None, module: str, sh_template: str) -> list[str]:
+    """Why *twin_text* (None: no twin) is not the ``.sh`` template rendered for *module*; empty when it is."""
+    if twin_text is None:
+        return [f"the wrapper has no {SH_SUFFIX} twin"]
+    expected = render_sh(module, sh_template)
+    if twin_text != expected:
+        return [f"the {SH_SUFFIX} twin is not the template rendered for {module}: {_first_difference(twin_text, expected)}"]
+    return []
+
+
 def text_rendering_problems(
     wrapper_text: str, twin_text: str | None, module: str, ps1_template: str, sh_template: str
 ) -> list[str]:
     """Why *wrapper_text* and *twin_text* are not the templates rendered for *module*; empty when they are."""
-    block = parameter_block(wrapper_text)
-    if block is None:
-        return [f"the wrapper has no {RENDERED_MARKER!r} line, so it was not rendered from the template"]
-    problems: list[str] = []
-    expected = render_ps1(block, module, ps1_template)
-    if wrapper_text != expected:
-        problems.append(f"the wrapper is not the template rendered for {module}: {_first_difference(wrapper_text, expected)}")
-    if twin_text is None:
-        problems.append(f"the wrapper has no {SH_SUFFIX} twin")
-    else:
-        expected_twin = render_sh(module, sh_template)
-        if twin_text != expected_twin:
-            problems.append(
-                f"the {SH_SUFFIX} twin is not the template rendered for {module}: {_first_difference(twin_text, expected_twin)}"
-            )
-    return problems
+    return [
+        *ps1_rendering_problems(wrapper_text, module, ps1_template),
+        *twin_rendering_problems(twin_text, module, sh_template),
+    ]
 
 
 def rendering_problems(wrapper: Path, module: str) -> list[str]:
@@ -198,6 +220,8 @@ def self_test_problems() -> list[str]:
         ("a missing twin", sound, None, True),
         ("no rendered marker", block, twin, True),
     )
+    if rendered_module(sound, ps1_template) != module or rendered_module(block, ps1_template) is not None:
+        failures.append(f"rendered_module did not read {module!r} from a sound rendering, or read one from no rendering")
     for label, wrapper_text, twin_text, drifts in cases:
         found = bool(text_rendering_problems(wrapper_text, twin_text, module, ps1_template, sh_template))
         if found != drifts:

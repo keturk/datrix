@@ -1,0 +1,1102 @@
+"""
+Two-pass Vulture dead-code report: classify as "never referenced" or "only referenced by tests".
+
+``scripts/metrics/dead-code-report.ps1`` (and its ``.sh`` twin) runs this module; ``dev/code_scan.py`` and the
+code-index gate import its findings. Runs Vulture once on src only (Pass 1) and once on src + tests (Pass 2).
+Items in src that appear in Pass 1 but not in Pass 2 are "only referenced by tests"; items in both are
+"never referenced". Output is per-project, or JSON with --output json.
+
+Includes automatic false-positive filtering for common framework patterns (Pydantic, Typer,
+Enum, dynamic dispatch). Use --raw to disable filtering.
+
+Exit codes: 0 = report written; 1 = no valid project selected, an unknown package, or Vulture did not complete a
+scan; 2 = a usage error.
+
+Usage (PYTHONPATH=scripts/common/lib; the wrapper sets it):
+    python -m datrix_scripts.metrics.dead_code_report [--all | --projects datrix-common ...]
+    python -m datrix_scripts.metrics.dead_code_report --all --output json
+    python -m datrix_scripts.metrics.dead_code_report --all --raw
+    python -m datrix_scripts.metrics.dead_code_report --self-test
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import contextlib
+import importlib.util
+import io
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Final, NamedTuple
+
+from datrix_scripts.framework_repos import SHOWCASE_REPO_NAME, PackageMarker, workspace_package_dirs
+from datrix_scripts.gate_harness import write_files
+from datrix_scripts.local_llm import (
+    ADVISORY_UNAVAILABLE_SOURCE,
+    AdvisoryText,
+    ChatRequest,
+    LocalLlmSettings,
+    add_wrapper_llm_arguments,
+    advisory_reply,
+    wrapper_llm_settings,
+)
+from datrix_scripts.metrics.projects import add_project_arguments, plant_workspace, requested_projects
+from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.test.wrappers import METRICS_SCRIPTS_DIR, module_main, run_self_test
+from datrix_scripts.venv import SCRIPTS_DEPENDENCY_GROUP, missing_declared_tool
+
+MODULE: Final = "datrix_scripts.metrics.dead_code_report"
+WRAPPER: Final = "dead-code-report"
+NO_VALID_PROJECTS: Final = (
+    "ERROR: No valid projects selected. Pass one or more datrix-* package names or paths (excluding 'datrix')."
+)
+EXIT_REPORTED: Final = 0
+EXIT_REFUSED: Final = 1
+
+# Default exclude for Pass 1 (src only): exclude tests and cache
+EXCLUDE_SRC_ONLY = "*\\tests\\*,*\\test\\*,*__pycache__*,*.git*"
+# Pass 2 (src + tests): exclude only cache
+EXCLUDE_SRC_AND_TESTS = "*__pycache__*,*.git*"
+
+# Each package's known Vulture false positives, at its root. Vulture's whitelist
+# format is a list of bare names and ``_.attr`` reads, never bound in the file.
+VULTURE_WHITELIST_FILE = "vulture_whitelist.py"
+VULTURE_SORT_BY_SIZE = "--sort-by-size"
+VULTURE_MAKE_WHITELIST = "--make-whitelist"
+# --make-whitelist candidates go here, never into a package: <workspace>/.test-output/vulture/.
+WHITELIST_CANDIDATES_DIR_PARTS = (".test-output", "vulture")
+WHITELIST_CANDIDATES_TEMPLATE = "{package}-whitelist-candidates.py"
+
+# Include functions/classes/methods: Vulture reports them at 60% confidence (variables at 100%).
+DEFAULT_MIN_CONFIDENCE = 60
+DEFAULT_LLM_NUM_PREDICT = 4096
+DEFAULT_LLM_TEMPERATURE = 0.1
+DEFAULT_LLM_FINDING_LIMIT = 30
+DEFAULT_LLM_TIMEOUT_SECONDS: Final = 180
+
+# Vulture output line: path:line: message (N% confidence)
+# Path may contain colons on Windows (e.g. C:\...). Symbol in message: unused type 'name'
+_LINE_RE = re.compile(
+    r"^(.+):(\d+): (unused .+?) \((\d+)% confidence(?:, (\d+) lines?)?\)\s*$"
+)
+_SYMBOL_RE = re.compile(r"unused \w+ '([^']+)'")
+_KIND_RE = re.compile(r"unused (variable|function|class|method|attribute|import|property|unreachable_code)\s+")
+# Display order: classes/functions/methods first, then variables/attributes/imports
+KIND_ORDER = ("class", "function", "method", "attribute", "property", "variable", "import", "unreachable_code", "other")
+# Human-readable section headers (plural/capitalized)
+KIND_LABELS: dict[str, str] = {
+    "class": "Classes",
+    "function": "Functions",
+    "method": "Methods",
+    "attribute": "Attributes",
+    "property": "Properties",
+    "variable": "Variables",
+    "import": "Imports",
+    "unreachable_code": "Unreachable code",
+    "other": "Other",
+}
+
+# --- Known false-positive patterns (quick filters) ---
+_SKIP_SYMBOLS = frozenset({"model_config", "__all__"})
+# Dunder methods that are called by Python itself, not by user code
+_SKIP_DUNDER_NAMES = frozenset({
+    "__class_getitem__", "__getattr__", "__signature__", "__qualname__", "__doc__",
+    "__init_subclass__", "__set_name__", "__repr__", "__str__", "__hash__",
+    "__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__len__",
+    "__iter__", "__next__", "__contains__", "__getitem__", "__setitem__",
+    "__delitem__", "__call__", "__enter__", "__exit__", "__aenter__", "__aexit__",
+    "__aiter__", "__anext__", "__bool__", "__format__", "__del__", "__copy__",
+    "__deepcopy__", "__reduce__", "__reduce_ex__", "__sizeof__", "__subclasshook__",
+    "__init__", "__new__", "__post_init__", "__get__", "__set__", "__delete__",
+})
+_SKIP_SYMBOL_PREFIXES = ("_transform_",)
+_SKIP_PATH_SEGMENTS = ("builtins/objects/", "builtins\\objects\\")
+
+# --- AST-based filter constants ---
+_ENUM_BASES = frozenset({"Enum", "StrEnum", "IntEnum", "Flag", "IntFlag"})
+_PYDANTIC_BASES = frozenset({"BaseModel", "BaseSettings"})
+_VALIDATOR_DECORATORS = frozenset({
+    "field_validator", "model_validator", "computed_field", "field_serializer",
+})
+#: Decorators that register a module-level function with a registry, so the
+#: function is reached through that registry rather than by name: Typer's
+#: ``command``/``callback``.
+_COMMAND_DECORATORS = frozenset({"command", "callback"})
+
+
+class Finding(NamedTuple):
+    """A single Vulture finding: file, line, message, confidence, symbol name, kind (variable/function/class/...)."""
+
+    file: str
+    line: int
+    message: str
+    confidence: int
+    symbol: str
+    kind: str
+    # Lines of code of an unused function or class; Vulture reports it only with --sort-by-size.
+    size: int = 0
+
+
+def format_finding(f: Finding) -> str:
+    """One report line, as Vulture writes it (with the size when it reported one)."""
+    size = f", {f.size} lines" if f.size else ""
+    return f"{f.file}:{f.line}: {f.message} ({f.confidence}% confidence{size})"
+
+
+def finding_order(sort_by_size: bool) -> Callable[[Finding], tuple[int, str, int]]:
+    """Report order: largest unused definition first with ``sort_by_size``, else by file and line."""
+    if sort_by_size:
+        return lambda f: (-f.size, f.file, f.line)
+    return lambda f: (0, f.file, f.line)
+
+
+class FileContext(NamedTuple):
+    """Cached AST-derived context for a single source file."""
+
+    pydantic_field_lines: frozenset[int]
+    enum_member_lines: frozenset[int]
+    validator_lines: frozenset[int]
+    typer_command_lines: frozenset[int]
+
+
+class FilterResult(NamedTuple):
+    """Result of applying false-positive filters to findings."""
+
+    kept: dict[tuple[str, int, str], Finding]
+    removed_count: int
+
+
+# ---------------------------------------------------------------------------
+# AST helpers
+# ---------------------------------------------------------------------------
+
+def _base_name(node: ast.expr) -> str:
+    """Extract the simple name from a base class node (Name, Attribute, or Subscript)."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Subscript):
+        return _base_name(node.value)
+    return ""
+
+
+def _has_model_config(cls_node: ast.ClassDef) -> bool:
+    """Check if a class body contains a ``model_config = ...`` assignment."""
+    for item in cls_node.body:
+        if isinstance(item, ast.Assign):
+            for target in item.targets:
+                if isinstance(target, ast.Name) and target.id == "model_config":
+                    return True
+    return False
+
+
+def _decorator_name(dec: ast.expr) -> str:
+    """Extract the terminal name from a decorator (handles @name, @obj.name, @obj.name(...))."""
+    if isinstance(dec, ast.Name):
+        return dec.id
+    if isinstance(dec, ast.Attribute):
+        return dec.attr
+    if isinstance(dec, ast.Call):
+        return _decorator_name(dec.func)
+    return ""
+
+
+def _check_decorated_func(
+    func_node: ast.FunctionDef | ast.AsyncFunctionDef,
+    validator_lines: set[int],
+    command_lines: set[int],
+) -> None:
+    """Check a function's decorators and add relevant line numbers.
+
+    Adds both the def line and all decorator lines, since Vulture may report
+    either the decorator line or the def line depending on the Python version.
+    """
+    for dec in func_node.decorator_list:
+        name = _decorator_name(dec)
+        if name in _VALIDATOR_DECORATORS:
+            validator_lines.add(func_node.lineno)
+            for d in func_node.decorator_list:
+                validator_lines.add(d.lineno)
+            return
+        if name in _COMMAND_DECORATORS:
+            command_lines.add(func_node.lineno)
+            for d in func_node.decorator_list:
+                command_lines.add(d.lineno)
+            return
+
+
+def _build_file_context(file_path: str) -> FileContext:
+    """Parse a source file and extract line-number sets for AST-based false-positive detection."""
+    pydantic_lines: set[int] = set()
+    enum_lines: set[int] = set()
+    validator_lines: set[int] = set()
+    command_lines: set[int] = set()
+
+    try:
+        source = Path(file_path).read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=file_path)
+    except (OSError, SyntaxError):
+        return FileContext(frozenset(), frozenset(), frozenset(), frozenset())
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            base_names = {_base_name(b) for b in node.bases}
+            is_pydantic = bool(base_names & _PYDANTIC_BASES) or _has_model_config(node)
+            is_enum = bool(base_names & _ENUM_BASES)
+
+            for item in node.body:
+                if is_pydantic and isinstance(item, ast.AnnAssign):
+                    pydantic_lines.add(item.lineno)
+                if is_enum and isinstance(item, ast.Assign):
+                    enum_lines.add(item.lineno)
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _check_decorated_func(item, validator_lines, command_lines)
+
+        # Top-level function defs for Typer commands (not inside a class)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _check_decorated_func(node, validator_lines, command_lines)
+
+    return FileContext(
+        pydantic_field_lines=frozenset(pydantic_lines),
+        enum_member_lines=frozenset(enum_lines),
+        validator_lines=frozenset(validator_lines),
+        typer_command_lines=frozenset(command_lines),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Filter functions
+# ---------------------------------------------------------------------------
+
+def _is_false_positive_quick(finding: Finding) -> bool:
+    """Check name/path-based false-positive patterns (no file I/O)."""
+    if finding.symbol in _SKIP_SYMBOLS:
+        return True
+    if finding.symbol in _SKIP_DUNDER_NAMES:
+        return True
+    if finding.kind in ("function", "method"):
+        for prefix in _SKIP_SYMBOL_PREFIXES:
+            if finding.symbol.startswith(prefix):
+                return True
+    normalized_path = finding.file.replace("\\", "/")
+    for segment in _SKIP_PATH_SEGMENTS:
+        if segment.replace("\\", "/") in normalized_path:
+            return True
+    return False
+
+
+def _is_false_positive_ast(finding: Finding, ctx: FileContext) -> bool:
+    """Check AST-based false-positive patterns using cached file context."""
+    if finding.kind == "variable" and finding.line in ctx.enum_member_lines:
+        return True
+    if finding.kind == "variable" and finding.line in ctx.pydantic_field_lines:
+        return True
+    if finding.kind in ("function", "method") and finding.line in ctx.validator_lines:
+        return True
+    if finding.kind == "function" and finding.line in ctx.typer_command_lines:
+        return True
+    return False
+
+
+def _apply_filters(
+    findings: dict[tuple[str, int, str], Finding],
+    file_context_cache: dict[str, FileContext],
+) -> FilterResult:
+    """Apply false-positive filters to findings. Returns kept findings and removed count."""
+    kept: dict[tuple[str, int, str], Finding] = {}
+    removed_count = 0
+
+    for key, finding in findings.items():
+        if _is_false_positive_quick(finding):
+            removed_count += 1
+            continue
+
+        resolved_path = str(Path(finding.file).resolve())
+        if resolved_path not in file_context_cache:
+            file_context_cache[resolved_path] = _build_file_context(resolved_path)
+        ctx = file_context_cache[resolved_path]
+
+        if _is_false_positive_ast(finding, ctx):
+            removed_count += 1
+            continue
+
+        kept[key] = finding
+
+    return FilterResult(kept=kept, removed_count=removed_count)
+
+
+# ---------------------------------------------------------------------------
+# Core functions
+# ---------------------------------------------------------------------------
+
+def _discover_packages(workspace_root: Path) -> dict[str, Path]:
+    """Return dict project_name -> project root for each datrix-* dir with pyproject.toml."""
+    if not workspace_root.is_dir():
+        return {}
+    return {
+        child.name: child.resolve()
+        for child in workspace_package_dirs(workspace_root, any_of=frozenset({PackageMarker.PYPROJECT}))
+        if (child / PackageMarker.PYPROJECT.value).is_file()
+    }
+
+
+def _parse_line(line: str) -> Finding | None:
+    """Parse one line of Vulture stdout. Returns None if not a finding line."""
+    line = line.rstrip()
+    m = _LINE_RE.match(line)
+    if not m:
+        return None
+    path_str, line_str, message, conf_str, size_str = m.groups()
+    sym_m = _SYMBOL_RE.search(message)
+    symbol = sym_m.group(1) if sym_m else message
+    kind_m = _KIND_RE.match(message)
+    kind = kind_m.group(1) if kind_m else "other"
+    return Finding(
+        file=path_str,
+        line=int(line_str),
+        message=message,
+        confidence=int(conf_str),
+        symbol=symbol,
+        kind=kind,
+        size=int(size_str) if size_str else 0,
+    )
+
+
+def _normalize_key(f: Finding, workspace_root: Path) -> tuple[str, int, str]:
+    """Stable key for matching findings across passes: (normalized_path, line, symbol)."""
+    try:
+        resolved = Path(f.file).resolve()
+        norm = str(resolved)
+    except (OSError, RuntimeError):
+        norm = str(Path(f.file))
+    return (norm, f.line, f.symbol)
+
+
+def _is_under_src(path_str: str, project_roots: list[Path]) -> bool:
+    """True if path is under any project's src/ directory."""
+    try:
+        p = Path(path_str).resolve()
+        for root in project_roots:
+            src_dir = root / "src"
+            try:
+                p.relative_to(src_dir)
+                return True
+            except ValueError:
+                continue
+    except (OSError, RuntimeError):
+        pass
+    return False
+
+
+def _project_for_path(path_str: str, packages: dict[str, Path]) -> str | None:
+    """Return project name if path is under that project's src/, else None."""
+    try:
+        p = Path(path_str).resolve()
+        for name, root in packages.items():
+            src_dir = root / "src"
+            try:
+                p.relative_to(src_dir)
+                return name
+            except ValueError:
+                continue
+    except (OSError, RuntimeError):
+        pass
+    return None
+
+
+class DeadCodeError(RuntimeError):
+    """The dead-code scan cannot run as asked; the message says why."""
+
+
+# Vulture runs as a module of this interpreter, so the shared venv's copy is the one that scans.
+_VULTURE_MODULE = "vulture"
+# Vulture's exit codes for a completed scan: 0 = nothing found, 3 = dead code found. Any
+# other code (1 invalid input, 2 bad arguments) means no scan happened -- and reading its
+# empty stdout as "no dead code" is exactly the fail-open this module once had: every report
+# was clean in a venv without Vulture installed.
+_VULTURE_COMPLETED = frozenset({0, 3})
+
+
+def _vulture_output(
+    paths: list[str], exclude_pattern: str, min_confidence: int, cwd: str, extra: tuple[str, ...] = ()
+) -> subprocess.CompletedProcess[str]:
+    """Run Vulture; its completed output. Raises DeadCodeError when it did not complete a scan."""
+    if importlib.util.find_spec(_VULTURE_MODULE) is None:
+        raise DeadCodeError(missing_declared_tool("vulture", SCRIPTS_DEPENDENCY_GROUP))
+    cmd = [
+        sys.executable,
+        "-m",
+        _VULTURE_MODULE,
+        "--min-confidence",
+        str(max(60, min(100, min_confidence))),
+        "--exclude",
+        exclude_pattern,
+        *extra,
+        *paths,
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+    if result.returncode not in _VULTURE_COMPLETED:
+        detail = (result.stderr or "").strip().splitlines()
+        raise DeadCodeError(
+            f"Vulture did not complete a scan (exit {result.returncode}): "
+            f"{detail[-1] if detail else 'no error output'}."
+        )
+    return result
+
+
+def _run_vulture(
+    paths: list[str],
+    exclude_pattern: str,
+    min_confidence: int,
+    cwd: str,
+    sort_by_size: bool = False,
+) -> tuple[list[Finding], int]:
+    """Run Vulture with given paths and exclude; return (parsed findings, returncode).
+
+    Raises DeadCodeError when Vulture did not complete a scan.
+    """
+    extra = (VULTURE_SORT_BY_SIZE,) if sort_by_size else ()
+    result = _vulture_output(paths, exclude_pattern, min_confidence, cwd, extra)
+    findings: list[Finding] = []
+    for line in (result.stdout or "").splitlines():
+        f = _parse_line(line)
+        if f:
+            findings.append(f)
+    return findings, result.returncode
+
+
+def make_whitelists(
+    workspace_root: Path, project_names: list[str], min_confidence: int, out_dir: Path
+) -> list[Path]:
+    """Write Vulture's ``--make-whitelist`` candidates for each package's ``src/`` (with its
+    existing whitelist) into ``out_dir`` as ``<package>-whitelist-candidates.py``.
+
+    Candidates are written outside every package: a whitelist is reviewed and merged by hand,
+    never dropped into a repo by a scan. Raises DeadCodeError for an unknown package.
+    """
+    packages = _discover_packages(workspace_root)
+    missing = sorted(set(project_names) - set(packages))
+    if missing:
+        raise DeadCodeError(f"unknown package(s): {missing}. Available: {sorted(packages)}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    for name in project_names:
+        paths = _collect_paths({name: packages[name]}, include_tests=False)
+        if not paths:
+            continue
+        result = _vulture_output(paths, EXCLUDE_SRC_ONLY, min_confidence, str(workspace_root),
+                                 (VULTURE_MAKE_WHITELIST,))
+        target = out_dir / WHITELIST_CANDIDATES_TEMPLATE.format(package=name)
+        target.write_text(result.stdout or "", encoding="utf-8")
+        written.append(target)
+    return written
+
+
+def _read_source_excerpt(file_path: str, line: int, radius: int = 4) -> str:
+    """Return a small source excerpt around a finding line."""
+    try:
+        lines = Path(file_path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    start = max(1, line - radius)
+    end = min(len(lines), line + radius)
+    excerpt_lines: list[str] = []
+    for idx in range(start, end + 1):
+        marker = ">" if idx == line else " "
+        excerpt_lines.append(f"{marker} {idx}: {lines[idx - 1]}")
+    return "\n".join(excerpt_lines)
+
+
+def _finding_priority(category: str, finding: Finding) -> tuple[int, int, str]:
+    """Sort likely-actionable findings before noisy lower-value findings."""
+    category_rank = 0 if category == "never_referenced" else 1
+    kind_rank = {
+        "class": 0,
+        "function": 1,
+        "method": 2,
+        "property": 3,
+        "attribute": 4,
+        "variable": 5,
+        "import": 6,
+        "unreachable_code": 7,
+    }.get(finding.kind, 8)
+    return (category_rank, kind_rank, f"{finding.file}:{finding.line}:{finding.symbol}")
+
+
+def _collect_llm_review_items(
+    by_project: dict[str, dict[str, list[Finding]]],
+    limit: int,
+) -> list[tuple[str, str, Finding]]:
+    """Collect a bounded, prioritized list of findings for advisory LLM review."""
+    items: list[tuple[str, str, Finding]] = []
+    for project, data in by_project.items():
+        for category in ("never_referenced", "only_referenced_by_tests"):
+            for finding in data[category]:
+                items.append((project, category, finding))
+    items.sort(key=lambda item: _finding_priority(item[1], item[2]))
+    return items[: max(0, limit)]
+
+
+def _build_llm_review_prompt(
+    by_project: dict[str, dict[str, list[Finding]]],
+    limit: int,
+) -> str:
+    """Build a compact prompt from deterministic Vulture evidence."""
+    items = _collect_llm_review_items(by_project, limit)
+    parts: list[str] = [
+        "Review these deterministic Vulture dead-code findings for Datrix.",
+        "",
+        "Classify each item into exactly one category:",
+        "- safe removal candidate",
+        "- likely entry-point/reflection false positive",
+        "- test-only utility",
+        "- needs whitelist",
+        "",
+        "Rules:",
+        "- Advisory only: never say to delete automatically.",
+        "- Base recommendations only on the evidence shown.",
+        "- Prefer concise rationale grounded in file path, symbol kind, naming, decorators, or source excerpt.",
+        "- When evidence is insufficient, use 'needs whitelist' only if the likely action is whitelisting; otherwise choose the closest matching category and say what should be inspected before action.",
+        "",
+        "Return markdown with:",
+        "1. Overall triage summary.",
+        "2. A table with columns: project, category, symbol, classification, rationale, recommended next action.",
+        "",
+        "Findings:",
+    ]
+    if not items:
+        parts.append("No findings.")
+        return "\n".join(parts)
+
+    for index, (project, category, finding) in enumerate(items, start=1):
+        parts.extend([
+            "",
+            f"### Finding {index}",
+            f"project: {project}",
+            f"deterministic_category: {category}",
+            f"file: {finding.file}",
+            f"line: {finding.line}",
+            f"kind: {finding.kind}",
+            f"symbol: {finding.symbol}",
+            f"message: {finding.message}",
+            f"confidence: {finding.confidence}",
+        ])
+        excerpt = _read_source_excerpt(finding.file, finding.line)
+        if excerpt:
+            parts.extend(["source_excerpt:", "```python", excerpt, "```"])
+    return "\n".join(parts)
+
+
+def _run_llm_review(
+    by_project: dict[str, dict[str, list[Finding]]],
+    limit: int,
+    settings: LocalLlmSettings,
+    num_predict: int,
+    temperature: float,
+) -> AdvisoryText:
+    """Run advisory local LLM review over a bounded set of dead-code findings."""
+    request = ChatRequest(
+        system=(
+            "You are reviewing deterministic dead-code findings. You do not delete code, "
+            "edit files, or override Vulture. You produce advisory markdown only."
+        ),
+        user=_build_llm_review_prompt(by_project, limit),
+        temperature=temperature,
+        max_tokens=num_predict,
+    )
+    return advisory_reply(settings, request, "LLM review")
+
+
+def _collect_paths(
+    packages: dict[str, Path],
+    include_tests: bool,
+) -> list[str]:
+    """Build list of paths to scan: src (and optionally tests) plus whitelists."""
+    paths: list[str] = []
+    for _name, root in packages.items():
+        src = root / "src"
+        if src.is_dir():
+            paths.append(str(src))
+        if include_tests:
+            tests = root / "tests"
+            if tests.is_dir():
+                paths.append(str(tests))
+        whitelist = root / VULTURE_WHITELIST_FILE
+        if whitelist.is_file():
+            paths.append(str(whitelist))
+    return paths
+
+
+class DeadCodeResult(NamedTuple):
+    """Findings per project, each split into never referenced / only referenced by tests."""
+
+    by_project: dict[str, dict[str, list[Finding]]]
+    filtered_count: int
+
+
+def collect_dead_code(
+    workspace_root: Path,
+    project_names: list[str],
+    min_confidence: int,
+    verbose: bool = False,
+    raw: bool = False,
+    sort_by_size: bool = False,
+) -> DeadCodeResult:
+    """Run two-pass Vulture over the named packages and classify every finding.
+
+    ``sort_by_size`` orders each list largest unused definition first (Vulture's own
+    ``--sort-by-size``); otherwise by file and line.
+
+    Raises DeadCodeError when no package matches or none has a src/ tree.
+    """
+    packages = _discover_packages(workspace_root)
+    if not packages:
+        raise DeadCodeError(f"no datrix-* packages found under {workspace_root}")
+
+    selected = [p for p in project_names if p in packages]
+    missing = set(project_names) - set(packages.keys())
+    if missing:
+        raise DeadCodeError(f"unknown package(s): {sorted(missing)}. Available: {sorted(packages.keys())}")
+    if not selected:
+        raise DeadCodeError("no projects selected.")
+
+    packages = {k: v for k, v in packages.items() if k in selected}
+    project_roots = list(packages.values())
+    cwd = str(workspace_root)
+
+    # Pass 1: src only (exclude tests)
+    paths_src_only = _collect_paths(packages, include_tests=False)
+    if not paths_src_only:
+        raise DeadCodeError("no src directories to scan.")
+    if verbose:
+        print("Pass 1 (src only)...", file=sys.stderr)
+    findings_src_only, _ = _run_vulture(
+        paths_src_only,
+        EXCLUDE_SRC_ONLY,
+        min_confidence,
+        cwd,
+        sort_by_size,
+    )
+    set_a = {
+        _normalize_key(f, workspace_root): f
+        for f in findings_src_only
+        if _is_under_src(f.file, project_roots)
+    }
+
+    # Pass 2: src + tests (exclude only __pycache__, .git)
+    paths_with_tests = _collect_paths(packages, include_tests=True)
+    if verbose:
+        print("Pass 2 (src + tests)...", file=sys.stderr)
+    findings_with_tests, _ = _run_vulture(
+        paths_with_tests,
+        EXCLUDE_SRC_AND_TESTS,
+        min_confidence,
+        cwd,
+        sort_by_size,
+    )
+    set_b = {
+        _normalize_key(f, workspace_root): f
+        for f in findings_with_tests
+        if _is_under_src(f.file, project_roots)
+    }
+
+    # Filter false positives (unless --raw)
+    total_filtered = 0
+    if not raw:
+        file_ctx_cache: dict[str, FileContext] = {}
+        result_a = _apply_filters(set_a, file_ctx_cache)
+        set_a = result_a.kept
+        total_filtered += result_a.removed_count
+
+        result_b = _apply_filters(set_b, file_ctx_cache)
+        set_b = result_b.kept
+        total_filtered += result_b.removed_count
+
+        if verbose:
+            print(
+                f"Filtered {total_filtered} false positives "
+                f"({len(file_ctx_cache)} files parsed for AST checks)",
+                file=sys.stderr,
+            )
+
+    # Classify: never_referenced = in B; only_referenced_by_tests = in A but not B
+    never_referenced = {k: set_b[k] for k in set_b}
+    only_by_tests = {k: set_a[k] for k in set_a if k not in set_b}
+
+    # Group by project
+    by_project: dict[str, dict[str, list[Finding]]] = {
+        p: {"never_referenced": [], "only_referenced_by_tests": []}
+        for p in sorted(packages.keys())
+    }
+    for k, f in never_referenced.items():
+        proj = _project_for_path(f.file, packages)
+        if proj and proj in by_project:
+            by_project[proj]["never_referenced"].append(f)
+    for k, f in only_by_tests.items():
+        proj = _project_for_path(f.file, packages)
+        if proj and proj in by_project:
+            by_project[proj]["only_referenced_by_tests"].append(f)
+
+    for proj in by_project:
+        for kind in ("never_referenced", "only_referenced_by_tests"):
+            by_project[proj][kind].sort(key=finding_order(sort_by_size))
+    return DeadCodeResult(by_project, total_filtered if not raw else 0)
+
+
+def run_report(
+    workspace_root: Path,
+    project_names: list[str],
+    min_confidence: int,
+    output_format: str,
+    verbose: bool,
+    raw: bool = False,
+    llm_review: bool = False,
+    llm_limit: int = DEFAULT_LLM_FINDING_LIMIT,
+    llm_settings: LocalLlmSettings = LocalLlmSettings(),
+    llm_num_predict: int = DEFAULT_LLM_NUM_PREDICT,
+    llm_temperature: float = DEFAULT_LLM_TEMPERATURE,
+    sort_by_size: bool = False,
+) -> int:
+    """Run two-pass Vulture, classify, and print report. Returns 0 on success."""
+    try:
+        by_project, total_filtered = collect_dead_code(
+            workspace_root, project_names, min_confidence, verbose, raw, sort_by_size
+        )
+    except DeadCodeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    llm_advisory = AdvisoryText("", ADVISORY_UNAVAILABLE_SOURCE)
+    if llm_review:
+        if verbose:
+            print(
+                f"Running local LLM review for top {llm_limit} dead-code finding(s)...",
+                file=sys.stderr,
+            )
+        llm_advisory = _run_llm_review(
+            by_project,
+            llm_limit,
+            llm_settings,
+            llm_num_predict,
+            llm_temperature,
+        )
+    llm_review_text = llm_advisory.text
+
+    if output_format == "json":
+        out: dict[str, object] = {
+            "filtered_count": total_filtered if not raw else 0,
+            "projects": {
+                proj: {
+                    "never_referenced": [
+                        {
+                            "file": f.file,
+                            "line": f.line,
+                            "symbol": f.symbol,
+                            "kind": f.kind,
+                            "message": f.message,
+                            "confidence": f.confidence,
+                        }
+                        for f in data["never_referenced"]
+                    ],
+                    "only_referenced_by_tests": [
+                        {
+                            "file": f.file,
+                            "line": f.line,
+                            "symbol": f.symbol,
+                            "kind": f.kind,
+                            "message": f.message,
+                            "confidence": f.confidence,
+                        }
+                        for f in data["only_referenced_by_tests"]
+                    ],
+                }
+                for proj, data in by_project.items()
+            },
+        }
+        if llm_review:
+            out["llm_review"] = {
+                "advisory": True,
+                "model": llm_advisory.source,
+                "limit": llm_limit,
+                "review": llm_review_text,
+            }
+        print(json.dumps(out, indent=2))
+        return 0
+
+    def _by_kind(findings: list[Finding]) -> dict[str, list[Finding]]:
+        grouped: dict[str, list[Finding]] = {k: [] for k in KIND_ORDER}
+        for f in findings:
+            if f.kind in grouped:
+                grouped[f.kind].append(f)
+            else:
+                grouped["other"].append(f)
+        return grouped
+
+    # Human-readable report, grouped by type (classes, functions, methods, then variables, etc.)
+    for proj in sorted(by_project.keys()):
+        data = by_project[proj]
+        nr = data["never_referenced"]
+        ot = data["only_referenced_by_tests"]
+        if not nr and not ot:
+            continue
+        print(f"\n## {proj}\n")
+        if nr:
+            print("### Never referenced\n")
+            nr_by_kind = _by_kind(nr)
+            for kind in KIND_ORDER:
+                items = nr_by_kind.get(kind, [])
+                if not items:
+                    continue
+                label = KIND_LABELS.get(kind, kind.capitalize())
+                print(f"#### {label}\n")
+                for f in items:
+                    print(f"  {format_finding(f)}")
+                print()
+        if ot:
+            print("### Only referenced by tests\n")
+            ot_by_kind = _by_kind(ot)
+            for kind in KIND_ORDER:
+                items = ot_by_kind.get(kind, [])
+                if not items:
+                    continue
+                label = KIND_LABELS.get(kind, kind.capitalize())
+                print(f"#### {label}\n")
+                for f in items:
+                    print(f"  {format_finding(f)}")
+                print()
+
+    if not raw and total_filtered > 0:
+        print(f"\n---\nFiltered {total_filtered} known false positives. Use --raw to see all.")
+
+    if llm_review:
+        print("\n---\n## Local LLM Advisory Review\n")
+        print("This section is advisory only. It does not change deterministic Vulture findings or authorize deletion.\n")
+        print(llm_review_text)
+
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``metrics/dead-code-report.ps1``: one per wrapper parameter, spelled exactly."""
+    parser = argparse.ArgumentParser(
+        description="Dead-code report: never referenced vs only referenced by tests (two-pass Vulture).",
+        allow_abbrev=False,
+    )
+    parser.set_defaults(debug=False)
+    add_project_arguments(parser)
+    parser.add_argument(
+        "--min-confidence",
+        type=int,
+        default=DEFAULT_MIN_CONFIDENCE,
+        metavar="N",
+        help=f"Vulture min confidence 60-100 (default: {DEFAULT_MIN_CONFIDENCE}).",
+    )
+    parser.add_argument(
+        "--output",
+        choices=("text", "json"),
+        default="text",
+        help="Report format: text or json (default: text).",
+    )
+    parser.add_argument("--verbose-output", action="store_true", help="Verbose progress to stderr.")
+    parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="Disable false-positive filters (show all Vulture findings).",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=Path,
+        default=None,
+        help="Also write the report to this file (the report alone: progress stays on stderr).",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="With --output-path, do not print the report to the console.",
+    )
+    parser.add_argument(
+        "--sort-by-size",
+        action="store_true",
+        help="List the largest unused functions and classes first (Vulture's --sort-by-size).",
+    )
+    parser.add_argument(
+        "--make-whitelist",
+        action="store_true",
+        help=(
+            "Write Vulture's --make-whitelist candidates per package to "
+            "<workspace>/.test-output/vulture/<package>-whitelist-candidates.py (never into a "
+            "package) instead of the report."
+        ),
+    )
+    parser.add_argument(
+        "--llm-review",
+        action="store_true",
+        help="Add an advisory local LLM review for top dead-code findings.",
+    )
+    parser.add_argument(
+        "--llm-limit",
+        type=int,
+        default=DEFAULT_LLM_FINDING_LIMIT,
+        metavar="N",
+        help=f"Maximum findings to include in LLM review (default: {DEFAULT_LLM_FINDING_LIMIT}).",
+    )
+    parser.add_argument(
+        "--llm-num-predict",
+        type=int,
+        default=DEFAULT_LLM_NUM_PREDICT,
+        metavar="N",
+        help=f"Max generated tokens for LLM review (default: {DEFAULT_LLM_NUM_PREDICT}).",
+    )
+    parser.add_argument(
+        "--llm-temperature",
+        type=float,
+        default=DEFAULT_LLM_TEMPERATURE,
+        metavar="FLOAT",
+        help=f"Sampling temperature for LLM review (default: {DEFAULT_LLM_TEMPERATURE}).",
+    )
+    parser.add_argument("--self-test", action="store_true", help="Run only the self-test over planted packages.")
+    add_wrapper_llm_arguments(parser, timeout_seconds=DEFAULT_LLM_TIMEOUT_SECONDS)
+    return parser
+
+
+def whitelist_candidates_dir(workspace_root: Path) -> Path:
+    """Where ``--make-whitelist`` writes its candidates: ``<workspace>/.test-output/vulture/``, never a package."""
+    return workspace_root.joinpath(*WHITELIST_CANDIDATES_DIR_PARTS)
+
+
+def _write_whitelist_candidates(workspace_root: Path, project_names: list[str], min_confidence: int) -> int:
+    try:
+        written = make_whitelists(workspace_root, project_names, min_confidence,
+                                  whitelist_candidates_dir(workspace_root))
+    except DeadCodeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return EXIT_REFUSED
+    for path in written:
+        print(f"Whitelist candidates: {path}")
+    print("Review each candidate before merging it into the package's vulture_whitelist.py.")
+    return EXIT_REPORTED
+
+
+def selected_projects(args: argparse.Namespace, workspace_root: Path) -> list[str]:
+    """The packages to scan: the projects named (normalized, the showcase repo dropped, each once, in order),
+    or every installable ``datrix-*`` package of *workspace_root* when none is named or ``--all`` is given.
+
+    Discovery rather than a hardcoded list: Datrix is a multi-language, multi-platform generator, so a new
+    ``datrix-codegen-<lang>`` package is scanned without an edit here.
+    """
+    named = list(dict.fromkeys(requested_projects(args)))
+    if named and not args.all:
+        return named
+    return sorted(_discover_packages(workspace_root))
+
+
+def _report_to(args: argparse.Namespace, workspace_root: Path, project_names: list[str]) -> int:
+    def report() -> int:
+        return run_report(
+            workspace_root,
+            project_names,
+            args.min_confidence,
+            args.output,
+            args.verbose_output,
+            raw=args.raw,
+            llm_review=args.llm_review,
+            llm_limit=args.llm_limit,
+            llm_settings=wrapper_llm_settings(args),
+            llm_num_predict=args.llm_num_predict,
+            llm_temperature=args.llm_temperature,
+            sort_by_size=args.sort_by_size,
+        )
+
+    if args.output_path is None:
+        return report()
+    # The report alone goes to the file (progress and model notes stay on stderr), so a JSON
+    # report file is pure JSON.
+    args.output_path.parent.mkdir(parents=True, exist_ok=True)
+    with args.output_path.open("w", encoding="utf-8") as handle, contextlib.redirect_stdout(handle):
+        code = report()
+    if not args.quiet:
+        print(args.output_path.read_text(encoding="utf-8"), end="")
+    return code
+
+
+_PLANTED_PACKAGE: Final = "datrix-a"
+_PLANTED_SIBLING: Final = "datrix-b"
+_PLANTED_UNUSED_FUNCTION: Final = "orphan"
+_PLANTED_MODULE: Final = f"{_PLANTED_UNUSED_FUNCTION}_module.py"
+_SELF_TEST_PREFIX: Final = "dead-code-report-selftest-"
+
+
+def _check_showcase_alone_is_refused() -> None:
+    refused = io.StringIO()
+    with contextlib.redirect_stderr(refused):
+        exit_code = main([SHOWCASE_REPO_NAME])
+    assert exit_code == EXIT_REFUSED and NO_VALID_PROJECTS in refused.getvalue(), (exit_code, refused.getvalue())
+
+
+def _check_projects_are_normalized_and_deduplicated() -> None:
+    with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as raw:
+        workspace = plant_workspace(Path(raw))
+        args = build_parser().parse_args([f".\\{_PLANTED_PACKAGE}\\", _PLANTED_PACKAGE, _PLANTED_SIBLING,
+                                          SHOWCASE_REPO_NAME])
+        selected = selected_projects(args, workspace)
+    assert selected == [_PLANTED_PACKAGE, _PLANTED_SIBLING], selected
+
+
+def _check_whitelist_path_is_outside_every_package() -> None:
+    with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as raw:
+        workspace = plant_workspace(Path(raw))
+        write_files(workspace, {f"{_PLANTED_PACKAGE}/src/{_PLANTED_MODULE}":
+                                f"def {_PLANTED_UNUSED_FUNCTION}() -> None:\n    return None\n"})
+        written = make_whitelists(workspace, [_PLANTED_PACKAGE], DEFAULT_MIN_CONFIDENCE,
+                                  whitelist_candidates_dir(workspace))
+        expected = workspace / ".test-output" / "vulture" / f"{_PLANTED_PACKAGE}-whitelist-candidates.py"
+        assert written == [expected], (written, expected)
+        assert not expected.is_relative_to(workspace / _PLANTED_PACKAGE), f"{expected} is inside the package"
+
+
+def _check_planted_unused_function_is_reported() -> None:
+    with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as raw:
+        workspace = plant_workspace(Path(raw))
+        write_files(workspace, {f"{_PLANTED_PACKAGE}/src/{_PLANTED_MODULE}":
+                                f"def {_PLANTED_UNUSED_FUNCTION}() -> None:\n    return None\n"})
+        # Vulture reports paths relative to the workspace and the classification resolves them against the
+        # process working directory, so the scan runs with the planted workspace as its working directory.
+        with contextlib.chdir(workspace):
+            result = collect_dead_code(workspace, [_PLANTED_PACKAGE], DEFAULT_MIN_CONFIDENCE)
+    never_referenced = [finding.symbol for finding in result.by_project[_PLANTED_PACKAGE]["never_referenced"]]
+    assert never_referenced == [_PLANTED_UNUSED_FUNCTION], result.by_project
+
+
+def _run(args: argparse.Namespace) -> int:
+    if args.self_test:
+        checks = [_check_showcase_alone_is_refused, _check_projects_are_normalized_and_deduplicated,
+                  _check_whitelist_path_is_outside_every_package, _check_planted_unused_function_is_reported]
+        return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=METRICS_SCRIPTS_DIR)
+    if [*args.positional_projects, *args.projects] and not requested_projects(args):
+        print(NO_VALID_PROJECTS, file=sys.stderr)
+        return EXIT_REFUSED
+    project_names = selected_projects(args, WORKSPACE_DIR)
+    if args.make_whitelist:
+        return _write_whitelist_candidates(WORKSPACE_DIR, project_names, args.min_confidence)
+    return _report_to(args, WORKSPACE_DIR, project_names)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point."""
+    return module_main(build_parser(), _run, argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

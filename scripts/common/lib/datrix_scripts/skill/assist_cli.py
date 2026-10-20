@@ -1,0 +1,407 @@
+"""Skill assists: the mechanical phases of agent skills, done by scripts and local models. Each command writes
+its output under <workspace>/.tmp/assist/ and prints the path with a one-line summary.
+
+This is the assists' own command line (``python -m datrix_scripts.skill.assist_cli``). The wrapper
+``scripts/skill/skill-assist.ps1`` runs ``datrix_scripts.skill.skill_assist``, which builds this command line from
+the wrapper's parameters and runs it in-process.
+
+Commands:
+    context-digest     --phase N                 the implementers' shared-context digest (code index)
+    readiness          --phase N                 readiness-audit evidence (exact checks + model leads)
+    findings-index     [--dir D]                 atomic-finding index of the findings inbox (model, checked)
+    findings-check     --delete F... [--dir D] [--keep-raw]
+                                                 would deleting F lose a citation? (exact)
+    findings-plan      [--dir D] [--no-model]    theme plan for the findings inbox (model, checked)
+    findings-assemble  [--plan P] [--apply]      write the theme files from a plan, verbatim (exact)
+    finding-select     [--count N] [--dir D]     the first N findings files by name (exact)
+    finding-close      --finding F [--session-log L]
+                                                 delete F unless a findings file names it or L shows
+                                                 no passing test run (exact)
+    checklist         --design PATH             conformance checklist draft (model, checked)
+    absorb-transfer    --design PATH --target T  is each design section in the target docs? (model leads)
+    absorb-references  --design PATH [--also P]  every line that names the design (exact)
+    absorb-delete      --design PATH (--verified V | --knowledge-only) [--also P]
+                                                 delete the design when its licence holds and no
+                                                 line names it (exact)
+    bug-resolution     --report R --repo P ...   the Resolution section for a fixed bug report
+
+Exit codes: 0 done; 1 the request could not be carried out; 2 the check found something to act on;
+3 no local model answered (do the phase yourself, as before the assist).
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from collections.abc import Callable, Sequence
+from dataclasses import replace
+from pathlib import Path
+
+from datrix_scripts.code_index.queries import QueryError
+from datrix_scripts.local_llm import (
+    LocalLlmPool,
+    LocalLlmUnavailable,
+    add_local_llm_arguments,
+    local_llm_settings,
+)
+from datrix_scripts.local_reading import ReadScopeError
+from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.skill.absorb import (
+    VERDICT_PRESENT,
+    delete_design,
+    find_references,
+    render_references,
+    render_transfer,
+    transfer_check,
+)
+from datrix_scripts.skill.bug_resolution import (
+    STATUS_RESOLVED,
+    STATUS_UNRESOLVED,
+    ResolutionFacts,
+    append_resolution,
+    build_resolution,
+    parse_verification,
+)
+from datrix_scripts.skill.checklist import draft_checklist
+from datrix_scripts.skill.checklist import render as render_checklist
+from datrix_scripts.skill.common import (
+    EXIT_CHECK_FAILED,
+    EXIT_FAILED,
+    EXIT_NO_MODEL,
+    EXIT_OK,
+    AssistError,
+    ContentFilter,
+    NoModelAnswer,
+    output_dir,
+    workspace_label,
+    write_output,
+)
+from datrix_scripts.skill.context_digest import build_digest
+from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
+from datrix_scripts.skill.finding_inbox import close_finding, finding_files, findings_dir
+from datrix_scripts.skill.findings import build_index, check_consolidation, render_check, render_index
+from datrix_scripts.skill.findings_assemble import (
+    apply_assembly,
+    assemble,
+    draft_plan,
+    load_plan,
+    load_sources,
+    plan_json,
+    render_assembly,
+    render_plan,
+    write_assembly,
+)
+from datrix_scripts.skill.phase_tasks import phase_tasks
+from datrix_scripts.skill.readiness import (
+    VERDICT_SATISFIED,
+    ReadinessEvidence,
+    missing_edges,
+    satisfied_leads,
+    unresolved_modules,
+)
+from datrix_scripts.skill.readiness import render as render_readiness
+from datrix_scripts.task_metadata import format_phase
+from datrix_scripts.test.wrappers import ensure_utf8_stdio
+
+LOG = logging.getLogger(__name__)
+
+FINDINGS_DIR_PARTS = ("reports", "finding")
+CALLER_PREFIX = "skill-assist"
+
+
+def _pool(args: argparse.Namespace) -> LocalLlmPool:
+    settings = replace(local_llm_settings(args), caller=f"{CALLER_PREFIX}:{args.command}")
+    return LocalLlmPool(settings, report=lambda line: LOG.info("%s", line))
+
+
+def _workspace(args: argparse.Namespace) -> Path:
+    return Path(args.workspace).resolve() if args.workspace else WORKSPACE_DIR
+
+
+def _design(workspace: Path, spec: str) -> Path:
+    path = Path(spec)
+    path = path if path.is_absolute() else workspace / path
+    if not path.is_file():
+        raise AssistError(f"Design document '{spec}' not found (resolved to {path}). Pass the path of a file "
+                          "in the workspace's design folder, absolute or workspace-relative.")
+    return path.resolve()
+
+
+def _done(path: Path, summary: str) -> int:
+    print(summary)
+    print(f"Written: {path}")
+    return EXIT_OK
+
+
+def cmd_context_digest(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    tasks = phase_tasks(workspace, args.phase, pending_only=True)
+    if not tasks:
+        raise AssistError(f"Every task of phase {format_phase(args.phase)} is completed; there is nothing to digest.")
+    digest = build_digest(workspace, args.phase, tasks)
+    path = write_output(workspace, f"phase-{format_phase(args.phase)}-context.md", digest.text)
+    trimmed = " (modules not named by a task listed without descriptions, to fit)" if digest.trimmed else ""
+    return _done(path, f"{digest.lines} lines: {digest.packages} package(s), {digest.directories} director(ies)"
+                       f"{trimmed}.")
+
+
+def cmd_readiness(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    every = phase_tasks(workspace, args.phase, pending_only=False)
+    pending = [task for task in every if not task.meta.is_completed]
+    evidence = ReadinessEvidence(len(pending), missing_edges(workspace, every, pending),
+                                 unresolved_modules(workspace, pending, every))
+    if args.no_model:
+        evidence.lead_note = "Skipped (--no-model): judge already-satisfied tasks yourself."
+    else:
+        try:
+            evidence.leads = satisfied_leads(workspace, _pool(args), pending)
+        except LocalLlmUnavailable as exc:
+            evidence.lead_note = f"No local model answered, so judge already-satisfied tasks yourself: {exc}"
+    path = write_output(workspace, f"phase-{format_phase(args.phase)}-readiness.md",
+                        render_readiness(evidence, format_phase(args.phase)))
+    satisfied = sum(1 for lead in evidence.leads if lead.verdict == VERDICT_SATISFIED)
+    return _done(path, f"{len(pending)} pending task(s): {len(evidence.edges)} missing edge(s), "
+                       f"{len(evidence.modules)} unresolvable name(s), {satisfied} task(s) a model reads as "
+                       f"already satisfied.")
+
+
+def _findings_dir(workspace: Path, spec: str | None) -> Path:
+    directory = Path(spec) if spec else workspace.joinpath(*FINDINGS_DIR_PARTS)
+    if not directory.is_dir():
+        raise AssistError(f"Findings folder {directory} does not exist. Pass --dir with the folder to read.")
+    return directory
+
+
+def cmd_findings_index(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    extractions = build_index(workspace, _pool(args), _findings_dir(workspace, args.dir))
+    if not extractions:
+        print("The findings folder holds no *.md file.")
+        return EXIT_OK
+    path = write_output(workspace, "findings-index.md", render_index(extractions))
+    flagged = sum(1 for e in extractions if e.unassigned or e.invented or not e.findings)
+    return _done(path, f"{len(extractions)} file(s), {sum(len(e.findings) for e in extractions)} atomic "
+                       f"finding(s); {flagged} file(s) to check yourself.")
+
+
+def cmd_findings_check(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _findings_dir(workspace, args.dir)
+    delete = [Path(spec) if Path(spec).is_absolute() else directory / spec for spec in args.delete]
+    missing = [str(path) for path in delete if not path.is_file()]
+    if missing:
+        raise AssistError(f"Not files in the findings folder: {', '.join(missing)}. Pass the names of files "
+                          "you are about to delete.")
+    result = check_consolidation(directory, delete, raw_may_remain=args.keep_raw)
+    print(render_check(result), end="")
+    return EXIT_OK if result.passed else EXIT_CHECK_FAILED
+
+
+def cmd_findings_plan(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _findings_dir(workspace, args.dir)
+    themes = draft_plan(directory, workspace, None if args.no_model else _pool(args))
+    if not themes:
+        print("The findings folder holds no *.md file.")
+        return EXIT_OK
+    plan = write_output(workspace, "findings-plan.json", plan_json(themes))
+    units = {u.unit_id: u for source in load_sources(directory) for u in source.units}
+    view = write_output(workspace, "findings-plan.md", render_plan(themes, units, plan))
+    flagged = sum(1 for theme in themes if theme.review)
+    print(f"Plan JSON: {plan}")
+    return _done(view, f"{len(units)} unit(s) into {len(themes)} theme(s); {flagged} theme(s) flagged for review.")
+
+
+def cmd_findings_assemble(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _findings_dir(workspace, args.dir)
+    plan = Path(args.plan) if args.plan else output_dir(workspace) / "findings-plan.json"
+    assembly = assemble(load_plan(plan), load_sources(directory), ContentFilter(workspace))
+    if not assembly.safe:
+        print(render_assembly(assembly, directory), end="")
+        print("Nothing written: fix the plan or the sources named above, then run again.")
+        return EXIT_CHECK_FAILED
+    if not args.apply:
+        preview = output_dir(workspace) / "findings-preview"
+        preview.mkdir(exist_ok=True)
+        for stale in preview.glob("*.md"):
+            stale.unlink()
+        write_assembly(preview, assembly)
+        print(render_assembly(assembly, preview), end="")
+        print("Preview only. Run again with --apply to write the files and delete the superseded sources.")
+        return EXIT_OK
+    result = apply_assembly(directory, assembly)
+    print(render_assembly(assembly, directory), end="")
+    print(render_check(result), end="")
+    if result.passed:
+        print(f"Deleted {len(assembly.delete)} superseded source(s).")
+    return EXIT_OK if result.passed else EXIT_CHECK_FAILED
+
+
+def cmd_checklist(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    design = _design(workspace, args.design)
+    checklist = draft_checklist(workspace, _pool(args), design)
+    path = write_output(workspace, f"checklist-{design.stem}.md", render_checklist(checklist))
+    return _done(path, f"{len(checklist.requirements)} requirement(s); {len(checklist.uncovered)} requirement-"
+                       f"bearing line(s) no item covers; {len(checklist.unverified)} item(s) with an unverified "
+                       f"quote.")
+
+
+def cmd_absorb_transfer(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    design = _design(workspace, args.design)
+    checks = transfer_check(workspace, _pool(args), design, args.target)
+    label = workspace_label(workspace, design)
+    path = write_output(workspace, f"transfer-{design.stem}.md", render_transfer(label, checks))
+    short = sum(1 for check in checks if check.verdict != VERDICT_PRESENT)
+    _done(path, f"{len(checks)} section(s); {short} partial or missing.")
+    return EXIT_CHECK_FAILED if short else EXIT_OK
+
+
+def cmd_absorb_references(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    design = _design(workspace, args.design)
+    references = find_references(workspace, design, [Path(p).resolve() for p in args.also])
+    print(render_references(workspace_label(workspace, design), references), end="")
+    return EXIT_CHECK_FAILED if references else EXIT_OK
+
+
+def cmd_absorb_delete(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    design = _design(workspace, args.design)
+    proof = Path(args.verified).resolve() if args.verified else None
+    text, code = delete_design(workspace, design, proof, args.knowledge_only, [Path(p).resolve() for p in args.also])
+    print(text)
+    return code
+
+
+def cmd_bug_resolution(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    report = Path(args.report).resolve()
+    facts = ResolutionFacts(args.status, args.fix_type or "", tuple(args.exhibiting), tuple(args.reached),
+                            tuple(parse_verification(spec) for spec in args.verification), args.reason or "",
+                            args.notes or "")
+    pool = None if args.no_model else _pool(args)
+    section = build_resolution(workspace, pool, facts, [Path(r).resolve() for r in args.repo], set(args.file))
+    if args.append:
+        append_resolution(report, section)
+        print(f"Appended the Resolution to {report}")
+        return EXIT_OK
+    path = write_output(workspace, f"resolution-{report.stem}.md", section)
+    return _done(path, "Draft written; review it, then run again with --append to add it to the report.")
+
+
+def cmd_finding_select(args: argparse.Namespace) -> int:
+    for path in finding_files(findings_dir(_workspace(args), args.dir or ""), args.count):
+        print(path)
+    return EXIT_OK
+
+
+def cmd_finding_close(args: argparse.Namespace) -> int:
+    session_log = Path(args.session_log).resolve() if args.session_log else None
+    text, code = close_finding(Path(args.finding).resolve(), session_log)
+    print(text)
+    return code
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The assists' command line: one subcommand per assist, the model ones with the local-model flags."""
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--workspace", help="Workspace root (default: this checkout's workspace)")
+    parser.add_argument("--verbose", action="store_true", help="Show model-server progress")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    def command(name: str, handler: Callable[[argparse.Namespace], int], model: bool) -> argparse.ArgumentParser:
+        sub = commands.add_parser(name)
+        sub.set_defaults(handler=handler)
+        if model:
+            add_local_llm_arguments(sub)
+        return sub
+
+    sub = command("context-digest", cmd_context_digest, model=False)
+    sub.add_argument("--phase", type=int, required=True)
+    sub = command("readiness", cmd_readiness, model=True)
+    sub.add_argument("--phase", type=int, required=True)
+    sub.add_argument("--no-model", action="store_true", help="Exact checks only; no already-satisfied leads")
+    sub = command("findings-index", cmd_findings_index, model=True)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub = command("findings-check", cmd_findings_check, model=False)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--delete", nargs="+", action="extend", required=True, help="The files you are about to delete")
+    sub.add_argument("--keep-raw", action="store_true",
+                     help="Raw files may remain (/merge-findings keeps every distinct finding in place)")
+    sub = command("findings-plan", cmd_findings_plan, model=True)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--no-model", action="store_true", help="Every raw finding becomes its own new theme")
+    sub = command("findings-assemble", cmd_findings_assemble, model=False)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--plan", help="Plan JSON (default: <workspace>/.tmp/assist/findings-plan.json)")
+    sub.add_argument("--apply", action="store_true",
+                     help="Write the theme files and delete the superseded sources (default: a preview)")
+    sub = command("finding-select", cmd_finding_select, model=False)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--count", type=int, default=DEFAULT_FINDING_COUNT)
+    sub = command("finding-close", cmd_finding_close, model=False)
+    sub.add_argument("--finding", required=True, help="The findings file to delete")
+    sub.add_argument("--session-log", help="The fix step's .stream.jsonl; its last test.ps1 run must have passed")
+    sub = command("checklist", cmd_checklist, model=True)
+    sub.add_argument("--design", required=True)
+    sub = command("absorb-transfer", cmd_absorb_transfer, model=True)
+    sub.add_argument("--design", required=True)
+    sub.add_argument(
+        "--target", nargs="+", action="extend", required=True, help="Target docs (workspace-relative paths or globs)"
+    )
+    sub = command("absorb-references", cmd_absorb_references, model=False)
+    sub.add_argument("--design", required=True)
+    sub.add_argument("--also", nargs="*", action="extend", default=[], help="Extra files or folders to search (e.g. the memory dir)")
+    sub = command("absorb-delete", cmd_absorb_delete, model=False)
+    sub.add_argument("--design", required=True)
+    licence = sub.add_mutually_exclusive_group()
+    licence.add_argument("--verified", help="The verify proof (.tmp/verify-proven-<design stem>.md) ending PROVEN")
+    licence.add_argument("--knowledge-only", action="store_true",
+                         help="The design has no implementation scope (a decision record, a reference write-up)")
+    sub.add_argument("--also", nargs="*", action="extend", default=[], help="Extra files or folders to search (e.g. the memory dir)")
+    sub = command("bug-resolution", cmd_bug_resolution, model=True)
+    sub.add_argument("--report", required=True)
+    sub.add_argument("--repo", nargs="+", action="extend", default=[], help="Repositories the fix changed")
+    sub.add_argument(
+        "--file", nargs="*", action="extend", default=[], help="Only these repo-relative files (default: every change)"
+    )
+    sub.add_argument("--status", choices=(STATUS_RESOLVED, STATUS_UNRESOLVED), default=STATUS_RESOLVED)
+    sub.add_argument("--fix-type", help="App Definition | Generator/Template | Both")
+    sub.add_argument("--exhibiting", nargs="*", action="extend", default=[], help="Profiles exhibiting the bug")
+    sub.add_argument("--reached", nargs="*", action="extend", default=[], help="Profiles the fix reaches")
+    sub.add_argument(
+        "--verification",
+        nargs="*",
+        action="extend",
+        default=[],
+        help="profile|regenerated|artifact|result rows (the flag may repeat; every row is kept)",
+    )
+    sub.add_argument("--reason", help="Unresolved: why the bug could not be fixed")
+    sub.add_argument("--notes", help="Unresolved: what was examined and why the fix could not be applied")
+    sub.add_argument("--append", action="store_true", help="Append to the report instead of writing a draft")
+    sub.add_argument("--no-model", action="store_true", help="Describe changes from the diff shape only")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run one assist command from *argv* (default: the process arguments); the exit code."""
+    ensure_utf8_stdio()
+    args = build_parser().parse_args(argv)
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(message)s")
+    try:
+        return int(args.handler(args))
+    except (AssistError, ReadScopeError, QueryError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_FAILED
+    except (LocalLlmUnavailable, NoModelAnswer) as exc:
+        print(f"NO LOCAL MODEL: {exc}\nDo this phase yourself, as the skill did before this assist.", file=sys.stderr)
+        return EXIT_NO_MODEL
+
+
+if __name__ == "__main__":
+    sys.exit(main())

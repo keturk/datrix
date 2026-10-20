@@ -39,6 +39,11 @@ EXIT_INTERRUPTED: Final = 130
 
 LOG_FORMAT: Final = "%(levelname)s %(name)s: %(message)s"
 
+#: The debug flag of a gate run by a wrapper that is not rendered from the template.
+DEBUG_FLAG: Final = "--debug"
+#: The debug flag of a gate behind a rendered wrapper: its ``-Dbg`` passed as ``--dbg``.
+WRAPPER_DEBUG_FLAG: Final = "--dbg"
+
 _GREEN: Final = "\033[92m"
 _RED: Final = "\033[91m"
 _CYAN: Final = "\033[96m"
@@ -49,6 +54,16 @@ _DELIBERATE_FAILURE: Final = "deliberately failing check for the harness self-te
 
 class UsageError(Exception):
     """A gate was invoked with arguments it cannot act on (exit code 2)."""
+
+
+def expect_usage_error(call: Callable[[], object], fragment: str) -> None:
+    """Assert *call* raises UsageError whose message contains *fragment* (a self-test helper)."""
+    try:
+        call()
+    except UsageError as exc:
+        assert fragment in str(exc), f"UsageError must mention {fragment!r}; got: {exc}"
+    else:
+        raise AssertionError(f"expected UsageError mentioning {fragment!r}")
 
 
 @dataclass(frozen=True)
@@ -62,9 +77,13 @@ class NamedCheck:
 CHECK_PREFIX: Final = "_check_"
 
 
-def named_checks(checks: Sequence[CheckFunc], *, prefix: str = CHECK_PREFIX) -> list[NamedCheck]:
-    """Each check named by its function name without ``prefix`` (``_check_x`` reports as ``x``)."""
-    return [NamedCheck(check.__name__.removeprefix(prefix), check) for check in checks]
+def named_checks(checks: Sequence[CheckFunc | NamedCheck], *, prefix: str = CHECK_PREFIX) -> list[NamedCheck]:
+    """Each check named by its function name without ``prefix`` (``_check_x`` reports as ``x``); a
+    ``NamedCheck`` keeps its own name."""
+    return [
+        check if isinstance(check, NamedCheck) else NamedCheck(check.__name__.removeprefix(prefix), check)
+        for check in checks
+    ]
 
 
 def _check_name(check: CheckFunc | NamedCheck) -> str:
@@ -149,26 +168,44 @@ def configure_logging(debug: bool) -> None:
 
 
 def gate_argument_parser(
-    description: str, *, update_baseline: bool = False
+    description: str,
+    *,
+    update_baseline: bool = False,
+    debug_flag: str | None = DEBUG_FLAG,
+    allow_abbrev: bool = True,
+    harness_self_test_flag: bool = True,
 ) -> argparse.ArgumentParser:
     """An argument parser carrying the shared gate flags.
 
     ``--debug``, ``--self-test`` (run only the gate's non-vacuity proof, reading nothing of the
     real workspace), ``--harness-self-test`` (run only ``harness_self_test``) and, when
     ``update_baseline`` is set, ``--update-baseline``.
+
+    A gate behind a wrapper rendered from ``common/templates/entrypoint.ps1`` takes exactly its
+    wrapper's parameters as options: *debug_flag* is ``WRAPPER_DEBUG_FLAG`` (its ``-Dbg``), or None
+    when the wrapper declares no debug parameter (``args.debug`` is then False);
+    *harness_self_test_flag* is False when the wrapper declares no ``-HarnessSelfTest``
+    (``args.harness_self_test`` is then False, and the gate's ``--self-test`` runs the harness
+    self-test first); and *allow_abbrev* is False, so no abbreviated spelling reaches the module unseen.
     """
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--debug", action="store_true", help="Log at DEBUG level.")
+    parser = argparse.ArgumentParser(description=description, allow_abbrev=allow_abbrev)
+    if debug_flag is None:
+        parser.set_defaults(debug=False)
+    else:
+        parser.add_argument(debug_flag, dest="debug", action="store_true", help="Log at DEBUG level.")
     parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run only the gate's non-vacuity proof over planted inputs.",
     )
-    parser.add_argument(
-        "--harness-self-test",
-        action="store_true",
-        help="Run only the harness self-test (a deliberately failing check must be reported).",
-    )
+    if harness_self_test_flag:
+        parser.add_argument(
+            "--harness-self-test",
+            action="store_true",
+            help="Run only the harness self-test (a deliberately failing check must be reported).",
+        )
+    else:
+        parser.set_defaults(harness_self_test=False)
     if update_baseline:
         parser.add_argument(
             "--update-baseline",
@@ -201,6 +238,33 @@ def _select(checks: Sequence[CheckFunc | NamedCheck], prefix: str) -> list[Check
     return [check for check in checks if _check_name(check).startswith(prefix)]
 
 
+def check_list_parser(
+    description: str,
+    *,
+    debug_flag: str | None = DEBUG_FLAG,
+    allow_abbrev: bool = True,
+    harness_self_test_flag: bool = True,
+) -> argparse.ArgumentParser:
+    """The parser of a gate that is a list of checks: the shared gate flags (see
+    ``gate_argument_parser`` for *debug_flag*, *allow_abbrev* and *harness_self_test_flag*) plus
+    ``--only PREFIX``."""
+    parser = gate_argument_parser(
+        description, debug_flag=debug_flag, allow_abbrev=allow_abbrev, harness_self_test_flag=harness_self_test_flag
+    )
+    parser.add_argument(
+        "--only",
+        metavar="PREFIX",
+        help="Run only the checks whose name starts with PREFIX.",
+    )
+    return parser
+
+
+def print_command() -> None:
+    """Print the interpreter and the arguments this process runs with (a wrapper's ``-Dbg``)."""
+    print(f"Python executable: {sys.executable}")
+    print(f"Arguments: {' '.join(sys.argv)}", flush=True)
+
+
 def check_list_main(
     description: str,
     subject: str,
@@ -209,22 +273,21 @@ def check_list_main(
     self_test: Sequence[CheckFunc | NamedCheck] = (),
     temp_file_variable: tuple[str, str] | None = None,
     argv: Sequence[str] | None = None,
+    parser: argparse.ArgumentParser | None = None,
 ) -> int:
     """The ``main`` of a gate that is a list of checks.
 
-    Flags: the shared gate flags plus ``--only PREFIX`` (run the checks whose name starts with
-    PREFIX). ``--self-test`` runs ``harness_self_test`` and then ``self_test`` -- the gate's
-    checks over planted inputs only. ``temp_file_variable`` is ``(environment variable, file
-    name)``: for the run, the variable names a file in a fresh temporary directory (so the
-    checks' own side effects, such as a usage log, never land in the real one).
+    Flags: those of ``check_list_parser`` (*parser*, when the gate builds it itself). The debug flag
+    prints the interpreter and arguments first. ``--self-test`` runs ``harness_self_test`` and then
+    ``self_test`` -- the gate's checks over planted inputs only. ``temp_file_variable`` is
+    ``(environment variable, file name)``: for the run, the variable names a file in a fresh
+    temporary directory (so the checks' own side effects, such as a usage log, never land in the
+    real one).
     """
-    parser = gate_argument_parser(description)
-    parser.add_argument(
-        "--only",
-        metavar="PREFIX",
-        help="Run only the checks whose name starts with PREFIX.",
-    )
+    parser = parser if parser is not None else check_list_parser(description)
     args = parser.parse_args(argv)
+    if args.debug:
+        print_command()
     if args.harness_self_test:
         return EXIT_PASS if harness_self_test() else EXIT_VIOLATION
     if args.self_test:

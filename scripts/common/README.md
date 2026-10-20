@@ -7,9 +7,8 @@ and `lib/datrix_scripts/`, the Python package every scripts folder shares.
 
 | File | Description |
 |------|-------------|
-| `DatrixPythonScript.psm1` | `Invoke-DatrixEntrypoint`, the body of every wrapper rendered from `templates/entrypoint.ps1`; `Invoke-DatrixPythonScript`, how a wrapper not yet rendered from it runs Python; gate mode, its verdict line and gate logs |
+| `DatrixPythonScript.psm1` | `Invoke-DatrixEntrypoint`, the body of every wrapper (each is rendered from `templates/entrypoint.ps1`); `Invoke-DatrixPythonScript`, which runs a Python file or module from PowerShell and which no wrapper calls; gate mode, its verdict line and gate logs |
 | `DatrixPaths.psm1` | Path discovery for the workspace, the repository directories, the shared venv and its interpreter, and the scripts `PYTHONPATH` |
-| `DatrixScriptCommon.psm1` | Shared project lists and `ConvertTo-DatrixProjectName` (imports `DatrixPaths.psm1`) |
 | `templates/entrypoint.ps1`, `templates/entrypoint.sh` | The wrapper template and its POSIX twin (see [Wrappers rendered from the template](#wrappers-rendered-from-the-template)) |
 | `venv.ps1`, `venv.sh` | The shared venv: creation, the architecture check, package installation, the package lock, the CLI check |
 | | Module: `datrix_scripts.venv` |
@@ -17,29 +16,29 @@ and `lib/datrix_scripts/`, the Python package every scripts folder shares.
 | | Module: `datrix_scripts.install_order` |
 | `venv-dev-specs.ps1`, `venv-dev-specs.sh` | Self-test of the `[dev]` specs and dependency-group specs the venv installs |
 | | Module: `datrix_scripts.dev_specs` |
-| `CleanupUtils.psm1` | Cleanup utilities (empty parents, confirmation, folder tree display, size formatting) |
 | `DatrixRunLog.psm1` | Run-log file naming and **exclusive** claiming — two runs never share one log file |
 | `lib/datrix_scripts/` | The shared Python package (below) |
 
 ## Where Python lives
 
-Every Python file sits beside the wrapper that runs it, never in a central tree:
+Where a Python file lives follows from what runs or imports it:
 
-- **One folder uses it** → `<folder>/lib/<name>.py` (for gates, `gates/<family>/lib/`). The
-  wrapper runs it by path (`Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot
-  "lib\<name>.py")`), so `sys.path[0]` is that `lib/` folder and its siblings import each other by
-  bare name (`from compare_tests import ...`).
-- **More than one folder, a hook, or a package test imports it** → `common/lib/datrix_scripts/`.
-  It is always imported as `datrix_scripts.<name>`, and a wrapper that runs one of its modules
-  uses `Invoke-DatrixPythonScript -Module datrix_scripts.<name>`.
+- **A wrapper runs it** → `common/lib/datrix_scripts/<category>/<name>.py`, run as the module
+  `datrix_scripts.<category>.<name>` by a wrapper rendered from the template (below); a gate family's
+  modules sit in `common/lib/datrix_scripts/gates/<family>/`.
+- **More than one folder, a hook, or a package test imports it** → `common/lib/datrix_scripts/`,
+  always imported as `datrix_scripts.<name>`.
+- **Loaded by path** → the one `lib/` folder beside a wrapper is `codemods/lib/`: the numbered Bowler
+  recipes `datrix_scripts.codemods.run_codemod` loads by path, whose files import each other by bare
+  name (`from _shared import ...`).
 
-`Invoke-DatrixEntrypoint` and `Invoke-DatrixPythonScript` point the child's environment at the shared
-venv (`Enter-DatrixVenvEnvironment`), which puts `scripts\common\lib` first on `PYTHONPATH`, so every
+`Invoke-DatrixEntrypoint` points the child's environment at the shared venv
+(`Enter-DatrixVenvEnvironment`), which puts `scripts\common\lib` first on `PYTHONPATH`, so every
 wrapper's Python can import `datrix_scripts`; the caller's environment is restored afterwards. A Python process that starts
 another Python process passes `datrix_scripts.paths.script_env()` as its environment. Hooks call
 `add_scripts_lib_to_path()` (`claude-config/.claude/hooks/_hook_log.py`), and the MCP servers are
-registered with `PYTHONPATH` in their `env` (re-run `dev\code-index.ps1 -Setup` and
-`dev\local-llm.ps1 -Setup` on each machine after the server paths change).
+registered with `PYTHONPATH` in their `env` (re-run `dev\code-index.ps1 -Setup`,
+`dev\local-llm.ps1 -Setup` and `dev\line-edit.ps1 -Setup` on each machine after a server's module changes).
 
 Never compute a location from `Path(__file__).parents[N]`: import it from `datrix_scripts.paths`
 (`SCRIPTS_DIR`, `CONFIG_DIR`, `SHOWCASE_DIR`, `WORKSPACE_DIR`, `lib_script(folder, name)`).
@@ -81,9 +80,9 @@ skill, hook, config or package file names present.
 
 ### Wrappers rendered from the template
 
-A script whose behaviour has moved into a `datrix_scripts.<category>.<script>` module (or a shared
-module such as `datrix_scripts.venv`) has a wrapper written by hand from
-`templates/entrypoint.ps1`: the template's `# {{PARAMETER_BLOCK}}` line becomes the wrapper's own
+Every script's behaviour is a `datrix_scripts.<category>.<script>` module (or a shared module such
+as `datrix_scripts.venv`), and its wrapper is written by hand from `templates/entrypoint.ps1`: the
+template's `# {{PARAMETER_BLOCK}}` line becomes the wrapper's own
 comment-based help and `param()` block, `{{MODULE}}` becomes its module, and every other line is the
 template's, byte for byte. The body is `Invoke-DatrixEntrypoint -Module <module> -Parameters
 $PSBoundParameters` and `exit $LASTEXITCODE`: each bound parameter is passed as `--kebab-name`
@@ -101,6 +100,11 @@ module with a wrapper calls it from its `--self-test`: the wrapper and its twin 
 rendered, and the wrapper's parameters and the parser's options are one set (each first proven on
 planted drift).
 
+`gates\repo-hygiene\thin-entrypoint-gate.ps1` holds the whole tree to that form: every `.ps1` under
+`datrix/scripts/` except the template is the template rendered, has its `.sh` twin, and carries at
+most 40 code lines (lines holding a token other than a comment, read through PowerShell's own
+tokenizer, so the comment-based help is free).
+
 #### Moving a script's behaviour into Python
 
 There is no wrapper generator: each wrapper is written by hand from the template, and
@@ -109,8 +113,12 @@ There is no wrapper generator: each wrapper is written by hand from the template
 - **The module.** The behaviour becomes `datrix_scripts.<category>.<script>`: an `argparse` entry
   point with the script's parameters as its options, reusing the existing `datrix_scripts` helpers
   (look a helper up with the code index's `find_symbol` before adding one), and a `--self-test` for
-  the behaviour it moved. A script whose logic already sits in a `lib/*.py` module keeps it there;
-  only its wrapper changes.
+  the behaviour it moved. Logic that already sits in a Python file keeps its code; the file moves
+  into `datrix_scripts.<category>` (bare sibling imports become `datrix_scripts.<category>.<name>`):
+  the template puts only `common/lib` on `PYTHONPATH`.
+- **Gate mode.** A gate's `main` is `datrix_scripts.gate_log.run_as_gate`, so the wrapper's run
+  keeps its whole output in a claimed log under `.test-output/gates/<gate>/` and ends on the
+  `[GATE] <gate> PASSED|FAILED exit=<n> log=<path>` line.
 - **Unchanged surface.** Script names, parameters, exit codes and the command parsing of the hooks
   that guard them do not change. The script's `quick-reference.md` section keeps its table and gains
   one line naming the module.
@@ -123,20 +131,14 @@ There is no wrapper generator: each wrapper is written by hand from the template
 
 ### Adding a script
 
-1. Put the Python in the `lib/` of the folder whose wrapper runs it (or in `datrix_scripts`, per
-   the rule above).
-2. Write the wrapper in that folder: rendered from the template (above) when the module is an
-   `argparse` entry point with the wrapper's parameters as its options; otherwise its `param()`
-   block, the mapping of its switches to Python flags, and one line, `exit (Invoke-DatrixPythonScript
-   -Script (Join-Path $PSScriptRoot "lib\<name>.py") -Arguments $pythonArgs)` (`-RequirePackages`
-   when it needs the editable installs, `-Gate <name>` for a gate, `-ShowCommand:$Dbg`). It never
-   checks the venv itself (`test\shared-library-gate.ps1`'s runner-adoption census holds that). A gate also
-   declares `-SelfTest`. An argument list chosen by a branch and then grown with `+=` wraps the
-   whole branch, `$pythonArgs = @(if ($All) { "--all" } else { $Projects })`: a bare `if` unrolls
-   a one-element branch to a string, and `+=` would concatenate onto it (the same gate's
-   unrolled-append census refuses the bare form).
+1. Put the Python in `common/lib/datrix_scripts/<category>/<name>.py`: an `argparse` entry point
+   (`allow_abbrev=False`) whose options are the wrapper's parameters, with a `--self-test` that runs
+   the wrapper seam checks (`datrix_scripts.test.wrappers.run_self_test` or `seam_checks`). A gate's
+   `main` runs in gate mode (above) and its wrapper declares `-SelfTest`.
+2. Write the wrapper in the folder it belongs to, rendered from the template (above), and its `.sh`
+   twin. `gates\repo-hygiene\thin-entrypoint-gate.ps1` refuses any other form.
 3. Add its section to the folder's `quick-reference.md`, documenting exactly the parameters it
-   declares (`gates\repo-hygiene\script-catalogue-gate.ps1` holds that).
+   declares and naming its module (`gates\repo-hygiene\script-catalogue-gate.ps1` holds that).
 
 ## lib/datrix_scripts
 
@@ -149,22 +151,40 @@ There is no wrapper generator: each wrapper is written by hand from the template
 | `dev_specs.py` | A package's `[dev]` specs as the shared venv installs them (`installable_dev_specs`): a direct-URL spec to a sibling workspace package becomes its bare name, so pip never replaces that package's editable install with a frozen copy. `read_dependency_group` reads a PEP 735 dependency group's specs (`include-group` expanded; a missing group, a cycle or a malformed entry is refused): the venv reads the `scripts` group of `datrix/pyproject.toml` this way |
 | `framework_repos.py` | The framework git repositories at the workspace root, discovered, never listed; `workspace_package_dirs(workspace, any_of=…, include_showcase=…)` is the only enumeration of `datrix-*` directories (filtered by `PackageMarker`: `src`, `tests`, `pyproject.toml`, `package.json`, `.git`), and each caller keeps its own keying |
 | `gate_harness.py` | The one check loop every gate runs, its non-vacuity proof, `[OK]`/`[FAIL]` printing, logging setup, the shared gate flags and the planted-fixture writer (see [../gates/README.md](../gates/README.md#how-a-gate-is-built)) |
+| `gate_log.py` | Gate mode for a gate behind a rendered wrapper (`run_as_gate`): the claimed gate log, the relayed output, and the verdict line the red-run digest hook reads |
+| `run_log.py` | Run-log naming and **exclusive** claiming (`O_CREAT \| O_EXCL`), the Python twin of `DatrixRunLog.psm1`; `test\run-log-exclusivity-gate.ps1` holds both to one naming |
 | `count_ratchet.py` | The two count-ratchet semantics (tighten-only, exact-pin) and the fail-closed count-table reader and writers |
-| `powershell_ast.py` | Parameters, calls, definitions, flow-control-statement assignments and `+=` targets of PowerShell scripts, read through PowerShell's own parser in one child process |
+| `powershell_ast.py` | Parameters, calls, definitions, flow-control-statement assignments, `+=` targets and code-line counts (`code_lines`: lines holding a token other than a comment) of PowerShell scripts, read through PowerShell's own parser in one child process |
 | `hook_modules.py` | Loads a harness hook module by path, so a gate shares the hook's one definition instead of a copy |
 | `registered_targets.py` | The registered `datrix.languages` / `datrix.platforms` targets and their `src/` directories -- the one place a script learns which targets exist |
 | `pyproject_deps.py` | `datrix-*` dependency declarations read from `pyproject.toml` |
 | `capped_log.py` | Append-only logs with a size cap (hooks and scripts share it) |
 | `logging_utils.py` | Logging and tee-style output (console + file); `TeeLogger` claims a run directory exclusively |
 | `test_projects.py` | Project discovery from `config/test-projects.json` |
-| `test_project.py` | The package test runner behind `test\test.ps1` |
+| `test_project.py` | The per-package test runner; `test\test.ps1` runs one `test_project` child per package |
+| `test/` | The modules behind the `scripts/test/` wrappers rendered from the template: `test.py` (`test\test.ps1`: project selection, the install check through `venv.require_packages`, one child per package, the summary, digests, `-ListTags`), `test_single.py`, `cases.py`, `tables.py`, `model_contracts.py`, `status_unit_tests.py`, `status_deploy_tests.py`, `extract_warnings.py`, `cleanup.py`, `run_complete.py` (`test\run-complete.ps1`: the request checks, the workflow steps, the rerun loop) with `run_complete_rerun.py` (which projects a `-Rerun` selects), `dual_target.py`, `tag_vocabulary.py` (the tags a package's tests use and the ones missing from the vocabulary table), `compare_tests.py`, `mypy_check.py`, `gate_verdict.py`, `affected_gate.py`, `retag.py` (`test\retag.ps1`: feature-tag renames across every tag carrier), the test-tooling gates (`shared_library_gate.py` with `scripts_contract_checks.py`, `scripts_tree_census.py` and `run_complete_checks.py`; `runner_plugin_gate.py`, `test_tooling_parsing_gate.py` with `post_process_test_results.py`, `test_specific_selection_gate.py`, `run_log_exclusivity_gate.py`, `toolchain_free_suites.py`), and `wrappers.py` (their shared self-test loop and `main`, the wrapper seam checks, UTF-8 output and the `-Command` wrapper options) |
+| `tasks/` | The modules behind the `scripts/tasks/` wrappers rendered from the template: `todo.py` and `completed.py` with their shared scan `task_listing.py`, `complete.py` (the one way a task heading becomes `COMPLETED:`), `cleanup.py`, `latest_phase.py`, the phase analyses `phase_status.py`, `plan_waves.py`, `plan_waves_multi.py` and `validate_dependencies.py` with their shared phase arguments and planted phases `phase_cli.py`, `validate_task.py` with `task_citations.py`, `retrofit_orientation.py`, and the gate `task_orientation_gate.py`; the task-file parsing they read is `task_metadata.py` and `task_orientation.py` |
+| `dev/` | The modules behind the `scripts/dev/` wrappers rendered from the template (each also uses `datrix_scripts.test.wrappers`): `generate.py` (`dev\generate.ps1`: the install, plugin and `datrix` command checks, the claimed run log, the output filter and summary) with `generate_projects.py` (one `datrix generate` per project, output paths from `config/test-projects.json`), `generate_doc_fragments.py`, `find_imports.py`, `who_imports.py`, `print_sexp.py`, `check_docs.py`, `code_index.py` with its MCP server `code_index_mcp.py`, `logic_map_report.py`, `local_llm.py` with its MCP server `local_llm_mcp.py`, `line_edit.py` with its MCP server `line_edit_mcp.py`, `mcp_setup.py` (the `-Setup` of all three: the `.mcp.json` entry and the machine's approval), `ineedtoknow.py`, `code_scan.py`, `generate_test_rules.py`, the gates `code_index_gate.py`, `local_llm_gate.py`, `line_edit_gate.py` and `ineedtoknow_gate.py`, and `arguments.py` (how a module reads the comma-joined values its wrapper passes) |
+| `generation/` | The modules behind the `scripts/generation/` wrappers rendered from the template: `rebuild_parser.py`, `refresh_example_snapshot.py`, `refresh_seed_datasets.py`, `status_generation.py`, `triage_failures.py`, `compare_generated.py`, `tree_hash.py`, `evaluate_generated_scan.py`, `evaluate_service_scan.py`, `evaluate_services.py` with `service_triage.py` (run as one child per service), and `delete_generated.py` (the rename, the containment checks and the detached removal) |
+| `visualize/` | The modules behind the `scripts/visualize/` wrappers rendered from the template: `visualize.py`, `openapi_gen.py`, `schema_snapshot.py`, `schema_diff.py`, `status_docs.py`, `all_reports.py` (runs the first, second and fifth as child modules), and `projects.py` (their shared project selection: `-Source` or a test set, and the planted example of their self-tests); the loading and builders they call are `visualization/` |
+| `metrics/` | The modules behind the `scripts/metrics/` wrappers rendered from the template (`complexity.py`, `duplicate.py` and `dead_code_report.py` also hold the checks `dev\code-scan.ps1` imports; `call_count.py` counts calls during one in-process workload), and `projects.py` (their shared `-Projects`/`-All` selection, per-project loop and summary) |
+| `workspace/` | The modules behind the `scripts/workspace/` wrappers rendered from the template: `projects.py`, `project_structure.py`, `file_count.py`, and the deleting `cleanup_temps.py` and `empty_folders.py` (their removals never enter a link and never reach at or above the base folder, proven in each `--self-test`) |
+| `scan/` | The modules behind the `scripts/scan/` wrappers rendered from the template, one `<wrapper stem>.py` each (`compile.py`, which also checks any path's containing package, `syntax_checker.py`, `config_linter.py`, `datrix_linter.py`, `datrix_format.py`, `libcst.py`, `semgrep.py`, `ast_grep.py`, `check_debug_artifacts.py`, `check_python_bytecode.py`, `extra_parens.py`, `ruff_checker.py`, `audit.py`, `dgen_census.py`, `find_duplicate_bodies.py`, `find_unimplemented_abstracts.py`, `check_import_boundaries.py`); `selection.py` (their shared target selection: paths or projects, or `--all`, the usage and the both-given refusal, and the comma split of a list value); and the `import_boundaries` package (the boundary rule model, the scanners and the ratchets `check_import_boundaries.py` runs; `python -m datrix_scripts.scan.import_boundaries` runs the scan alone) |
+| `codemods/` | The modules behind the `scripts/codemods/` wrappers: `run_codemod.py` (runs a numbered Bowler recipe from `scripts/codemods/lib/`, which stays there because Bowler loads recipes by path) and `split_module.py` |
+| `review/` | The task review system behind the `scripts/review/` wrappers: `review.py` (the orchestrator; its wrapper passes every argument through), `review_reply.py`, `review_schema.py`, `canonical_modules.py`, `escalation.py`, `tier2_local.py`, `apply_reviews_prep.py`, and the gate `review_library_gate.py` |
+| `skill/` | The modules behind the `scripts/skill/` wrappers rendered from the template: the headless skill chains `implement_design.py`, `implement_finding.py` and `skill_chain.py` over their shared step runner `chain.py` (the prompt on stdin, argument validation, the kept and shown stream, the summary table, the verify and absorb steps); the skill assists `skill_assist.py` with its command line `assist_cli.py` and the commands `context_digest.py`, `readiness.py`, `findings.py`, `finding_inbox.py`, `checklist.py`, `absorb.py`, `bug_resolution.py` over `common.py` and `phase_tasks.py`; and the gate `skill_assist_gate.py` |
+| `git/` | The modules behind the `scripts/git/` wrappers rendered from the template: `status.py`, `pull.py`, `fix_line_endings.py`, `pre_review.py`, the gate `pre_review_gate.py`, `commit_and_push.py` (the pre-stage checks, themed change sets, message generation, commit and push), and `forbidden_forms.py` (the git verbs no git script may run, found by each git module's self-test in the git modules and every `datrix_scripts` module they import) |
+| `claude_cli.py` | What every script that runs the Claude Code CLI shares: its name on `PATH`, and the refusal of an argument the batch shim's cmd.exe would reinterpret (`require_batch_safe`) |
+| `gates/` | The modules behind gate wrappers rendered from the template, one subpackage per gate family, each module run in gate mode (its `main` is `gate_log.run_as_gate` over `gate_log.gate_child`). `gates/realization/`: one `<wrapper stem>.py` module per realization gate wrapper (`conformance_gate.py`, `standing_conformance_gate.py`, `generation_determinism_gate.py`, `pooled_cache_realization_gate.py`, …), with `generating_gates.py` (what the gates that generate share: their common options, the walk over a generated tree that prunes excluded directories and never enters a link, and one single-project generation run as a child of `datrix_scripts.dev.generate`). `gates/ratchet/`: one module per ratchet gate wrapper (`check_generated_file_ratchet.py`, `slow_test_ratchet_gate.py`, `capability_gap_ledger_gate.py`, …). `gates/parity/`: one `<wrapper stem>.py` module per parity gate wrapper (`behaviour_parity_gate.py`, `shared_home_body_gate.py`, `type_mapping_completeness.py`, …) over `gate_entry.py`, which they share: the `-Dbg`/`-SelfTest` parser, the install check, and then either the self-test with the wrapper seam checks, or the non-vacuity self-test followed by the comparison. `parity_cases_gate.py` reads the parity rows through `parity_observers.py`, and `parity_cases.py` (the `-Command` wrapper `parity-cases.ps1`) runs the authoring commands of `parity_cases_cli.py`. `gates/repo_hygiene/`: one `<wrapper stem>.py` module per repo-hygiene gate wrapper (`customer_domain_isolation_gate.py`, `check_docs_conformance.py`, `script_catalogue_gate.py`, `thin_entrypoint_gate.py`, `line_ending_gate.py`, `no_body_walk_gate.py`, …), with `gate_options.py` (the options and self-test parser those gates share, and the package-currency check the gates that import installed packages run first) |
+| `test_result_walk.py` | Directory-only traversal yielding the `.test_results` directories of the generated tree, shared by `test\status-unit-tests.ps1` and `test\status-deploy-tests.ps1` |
 | `test_runner.py`, `node_test_runner.py`, `package_suites.py` | Test execution: pytest phases, Node suites, which packages carry a suite |
 | `selection_export.py` | pytest plugin a `-Tag` preflight loads: writes the node IDs and `serial` marks of the items the session kept, so the phases run exactly those |
 | `runner_plugin.py`, `suite_stamp.py`, `suite_inputs.py` | The suite-input stamp: what a run touched, and the fingerprint a carried run is compared on |
 | `structured_log_writer.py`, `generated_test_log_writer.py`, `deploy_test_log_writer.py`, `aggregate_test_writer.py`, `deploy_test_aggregate_writer.py` | Structured run directories (`index.json`, clusters) for package, generated-project and deploy runs |
 | `codegen_hint_mapper.py` | Maps a generated file to the template and generator that probably wrote it |
 | `status_tests.py` | Test status from the newest run of every package (`test\status-tests.ps1`) |
-| `collect_failure_data.py`, `classify_run_delta.py`, `run_digest.py` | Failure bundle, run-to-run delta, and the short digest `test.ps1` writes to `digest.txt` for a red run |
+| `collect_failure_data.py`, `classify_run_delta.py`, `run_digest.py` | Failure bundle (`test\collect-failure-data.ps1`), run-to-run delta, and the short digest `test.ps1` writes to `digest.txt` for a red run |
+| `cleanup_utils.py` | The yes/no confirmation (an end of input is a no), tree and file removal that clears read-only files, the removal of parents a deletion left empty and of empty folders below a folder, never at or above the base, and folder listing as `Get-ChildItem` lists (hidden entries left out, case-insensitive name order, no link entered; `tree_lines` for the `[DIR]`/`[FILE]` tree) |
 | `affected_set.py` | Reverse-dependency closure of packages, from actual imports |
 | `generated_example.py` | Generate one example for one registered language, as `datrix generate` would |
 | `evaluate_reports.py` | The report text the evaluation scans write from their own JSON |
@@ -183,8 +203,7 @@ There is no wrapper generator: each wrapper is written by hand from the template
 | `function_sources.py` | The one walker of module-level functions and class methods in a package tree (`collect_function_sources`), shared by the behaviour-parity and shared-home body gates and `scan\find-duplicate-bodies.ps1` |
 | `body_digest.py` | A function body's comparison form (normalized and exact digests, the 8-line / 40-node floor), shared by the shared-home body gate and `scan\find-duplicate-bodies.ps1` |
 | `import_sites.py` | Where a module or its names are imported across the workspace (relative imports resolved), shared by `dev\find-imports.ps1` and `codemods\split-module.ps1` |
-| `plugin_discovery.py` | Loads every installed plugin group and names the one that fails; run by `dev\generate.ps1` through `Invoke-DatrixPythonScript -RequirePackages` before any generation |
-| `complexity.py`, `dead_code_report.py`, `duplicate.py` | Metrics shared by `metrics\` and `dev\code-scan.ps1` |
+| `plugin_discovery.py` | Loads every installed plugin group and names the one that fails; run by `datrix_scripts.dev.generate` (`dev\generate.ps1`) as a child, after the package install check, before any generation |
 | `visualization/` | Application loading, serialization, diagrams and OpenAPI/AsyncAPI builders for `visualize\` |
 
 ## DatrixPaths.psm1
@@ -222,14 +241,16 @@ Python side is `datrix_scripts.paths.WORKSPACE_DIR`.
 `Invoke-DatrixEntrypoint -Module <module> -Parameters $PSBoundParameters` is the body of every
 wrapper rendered from the template ([above](#wrappers-rendered-from-the-template)).
 
-`Invoke-DatrixPythonScript` runs a Python file (`-Script`) or module (`-Module`) in the shared
+`Invoke-DatrixPythonScript` (no wrapper calls it) runs a Python file (`-Script`) or module (`-Module`) in the shared
 venv and returns the child's exit code (it never calls `exit`): it has the venv checked (the
 `common\venv.ps1 -Ensure` check, and with `-RequirePackages` its `-EnsurePackages -SkipIfInstalled`),
 prints the command with `-ShowCommand`, points the child's environment at the venv and restores the
-caller's in a `finally` block. `-TeePath <file>` also writes the output to a file;
-`-OutputPipeline` / `-OutputLines` hand the output lines to the caller instead of the console.
-`Enter-DatrixVenvEnvironment` / `Exit-DatrixVenvEnvironment` are the environment switch both use,
-for a wrapper that runs an interpreter of its own (`git\commit-and-push.ps1`).
+caller's in a `finally` block. `-OutputPipeline` / `-OutputLines` hand the output lines to the caller instead of the console.
+`Enter-DatrixVenvEnvironment` / `Exit-DatrixVenvEnvironment` are the environment switch both use.
+The switch also has
+the child write UTF-8 (`PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`) and sets the console output
+encoding to UTF-8, which PowerShell uses to decode a native command's output, so non-ASCII output
+(pygount's box-drawn table, check marks) is not garbled under a legacy console code page.
 
 A script run from inside this module would run in the module's session state, where `$script:`
 names that script's scope rather than the module's: the module never runs a wrapper, and the
@@ -242,23 +263,17 @@ reads (`claude-config/.claude/hooks/digest-red-test-run.py`). A gate that runs n
 log with `New-DatrixGateLogFile` (or `Write-DatrixGateLog`) and prints the same line with
 `Write-DatrixGateVerdict`.
 
-## DatrixScriptCommon.psm1
-
-Imported by metrics wrappers, `test.ps1`, and several dev scripts. Provides:
-
-- `ConvertTo-DatrixProjectName` — path or bare package name to directory name
-- `Get-DatrixPackageNamesGlob` — metrics `-All` (`datrix-*` on disk)
-- `Get-DatrixPackageNamesGlobWithPyProject` — like above, requires `pyproject.toml` (dependency help text)
-- `Test-DatrixNodeSuite` — does this package directory declare a Node test suite?
-- `Get-DatrixTestablePackageNames` — packages carrying a suite: a `tests/` folder (pytest) or a `package.json` with a `test` script (Node) — `test.ps1 -All`
-- `Get-DatrixMonoProjectNames` — ordered canonical monorepo packages that exist (e.g. `duplicate.ps1 -Mono`)
+A project MCP server's setup (`-Setup` of `dev/code-index.ps1`, `dev/local-llm.ps1`, `dev/line-edit.ps1`) is
+Python: `datrix_scripts.dev.mcp_setup`. A metrics script's project selection (`-Projects` / `-All`) is
+Python: `datrix_scripts.metrics.projects`.
 
 ## venv.ps1
 
 The shared venv, `D:\datrix\.venv`. A wrapper rendered from the template; the behaviour is
 `datrix_scripts.venv` (`bash common/venv.sh --help` or `python -m datrix_scripts.venv --help`
-lists every option). `Invoke-DatrixPythonScript` runs its `-Ensure` check (and with
-`-RequirePackages` its `-EnsurePackages -SkipIfInstalled`) before every child, and
+lists every option). `Invoke-DatrixEntrypoint` creates the venv with its `--ensure` when it has no
+interpreter yet; a module that imports the `datrix-*` packages first runs
+`datrix_scripts.venv.require_packages` (its `-Ensure -EnsurePackages -SkipIfInstalled` check), and
 `test\affected-gate.ps1` runs the same check once, before any child.
 
 | Mode | Command | What it does |
@@ -267,7 +282,7 @@ lists every option). `Invoke-DatrixPythonScript` runs its `-Ensure` check (and w
 | **Ensure the installs** | `.\common\venv.ps1 -Ensure -EnsurePackages [-SkipIfInstalled \| -Force \| -Offline]` | Reinstall every stale package, then the `[dev]` extras, then the scripts group (details below) |
 | **Rebuild the venv** | `.\common\venv.ps1 -Recreate -EnsurePackages` | Build the venv afresh from a native base interpreter, then install everything |
 | **Install one package** | `.\common\venv.ps1 -InstallPackage datrix-cli [-NoDev]` | Editable install, with its `[dev]` extra unless `-NoDev` |
-| **Check the CLI** | `.\common\venv.ps1 -TestCommand` | `datrix --version` runs; on failure its output and exit code (or the missing executable) go to stderr and the exit code is 1 (`dev\generate.ps1` runs it after the plugin-discovery check) |
+| **Check the CLI** | `.\common\venv.ps1 -TestCommand` | `datrix --version` runs; on failure its output and exit code (or the missing executable) go to stderr and the exit code is 1 (`dev\generate.ps1` runs the same check, `datrix_scripts.venv.check_datrix_command`, after the plugin-discovery check) |
 | **Base interpreter** | `.\common\venv.ps1 -BaseInterpreter` | Print the interpreter a new venv would be built from |
 | **Install order** | `.\common\venv.ps1 -ListPackages` | Print the installable packages, one per line, in install order |
 | **Self-test** | `.\common\venv.ps1 -SelfTest` | Planted executables, workspaces, venvs, locks and site-packages; no pip, no network |
@@ -339,28 +354,29 @@ holding it.
 
 ## Usage in Scripts
 
+A wrapper is its help, `[CmdletBinding()]` and `param()` block, then the template's tail unchanged:
+
 ```powershell
 [CmdletBinding()]
-param([string[]]$Projects, [switch]$Dbg)
-
-$ErrorActionPreference = "Stop"
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixPythonScript.psm1") -Force
-# Project discovery, when the wrapper needs it (also loads DatrixPaths.psm1)
-Import-Module (Join-Path $PSScriptRoot "..\common\DatrixScriptCommon.psm1") -Force
-
-$pythonArgs = @("--workspace-root", (Get-DatrixWorkspaceRoot)) + $Projects
-if ($Dbg) { $pythonArgs += "--debug" }
-exit (Invoke-DatrixPythonScript -Script (Join-Path $PSScriptRoot "lib\example.py") -Arguments $pythonArgs -ShowCommand:$Dbg)
+param(
+ [string[]]$Projects, [switch]$All, [switch]$Dbg, [switch]$SelfTest
+)
+# Rendered from scripts/common/templates/entrypoint.ps1, ...
+Import-Module (Join-Path $scripts "common\DatrixPythonScript.psm1")
+Invoke-DatrixEntrypoint -Module "datrix_scripts.<category>.<name>" -Parameters $PSBoundParameters
+exit $LASTEXITCODE
 ```
 
-Scripts that only need `DatrixPaths.psm1` can import it alone; otherwise prefer `DatrixScriptCommon.psm1` to avoid duplicating project-discovery logic.
+Everything else, project discovery (`-Projects` / `-All`) included, is the module's: through
+`datrix_scripts.metrics.projects` or `datrix_scripts.framework_repos`, never in the wrapper.
 
-## CleanupUtils.psm1
+## Cleanup scripts
 
-- `Remove-EmptyParentFolders`, `Confirm-YesNo` — existing behavior
-- `Format-CleanupSize` — human-readable byte sizes
-- `Get-CleanupFolderSize` — recursive file size sum
-- `Get-CleanupFolderContents` — tree listing; use `-WarnOnFolderReadError` for non-fatal read warnings (tasks cleanup)
+The cleanup scripts (`workspace\cleanup-temps.ps1`, `workspace\empty-folders.ps1`, `test\cleanup.ps1`,
+`tasks\cleanup.ps1`, `metrics\cleanup-ruff.ps1`) share `datrix_scripts.cleanup_utils`: the typed
+`yes` / `no` confirmation (an end of input answers no), tree and file removal, pruning the folders a
+deletion left empty up to a boundary, a listing that never enters a link, and `format_cleanup_size`
+byte sizes. Their self-tests answer the confirmation with `scripted_answers` / `refuse_answer`.
 
 ## DatrixRunLog.psm1
 

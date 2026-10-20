@@ -1,0 +1,779 @@
+"""Lint and format config documents (.dcfg).
+
+The module behind ``scan/config-linter.ps1`` (and its ``.sh`` twin). Run with one or more paths, or
+``--all`` to scan all datrix repositories (never both; neither prints the usage and exits 1).
+``--check`` reports the files needing format and the style warnings without writing; without it,
+each file is reformatted in place. A file whose formatting would drop a comment is left unchanged.
+
+Usage:
+    python -m datrix_scripts.scan.config_linter --all [--check] [--dbg]
+    python -m datrix_scripts.scan.config_linter --path=<path> [--path=...] [--check] [--dbg]
+    python -m datrix_scripts.scan.config_linter --self-test
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Final
+
+from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, install_sigint_handler, report_condition
+from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.scan.selection import (
+    BOTH_SELECTED,
+    SelectionRefused,
+    every_repository,
+    expect_refusal,
+    require_selection,
+    wrapper_usage,
+)
+from datrix_scripts.test.wrappers import SCAN_SCRIPTS_DIR, module_main, run_self_test, self_test_check
+
+if TYPE_CHECKING:
+    from datrix_common.config.dcfg import ast_nodes as ast
+
+MODULE: Final = "datrix_scripts.scan.config_linter"
+WRAPPER: Final = "config-linter"
+
+_USAGE: Final = wrapper_usage(WRAPPER, ["-All [-Check] [-Dbg]", "<path> [path2 ...] [-Check] [-Dbg]", "-SelfTest"])
+
+
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        "build",
+        "dist",
+        ".tox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "htmlcov",
+    }
+)
+
+
+@dataclass
+class LintIssue:
+    line: int
+    col: int
+    message: str
+
+
+def _discover_dcfg_files(path: Path) -> list[Path]:
+    files: list[Path] = []
+    if path.is_file():
+        if path.suffix == ".dcfg":
+            files.append(path)
+        return files
+    if not path.is_dir():
+        return files
+
+    for dir_path, dirnames, filenames in os.walk(path, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.endswith(".egg-info")]
+        for name in filenames:
+            if name.endswith(".dcfg"):
+                files.append(Path(dir_path) / name)
+    return sorted(files)
+
+
+def _lint_source_text(source: str) -> list[LintIssue]:
+    issues: list[LintIssue] = []
+    for index, raw_line in enumerate(source.splitlines(), start=1):
+        line = raw_line.rstrip("\r")
+        if "\t" in line:
+            issues.append(LintIssue(index, line.index("\t") + 1, "Tab character found; use spaces"))
+        if line.rstrip(" ") != line:
+            issues.append(
+                LintIssue(index, len(line.rstrip(" ")) + 1, "Trailing whitespace found")
+            )
+    return issues
+
+
+def _escape_string(value: str) -> str:
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
+def _render_expr(expr: ast.Expression) -> str:
+    from datrix_common.config.dcfg import ast_nodes as ast
+
+    if isinstance(expr, ast.Identifier):
+        return expr.name
+    if isinstance(expr, ast.IntLiteral):
+        return str(expr.value)
+    if isinstance(expr, ast.FloatLiteral):
+        return str(expr.value)
+    if isinstance(expr, ast.NullLiteral):
+        return "null"
+    if isinstance(expr, ast.BoolLiteral):
+        return "true" if expr.value else "false"
+    if isinstance(expr, ast.StringLiteral):
+        return _escape_string(expr.value)
+    if isinstance(expr, ast.InterpolationExpr):
+        return "${" + expr.path + "}"
+    if isinstance(expr, ast.InterpolatedString):
+        parts: list[str] = []
+        for part in expr.parts:
+            if isinstance(part, ast.StringLiteral):
+                parts.append(part.value)
+            else:
+                parts.append("${" + part.path + "}")
+        return _escape_string("".join(parts))
+    if isinstance(expr, ast.DurationLiteral):
+        return expr.original_text
+    if isinstance(expr, ast.ListLiteral):
+        return "[" + ", ".join(_render_expr(v) for v in expr.elements) + "]"
+    if isinstance(expr, ast.ObjectLiteral):
+        rendered_fields = ", ".join(f"{k}: {_render_expr(v)}" for k, v in expr.fields)
+        return "{" + rendered_fields + "}"
+    if isinstance(expr, ast.EnvExpr):
+        if expr.default is None:
+            return f"env({_render_expr(expr.name)})"
+        return f"env({_render_expr(expr.name)}, default: {_render_expr(expr.default)})"
+    if isinstance(expr, ast.PerProfileExpr):
+        parts = [f"{k}: {_render_expr(v)}" for k, v in expr.values.items()]
+        if expr.default is not None:
+            parts.append(f"default: {_render_expr(expr.default)}")
+        return "perProfile(" + ", ".join(parts) + ")"
+    if isinstance(expr, ast.TemplateCallExpr):
+        args: list[str] = []
+        args.extend(_render_expr(v) for v in expr.positional_args)
+        args.extend(f"{k}: {_render_expr(v)}" for k, v in expr.named_args.items())
+        return f"{expr.template_name}(" + ", ".join(args) + ")"
+
+    raise TypeError(f"Unsupported expression type: {type(expr).__name__}")
+
+
+def _render_field_assignment(node: ast.FieldAssignment, indent: int) -> str:
+    path = ".".join(node.path)
+    return f"{'  ' * indent}{path} = {_render_expr(node.value)};"
+
+
+def _render_block_assignment(node: ast.BlockAssignment, indent: int) -> str:
+    header = f"{'  ' * indent}{node.name} {{"
+    body = _render_body(node.body, indent + 1)
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_named_block(node: ast.NamedBlockDecl, indent: int) -> str:
+    from datrix_common.config.dcfg import ast_nodes as ast
+
+    prefix = "  " * indent
+    # The "*" sentinel marks a name-less kind block (e.g. ``service from tpl()``).
+    # ``*`` is not a valid identifier, so it must never be emitted as the name.
+    name_part = "" if node.name == ast.KIND_DEFAULT_BLOCK_NAME else f" {node.name}"
+    if node.template_call is not None:
+        head = f"{prefix}{node.section}{name_part} from {_render_expr(node.template_call)}"
+        if node.inherits_base:
+            head += " inheriting base"
+        if node.body:
+            body = _render_body(node.body, indent + 1)
+            return "\n".join([f"{head} {{", *body, f"{prefix}}}"])
+        return f"{head};"
+
+    header = f"{prefix}{node.section}{name_part} {{"
+    body = _render_body(node.body, indent + 1)
+    footer = f"{prefix}}}"
+    return "\n".join([header, *body, footer])
+
+
+#: Maps a config-store key's canonical ``ConfigValueType.value`` (e.g.
+#: ``"Integer"``) back to its ``.dcfg`` source token (e.g. ``"Int"``) -- the
+#: parser's own ``_CONFIG_TYPE_TOKENS`` inverted. Only ``Integer``/``Int``
+#: actually differ; the rest are identity.
+_CONFIG_KEY_TYPE_SOURCE_TOKENS: dict[str, str] = {
+    "String": "String",
+    "Integer": "Int",
+    "Float": "Float",
+    "Boolean": "Boolean",
+}
+
+
+def _render_config_key_default(key: ast.ConfigKeyNode) -> str:
+    if key.value_type.value == "String":
+        return _escape_string(str(key.default))
+    if key.value_type.value == "Boolean":
+        return "true" if key.default else "false"
+    # Integer / Float: the parser already coerced the literal to int/float.
+    return str(key.default)
+
+
+def _render_config_key(key: ast.ConfigKeyNode, indent: int) -> str:
+    prefix = "  " * indent
+    type_token = _CONFIG_KEY_TYPE_SOURCE_TOKENS[key.value_type.value]
+
+    attrs: list[str] = []
+    if key.description is not None:
+        attrs.append(f"description({_escape_string(key.description)})")
+    if key.constraint_min is not None:
+        attrs.append(f"min({key.constraint_min})")
+    if key.constraint_max is not None:
+        attrs.append(f"max({key.constraint_max})")
+    if key.constraint_pattern is not None:
+        attrs.append(f"pattern({_escape_string(key.constraint_pattern)})")
+    if key.allowed_values is not None:
+        values = ", ".join(_escape_string(v) for v in key.allowed_values)
+        attrs.append(f"allowedValues({values})")
+    if key.ttl_seconds is not None:
+        attrs.append(f"ttlSeconds({key.ttl_seconds})")
+    if key.secret_ref is not None:
+        attrs.append(f"secretRef({_escape_string(key.secret_ref)})")
+
+    line = f"{prefix}{type_token} {key.name}"
+    if attrs:
+        line += " : " + ", ".join(attrs)
+    if key.has_default:
+        line += f" = {_render_config_key_default(key)}"
+    return line + ";"
+
+
+def _render_config_keys_block(node: ast.ConfigKeysBlockNode, indent: int) -> str:
+    header = f"{'  ' * indent}keys {{"
+    body = [_render_config_key(key, indent + 1) for key in node.keys]
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_group_entry(entry: ast.GroupEntry, indent: int) -> str:
+    header = f"{'  ' * indent}{entry.name} {{"
+    body = [_render_field_assignment(field, indent + 1) for field in entry.fields]
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_server_groups(node: ast.ServerGroupsDecl, indent: int) -> str:
+    header = f"{'  ' * indent}serverGroups {{"
+    body = [_render_group_entry(entry, indent + 1) for entry in node.entries]
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_namespace_groups(node: ast.NamespaceGroupsDecl, indent: int) -> str:
+    header = f"{'  ' * indent}namespaceGroups {{"
+    body = [_render_group_entry(entry, indent + 1) for entry in node.entries]
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_replace(node: ast.ReplaceDecl, indent: int) -> str:
+    from datrix_common.config.dcfg import ast_nodes as ast
+
+    if isinstance(node.target, ast.NamedBlockDecl):
+        target = node.target
+        name_part = (
+            "" if target.name == ast.KIND_DEFAULT_BLOCK_NAME else f" {target.name}"
+        )
+        if target.template_call is not None:
+            head = (
+                f"{'  ' * indent}replace {target.section}{name_part} "
+                f"from {_render_expr(target.template_call)}"
+            )
+            if target.inherits_base:
+                head += " inheriting base"
+            if target.body:
+                body = _render_body(target.body, indent + 1)
+                return "\n".join([f"{head} {{", *body, f"{'  ' * indent}}}"])
+            return f"{head};"
+        header = f"{'  ' * indent}replace {target.section}{name_part} {{"
+        body = _render_body(target.body, indent + 1)
+        footer = f"{'  ' * indent}}}"
+        return "\n".join([header, *body, footer])
+
+    if isinstance(node.target, ast.BlockAssignment):
+        header = f"{'  ' * indent}replace {node.target.name} {{"
+        body = _render_body(node.target.body, indent + 1)
+        footer = f"{'  ' * indent}}}"
+        return "\n".join([header, *body, footer])
+
+    raise TypeError(f"Unsupported replace target: {type(node.target).__name__}")
+
+
+def _render_body(
+    body: Sequence[
+        ast.FieldAssignment | ast.BlockAssignment | ast.NamedBlockDecl | ast.ReplaceDecl | ast.ServerGroupsDecl | ast.NamespaceGroupsDecl | ast.ConfigKeysBlockNode
+    ],
+    indent: int,
+) -> list[str]:
+    from datrix_common.config.dcfg import ast_nodes as ast
+
+    rendered: list[str] = []
+    for item in body:
+        if isinstance(item, ast.FieldAssignment):
+            rendered.append(_render_field_assignment(item, indent))
+        elif isinstance(item, ast.BlockAssignment):
+            rendered.append(_render_block_assignment(item, indent))
+        elif isinstance(item, ast.NamedBlockDecl):
+            rendered.append(_render_named_block(item, indent))
+        elif isinstance(item, ast.ReplaceDecl):
+            rendered.append(_render_replace(item, indent))
+        elif isinstance(item, ast.ServerGroupsDecl):
+            rendered.append(_render_server_groups(item, indent))
+        elif isinstance(item, ast.NamespaceGroupsDecl):
+            rendered.append(_render_namespace_groups(item, indent))
+        elif isinstance(item, ast.ConfigKeysBlockNode):
+            rendered.append(_render_config_keys_block(item, indent))
+        else:
+            raise TypeError(f"Unsupported body node type: {type(item).__name__}")
+    return rendered
+
+
+def _render_template_decl(template: ast.TemplateDecl, indent: int) -> str:
+    params: list[str] = []
+    for param in template.params:
+        if param.default is None:
+            params.append(param.name)
+        else:
+            params.append(f"{param.name} = {_render_expr(param.default)}")
+    header = f"{'  ' * indent}template {template.name}(" + ", ".join(params) + ") {"
+    body = _render_body(template.body, indent + 1)
+    footer = f"{'  ' * indent}}}"
+    return "\n".join([header, *body, footer])
+
+
+def _render_profile(profile: ast.ProfileBlock, *, is_base: bool, indent: int) -> str:
+    prefix = "  " * indent
+    if is_base:
+        header = f"{prefix}base {{"
+    else:
+        header = f"{prefix}profile {profile.name}"
+        if profile.short_alias is not None:
+            header += f" as {_escape_string(profile.short_alias)}"
+        if profile.extends is not None:
+            header += f" extends {profile.extends}"
+        header += " {"
+
+    lines = [header]
+
+    for alias in profile.aliases:
+        lines.append(f"{'  ' * (indent + 1)}alias {alias.name} = {_escape_string(alias.value)};")
+
+    if profile.aliases and profile.body:
+        lines.append("")
+
+    lines.extend(_render_body(profile.body, indent + 1))
+    lines.append(f"{prefix}}}")
+    return "\n".join(lines)
+
+
+def format_dcfg(source: str, source_path: Path) -> tuple[str, list[LintIssue], str | None]:
+    """Return formatted content + lint issues + optional parse error."""
+    from datrix_common.config.dcfg.errors import DcfgSyntaxError
+    from datrix_language.parser.dcfg_parser import parse_dcfg
+
+    issues = _lint_source_text(source)
+
+    try:
+        ast = parse_dcfg(source, str(source_path))
+    except DcfgSyntaxError as exc:
+        message = f"Syntax error: {exc}"
+        return source, issues, message
+
+    lines: list[str] = [f"config {ast.kind} {ast.owner} {{"]
+
+    for decl in ast.imports:
+        lines.append(f"  import {_escape_string(decl.path)};")
+
+    if ast.imports and (ast.templates or ast.base is not None or ast.profiles):
+        lines.append("")
+
+    for index, template in enumerate(ast.templates):
+        lines.append(_render_template_decl(template, 1))
+        if index != len(ast.templates) - 1:
+            lines.append("")
+
+    if ast.templates and (ast.base is not None or ast.profiles):
+        lines.append("")
+
+    if ast.base is not None:
+        lines.append(_render_profile(ast.base, is_base=True, indent=1))
+        if ast.profiles:
+            lines.append("")
+
+    for index, profile in enumerate(ast.profiles):
+        lines.append(_render_profile(profile, is_base=False, indent=1))
+        if index != len(ast.profiles) - 1:
+            lines.append("")
+
+    lines.append("}")
+    formatted = "\n".join(lines).rstrip() + "\n"
+
+    # Fail-safe: a formatter must only change whitespace, never meaning. If the
+    # rendered output does not round-trip back to the same AST -- or would drop
+    # comments -- decline to rewrite the file and surface the defect instead of
+    # silently corrupting it.
+    guard = _formatting_safety_issue(source, formatted, ast, source_path)
+    if guard is not None:
+        return source, [*issues, guard], None
+
+    return formatted, issues, None
+
+
+def _formatting_safety_issue(
+    source: str,
+    formatted: str,
+    source_ast: ast.ConfigDecl,
+    source_path: Path,
+) -> LintIssue | None:
+    """Return a blocking issue if reformatting would alter meaning or drop comments.
+
+    The renderer is hand-written and can lag the grammar. Rather than trust it
+    blindly, re-parse the formatted text and compare ASTs: any divergence (or a
+    parse failure, or lost ``//`` comments) means the format is unsafe to write.
+    """
+    from datrix_common.config.dcfg.errors import DcfgSyntaxError
+    from datrix_language.parser.dcfg_parser import parse_dcfg
+
+    source_comments = _count_comment_lines(source)
+    formatted_comments = _count_comment_lines(formatted)
+    if formatted_comments < source_comments:
+        return LintIssue(
+            1,
+            1,
+            f"Formatter would drop {source_comments - formatted_comments} comment "
+            "line(s); leaving file unchanged. .dcfg comments are not preserved "
+            "by the formatter -- this is a formatter limitation, not a file error.",
+        )
+
+    try:
+        formatted_ast = parse_dcfg(formatted, str(source_path))
+    except DcfgSyntaxError as exc:
+        return LintIssue(
+            1,
+            1,
+            f"Formatter produced output that fails to parse ({exc}); leaving file "
+            "unchanged. This is a formatter bug -- please report it.",
+        )
+
+    if formatted_ast != source_ast:
+        return LintIssue(
+            1,
+            1,
+            "Formatter output is not semantically identical to the input "
+            "(AST differs); leaving file unchanged to avoid corruption. This is "
+            "a formatter bug -- please report it.",
+        )
+
+    return None
+
+
+def _count_comment_lines(source: str) -> int:
+    """Count lines whose first non-whitespace characters start a ``//`` comment."""
+    return sum(
+        1 for line in source.splitlines() if line.lstrip().startswith("//")
+    )
+
+
+class ConfigLinter:
+    """Find, lint, and format .dcfg files."""
+
+    def __init__(self, check_only: bool, debug: bool) -> None:
+        self.check_only = check_only
+        self.debug = debug
+        self.files_seen = 0
+        self.files_formatted = 0
+        self.files_with_syntax_errors = 0
+        self.total_issues = 0
+        self._would_change = 0
+
+    def _debug(self, message: str) -> None:
+        if self.debug:
+            print(f"[DEBUG] {message}", file=sys.stderr)
+
+    def process_file(self, file_path: Path) -> None:
+        self.files_seen += 1
+        self._debug(f"Processing {file_path}")
+
+        try:
+            original = file_path.read_text(encoding="utf-8")
+        except Exception as exc:  # pragma: no cover - IO failures are environment-specific
+            self.files_with_syntax_errors += 1
+            print(f"ERROR {file_path}: Failed to read file: {exc}")
+            return
+
+        formatted, issues, parse_error = format_dcfg(original, file_path)
+        self.total_issues += len(issues)
+
+        for issue in issues:
+            print(f"WARN  {file_path}:{issue.line}:{issue.col} {issue.message}")
+
+        if parse_error is not None:
+            self.files_with_syntax_errors += 1
+            print(f"ERROR {file_path}: {parse_error}")
+            return
+
+        if formatted != original:
+            if self.check_only:
+                self._would_change += 1
+                print(f"CHECK {file_path}: formatting needed")
+            else:
+                file_path.write_text(formatted, encoding="utf-8")
+                self.files_formatted += 1
+                print(f"FIXED {file_path}")
+
+    def report(self) -> int:
+        print()
+        print("Config linter summary")
+        print("---------------------")
+        print(f"Files scanned:        {self.files_seen}")
+        print(f"Files formatted:      {self.files_formatted}")
+        print(f"Format needed:        {self._would_change}")
+        print(f"Syntax errors:        {self.files_with_syntax_errors}")
+        print(f"Style warnings:       {self.total_issues}")
+
+        if self.files_with_syntax_errors > 0:
+            return 1
+        if self.check_only and (self._would_change > 0 or self.total_issues > 0):
+            return 1
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Self-Test (--self-test)
+#
+# Regression-tests format_dcfg's round-trip fidelity against the exact fixture
+# this module's (now-deleted) pytest suite guarded: the name-less "service"
+# wildcard must not become the invalid token "service *", "replace ... from
+# tpl() { body }" bodies and "inheriting base" clauses must survive
+# formatting, formatting must be idempotent, and a comment-bearing file must
+# be left completely unchanged (fail-safe) with an issue explaining why.
+# ---------------------------------------------------------------------------
+
+_SELF_TEST_SOURCE_NO_COMMENTS = """config service test.Foo {
+  base {
+    pubsub fooEvents from kafkaContainer();
+    rdbms fooDb from postgresContainer(id: "x", database: "d", schema: "s");
+    resilience {
+      dependencyPolicy {
+        defaults {
+          service from standardServicePolicy();
+        }
+      }
+    }
+    serverGroups {
+      core-pool {
+        sku = "GP_Standard_D2s_v3";
+        tier = "GeneralPurpose";
+        storageGb = 32;
+      }
+    }
+    namespaceGroups {
+      core-events {
+        sku = "Standard";
+        capacity = 10;
+      }
+    }
+    configStore {
+      profiles {
+        settings {
+          kind = "freeform";
+          keys {
+            Boolean debugMode : description("Enable debug mode.") = false;
+            Int maxRetries : min(1), max(10), ttlSeconds(60) = 3;
+          }
+        }
+      }
+    }
+  }
+
+  profile production as "prod" extends base {
+    replace pubsub fooEvents from eventHubsKafka() {
+      namespaceGroup = "core-events";
+    }
+    replace rdbms fooDb from postgresFlexibleServer() inheriting base {
+      serverGroup = "core";
+    }
+  }
+}
+"""
+
+
+def formatter_self_test() -> bool:
+    """Prove format_dcfg's round-trip fidelity against the fixture this
+    module's tests previously guarded.
+
+    Returns:
+        True iff every check passed.
+    """
+    ok = True
+
+    formatted, _issues, error = format_dcfg(
+        _SELF_TEST_SOURCE_NO_COMMENTS, Path("test.dcfg")
+    )
+    ok &= report_condition(
+        error is None, "format_dcfg reports no parse error on the fixture", str(error)
+    )
+    ok &= report_condition(
+        "service from standardServicePolicy();" in formatted
+        and "service * from" not in formatted,
+        "the name-less 'service' wildcard renders as 'service from ...', "
+        "never the invalid token 'service *'",
+    )
+    ok &= report_condition(
+        'namespaceGroup = "core-events";' in formatted,
+        "a 'replace ... from tpl() { body }' body survives formatting",
+    )
+    ok &= report_condition(
+        "inheriting base" in formatted,
+        "an 'inheriting base' clause survives formatting",
+    )
+    ok &= report_condition(
+        'serverGroup = "core";' in formatted,
+        "the inheriting-base replace body survives formatting",
+    )
+    ok &= report_condition(
+        "serverGroups {" in formatted and 'sku = "GP_Standard_D2s_v3";' in formatted,
+        "a top-level 'serverGroups { name { ... } }' block survives formatting",
+    )
+    ok &= report_condition(
+        "namespaceGroups {" in formatted and "capacity = 10;" in formatted,
+        "a top-level 'namespaceGroups { name { ... } }' block survives formatting",
+    )
+    ok &= report_condition(
+        "keys {" in formatted
+        and 'Boolean debugMode : description("Enable debug mode.") = false;' in formatted
+        and "Int maxRetries : min(1), max(10), ttlSeconds(60) = 3;" in formatted,
+        "a nested 'keys { ... }' config-store block survives formatting, "
+        "including a Boolean key's description/default and an Int key's "
+        "min/max/ttlSeconds attributes",
+    )
+
+    once, _issues1, _error1 = format_dcfg(_SELF_TEST_SOURCE_NO_COMMENTS, Path("t.dcfg"))
+    twice, _issues2, _error2 = format_dcfg(once, Path("t.dcfg"))
+    ok &= report_condition(
+        once == twice, "formatting is idempotent: format(format(x)) == format(x)"
+    )
+
+    comment_source = "// keep this note\n" + _SELF_TEST_SOURCE_NO_COMMENTS
+    comment_formatted, comment_issues, comment_error = format_dcfg(
+        comment_source, Path("t.dcfg")
+    )
+    ok &= report_condition(
+        comment_error is None, "comment-bearing source: no parse error", str(comment_error)
+    )
+    ok &= report_condition(
+        comment_formatted == comment_source,
+        "comment-bearing source is left byte-for-byte unchanged (fail-safe)",
+    )
+    ok &= report_condition(
+        any("comment" in issue.message.lower() for issue in comment_issues),
+        "a blocking issue explains the comment-drop fail-safe",
+    )
+
+    print()
+    if ok:
+        print("SELF-TEST PASSED: format_dcfg round-trip fidelity holds.")
+    else:
+        print("SELF-TEST FAILED: see failures above.")
+    return ok
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``scan/config-linter.ps1``: one per wrapper parameter, spelled exactly."""
+    parser = argparse.ArgumentParser(
+        prog=WRAPPER, description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False
+    )
+    parser.add_argument("--path", action="append", default=[], help="A file or directory to scan (repeatable).")
+    parser.add_argument("--all", action="store_true", help="Scan all datrix* repositories.")
+    parser.add_argument("--check", action="store_true",
+                        help="Check mode: report issues/needed formatting, do not write files.")
+    parser.add_argument(WRAPPER_DEBUG_FLAG, dest="debug", action="store_true", help="Log each file processed.")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "Run the formatter self-test (round-trip fidelity fixture: "
+            "service-wildcard rendering, replace/inheriting-base preservation, "
+            "idempotence, comment fail-safe) and the selection rules, and exit -- does not scan or "
+            "format any real .dcfg file."
+        ),
+    )
+    return parser
+
+
+def scan_targets(args: argparse.Namespace, workspace: Path) -> list[Path]:
+    """The paths named, or every repository with ``--all``.
+
+    Raises:
+        SelectionRefused: neither or both were given.
+    """
+    require_selection(args.path, args.all, _USAGE)
+    return every_repository(workspace) if args.all else [Path(p) for p in args.path]
+
+
+def _check_nothing_selected_prints_the_usage() -> None:
+    expect_refusal(lambda: scan_targets(build_parser().parse_args([]), WORKSPACE_DIR), 1, _USAGE)
+
+
+def _check_paths_with_all_are_refused() -> None:
+    args = build_parser().parse_args(["--all", "--path=x"])
+    expect_refusal(lambda: scan_targets(args, WORKSPACE_DIR), 1, BOTH_SELECTED)
+
+
+def _run(args: argparse.Namespace) -> int:
+    install_sigint_handler()
+    if args.self_test:
+        checks = [
+            self_test_check("format_dcfg round-trip fidelity", formatter_self_test),
+            _check_nothing_selected_prints_the_usage,
+            _check_paths_with_all_are_refused,
+        ]
+        return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SCAN_SCRIPTS_DIR)
+    try:
+        input_paths = scan_targets(args, WORKSPACE_DIR)
+    except SelectionRefused as refused:
+        return refused.report()
+    return lint_paths(input_paths, check_only=args.check, debug=args.debug)
+
+
+def lint_paths(input_paths: Sequence[Path], *, check_only: bool, debug: bool) -> int:
+    """Lint (and, unless *check_only*, format) every ``.dcfg`` under *input_paths*; the report's exit code."""
+    discovered: list[Path] = []
+
+    print("Discovering .dcfg files...", flush=True)
+    for p in input_paths:
+        if not p.exists():
+            print(f"WARN  Path does not exist: {p}")
+            continue
+        found = _discover_dcfg_files(p)
+        if found:
+            print(f"  {p}: {len(found)} files", flush=True)
+        discovered.extend(found)
+
+    unique_files = sorted(set(discovered))
+    if not unique_files:
+        print("No .dcfg files found.")
+        return 0
+
+    print(f"Found {len(unique_files)} .dcfg file(s).", flush=True)
+    print()
+
+    linter = ConfigLinter(check_only=check_only, debug=debug)
+    for file_path in unique_files:
+        linter.process_file(file_path)
+
+    return linter.report()
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point."""
+    return module_main(build_parser(), _run, argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+

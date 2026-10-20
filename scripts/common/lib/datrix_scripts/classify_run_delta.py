@@ -15,6 +15,7 @@ Usage:
   python -m datrix_scripts.classify_run_delta --previous <run> --current <run>   (PYTHONPATH=scripts/common/lib)
   python -m datrix_scripts.classify_run_delta <previous-run> <current-run>
   .\\scripts\\test\\classify-run-delta.ps1 -Previous <run> -Current <run>
+  python -m datrix_scripts.classify_run_delta --self-test
 
 Exit codes: 0 = SUCCESS, 1 = PARTIAL/NO_CHANGE/REGRESSION,
 2 = usage / input-not-found error.
@@ -23,24 +24,22 @@ Exit codes: 0 = SUCCESS, 1 = PARTIAL/NO_CHANGE/REGRESSION,
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import logging
 import sys
+import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-# Configure UTF-8 encoding for stdout/stderr on Windows
-if sys.platform == "win32" and __name__ == "__main__":
-    if hasattr(sys.stdout, "buffer"):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "buffer"):
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
-from datrix_scripts.gate_harness import UsageError, run_main  # noqa: E402
+from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, UsageError, expect_usage_error
+from datrix_scripts.test.wrappers import module_main, run_self_test
 
 logger = logging.getLogger(__name__)
+
+MODULE = "datrix_scripts.classify_run_delta"
+WRAPPER = "classify-run-delta"
 
 _SCHEMA_VERSION = 1
 _OUTPUT_FILENAME = "run-delta.json"
@@ -256,9 +255,11 @@ def _cluster_delta(
 # ---------------------------------------------------------------------------
 
 
-def _parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``test/classify-run-delta.ps1``: one per wrapper parameter, spelled exactly."""
     parser = argparse.ArgumentParser(
-        description="Classify the delta between two structured test-results runs."
+        description="Classify the delta between two structured test-results runs.",
+        allow_abbrev=False,
     )
     parser.add_argument(
         "paths",
@@ -267,8 +268,14 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--previous", help="Previous run directory or index.json path")
     parser.add_argument("--current", help="Current run directory or index.json path")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    return parser.parse_args()
+    parser.add_argument(WRAPPER_DEBUG_FLAG, dest="debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run only the self-test: planted runs give each verdict; a mixed input form, two projects "
+        "and an index-less directory are refused.",
+    )
+    return parser
 
 
 def _resolve_inputs(args: argparse.Namespace) -> tuple[str, str]:
@@ -375,7 +382,87 @@ def classify_delta(prev_dir: Path, cur_dir: Path) -> RunDelta:
     )
 
 
+# ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
+
+_SELF_TEST_PROJECT = "datrix-planted"
+_SELF_TEST_PREFIX = "classify-run-delta-selftest-"
+
+# (previous failing ids, current failing ids, expected verdict): one row per verdict.
+_VERDICT_CASES: tuple[tuple[tuple[str, ...], tuple[str, ...], str], ...] = (
+    (("t::a", "t::b"), (), _VERDICT_SUCCESS),
+    (("t::a", "t::b"), ("t::a",), _VERDICT_PARTIAL),
+    (("t::a",), ("t::a",), _VERDICT_NO_CHANGE),
+    (("t::a",), ("t::a", "t::c"), _VERDICT_REGRESSION),
+)
+
+
+def _plant_run(root: Path, name: str, project: str, failing: Sequence[str]) -> Path:
+    """A run directory under *root* whose index.json fails *failing*, one cluster per test."""
+    run_dir = root / name
+    run_dir.mkdir()
+    index = {
+        "project": project,
+        "result": "FAILED" if failing else "PASSED",
+        "failures": [
+            {"test_id": test_id, "error_type": "AssertionError", "error_message": f"{test_id} failed"}
+            for test_id in failing
+        ],
+        "errors": [],
+        "failure_clusters": [{"pattern": f"{test_id} failed", "count": 1} for test_id in failing],
+        "error_clusters": [],
+    }
+    (run_dir / _INDEX_JSON_NAME).write_text(json.dumps(index), encoding="utf-8")
+    return run_dir
+
+
+def _check_planted_runs_give_each_verdict() -> None:
+    with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
+        root = Path(tmp)
+        for number, (previous, current, expected) in enumerate(_VERDICT_CASES):
+            delta = classify_delta(
+                _plant_run(root, f"previous-{number}", _SELF_TEST_PROJECT, previous),
+                _plant_run(root, f"current-{number}", _SELF_TEST_PROJECT, current),
+            )
+            assert delta.verdict == expected, f"{previous} -> {current}: expected {expected}, got {delta.verdict}"
+            written = json.loads(delta.path.read_text(encoding="utf-8"))
+            assert written["verdict"] == expected, f"{delta.path} records {written['verdict']}, expected {expected}"
+
+
+def _check_runs_of_two_projects_are_refused() -> None:
+    with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
+        root = Path(tmp)
+        previous = _plant_run(root, "previous", _SELF_TEST_PROJECT, ("t::a",))
+        current = _plant_run(root, "current", "datrix-other", ())
+        expect_usage_error(lambda: classify_delta(previous, current), "different projects")
+
+
+def _check_index_less_directory_is_refused() -> None:
+    with tempfile.TemporaryDirectory(prefix=_SELF_TEST_PREFIX) as tmp:
+        expect_usage_error(lambda: _resolve_run_dir(tmp, "previous"), f"contains no {_INDEX_JSON_NAME}")
+
+
+def _check_inputs_are_one_form_naming_both_runs() -> None:
+    parser = build_parser()
+    assert _resolve_inputs(parser.parse_args(["old", "new"])) == ("old", "new")
+    assert _resolve_inputs(parser.parse_args(["--previous=old", "--current=new"])) == ("old", "new")
+    expect_usage_error(lambda: _resolve_inputs(parser.parse_args(["old", "--current=new"])), "not both")
+    expect_usage_error(lambda: _resolve_inputs(parser.parse_args(["old"])), "exactly 2")
+    expect_usage_error(lambda: _resolve_inputs(parser.parse_args(["--previous=old"])), "Both runs are required")
+
+
+_SELF_TEST_CHECKS = (
+    _check_planted_runs_give_each_verdict,
+    _check_runs_of_two_projects_are_refused,
+    _check_index_less_directory_is_refused,
+    _check_inputs_are_one_form_naming_both_runs,
+)
+
+
 def _run(args: argparse.Namespace) -> int:
+    if args.self_test:
+        return run_self_test(_SELF_TEST_CHECKS, wrapper=WRAPPER, module=MODULE, parser=build_parser())
     previous_raw, current_raw = _resolve_inputs(args)
     delta = classify_delta(
         _resolve_run_dir(previous_raw, "previous"), _resolve_run_dir(current_raw, "current")
@@ -388,9 +475,9 @@ def _run(args: argparse.Namespace) -> int:
     return _EXIT_SUCCESS if delta.verdict == _VERDICT_SUCCESS else _EXIT_NOT_SUCCESS
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Entry point."""
-    return run_main(_parse_args, _run)
+    return module_main(build_parser(), _run, argv)
 
 
 if __name__ == "__main__":

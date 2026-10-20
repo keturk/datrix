@@ -43,17 +43,18 @@ than pinned. Adding an ``ALLOWLIST`` entry is the only escape hatch, and it is
 for files that document the ID *format* -- never for a file that merely happens
 to carry a reference.
 
-Run with ``--self-test`` to verify the detector is non-vacuous.
+The gate that runs this scan over every committed tree, with the self-test first, is
+``datrix_scripts.gates.repo_hygiene.design_task_reference_gate``.
 """
 
 from __future__ import annotations
 
-import argparse
 import os
 import re
 import tempfile
 from pathlib import Path
 
+from datrix_scripts.framework_repos import workspace_package_dirs
 from datrix_scripts.gate_harness import write_file, write_files
 from datrix_scripts.paths import WORKSPACE_DIR
 
@@ -134,10 +135,16 @@ LABEL_TOKEN_EXCEPTIONS: dict[tuple[str, str], str] = {
 # already catches. Flagging the bare form conflates the two and would force an
 # anchor-churning docs rename for no gain in pointer safety.
 
+#: Every text type the framework repos commit under a scanned subtree: source and templates, the
+#: wrappers and their POSIX twins, the PowerShell modules, Datrix documents and fixtures (a disabled
+#: fixture is ``*.dtrx.false``), the ``py.typed`` markers, data files and prose. A committed type
+#: missing here is a type a reference survives in unseen.
 SCAN_EXTENSIONS = (
-    ".py", ".ps1", ".json", ".md", ".j2", ".ts", ".mts", ".cts",
-    ".js", ".mjs", ".cjs", ".cs", ".java",
-    ".toml", ".yaml", ".yml", ".dtrx",
+    ".py", ".ps1", ".psm1", ".psd1", ".sh", ".json", ".jsonl", ".md", ".txt", ".j2", ".template",
+    ".ts", ".mts", ".cts", ".js", ".mjs", ".cjs", ".cs", ".java", ".dart", ".c", ".h",
+    ".html", ".css", ".svg", ".bicep",
+    ".toml", ".yaml", ".yml", ".csv", ".tsv",
+    ".dtrx", ".dcfg", ".dseed", ".dal", ".lark", ".scm", ".false", ".typed",
 )
 
 # Never scanned: the gitignored orchestration trees themselves, plus build noise.
@@ -170,15 +177,15 @@ SHOWCASE_REPO = "datrix"
 ALLOWLIST: dict[str, str] = {
     "datrix/scripts/common/lib/datrix_scripts/task_metadata.py":
         "documents and parses the task-ID grammar; the IDs in its docstrings are format examples",
-    "datrix/scripts/review/lib/review_schema.py":
+    "datrix/scripts/common/lib/datrix_scripts/review/review_schema.py":
         "field docstring showing the shape of a task-relative location string",
     "datrix/scripts/tasks/quick-reference.md":
         "usage examples for the task scripts; the IDs are illustrative arguments",
     "datrix/scripts/review/quick-reference.md":
         "usage example for the review runner",
-    "datrix/scripts/review/lib/review_library_gate.py":
+    "datrix/scripts/common/lib/datrix_scripts/review/review_library_gate.py":
         "self-test fixtures that synthesize task files in a temp dir",
-    "datrix/scripts/skill/lib/skill_assist_gate.py":
+    "datrix/scripts/common/lib/datrix_scripts/skill/skill_assist_gate.py":
         "self-test fixtures that synthesize task files and a design doc in a temp workspace; "
         "the assists under test parse task ids and find design-number references",
     "datrix/scripts/common/lib/datrix_scripts/design_task_references.py":
@@ -253,13 +260,25 @@ def _line_hit(line: str, next_line: str, rel: str = "") -> str | None:
     return None
 
 
+class ReferenceScanError(RuntimeError):
+    """A file the scan was asked to read could not be read."""
+
+
 def _file_hits(path: str, rel: str) -> list[tuple[int, str, str]]:
-    """(lineno, label, line) for every reference in the file at *path*."""
+    """(lineno, label, line) for every reference in the file at *path*.
+
+    Raises:
+        ReferenceScanError: when the file cannot be read. Skipping it would report its references as
+            absent, so the scan stops instead.
+    """
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             text = handle.read()
-    except OSError:
-        return []
+    except OSError as exc:
+        raise ReferenceScanError(
+            f"{rel} could not be read ({exc.strerror or exc}). The reference scan reads every file it "
+            "visits and stops rather than skip one. Close the program holding the file, then re-run."
+        ) from exc
     return text_hits(text, rel)
 
 
@@ -288,15 +307,11 @@ def default_roots(workspace: str = WORKSPACE_ROOT) -> list[str]:
     could not do.
     """
     roots: list[str] = []
-    for name in sorted(os.listdir(workspace)):
-        package_dir = os.path.join(workspace, name)
-        if not name.startswith("datrix") or not os.path.isdir(package_dir):
-            continue
-        subtrees = SHOWCASE_SUBTREES if name == "datrix" else PACKAGE_SUBTREES
-        for subtree in subtrees:
-            candidate = os.path.join(package_dir, subtree)
-            if os.path.isdir(candidate):
-                roots.append(candidate.replace("\\", "/"))
+    for package_dir in workspace_package_dirs(Path(workspace), include_showcase=True):
+        for subtree in _repo_subtrees(package_dir.name):
+            candidate = package_dir / subtree
+            if candidate.is_dir():
+                roots.append(candidate.as_posix())
     return roots
 
 
@@ -343,6 +358,16 @@ def scan_paths(rel_paths: list[str], workspace: str = WORKSPACE_ROOT) -> list[tu
     return hits
 
 
+def _unreadable_file_stops_the_scan(directory: str) -> bool:
+    """True when reading *directory* as a file raises ``ReferenceScanError``: opening a directory as a
+    file fails on every platform, the stand-in for a file the scan cannot read."""
+    try:
+        _file_hits(directory, "unreadable.py")
+    except ReferenceScanError:
+        return True
+    return False
+
+
 def self_test(quiet: bool = False) -> int:
     """Prove the detector fires on every reference shape and stays quiet without one.
 
@@ -383,6 +408,11 @@ def self_test(quiet: bool = False) -> int:
             "split_hash.py": "# Serves only declared page paths (design\n# 052 section 16.1).\n",
             "split_star.ts": " * Mirrors the shared table (design\n * doc 046, the host rule).\n",
             "split_docstring.py": '"""Unit tests for the census (design\n052 sections 7.1-7.2)."""\n',
+            # A wrapper's POSIX twin, a PowerShell module and a Datrix config fixture are committed
+            # text like the source beside them.
+            "wrapper_twin.sh": "# Runs the gate the way task-07-42 asked.\n",
+            "module.psm1": "# Shared helpers (see design 048).\n",
+            "fixture.dcfg": "// Profile for task 50-22.\n",
         }
         write_files(Path(tmp), shapes)
         found = scan([tmp])
@@ -397,6 +427,10 @@ def self_test(quiet: bool = False) -> int:
             print("SELF-TEST FAILED: a bare 'Phase NN' heading must not be flagged")
             return 1
 
+        if not _unreadable_file_stops_the_scan(tmp):
+            print("SELF-TEST FAILED: a file the scan could not read was reported reference-free")
+            return 1
+
     if label_self_test(quiet) != 0:
         return 1
 
@@ -408,8 +442,9 @@ def self_test(quiet: bool = False) -> int:
         "bare 'design NNN', hyphenated 'design-NNN', 'design doc NNN', plural "
         "'tasks NN-NN', slashed plural, plural 'design docs NNN', "
         "multi-space, underscore and zero separators, and a reference split "
-        "across a line break under '#', ' * ' and no leader), reports zero for a "
-        "clean file, and leaves a bare delivery-wave heading alone."
+        "across a line break under '#', ' * ' and no leader, and in a .sh twin, a .psm1 "
+        "module and a .dcfg fixture), reports zero for a clean file, leaves a bare "
+        "delivery-wave heading alone, and stops on a file it cannot read."
     )
     return 0
 
@@ -476,36 +511,3 @@ def label_self_test(quiet: bool = False) -> int:
         "line ranges, docs vocabulary, the reviewed token in its own file) stay silent."
     )
     return 0
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("roots", nargs="*", help="directories to scan (default: every committed tree)")
-    parser.add_argument("--self-test", action="store_true", help="run only the non-vacuity self-test")
-    args = parser.parse_args()
-
-    if args.self_test:
-        return self_test()
-
-    if self_test() != 0:
-        return 1
-
-    roots = args.roots or default_roots()
-    hits = scan(roots)
-    if not hits:
-        print(f"INFO: No design-doc or task-file references in {len(roots)} committed tree(s).")
-        print("Design/task reference check passed")
-        return 0
-
-    print(f"ERROR: {len(hits)} design-doc/task-file reference(s) in committed artifacts:")
-    for rel, lineno, label, line in hits:
-        print(f"  [{label}] {rel}:{lineno}: {line}")
-    print(
-        "\nDesign docs and task files are gitignored and numbered per-machine, so these are "
-        "dangling pointers. Describe the WORK, not the ticket."
-    )
-    return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

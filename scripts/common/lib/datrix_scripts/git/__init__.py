@@ -1,0 +1,1 @@
+"""The modules behind the ``scripts/git/`` wrappers: commit-and-push with its pre-stage checks, the first-pass pre-review and its gate, line-ending repair, pull, status, and the census that keeps every git script off the forbidden git forms."""

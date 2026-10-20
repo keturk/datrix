@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Shared parsing for Datrix task files and phase-level dependencies.md documents.
 
-Imported by the sibling scripts phase_status.py, plan_waves.py and
-validate_dependencies.py. Task files are DATA: this module only reads them.
+Imported by the datrix_scripts.tasks modules (the phase analyses, the task validators and
+the orientation retrofit) and by the review preparation. Task files are DATA: this module only reads them.
 
 Parsing rules (derived from the real task corpus and from
 d:/datrix/datrix/claude-config/.claude/agent-templates/dependencies-format.md):

@@ -1,6 +1,6 @@
 """Read workspace files and logs with a local model, so an agent receives the answer, not the text.
 
-The local-model MCP tools (``dev/lib/local_llm_mcp.py``) are built on this module. An agent names
+The local-model MCP tools (``datrix_scripts.dev.local_llm_mcp``) are built on this module. An agent names
 files or a log and asks a question; this module reads them on this machine, numbers their
 lines, sends them to a local model server (``datrix_scripts.local_llm``) in chunks that fit the
 smallest context in the pool, and returns a short answer that cites ``path:line``. The bulk

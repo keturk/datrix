@@ -12,8 +12,9 @@
  Invoke-DatrixPythonScript has the shared venv checked (common\venv.ps1's -Ensure, and with
  -RequirePackages its -EnsurePackages -SkipIfInstalled), points the child's environment at the venv
  (common\lib first on PYTHONPATH, the bytecode cache outside the source trees, VIRTUAL_ENV and
- the venv's Scripts first on PATH), runs the venv interpreter by absolute path, restores this
- process's environment in a finally block, and returns the child's exit code. It never calls
+ the venv's Scripts first on PATH, UTF-8 output decoded as UTF-8), runs the venv interpreter by
+ absolute path, restores this process's environment and console output encoding in a finally
+ block, and returns the child's exit code. It never calls
  exit itself.
 
  Invoke-DatrixEntrypoint is the body of every wrapper rendered from
@@ -55,30 +56,41 @@ function Enter-DatrixVenvEnvironment {
  # it replaced, for Exit-DatrixVenvEnvironment: common\lib first on PYTHONPATH, the bytecode cache
  # under <workspace>\.pycache-verify (never beside the sources), VIRTUAL_ENV and the venv's Scripts
  # first on PATH. PYTHONHOME is cleared, as a venv's activation does.
- $names = @("PYTHONPATH", "PYTHONPYCACHEPREFIX", "PYTHONHOME", "VIRTUAL_ENV", "PATH")
+ # The child writes UTF-8 (UTF-8 mode, and PYTHONIOENCODING over any inherited value) and this
+ # process decodes its output as UTF-8: PowerShell reads a native command's output with the console
+ # encoding, and a legacy code page (437, 1252) garbles box-drawing and other non-ASCII output.
+ $names = @("PYTHONPATH", "PYTHONPYCACHEPREFIX", "PYTHONHOME", "VIRTUAL_ENV", "PATH", "PYTHONUTF8", "PYTHONIOENCODING")
  $cacheFolder = ".pycache-verify"
+ $utf8 = "utf-8"
  $lib = Get-DatrixScriptsPythonPath
  if (-not (Test-Path -LiteralPath (Join-Path $lib "datrix_scripts"))) {
   throw "The shared scripts package is missing: expected $lib\datrix_scripts. Restore it from the datrix repository."
  }
- $saved = @{}
- foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+ $environment = @{}
+ foreach ($name in $names) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
+ $saved = @{ Environment = $environment; ConsoleOutputEncoding = [Console]::OutputEncoding }
  $separator = [System.IO.Path]::PathSeparator
- $inherited = @("$($saved['PYTHONPATH'])" -split [regex]::Escape($separator) | Where-Object { $_ -and ($_ -ne $lib) })
+ $inherited = @("$($environment['PYTHONPATH'])" -split [regex]::Escape($separator) | Where-Object { $_ -and ($_ -ne $lib) })
  $env:PYTHONPATH = (@($lib) + $inherited) -join $separator
- if ([string]::IsNullOrWhiteSpace($saved["PYTHONPYCACHEPREFIX"])) {
+ if ([string]::IsNullOrWhiteSpace($environment["PYTHONPYCACHEPREFIX"])) {
   $env:PYTHONPYCACHEPREFIX = Join-Path (Get-DatrixWorkspaceRoot) $cacheFolder
  }
  [Environment]::SetEnvironmentVariable("PYTHONHOME", $null)
  $env:VIRTUAL_ENV = Get-DatrixVenvPath
- $env:PATH = (Join-Path $env:VIRTUAL_ENV "Scripts") + $separator + $saved["PATH"]
+ $env:PATH = (Join-Path $env:VIRTUAL_ENV "Scripts") + $separator + $environment["PATH"]
+ $env:PYTHONUTF8 = "1"
+ $env:PYTHONIOENCODING = $utf8
+ [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
  return $saved
 }
 
 function Exit-DatrixVenvEnvironment {
- # Restores what Enter-DatrixVenvEnvironment replaced; a variable that was unset is removed.
+ # Restores what Enter-DatrixVenvEnvironment replaced: each variable (one that was unset is
+ # removed) and the console output encoding.
  param([Parameter(Mandatory = $true)][hashtable]$Saved)
- foreach ($name in $Saved.Keys) { [Environment]::SetEnvironmentVariable($name, $Saved[$name]) }
+ $environment = $Saved["Environment"]
+ foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, $environment[$name]) }
+ [Console]::OutputEncoding = $Saved["ConsoleOutputEncoding"]
 }
 
 function ConvertTo-DatrixEntrypointArgument {
@@ -317,10 +329,6 @@ function Invoke-DatrixPythonScript {
  .PARAMETER Gate
  Gate mode: tee the output to a claimed log and print one verdict line (see the module help).
 
- .PARAMETER TeePath
- Show the output and also append every line to this file (stdout and stderr), for a caller
- that parses what the child printed. Not with -Gate, which tees to the gate's own log.
-
  .PARAMETER OutputPipeline
  A steppable pipeline the caller built -- e.g. { Write-TeeOutput -LogFilePath $log }.GetSteppablePipeline(),
  so its command and arguments resolve in the caller's own scope -- that receives the child's
@@ -331,7 +339,7 @@ function Invoke-DatrixPythonScript {
  A list that receives the child's output lines (stdout and stderr, as strings) in place of
  the console: for a caller that reads what the child printed.
 
- At most one of -Gate, -TeePath, -OutputPipeline and -OutputLines.
+ At most one of -Gate, -OutputPipeline and -OutputLines.
 
  .PARAMETER ShowCommand
  Print the interpreter and arguments before running (a wrapper's -Dbg).
@@ -359,9 +367,6 @@ function Invoke-DatrixPythonScript {
   [string]$Gate = "",
 
   [Parameter()]
-  [string]$TeePath = "",
-
-  [Parameter()]
   [System.Management.Automation.SteppablePipeline]$OutputPipeline,
 
   [Parameter()]
@@ -375,13 +380,13 @@ function Invoke-DatrixPythonScript {
   Write-Host "Error: Python script not found: $Script. Expected the file beside its wrapper in lib\. Fix: restore it or correct the wrapper." -ForegroundColor Red
   return $script:ExitUsage
  }
- $destinations = @([bool]$Gate, [bool]$TeePath, ($null -ne $OutputPipeline), ($null -ne $OutputLines)) | Where-Object { $_ }
+ $destinations = @([bool]$Gate, ($null -ne $OutputPipeline), ($null -ne $OutputLines)) | Where-Object { $_ }
  if (@($destinations).Count -gt 1) {
-  Write-Host "Error: more than one of -Gate, -TeePath, -OutputPipeline and -OutputLines was given. Expected at most one: each decides where the child's output goes. Fix: keep the one this call needs." -ForegroundColor Red
+  Write-Host "Error: more than one of -Gate, -OutputPipeline and -OutputLines was given. Expected at most one: each decides where the child's output goes. Fix: keep the one this call needs." -ForegroundColor Red
   return $script:ExitUsage
  }
 
- $logPath = $TeePath
+ $logPath = ""
  if ($Gate) {
   $logPath = New-DatrixGateLogFile -Gate $Gate
  }

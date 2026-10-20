@@ -1,0 +1,454 @@
+"""Build the apply-reviews worklist for a phase.
+
+The module behind ``review/apply-reviews-prep.ps1`` (and its ``.sh`` twin).
+
+Mechanizes Steps 1-2 of the apply-reviews skill
+(d:/datrix/.claude/skills/apply-reviews/SKILL.md):
+
+- Discover Tier 1 artifacts ``*.review.local.json`` in every repo's
+  ``.tasks/phase-{NN}/`` folder and the Tier 2 artifact
+  ``<base>/.review/phase-{NN}.review.phase.json`` (the name tier2_local.py
+  writes).
+- Load findings using the field and enum definitions from review_schema.py
+  (the single source of truth for the review JSON contract).
+- Drop findings already applied: a local finding is dropped when its ID is in
+  the sibling ``<task>.review.applied.json`` marker's ``applied_findings``;
+  a phase-level (Tier 2) finding is dropped when its ID appears in ANY of the
+  phase's applied markers (phase finding IDs are phase-scoped and the skill
+  marks them in each affected task's marker).
+- Group by ``target``, sorted blocking -> major -> minor -> nit within each
+  target.
+
+Console output is minimal; the worklist JSON carries everything. Review
+artifacts and task files are DATA — never modified here.
+
+Usage:
+  python -m datrix_scripts.review.apply_reviews_prep --phase=31
+  python -m datrix_scripts.review.apply_reviews_prep --phase=31 --source=local
+  .\\scripts\\review\\apply-reviews-prep.ps1 -Phase 31 [-Source local|phase|all]
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import dataclasses
+import io
+import json
+import logging
+import sys
+import tempfile
+from collections.abc import Sequence
+from datetime import datetime
+from pathlib import Path
+from typing import Final, cast, get_args, get_type_hints
+
+from datrix_scripts.framework_repos import workspace_package_dirs
+from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, UsageError, expect_usage_error
+from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.review.review_schema import Finding
+from datrix_scripts.review.tier2_local import PHASE_ARTIFACT_TEMPLATE, PHASE_SOURCE
+from datrix_scripts.task_metadata import write_json_output
+from datrix_scripts.test.wrappers import REVIEW_SCRIPTS_DIR, module_main, run_self_test
+
+logger = logging.getLogger(__name__)
+
+MODULE: Final = "datrix_scripts.review.apply_reviews_prep"
+WRAPPER: Final = "apply-reviews-prep"
+SCHEMA_VERSION = 1
+OUTPUT_CATEGORY = "review"
+
+EXIT_DONE = 0
+
+SOURCE_LOCAL = "local"
+SOURCE_ALL = "all"
+
+LOCAL_ARTIFACT_SUFFIX = ".review.local.json"
+APPLIED_MARKER_SUFFIX = ".review.applied.json"
+PHASE_REVIEW_DIRNAME = ".review"
+TASK_FILE_SUFFIX = ".md"
+
+# Field and enum definitions come from review_schema.Finding — the review JSON
+# contract's single source of truth (Tier 1/2/3 all conform to it).
+FINDING_FIELD_NAMES: tuple[str, ...] = tuple(
+    field.name for field in dataclasses.fields(Finding)
+)
+_FINDING_HINTS = get_type_hints(Finding)
+VALID_SEVERITIES: frozenset[str] = frozenset(
+    cast(tuple[str, ...], get_args(_FINDING_HINTS["severity"]))
+)
+SEVERITY_ORDER: dict[str, int] = {"blocking": 0, "major": 1, "minor": 2, "nit": 3}
+_OPTIONAL_FINDING_FIELDS = frozenset({"rule_reference"})
+
+
+def _severity_rank(severity: str) -> int:
+    if severity not in SEVERITY_ORDER:
+        raise ValueError(
+            f"Unknown severity '{severity}'. Valid severities (from "
+            f"review_schema.Finding): {sorted(VALID_SEVERITIES)}."
+        )
+    return SEVERITY_ORDER[severity]
+
+
+def _load_json_object(path: Path) -> dict[str, object]:
+    try:
+        raw: object = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Review artifact {path} is not valid JSON ({exc}). Regenerate it "
+            "with review.py or fix the file."
+        ) from exc
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"Review artifact {path} must contain a JSON object (the "
+            "ReviewResult schema from review_schema.py)."
+        )
+    return cast(dict[str, object], raw)
+
+
+def _parse_finding(item: object, artifact: Path, index: int) -> dict[str, object]:
+    """Validate one finding against the review_schema.Finding field set."""
+    context = f"{artifact}, findings[{index}]"
+    if not isinstance(item, dict):
+        raise ValueError(f"{context}: each finding must be a JSON object.")
+    data = cast(dict[str, object], item)
+    finding: dict[str, object] = {}
+    for name in FINDING_FIELD_NAMES:
+        if name not in data:
+            if name in _OPTIONAL_FINDING_FIELDS:
+                finding[name] = None
+                continue
+            raise ValueError(
+                f"{context}: missing required key '{name}'. Findings must carry "
+                f"the review_schema.Finding fields: {list(FINDING_FIELD_NAMES)}."
+            )
+        finding[name] = data[name]
+    severity = finding["severity"]
+    if not isinstance(severity, str) or severity not in VALID_SEVERITIES:
+        raise ValueError(
+            f"{context}: severity {severity!r} is invalid. Valid severities: "
+            f"{sorted(VALID_SEVERITIES)}. Fix the artifact."
+        )
+    identifier = finding["id"]
+    if not isinstance(identifier, str) or not identifier:
+        raise ValueError(f"{context}: 'id' must be a non-empty string.")
+    return finding
+
+
+def _parse_artifact(path: Path) -> tuple[str, str, list[dict[str, object]]]:
+    """Return (target, source, findings) from one review artifact."""
+    data = _load_json_object(path)
+    target = data.get("target")
+    if not isinstance(target, str) or not target:
+        raise ValueError(
+            f"Review artifact {path}: 'target' must be a non-empty string "
+            "(a task file name/path or 'phase-NN')."
+        )
+    source = data.get("source")
+    if source not in (SOURCE_LOCAL, PHASE_SOURCE):
+        raise ValueError(
+            f"Review artifact {path}: 'source' must be '{SOURCE_LOCAL}' or '{PHASE_SOURCE}', "
+            f"got {source!r}. Re-run review.ps1 to regenerate it."
+        )
+    findings_value = data.get("findings")
+    if not isinstance(findings_value, list):
+        raise ValueError(
+            f"Review artifact {path}: 'findings' must be a list (may be empty)."
+        )
+    findings = [
+        _parse_finding(item, path, index) for index, item in enumerate(findings_value)
+    ]
+    return target, str(source), findings
+
+
+def _load_applied_ids(marker: Path) -> frozenset[str]:
+    data = _load_json_object(marker)
+    applied = data.get("applied_findings")
+    if not isinstance(applied, list) or not all(isinstance(x, str) for x in applied):
+        raise ValueError(
+            f"Applied marker {marker}: 'applied_findings' must be a list of "
+            "finding IDs (see the apply-reviews skill's marker format)."
+        )
+    return frozenset(str(x) for x in applied)
+
+
+def _phase_dirs(base_dir: Path, phase_label: str) -> list[Path]:
+    return [
+        child / ".tasks" / f"phase-{phase_label}"
+        for child in workspace_package_dirs(base_dir, include_showcase=True)
+        if (child / ".tasks" / f"phase-{phase_label}").is_dir()
+    ]
+
+
+def _discover_local_artifacts(base_dir: Path, phase_label: str) -> list[Path]:
+    artifacts: list[Path] = []
+    for phase_dir in _phase_dirs(base_dir, phase_label):
+        artifacts.extend(sorted(phase_dir.glob(f"*{LOCAL_ARTIFACT_SUFFIX}")))
+    return artifacts
+
+
+def _discover_phase_artifact(base_dir: Path, phase: int) -> list[Path]:
+    """The phase's Tier 2 artifact, when Tier 2 ran (it does not on every phase)."""
+    candidate = base_dir / PHASE_REVIEW_DIRNAME / PHASE_ARTIFACT_TEMPLATE.format(phase=phase)
+    return [candidate] if candidate.is_file() else []
+
+
+def _all_applied_ids(base_dir: Path, phase_label: str) -> frozenset[str]:
+    """Union of applied finding IDs across every marker of the phase."""
+    applied: set[str] = set()
+    for phase_dir in _phase_dirs(base_dir, phase_label):
+        for marker in sorted(phase_dir.glob(f"*{APPLIED_MARKER_SUFFIX}")):
+            applied.update(_load_applied_ids(marker))
+    return frozenset(applied)
+
+
+def _local_artifact_context(artifact: Path) -> tuple[Path, str | None]:
+    """(applied marker path, task file path if it exists) for a local artifact."""
+    stem = artifact.name[: -len(LOCAL_ARTIFACT_SUFFIX)]
+    marker = artifact.with_name(stem + APPLIED_MARKER_SUFFIX)
+    task_file = artifact.with_name(stem + TASK_FILE_SUFFIX)
+    task_path = str(task_file.resolve()) if task_file.is_file() else None
+    return marker, task_path
+
+
+def _collect_local(
+    artifacts: list[Path],
+) -> tuple[list[dict[str, object]], int]:
+    """Findings from Tier 1 artifacts, minus already-applied ones."""
+    collected: list[dict[str, object]] = []
+    skipped = 0
+    for artifact in artifacts:
+        target, source, findings = _parse_artifact(artifact)
+        marker, task_path = _local_artifact_context(artifact)
+        applied = _load_applied_ids(marker) if marker.is_file() else frozenset()
+        for finding in findings:
+            if finding["id"] in applied:
+                skipped += 1
+                continue
+            finding["source"] = source
+            finding["artifact"] = str(artifact.resolve())
+            finding["target"] = target
+            finding["task_path"] = task_path
+            finding["applied_marker"] = str(marker.resolve()) if marker.is_file() else str(marker)
+            collected.append(finding)
+    return collected, skipped
+
+
+def _collect_phase(
+    artifact: Path, applied_anywhere: frozenset[str]
+) -> tuple[list[dict[str, object]], int]:
+    """Findings from the Tier 2 artifact, minus ones applied in any marker."""
+    collected: list[dict[str, object]] = []
+    skipped = 0
+    target, source, findings = _parse_artifact(artifact)
+    for finding in findings:
+        if finding["id"] in applied_anywhere:
+            skipped += 1
+            continue
+        finding["source"] = source
+        finding["artifact"] = str(artifact.resolve())
+        finding["target"] = target
+        finding["task_path"] = None
+        finding["applied_marker"] = None
+        collected.append(finding)
+    return collected, skipped
+
+
+def _group_by_target(findings: list[dict[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for finding in findings:
+        target = finding["target"]
+        if not isinstance(target, str):  # unreachable: validated in _parse_artifact
+            raise ValueError(f"Finding {finding['id']!r} has a non-string target.")
+        grouped.setdefault(target, []).append(finding)
+    targets: list[dict[str, object]] = []
+    for target in sorted(grouped):
+        ordered = sorted(
+            grouped[target],
+            key=lambda finding: (
+                _severity_rank(str(finding["severity"])),
+                str(finding["id"]),
+            ),
+        )
+        targets.append({"target": target, "findings": ordered})
+    return targets
+
+
+def build_worklist(base_dir: Path, phase: int, source: str) -> dict[str, object]:
+    """Assemble the worklist payload for apply-reviews."""
+    phase_label = f"{phase:02d}"
+    local_artifacts = (
+        _discover_local_artifacts(base_dir, phase_label)
+        if source in (SOURCE_LOCAL, SOURCE_ALL)
+        else []
+    )
+    phase_artifacts = (
+        _discover_phase_artifact(base_dir, phase)
+        if source in (PHASE_SOURCE, SOURCE_ALL)
+        else []
+    )
+
+    findings, skipped = _collect_local(local_artifacts)
+    for phase_artifact in phase_artifacts:
+        phase_findings, phase_skipped = _collect_phase(
+            phase_artifact, _all_applied_ids(base_dir, phase_label)
+        )
+        findings.extend(phase_findings)
+        skipped += phase_skipped
+
+    artifacts = [str(path.resolve()) for path in (*local_artifacts, *phase_artifacts)]
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "phase": phase,
+        "base_dir": str(base_dir),
+        "source_filter": source,
+        "artifacts": artifacts,
+        "targets": _group_by_target(findings),
+        "total": len(findings),
+        "skipped_already_applied": skipped,
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``review/apply-reviews-prep.ps1``: one per wrapper parameter, spelled exactly."""
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False
+    )
+    parser.add_argument("--phase", type=int, help="Phase number (e.g. 31)")
+    parser.add_argument(
+        "--source",
+        choices=(SOURCE_LOCAL, PHASE_SOURCE, SOURCE_ALL),
+        default=SOURCE_ALL,
+        help="Which review tier(s) to include (default: all)",
+    )
+    parser.add_argument(
+        "--base-dir",
+        type=Path,
+        default=WORKSPACE_DIR,
+        help="Workspace root containing the datrix* repos (default: this workspace)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output JSON path (default: <workspace>/.tmp/review/phase-NN-worklist.json)",
+    )
+    parser.add_argument(WRAPPER_DEBUG_FLAG, dest="debug", action="store_true", help="Log at DEBUG level.")
+    parser.add_argument("--self-test", action="store_true",
+                        help="Run only the self-test: a planted phase's worklist drops the applied findings and "
+                             "orders the rest by severity; a missing phase or base directory is refused.")
+    return parser
+
+
+def prepare_worklist(args: argparse.Namespace) -> int:
+    """Write the worklist ``args`` asks for and print its summary; returns the exit code.
+
+    Raises:
+        UsageError: No phase, a missing base directory, or a malformed review artifact or marker.
+    """
+    if args.phase is None:
+        raise UsageError("-Phase is required: the phase number whose review artifacts are collected (e.g. 31).")
+    base_dir: Path = args.base_dir
+    if not base_dir.is_dir():
+        raise UsageError(f"Base directory does not exist: {base_dir}. Pass -BaseDir <workspace root of the datrix* repos>.")
+
+    try:
+        payload = build_worklist(base_dir, args.phase, args.source)
+    except ValueError as exc:
+        raise UsageError(str(exc)) from exc
+
+    phase_label = f"{args.phase:02d}"
+    output_path = (
+        args.output
+        if args.output is not None
+        else WORKSPACE_DIR / ".tmp" / OUTPUT_CATEGORY / f"phase-{phase_label}-worklist.json"
+    )
+    write_json_output(payload, output_path)
+
+    artifacts = payload["artifacts"]
+    targets = payload["targets"]
+    artifact_count = len(artifacts) if isinstance(artifacts, list) else 0
+    target_count = len(targets) if isinstance(targets, list) else 0
+    if artifact_count == 0:
+        print(
+            f"No review files found for phase {phase_label} "
+            f"(source={args.source}) under {base_dir}"
+        )
+    else:
+        print(
+            f"Phase {phase_label}: {payload['total']} findings across "
+            f"{target_count} targets from {artifact_count} artifact(s); "
+            f"skipped already-applied: {payload['skipped_already_applied']}"
+        )
+    print(f"Details: {output_path.resolve()}")
+    return EXIT_DONE
+
+
+_PLANTED_PHASE: Final = 7
+_PLANTED_STEM: Final = "widget"
+_PLANTED_TARGET: Final = f"{_PLANTED_STEM}{TASK_FILE_SUFFIX}"
+
+
+def _planted_finding(identifier: str, severity: str) -> dict[str, object]:
+    return {"id": identifier, "severity": severity, "category": "other", "location": _PLANTED_TARGET,
+            "description": f"Finding {identifier}.", "evidence": "line 1", "suggested_fix": "Fix it."}
+
+
+def _plant_phase(root: Path) -> Path:
+    """A workspace with one task of the planted phase: three findings, one already applied."""
+    phase_dir = root / "datrix-alpha" / ".tasks" / f"phase-{_PLANTED_PHASE:02d}"
+    phase_dir.mkdir(parents=True)
+    (phase_dir / _PLANTED_TARGET).write_text("# Task\n", encoding="utf-8")
+    findings = [_planted_finding("F-001", "minor"), _planted_finding("F-002", "blocking"),
+                _planted_finding("F-003", "major")]
+    artifact = {"source": SOURCE_LOCAL, "target": _PLANTED_TARGET, "findings": findings}
+    (phase_dir / f"{_PLANTED_STEM}{LOCAL_ARTIFACT_SUFFIX}").write_text(json.dumps(artifact), encoding="utf-8")
+    (phase_dir / f"{_PLANTED_STEM}{APPLIED_MARKER_SUFFIX}").write_text(
+        json.dumps({"applied_findings": ["F-003"]}), encoding="utf-8")
+    return phase_dir
+
+
+def _check_a_planted_phase_drops_applied_findings_and_orders_by_severity() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _plant_phase(root)
+        output = root / "worklist.json"
+        args = build_parser().parse_args([f"--phase={_PLANTED_PHASE}", f"--base-dir={root}", f"--output={output}"])
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            assert prepare_worklist(args) == EXIT_DONE
+        assert "2 findings across 1 targets from 1 artifact(s); skipped already-applied: 1" in printed.getvalue(), \
+            printed.getvalue()
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert [f["id"] for f in payload["targets"][0]["findings"]] == ["F-002", "F-001"], payload
+
+
+def _check_a_missing_phase_base_dir_or_bad_artifact_is_refused() -> None:
+    expect_usage_error(lambda: prepare_worklist(build_parser().parse_args([])), "-Phase")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        missing = build_parser().parse_args([f"--phase={_PLANTED_PHASE}", f"--base-dir={root / 'no-such'}"])
+        expect_usage_error(lambda: prepare_worklist(missing), "-BaseDir")
+        phase_dir = _plant_phase(root)
+        (phase_dir / f"{_PLANTED_STEM}{LOCAL_ARTIFACT_SUFFIX}").write_text("{not json", encoding="utf-8")
+        malformed = build_parser().parse_args([f"--phase={_PLANTED_PHASE}", f"--base-dir={root}",
+                                               f"--output={root / 'worklist.json'}"])
+        expect_usage_error(lambda: prepare_worklist(malformed), "is not valid JSON")
+
+
+def _run(args: argparse.Namespace) -> int:
+    if args.self_test:
+        checks = [_check_a_planted_phase_drops_applied_findings_and_orders_by_severity,
+                  _check_a_missing_phase_base_dir_or_bad_artifact_is_refused]
+        return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
+                             folder=REVIEW_SCRIPTS_DIR)
+    return prepare_worklist(args)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point."""
+    return module_main(build_parser(), _run, argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

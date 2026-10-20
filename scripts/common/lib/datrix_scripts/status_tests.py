@@ -6,23 +6,33 @@ finds the latest test-results-* directory (reading index.json for structured dat
 and reports test statistics.
 """
 
+import argparse
 import json
 import logging
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Final
 
 from datrix_scripts import package_suites as _package_suites
 from datrix_scripts import structured_log_writer as _structured_log
+from datrix_scripts.gate_harness import configure_logging
 from datrix_scripts.paths import WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
 
-# The three modules above import only the standard library (the package initializer
+# The four modules above import only the standard library (the package initializer
 # imports nothing), so this report stays runnable even when the toolchain packages
 # themselves are not importable.
+
+MODULE: Final = "datrix_scripts.status_tests"
+WRAPPER: Final = "status-tests"
+EXIT_ALL_KNOWN_PASSED: Final = 0
+EXIT_ANY_FAILED: Final = 1
+EXIT_ANY_UNKNOWN: Final = 2
 
 #: index.json's per-phase status encoding, owned by the writer that defines the
 #: artifact. Read here rather than re-declared, so producer and reader cannot
@@ -794,35 +804,87 @@ def print_results(results: list[TestResult]):
  print("=" * line_width)
 
 
-def main():
- """Main entry point."""
- # Find workspace root
- try:
-  root_dir = WORKSPACE_DIR
- except FileNotFoundError:
-  print("ERROR: Could not find Datrix root directory", file=sys.stderr)
-  sys.exit(1)
+def report_exit_code(results: Sequence[TestResult]) -> int:
+ """1 when any project's latest run FAILED, else 2 when any is UNKNOWN, else 0."""
+ if any(r.status == 'FAILED' for r in results):
+  return EXIT_ANY_FAILED
+ if any(r.status == 'UNKNOWN' for r in results):
+  return EXIT_ANY_UNKNOWN
+ return EXIT_ALL_KNOWN_PASSED
 
+
+def report(root_dir: Path) -> int:
+ """Print the latest run of every testable package under *root_dir*; the exit code ``report_exit_code`` gives."""
  print(f"Searching for test results in: {root_dir}")
  print()
-
- # Find all test results
- results = find_all_test_results(root_dir)
-
- # Sort results by project name for consistent output
- results.sort(key=lambda x: x.project_name)
-
- # Print results
+ results = sorted(find_all_test_results(root_dir), key=lambda x: x.project_name)
  print_results(results)
+ return report_exit_code(results)
 
- # Exit with error code if any tests failed
- if any(r.status == 'FAILED' for r in results):
-  sys.exit(1)
- elif any(r.status == 'UNKNOWN' for r in results):
-  sys.exit(2)
- else:
-  sys.exit(0)
+
+def build_parser() -> argparse.ArgumentParser:
+ """The options ``test/status-tests.ps1`` passes (each wrapper parameter as ``--kebab-name``)."""
+ parser = argparse.ArgumentParser(
+  prog="status-tests",
+  description=(
+   f"Report the latest test run of every testable package under {WORKSPACE_DIR}. "
+   "Exit 1 when any FAILED, 2 when any is UNKNOWN, else 0."
+  ),
+  allow_abbrev=False,
+ )
+ parser.add_argument("--dbg", action="store_true", help="log debug detail to stderr")
+ parser.add_argument("--self-test", action="store_true", help="run this module's self-test")
+ return parser
+
+
+def _check_phase_encodings() -> None:
+ cases = (
+  ({"status": PHASE_STATUS_PASSED}, "PASSED"), ({"status": PHASE_STATUS_FAILED}, "FAILED"),
+  ({"status": "1"}, None), (0, "PASSED"), (3, "FAILED"), (True, None), ("0", None),
+ )
+ for phase_info, expected in cases:
+  status = _phase_status_from_index(phase_info)
+  assert status == expected, f"phase entry {phase_info!r} read as {status}, expected {expected}"
+
+
+def _check_summary_lines() -> None:
+ counts = _extract_counts_from_summary_line("====== 13 passed, 2 failed, 1 skipped, 3 warnings in 0.57s ======")
+ assert counts == {"passed": 13, "failed": 2, "errors": 0, "skipped": 1, "warnings": 3}, f"read {counts}"
+ for line in ("line=1 error=boom", "===== 40 deselected in 1.00s =====", "13 passed in 0.57s"):
+  assert _extract_counts_from_summary_line(line) is None, f"{line!r} was read as a summary line"
+ assert parse_timestamp_from_log_file("test-results-20260115-130034") == datetime(2026, 1, 15, 13, 0, 34)
+ assert parse_timestamp_from_log_file("test-results-20260115-130034.log") is None
+
+
+def _check_exit_codes() -> None:
+ def planted(status: str) -> TestResult:
+  return TestResult("p", "p", status, 0, 0, 0, 0, 0, "", "", {})
+
+ cases = (
+  (("PASSED", "NO_LOG"), EXIT_ALL_KNOWN_PASSED), (("PASSED", "UNKNOWN"), EXIT_ANY_UNKNOWN),
+  (("UNKNOWN", "FAILED"), EXIT_ANY_FAILED), ((), EXIT_ALL_KNOWN_PASSED),
+ )
+ for statuses, expected in cases:
+  code = report_exit_code([planted(status) for status in statuses])
+  assert code == expected, f"statuses {statuses} gave exit {code}, expected {expected}"
+
+
+def run_self_test(parser: argparse.ArgumentParser) -> int:
+ """Run this module's checks and its wrapper seam check; the exit code."""
+ from datrix_scripts.test.wrappers import run_self_test as run_wrapper_self_test
+
+ checks = [_check_phase_encodings, _check_summary_lines, _check_exit_codes]
+ return run_wrapper_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=parser)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+ parser = build_parser()
+ args = parser.parse_args(argv)
+ configure_logging(args.dbg)
+ if args.self_test:
+  return run_self_test(parser)
+ return report(WORKSPACE_DIR)
 
 
 if __name__ == "__main__":
- main()
+ sys.exit(main())

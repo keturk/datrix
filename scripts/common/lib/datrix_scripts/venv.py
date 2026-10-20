@@ -1444,6 +1444,26 @@ def ensure_packages_installed(layout: VenvLayout, *, force: bool, skip_if_instal
         return _install_all(layout, force=force)
 
 
+def require_packages(layout: VenvLayout = WORKSPACE_LAYOUT) -> bool:
+    """The check a run that imports the datrix-* packages makes first: the venv is sound and every
+    package is installed and current (``ensure_packages_installed`` in its skip-if-installed mode,
+    as ``common/venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled`` runs it). On failure prints why
+    and returns False."""
+    try:
+        passed = ensure_venv(layout) and ensure_packages_installed(
+            layout, force=False, skip_if_installed=True, offline=False)
+    except VenvError as exc:
+        _error(str(exc))
+        passed = False
+    if not passed:
+        _error(
+            f"the shared venv at {layout.root} and its package installs failed the check above. "
+            f"Fix what it names, then re-run (set {VERBOSE_ENV}=1 to see each step of "
+            f"{venv_command('Ensure', 'EnsurePackages', 'SkipIfInstalled')})."
+        )
+    return passed
+
+
 # ---------------------------------------------------------------------------
 # Command line
 # ---------------------------------------------------------------------------

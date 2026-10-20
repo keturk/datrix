@@ -1,7 +1,7 @@
 """Read datrix-* package dependency declarations from pyproject.toml.
 
-Shared by scripts/metrics/lib/dependency.py (dependency report) and
-scripts/common/lib/datrix_scripts/install_order.py (venv install ordering).
+Shared by ``datrix_scripts.metrics.dependency`` (the dependency report) and
+``datrix_scripts.install_order`` (venv install ordering).
 """
 
 from __future__ import annotations

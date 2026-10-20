@@ -74,7 +74,10 @@ class ColorCodes:
 	YELLOW = "\033[93m"
 	BLUE = "\033[94m"
 	CYAN = "\033[96m"
+	MAGENTA = "\033[95m"
 	GRAY = "\033[90m"
+	DARK_GRAY = "\033[2;90m"
+	DARK_YELLOW = "\033[33m"
 
 
 def colorize(text: str, color: str) -> str:
@@ -82,6 +85,11 @@ def colorize(text: str, color: str) -> str:
 	if sys.stdout.isatty():
 		return f"{color}{text}{ColorCodes.RESET}"
 	return text
+
+
+def say(text: str, color: str = "") -> None:
+	"""Print one console line, coloured on a terminal, flushed at once so live progress shows as it happens."""
+	print(colorize(text, color) if color else text, flush=True)
 
 
 class TeeLogger:

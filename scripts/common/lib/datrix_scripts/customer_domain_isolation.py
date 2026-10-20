@@ -64,11 +64,14 @@ TOKEN_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9]*")
 # PascalCase term (``AcmeCorp``) still matches on the whole-token pass.
 CAMEL_SPLIT_PATTERN = re.compile(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])")
 
-# Files above this size are generated blobs or binaries, never hand-written
-# prose; scanning them costs more than the class of defect they could hold.
-MAX_SCAN_BYTES = 2_000_000
-
 DEFAULT_MIN_TOKEN_LENGTH = 5
+
+#: ``git status --porcelain`` entries: two status letters, a space, then the path.
+PORCELAIN_PATH_OFFSET = 3
+RENAMED = "R"
+COPIED = "C"
+DELETED = "D"
+UNTRACKED = "?"
 
 REDACTION = "<customer-term>"
 MAX_EXCERPT_CHARS = 160
@@ -131,6 +134,11 @@ def load_term_corpus(path: Path) -> TermCorpus:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise CorpusError(f"Customer-term corpus at {path} is unreadable: {exc}") from exc
+    if not isinstance(data, dict):
+        raise CorpusError(
+            f"Customer-term corpus at {path} is a JSON {type(data).__name__}, not an object. Expected "
+            f'{{"algorithm": "sha256", "min_token_length": <int>, "terms": [...]}}.'
+        )
 
     algorithm = data.get("algorithm")
     if algorithm != "sha256":
@@ -204,20 +212,25 @@ def scan_text(text: str, corpus: TermCorpus, seen: dict[str, bool] | None = None
     return hits
 
 
-def read_scannable_text(path: Path) -> str | None:
-    """Return a file's text, or None when it is binary, huge, or unreadable."""
+def read_scan_text(path: Path) -> str:
+    """The text the scanner reads from the file at *path*: every byte the file holds, never a skip.
+
+    A term is ASCII (``TOKEN_PATTERN``), so the scan needs the ASCII letters and digits a file holds
+    whatever its encoding. NUL bytes are dropped, so UTF-16 text reads as its ASCII characters; a byte
+    that is not UTF-8 decodes to U+FFFD, which ends a token as a separator does. There is no size cap
+    and no binary skip: any file a commit can publish is a file a term can leak through.
+
+    Raises:
+        CorpusError: when the file cannot be read; skipping it would report its content as clean.
+    """
     try:
-        if path.stat().st_size > MAX_SCAN_BYTES:
-            return None
         raw = path.read_bytes()
-    except OSError:
-        return None
-    if b"\x00" in raw:
-        return None
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
+    except OSError as exc:
+        raise CorpusError(
+            f"{path.name} could not be read ({exc.strerror or exc}). The scan reads every publishable "
+            "file and stops rather than skip one. Close the program holding the file, then re-run."
+        ) from exc
+    return raw.replace(b"\x00", b"").decode("utf-8", errors="replace")
 
 
 def run_git(repo_path: Path, args: list[str]) -> str:
@@ -258,19 +271,24 @@ def pending_files(repo_path: Path) -> list[str]:
     Modified, added, renamed and untracked-but-not-ignored paths; deletions are
     excluded because there is no content left to scan. `-uall` lists untracked
     files individually rather than collapsing them into a directory entry, so a
-    new folder's files are each scanned.
+    new folder's files are each scanned. `-z` gives every path verbatim: without
+    it git C-quotes a path holding a space or a non-ASCII character, and the
+    quoted form names no file.
     """
+    fields = run_git(repo_path, ["status", "--porcelain", "-z", "-uall"]).split("\0")
     paths: list[str] = []
-    for raw in run_git(repo_path, ["status", "--porcelain", "-uall"]).splitlines():
-        if len(raw) < 4:
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if len(entry) < PORCELAIN_PATH_OFFSET + 1:
             continue
-        status, path = raw[:2], raw[3:].strip()
-        if "D" in status and "?" not in status:
+        status, path = entry[:2], entry[PORCELAIN_PATH_OFFSET:]
+        if RENAMED in status or COPIED in status:
+            index += 1  # the source path follows as its own field; only the destination has content
+        if DELETED in status and UNTRACKED not in status:
             continue
-        if " -> " in path:  # rename: only the destination still has content
-            path = path.split(" -> ", 1)[1]
-        path = path.strip('"')
-        if path and path not in paths:
+        if path not in paths:
             paths.append(path)
     return paths
 
@@ -282,10 +300,10 @@ def scan_paths(repo_path: Path, rel_paths: list[str], corpus: TermCorpus) -> lis
     memo: dict[str, bool] = {}
     violations: list[Violation] = []
     for rel_path in rel_paths:
-        text = read_scannable_text(repo_path / rel_path)
-        if text is None:
+        path = repo_path / rel_path
+        if not path.exists():  # tracked but deleted from the working tree: nothing left to publish
             continue
-        for line_number, excerpt in scan_text(text, corpus, memo):
+        for line_number, excerpt in scan_text(read_scan_text(path), corpus, memo):
             violations.append(
                 Violation(repo=repo_path.name, path=rel_path, line=line_number, excerpt=excerpt)
             )
@@ -344,6 +362,98 @@ def _self_test_git_listing() -> list[str]:
     return failures
 
 
+SPACED_RELPATH = "notes/café list.txt"
+RENAME_SOURCE_RELPATH = "docs/before.md"
+RENAME_DESTINATION_RELPATH = "docs/after.md"
+#: Identity for the throwaway commit the rename check makes; ``.invalid`` is a reserved domain.
+SELF_TEST_GIT_IDENTITY = ("-c", "user.name=self-test", "-c", "user.email=self-test@example.invalid")
+
+
+def _git_in(repo: Path, *args: str) -> str:
+    """Run git in the self-test repo; returns the error text, or "" when it succeeded."""
+    result = subprocess.run(
+        ["git", *SELF_TEST_GIT_IDENTITY, "-C", str(repo), *args], capture_output=True, text=True, check=False
+    )
+    return "" if result.returncode == 0 else f"git {' '.join(args)}: {result.stderr.strip()}"
+
+
+def _self_test_pending_paths_verbatim() -> list[str]:
+    """Prove `pending_files` names each path as it is on disk, on a real repo.
+
+    An untracked path holding a space and a non-ASCII character (which git C-quotes unless asked for
+    ``-z`` output) and a committed file renamed with ``git mv`` (whose entry carries the source path too):
+    the first must be listed as its file and scanned, the second listed under its new name only.
+    """
+    failures: list[str] = []
+    corpus = TermCorpus(hashes=frozenset({hash_term(SELF_TEST_TERM)}), min_token_length=5)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        repo = Path(tmp)
+        renamed = repo / RENAME_SOURCE_RELPATH
+        renamed.parent.mkdir(parents=True, exist_ok=True)
+        renamed.write_text(f"{SELF_TEST_TERM}-system-kv-dev\n", encoding="utf-8")
+        for args in (("init", "-q"), ("add", "-A"), ("commit", "-q", "-m", "seed"),
+                     ("mv", RENAME_SOURCE_RELPATH, RENAME_DESTINATION_RELPATH)):
+            error = _git_in(repo, *args)
+            if error:
+                return [f"self-test: could not build the rename repo: {error}"]
+        spaced = repo / SPACED_RELPATH
+        spaced.parent.mkdir(parents=True, exist_ok=True)
+        spaced.write_text(f"{SELF_TEST_TERM}-system-kv-dev\n", encoding="utf-8")
+
+        paths = pending_files(repo)
+        if SPACED_RELPATH not in paths:
+            failures.append(f"self-test: pending_files did not name a spaced, non-ASCII path verbatim: {paths}")
+        if RENAME_DESTINATION_RELPATH not in paths or RENAME_SOURCE_RELPATH in paths:
+            failures.append(f"self-test: pending_files did not list a rename under its new name only: {paths}")
+        found = {violation.path for violation in scan_paths(repo, paths, corpus)}
+        if SPACED_RELPATH not in found:
+            failures.append("self-test: scan missed a planted term in a spaced, non-ASCII path")
+    return failures
+
+
+#: The size the scanner once stopped reading at; a term past it must still be found.
+FORMER_SIZE_CAP_BYTES = 2_000_000
+
+
+def _raises_corpus_error(action: Callable[[], object]) -> bool:
+    """True when *action* raises `CorpusError`."""
+    try:
+        action()
+    except CorpusError:
+        return True
+    return False
+
+
+def _self_test_file_reads() -> list[str]:
+    """Prove the scan reads every file it is handed, whatever its encoding or size, and stops on one it
+    cannot read."""
+    failures: list[str] = []
+    corpus = TermCorpus(hashes=frozenset({hash_term(SELF_TEST_TERM)}), min_token_length=5)
+    line = f"vault: {SELF_TEST_TERM}-system-kv-dev\n"
+    planted = {
+        "utf16.txt": line.encode("utf-16"),
+        "latin1.txt": f"café {line}".encode("latin-1"),
+        "large.txt": b"x" * FORMER_SIZE_CAP_BYTES + b"\n" + line.encode("utf-8"),
+        "binary.dat": b"\x89PNG\r\n\x1a\n\x00\x00" + line.encode("utf-8"),
+    }
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        repo = Path(tmp)
+        for name, content in planted.items():
+            (repo / name).write_bytes(content)
+        found = {violation.path for violation in scan_paths(repo, [*planted, "deleted.txt"], corpus)}
+        for name in planted:
+            if name not in found:
+                failures.append(f"self-test: scan missed a planted term in {name}")
+        (repo / "a-directory").mkdir()
+        if not _raises_corpus_error(lambda: scan_paths(repo, ["a-directory"], corpus)):
+            failures.append("self-test: a path that cannot be read as a file did not stop the scan")
+        array_corpus = repo / "corpus.json"
+        array_corpus.write_text("[]", encoding="utf-8")
+        if not _raises_corpus_error(lambda: load_term_corpus(array_corpus)):
+            failures.append("self-test: a corpus that is a JSON array was accepted")
+    return failures
+
+
 def self_test() -> list[str]:
     """Prove the scanner is not vacuous. Returns a list of failure descriptions.
 
@@ -380,4 +490,6 @@ def self_test() -> list[str]:
         failures.append("self-test: an empty corpus reported a match")
 
     failures.extend(_self_test_git_listing())
+    failures.extend(_self_test_pending_paths_verbatim())
+    failures.extend(_self_test_file_reads())
     return failures

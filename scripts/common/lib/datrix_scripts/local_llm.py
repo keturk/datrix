@@ -118,6 +118,8 @@ DEFAULT_LOAD_TIMEOUT_MS = 900000
 DEFAULT_GENERATE_TIMEOUT_MS = 180000
 
 MILLISECONDS_PER_SECOND = 1000
+#: A rendered wrapper's ``-LlmModel``; a wrapper whose parameter is ``-Model`` passes ``--model``.
+WRAPPER_MODEL_FLAG = "--llm-model"
 
 # A reasoning model can emit its reasoning inline even when asked not to reason.
 THINK_BLOCK_PATTERN = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -872,4 +874,66 @@ def local_llm_settings(args: argparse.Namespace, *, models: tuple[str, ...] | No
         load_timeout_ms=args.local_load_timeout_ms,
         generate_timeout_ms=args.local_timeout_ms,
         keep_alive_seconds=args.local_keep_alive,
+    )
+
+
+def add_wrapper_machines_argument(parser: argparse.ArgumentParser) -> argparse._ArgumentGroup:
+    """Add a rendered wrapper's ``-LocalMachines`` as ``--local-machines`` (once per machine), in a
+    "local model servers" group it returns; read it back with ``wrapper_machines``. A wrapper that
+    names its model and timeout itself declares only this one."""
+    group = parser.add_argument_group("local model servers")
+    group.add_argument(
+        "--local-machines",
+        dest="local_machine_specs",
+        action="append",
+        type=parse_local_machine,
+        help=(
+            f"A machine (host name or IP) whose Ollama server (port {OLLAMA_PORT}) is searched. "
+            f"Repeat to list several, in preference order. Default: {', '.join(DEFAULT_LOCAL_MACHINES)}."
+        ),
+    )
+    return group
+
+
+def wrapper_machines(args: argparse.Namespace) -> tuple[str, ...]:
+    """The machines ``--local-machines`` names, first mention kept, or the default list."""
+    # dict.fromkeys drops a repeated value while keeping the preference order.
+    return tuple(dict.fromkeys(args.local_machine_specs or DEFAULT_LOCAL_MACHINES))
+
+
+def add_wrapper_llm_arguments(
+    parser: argparse.ArgumentParser, *, timeout_seconds: int, model_flag: str = WRAPPER_MODEL_FLAG
+) -> None:
+    """Add the local-model options a rendered script wrapper declares as parameters.
+
+    A wrapper's ``-LocalMachines``, ``-LlmModel`` and ``-LlmTimeout`` arrive as
+    ``--local-machines`` (once per machine), ``--llm-model`` (once per model) and
+    ``--llm-timeout`` (seconds); read them back with ``wrapper_llm_settings``. A wrapper whose model
+    parameter is named ``-Model`` passes ``model_flag="--model"``. The load, reachability and
+    keep-alive windows keep their shared defaults.
+    """
+    group = add_wrapper_machines_argument(parser)
+    group.add_argument(
+        model_flag,
+        dest="local_models",
+        action="append",
+        help=(
+            "Use only this model (repeat to list several, best first). Default: any "
+            f"model already in memory, else load {', '.join(OLLAMA_LOAD_PREFERENCE)}."
+        ),
+    )
+    group.add_argument(
+        "--llm-timeout",
+        type=int,
+        default=timeout_seconds,
+        help=f"Timeout in seconds for each request to a ready model (default: {timeout_seconds}).",
+    )
+
+
+def wrapper_llm_settings(args: argparse.Namespace) -> LocalLlmSettings:
+    """Build settings from ``add_wrapper_llm_arguments`` options."""
+    return LocalLlmSettings(
+        machines=wrapper_machines(args),
+        models=tuple(dict.fromkeys(args.local_models or ())),
+        generate_timeout_ms=args.llm_timeout * MILLISECONDS_PER_SECOND,
     )

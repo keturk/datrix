@@ -9,9 +9,8 @@ groups -- never a hardcoded literal. Installing a new codegen package makes its
 target selectable everywhere with no edit here (open-world target identity).
 
 Every script that needs "which languages/platforms exist" -- argparse ``choices``,
-default sweep sets, gate target lists -- MUST source it here (Python) or via the
-sibling PowerShell ``Get-DatrixInstalledLanguages`` / ``Get-DatrixInstalledPlatforms``
-helpers, so the answer stays derived from the registered set.
+default sweep sets, gate target lists -- MUST source it here (a shell script through
+the command line below), so the answer stays derived from the registered set.
 
 Run with ``scripts/common/lib`` on ``PYTHONPATH`` to print the set for shell consumption::
 

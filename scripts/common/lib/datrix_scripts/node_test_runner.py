@@ -566,7 +566,7 @@ def _outcome_of(testcase: ET.Element) -> str:
 def _format_summary(counts: dict[str, int], duration_seconds: float) -> str:
     """Render the one pytest-shaped summary line ``test.ps1`` parses.
 
-    ``test.ps1``'s Parse-TestCounts scans the runner's output backwards for
+    ``test.ps1``'s module (``datrix_scripts.test.test.parse_counts``) scans the runner's output backwards for
     lines carrying both outcome counts and an ``in <n>.<n>s`` timing, treating
     the last two it finds as two phases and summing them. Exactly one such line
     must therefore be emitted per run.

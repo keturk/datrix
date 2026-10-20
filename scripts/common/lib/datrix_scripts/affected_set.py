@@ -45,11 +45,12 @@ cone is the exact dual of the closure: Y is in X's cone if and only if X is
 in Y's closure, so a suite-input fingerprint pinned to the cone changes
 whenever the reverse gate would have scheduled X because of Y.
 
+The module behind ``test/affected-set.ps1`` (and its ``.sh`` twin).
+
 Usage:
-  python -m datrix_scripts.affected_set --projects datrix-language   (PYTHONPATH=scripts/common/lib)
-  python -m datrix_scripts.affected_set --all
   .\\scripts\\test\\affected-set.ps1 -Projects datrix-language
   .\\scripts\\test\\affected-set.ps1 -All
+  scripts/test/affected-set.sh datrix-language
 
 Exit codes: 0 = done, 1 = non-vacuity self-check failed (or --self-test
 failed), 2 = usage error / unreadable input.
@@ -59,38 +60,36 @@ from __future__ import annotations
 
 import argparse
 import ast
-import io
 import json
 import logging
 import re
 import sys
 import tempfile
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import product
 from pathlib import Path
 from random import Random
+from typing import Final
 
-# Configure UTF-8 encoding for stdout/stderr on Windows
-if sys.platform == "win32" and __name__ == "__main__":
-    if hasattr(sys.stdout, "buffer"):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "buffer"):
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
-from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs  # noqa: E402
-from datrix_scripts.gate_harness import (  # noqa: E402
+from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+from datrix_scripts.gate_harness import (
+    WRAPPER_DEBUG_FLAG,
     NamedCheck,
     UsageError,
     report_step,
     run_checks,
     run_main,
 )
-from datrix_scripts.paths import WORKSPACE_DIR, resolve_output_path  # noqa: E402
+from datrix_scripts.paths import WORKSPACE_DIR, resolve_output_path
+from datrix_scripts.test.wrappers import ensure_utf8_stdio, seam_checks
 
 logger = logging.getLogger(__name__)
+
+MODULE: Final = "datrix_scripts.affected_set"
+WRAPPER: Final = "affected-set"
 
 _PACKAGE_PREFIX = "datrix-"
 _PYPROJECT_NAME = "pyproject.toml"
@@ -1664,13 +1663,18 @@ _SELF_TEST_CHECKS: list[NamedCheck] = [
 ]
 
 
-def _parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``test/affected-set.ps1``: one per wrapper parameter, spelled exactly."""
     parser = argparse.ArgumentParser(
-        description="Derive the reverse-dependency closure of every datrix-* package from actual imports."
+        description="Derive the reverse-dependency closure of every datrix-* package from actual imports.",
+        allow_abbrev=False,
     )
+    parser.add_argument("positional_projects", nargs="*", metavar="PROJECT",
+                        help="as --projects, for a caller of the .sh twin")
     parser.add_argument(
         "--projects",
         action="append",
+        default=[],
         help="Package name(s) to report closures for; repeatable and/or comma-separated",
     )
     parser.add_argument("--all", action="store_true", help="Report every discovered package's closure")
@@ -1686,8 +1690,21 @@ def _parse_args() -> argparse.Namespace:
             "unconditionally, as step 1 of every normal invocation."
         ),
     )
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    return parser.parse_args()
+    parser.add_argument(WRAPPER_DEBUG_FLAG, dest="debug", action="store_true", help="Enable debug logging")
+    return parser
+
+
+def parse_args(parser: argparse.ArgumentParser, argv: Sequence[str] | None) -> argparse.Namespace:
+    """*argv* parsed, the positional projects joined to ``--projects`` (None when neither names one)."""
+    args = parser.parse_intermixed_args(argv)
+    args.projects = [*args.projects, *args.positional_projects] or None
+    return args
+
+
+def _check_positional_and_flagged_projects_are_one_list() -> None:
+    args = parse_args(build_parser(), ["--projects=a,b", "c", "--dbg"])
+    assert args.projects == ["a,b", "c"] and args.debug, f"parsed {args}"
+    assert parse_args(build_parser(), ["--all"]).projects is None, "no project must parse as none requested"
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -1727,10 +1744,16 @@ def _run(args: argparse.Namespace) -> int:
 
 def _self_test_then_run(args: argparse.Namespace) -> int:
     report_step("Self-test: reverse-dependency closure derivation edge cases")
-    self_test_passed = run_checks(_SELF_TEST_CHECKS)
     if args.self_test:
-        return _EXIT_OK if self_test_passed else _EXIT_SELFCHECK_FAILED
-    if not self_test_passed:
+        # The wrapper seam is checked here only: it reads the wrapper with PowerShell's parser,
+        # which a real run on a host without PowerShell must not depend on.
+        checks = [
+            *_SELF_TEST_CHECKS,
+            NamedCheck("positional_and_flagged_projects_are_one_list", _check_positional_and_flagged_projects_are_one_list),
+            *seam_checks(wrapper=WRAPPER, module=MODULE, parser=build_parser()),
+        ]
+        return _EXIT_OK if run_checks(checks) else _EXIT_SELFCHECK_FAILED
+    if not run_checks(_SELF_TEST_CHECKS):
         print(
             "\nError: self-test failed -- refusing to trust the closure "
             "derivation for a real run. Fix the scanner before re-running.",
@@ -1740,9 +1763,11 @@ def _self_test_then_run(args: argparse.Namespace) -> int:
     return _run(args)
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Entry point."""
-    return run_main(_parse_args, _self_test_then_run)
+    ensure_utf8_stdio()
+    parser = build_parser()
+    return run_main(lambda: parse_args(parser, argv), _self_test_then_run)
 
 
 if __name__ == "__main__":

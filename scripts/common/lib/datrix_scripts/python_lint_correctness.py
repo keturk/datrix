@@ -52,30 +52,24 @@ F821, reports exactly a planted E302 and E305, reports nothing for the clean
 package, and honours a fixture ``per-file-ignores`` for the F401 only; and the
 live run must have scanned at least one tree for every discovered package.
 
-Exit codes:
-  0 = zero findings in every scanned tree
-  1 = at least one finding, or the self-test failed
-  2 = usage error, or ruff could not run
+The gate that runs the self-test and then this scan over the workspace is
+``datrix_scripts.gates.repo_hygiene.python_lint_correctness_gate``.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
-import logging
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from datrix_scripts.dead_code_report import VULTURE_WHITELIST_FILE
 from datrix_scripts.framework_repos import SHOWCASE_REPO_NAME, PackageMarker, workspace_package_dirs
+from datrix_scripts.metrics.dead_code_report import VULTURE_WHITELIST_FILE
 from datrix_scripts.paths import SHOWCASE_DIR
 
 DATRIX_ROOT = SHOWCASE_DIR
-
-logger = logging.getLogger(__name__)
 
 PYPROJECT_FILE = "pyproject.toml"
 PACKAGE_TREES = ("src", "tests")
@@ -414,39 +408,3 @@ def run_scan(python_exe: str, workspace_root: Path) -> int:
         return 1
     print(f"Python lint-correctness: clean across {len(targets)} tree(s) in {packages} package(s).")
     return 0
-
-
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--self-test", action="store_true", help="Run only the non-vacuity self-test.")
-    parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging.")
-    return parser.parse_args(argv)
-
-
-def main(argv: list[str]) -> int:
-    args = parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
-    try:
-        failures = self_test(sys.executable)
-        if failures:
-            print("PYTHON LINT-CORRECTNESS GATE CANNOT BE TRUSTED: non-vacuity self-test failed.")
-            for failure in failures:
-                print(f"  {failure}")
-            return 1
-        print(
-            "Self-test passed: planted F401 + F821 and E302 + E305 seen, clean passes, "
-            "per-file-ignores honoured."
-        )
-        if args.self_test:
-            return 0
-        return run_scan(sys.executable, DATRIX_ROOT.parent)
-    except LintGateError as exc:
-        print(f"PYTHON LINT-CORRECTNESS GATE CANNOT RUN: {exc}", file=sys.stderr)
-        return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))

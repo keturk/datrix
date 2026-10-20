@@ -4,7 +4,7 @@ A summary is keyed by its module's content hash, so every edit leaves the module
 and ``search`` and ``outline`` lose the model-written description of exactly the code being
 worked on. Nothing used to re-run the summarizer. Now, when a query's refresh finds changed
 files and modules are waiting for a summary, the query starts a detached
-``code_index_cli.py summarize`` run and answers at once; the run summarizes everything pending
+``datrix_scripts.dev.code_index --summarize`` run and answers at once; the run summarizes everything pending
 on the local model servers and exits.
 
 ONE RUN AT A TIME
@@ -33,8 +33,10 @@ from pathlib import Path
 from datrix_scripts.code_index.session import IndexSession
 from datrix_scripts.code_index.sources import index_dir
 from datrix_scripts.code_index.summaries import pending
-from datrix_scripts.paths import lib_script, script_env
+from datrix_scripts.paths import script_env
 
+#: The module a background run executes, with ``--summarize``: the one behind ``code-index.ps1``.
+SUMMARIZE_MODULE = "datrix_scripts.dev.code_index"
 LOCK_NAME = "summarize.lock"
 LOG_NAME = "summarize.log"
 # A live run touches its lock at least this often (every 25 summaries, minutes apart at worst:
@@ -146,6 +148,6 @@ def start_background_summaries(session: IndexSession, launch: Launcher = launch_
         return False
     if not pending(session.conn, session.config):
         return False
-    command = [sys.executable, str(lib_script("dev", "code_index_cli.py")), "summarize", "--limit", "0"]
+    command = [sys.executable, "-m", SUMMARIZE_MODULE, "--summarize", "--limit=0"]
     launch(command, index_dir(session.workspace) / LOG_NAME)
     return True

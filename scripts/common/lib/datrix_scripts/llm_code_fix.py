@@ -1,6 +1,7 @@
 """Shared machinery for scripts that ask a local model to rewrite Python code.
 
-Used by: metrics/complexity.py, metrics/error_messages.py, metrics/test_gen.py
+Used by: ``datrix_scripts.metrics.complexity``, ``datrix_scripts.metrics.error_messages``,
+``datrix_scripts.metrics.test_gen``
 
 Provides parsing of a model's code answer, file context for prompts, verification of a
 rewrite on disk (ruff + pytest, reverting on failure), and indentation handling. Talking

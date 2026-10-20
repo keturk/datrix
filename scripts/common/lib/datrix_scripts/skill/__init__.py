@@ -1,0 +1,1 @@
+"""The modules behind the ``scripts/skill/`` wrappers: the headless skill chain and the scripts built on it (skill-chain, implement-design, implement-finding), the skill assists with their command line, and the skill-assist gate."""

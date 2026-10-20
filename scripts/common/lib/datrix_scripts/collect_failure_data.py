@@ -23,62 +23,63 @@ codegen_hint/generated_file), and the deploy-test schema
 (deploy_test_log_writer, which adds failed_phase/phases and whose
 infrastructure error entries carry phase/container instead of test_id).
 
+The module behind ``scripts/test/collect-failure-data.ps1`` and its ``.sh`` twin; its options are
+the wrapper's parameters as ``--kebab-name`` flags.
+
 Usage:
-  python -m datrix_scripts.collect_failure_data <run-dir | index.json>   (PYTHONPATH=scripts/common/lib)
-  python -m datrix_scripts.collect_failure_data --project datrix-codegen-azure
   .\\scripts\\test\\collect-failure-data.ps1 -Project datrix-codegen-azure
+  scripts/test/collect-failure-data.sh <run-dir | index.json>
+  scripts/test/collect-failure-data.sh --project=datrix-codegen-azure --no-llm-hints
 
 Exit codes: 0 = analysis completed (even with zero failures),
-2 = usage / input-not-found error.
+1 = a self-test check failed, 2 = usage / input-not-found error.
 """
 
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import logging
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Final
 
-# Configure UTF-8 encoding for stdout/stderr on Windows
-if sys.platform == "win32" and __name__ == "__main__":
-    if hasattr(sys.stdout, "buffer"):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "buffer"):
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
-from datrix_scripts.customer_domain_isolation import TermCorpus  # noqa: E402
-from datrix_scripts.local_llm import (  # noqa: E402
+from datrix_scripts.customer_domain_isolation import TermCorpus
+from datrix_scripts.local_llm import (
     ADVISORY_UNAVAILABLE_SOURCE,
+    MILLISECONDS_PER_SECOND,
     ChatRequest,
     LocalLlmPool,
     LocalLlmSettings,
     LocalLlmUnavailable,
-    add_local_llm_arguments,
-    local_llm_settings,
+    add_wrapper_llm_arguments,
+    wrapper_llm_settings,
 )
-from datrix_scripts.local_llm_loopback import LOOPBACK, closed_port  # noqa: E402
-from datrix_scripts.local_reading import (  # noqa: E402
+from datrix_scripts.local_llm_loopback import LOOPBACK, closed_port
+from datrix_scripts.local_reading import (
     ReadScopeError,
     load_workspace_term_corpus,
     withhold_customer_lines,
 )
-from datrix_scripts.package_suites import (  # noqa: E402
+from datrix_scripts.package_suites import (
     NODE_MANIFEST_NAME,
     NODE_TEST_SCRIPT_KEY,
     SuiteKind,
     detect_suite_kind,
 )
-from datrix_scripts.status_tests import parse_timestamp_from_log_file  # noqa: E402
-from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
-from datrix_scripts.gate_harness import EXIT_VIOLATION, UsageError, run_main  # noqa: E402
-from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
+from datrix_scripts.status_tests import parse_timestamp_from_log_file
+from datrix_scripts.framework_repos import workspace_package_dirs
+from datrix_scripts.gate_harness import EXIT_USAGE, UsageError, configure_logging
+from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.test.wrappers import ensure_utf8_stdio, run_self_test
+
+MODULE: Final = "datrix_scripts.collect_failure_data"
+WRAPPER: Final = "collect-failure-data"
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ _DEFAULT_LLM_HINT_LIMIT = 5
 _LLM_HINT_WORKERS = 4
 _LLM_HINT_MAX_TOKENS = 300
 _LLM_HINT_TEMPERATURE = 0.1
-_LLM_HINT_TIMEOUT_MS = 120000
+_LLM_HINT_TIMEOUT_SECONDS = 120
 # The hint source of a family past the hint limit: no model was asked.
 HINT_SKIPPED_SOURCE = "skipped"
 
@@ -1207,17 +1208,8 @@ def _run_bundle_self_test() -> int:
     return failures
 
 
-def _run_self_test() -> int:
-    """Parse one minimal index per supported writer shape; report OK/FAIL per case.
-
-    Also runs the re-run-command shape cases, which pin the invocation emitted
-    for each kind of test suite a package can carry.
-
-    Returns:
-        `_EXIT_OK` when every shape parses and yields the expected clusters,
-        `EXIT_VIOLATION` when any shape fails (including the deliberate
-        unknown-spelling case, which MUST be rejected).
-    """
+def _check_writer_shapes() -> None:
+    """One minimal index per supported writer shape parses into the expected clusters."""
     import tempfile
 
     failures = 0
@@ -1248,9 +1240,14 @@ def _run_self_test() -> int:
             failures += 1
             continue
         print(f"[OK] {name}")
+    assert not failures, f"{failures} of {len(_SELF_TEST_INDEXES)} writer shape(s) failed; see the lines above"
 
-    # Non-vacuity: a cluster spelling NO writer produces must still be rejected,
-    # or the acceptance above would prove nothing about the guard's existence.
+
+def _check_unknown_spelling_is_rejected() -> None:
+    """A cluster spelling NO writer produces is rejected, or the writer-shape acceptance
+    would prove nothing about the guard's existence (non-vacuity)."""
+    import tempfile
+
     unknown = {
         "project": "p",
         "failures": [],
@@ -1268,37 +1265,71 @@ def _run_self_test() -> int:
         try:
             _build_clusters(ctx, unknown)
         except UsageError:
-            print("[OK] unknown member-id spelling is rejected (non-vacuity)")
-        else:
-            print("[FAIL] unknown member-id spelling was ACCEPTED - the guard is vacuous")
-            failures += 1
-
-    failures += _run_command_shape_self_test()
-    failures += _run_bundle_self_test()
-
-    if failures:
-        print(f"SELF-TEST FAILED: {failures} case(s)")
-        return EXIT_VIOLATION
-    total_cases = (
-        len(_SELF_TEST_INDEXES) + len(_SELF_TEST_COMMAND_CASES) + len(_SELF_TEST_BUNDLE_CHECKS) + 2
-    )
-    print(f"SELF-TEST PASSED: {total_cases} case(s)")
-    return _EXIT_OK
+            return
+    raise AssertionError("unknown member-id spelling was ACCEPTED - the guard is vacuous")
 
 
-def _parse_args() -> argparse.Namespace:
+def _check_rerun_command_shapes() -> None:
+    """The re-run command emitted for each kind of test suite a package can carry is its own runner's."""
+    failures = _run_command_shape_self_test()
+    assert not failures, f"{failures} of {len(_SELF_TEST_COMMAND_CASES)} command shape(s) failed; see the lines above"
+
+
+def _check_bundle_shapes() -> None:
+    """Message caps, families, hint frames and the no-server / no-corpus hint paths hold."""
+    failures = _run_bundle_self_test()
+    assert not failures, f"{failures} of {len(_SELF_TEST_BUNDLE_CHECKS)} bundle check(s) failed; see the lines above"
+
+
+def _check_wrapper_llm_options() -> None:
+    """-LocalMachines / -LlmModel / -LlmTimeout reach the hint settings as the PowerShell mapper sent them:
+    each machine and model in order, the timeout in seconds as milliseconds, and the shared defaults unset."""
+    given = wrapper_llm_settings(build_parser().parse_args(
+        ["--local-machines=alpha", "--local-machines=beta", "--llm-model=m1", "--llm-timeout=30"]
+    ))
+    assert (given.machines, given.models, given.generate_timeout_ms) == (("alpha", "beta"), ("m1",), 30000), given
+    default = wrapper_llm_settings(build_parser().parse_args([]))
+    expected = LocalLlmSettings(generate_timeout_ms=_LLM_HINT_TIMEOUT_SECONDS * MILLISECONDS_PER_SECOND)
+    assert (default.machines, default.models, default.generate_timeout_ms) == (
+        expected.machines, expected.models, expected.generate_timeout_ms
+    ), default
+
+
+_SELF_TEST_CHECKS: Final = (
+    _check_writer_shapes,
+    _check_unknown_spelling_is_rejected,
+    _check_rerun_command_shapes,
+    _check_bundle_shapes,
+    _check_wrapper_llm_options,
+)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``collect-failure-data.ps1``: its parameters as ``--kebab-name`` flags.
+
+    The run directory may also be given positionally, as the wrapper's ``-Path`` is at
+    position 0 and a caller of the ``.sh`` twin writes it bare.
+    """
     parser = argparse.ArgumentParser(
-        description="Collect per-cluster failure data from a structured test-results run."
+        prog=WRAPPER,
+        description="Collect per-cluster failure data from a structured test-results run.",
+        allow_abbrev=False,
     )
     parser.add_argument(
-        "path",
+        "positional_path",
         nargs="?",
+        metavar="PATH",
+        help="as --path, for a caller of the .sh twin",
+    )
+    parser.add_argument(
+        "--path",
+        default="",
         help="Run directory or index.json path (alternative to --project)",
     )
     parser.add_argument(
         "--self-test",
         action="store_true",
-        help="Parse one fixture index per supported writer schema and exit",
+        help="Parse one fixture index per supported writer schema, check the wrapper seam, and exit",
     )
     parser.add_argument(
         "--project",
@@ -1321,12 +1352,9 @@ def _parse_args() -> argparse.Namespace:
         default=_DEFAULT_LLM_HINT_LIMIT,
         help=f"Families (in order, errors first) that get a hint (default {_DEFAULT_LLM_HINT_LIMIT})",
     )
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    add_local_llm_arguments(parser, generate_timeout_ms=_LLM_HINT_TIMEOUT_MS)
-    args = parser.parse_args()
-    if args.llm_hint_limit < 0:
-        parser.error(f"--llm-hint-limit must be 0 or more, got {args.llm_hint_limit}; 0 writes no hints.")
-    return args
+    add_wrapper_llm_arguments(parser, timeout_seconds=_LLM_HINT_TIMEOUT_SECONDS)
+    parser.add_argument("--dbg", action="store_true", help="Enable debug logging")
+    return parser
 
 
 @dataclass(frozen=True)
@@ -1414,23 +1442,29 @@ def write_failure_data(
 
 
 def _run(args: argparse.Namespace) -> int:
-    if args.self_test:
-        return _run_self_test()
-    if bool(args.path) == bool(args.project):
+    if args.path and args.positional_path:
+        raise UsageError(
+            f"The run directory was given twice ({args.path!r} and {args.positional_path!r}). "
+            "Give it once: positionally or as --path."
+        )
+    path = args.path or args.positional_path
+    if bool(path) == bool(args.project):
         raise UsageError(
             "Provide exactly one input: either a positional PATH (run directory or "
             "index.json) or --project <name>."
         )
+    if args.llm_hint_limit < 0:
+        raise UsageError(f"--llm-hint-limit must be 0 or more, got {args.llm_hint_limit}; 0 writes no hints.")
     workspace = WORKSPACE_DIR
     if args.project:
         run_dir = _resolve_run_dir_from_project(workspace, args.project)
     else:
-        run_dir = resolve_run_dir_from_path(args.path)
-    data =write_failure_data(
+        run_dir = resolve_run_dir_from_path(path)
+    data = write_failure_data(
         run_dir,
         workspace,
         max_log_lines=args.max_log_lines,
-        settings=None if args.no_llm_hints else local_llm_settings(args),
+        settings=None if args.no_llm_hints else wrapper_llm_settings(args),
         hint_limit=args.llm_hint_limit,
     )
     print(data.summary)
@@ -1438,9 +1472,19 @@ def _run(args: argparse.Namespace) -> int:
     return _EXIT_OK
 
 
-def main() -> int:
-    """Entry point."""
-    return run_main(_parse_args, _run)
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the self-test or collect one run's failure data; a usage error prints ``ERROR: ...`` and exits 2."""
+    ensure_utf8_stdio()
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    configure_logging(args.dbg)
+    if args.self_test:
+        return run_self_test(_SELF_TEST_CHECKS, wrapper=WRAPPER, module=MODULE, parser=parser)
+    try:
+        return _run(args)
+    except UsageError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_USAGE
 
 
 if __name__ == "__main__":

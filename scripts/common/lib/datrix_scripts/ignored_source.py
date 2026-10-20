@@ -72,25 +72,18 @@ and never as a reason to exempt the directory. It does not fail the gate: the
 contents are already unpublishable, and this gate's verdict is about what a
 clone would lose.
 
-Repo-level validation script, per the datrix showcase boundary: the showcase
-repo hosts no pytest suite, so cross-repo checks live here as scripts and the
-gate's own self-test is its coverage.
-
-Exit codes:
-  0 = every unstaged path is a reviewed exemption
-  1 = at least one publishable file is shadowed, or the self-test failed
-  2 = usage error, or the exemption file is missing/malformed/miscounted
+Repo-level validation, per the datrix showcase boundary: the showcase repo hosts
+no pytest suite, so cross-repo checks live here as scripts and the gate's own
+self-test is its coverage. The gate itself (its options, exit codes and verdict
+line) is ``datrix_scripts.gates.repo_hygiene.ignored_source_gate``.
 """
 
 from __future__ import annotations
 
-import argparse
 import importlib.util
 import json
-import logging
 import re
 import subprocess
-import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -100,8 +93,6 @@ from datrix_scripts.framework_repos import framework_repos
 from datrix_scripts.paths import SHOWCASE_DIR
 
 DATRIX_ROOT = SHOWCASE_DIR
-
-logger = logging.getLogger(__name__)
 
 EXEMPTION_RELPATH = ("scripts", "config", "ignored-source-exemptions.json")
 
@@ -551,7 +542,7 @@ def scan_for_commit(
 ) -> RepoResult:
     """One repo's census for a caller outside this gate.
 
-    The entry point for the commit seam in ``git/lib/commit_and_push.py``, which
+    The entry point for the commit seam in ``datrix_scripts.git.commit_and_push``, which
     asks the question per dirty repo rather than across the whole workspace.
     Exemption-usage bookkeeping is a reporting concern of the standalone gate,
     so it is discarded here rather than pushed onto every caller; the stray
@@ -915,32 +906,6 @@ def self_test(exemptions: ExemptionSet, temp_dir_segment: TempDirSegmentFn) -> l
     return failures
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--repo",
-        action="append",
-        default=None,
-        help="Limit the scan to this repo name (repeatable). Default: every framework repo.",
-    )
-    parser.add_argument(
-        "--self-test",
-        action="store_true",
-        help="Run only the non-vacuity self-test and skip the real scan.",
-    )
-    parser.add_argument(
-        "--show-exempt",
-        action="store_true",
-        help="Also print every reviewed exemption entry and its written reason.",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable DEBUG logging.",
-    )
-    return parser.parse_args(argv)
-
-
 def print_exemptions(exemptions: ExemptionSet) -> None:
     """Print the reviewed entry list with each entry's written reason."""
     print(f"\nReviewed exemption entries ({len(exemptions.entries)}):")
@@ -988,49 +953,3 @@ def run_scan(
     for result in violating:
         report_repo(result)
     return 1
-
-
-def main(argv: list[str]) -> int:
-    args = parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
-    workspace_root = DATRIX_ROOT.parent
-
-    try:
-        exemptions = load_exemptions(exemption_path(DATRIX_ROOT))
-        temp_dir_segment = load_temp_dir_segment(DATRIX_ROOT)
-    except IgnoredSourceGateError as exc:
-        print(f"IGNORED-SOURCE GATE CANNOT RUN: {exc}", file=sys.stderr)
-        return 2
-
-    logger.debug("loaded %d exemption entrie(s)", len(exemptions.entries))
-    if args.show_exempt:
-        print_exemptions(exemptions)
-
-    try:
-        failures = self_test(exemptions, temp_dir_segment)
-    except IgnoredSourceGateError as exc:
-        print(f"IGNORED-SOURCE GATE CANNOT RUN: self-test could not execute: {exc}", file=sys.stderr)
-        return 2
-    if failures:
-        print("IGNORED-SOURCE GATE CANNOT BE TRUSTED: non-vacuity self-test failed.")
-        for failure in failures:
-            print(f"  {failure}")
-        return 1
-    print("Self-test passed: the scanner still detects a planted shadowed source file.")
-
-    if args.self_test:
-        return 0
-
-    try:
-        repos = resolve_repos(workspace_root, args.repo)
-        return run_scan(repos, exemptions, temp_dir_segment)
-    except IgnoredSourceGateError as exc:
-        print(f"IGNORED-SOURCE GATE CANNOT RUN: {exc}", file=sys.stderr)
-        return 2
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
