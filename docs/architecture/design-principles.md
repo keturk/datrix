@@ -96,7 +96,16 @@ the most shared layer that can own it; a hoist removes every private copy in the
 Shared plans are computed once and consumed by every generator; generator facts come from what
 analysis records, not from re-walking bodies. Generated code is efficient as well as correct:
 deployment-static values are baked in at generation, and no per-request work is done that
-generation could do. Detail: [shared-layer-and-one-fact](packs/shared-layer-and-one-fact.md).
+generation could do. **Generated output is self-sufficient.** A project is generated once, and
+every script it carries (deploy, plan, verify, teardown, sync) runs any number of times with only
+the generated files, the standard library of the script's language and the platform's own tools:
+never with Datrix installed, never calling back into the toolchain. Framework logic a generated
+artifact needs is emitted from its one implementation, inlined or written verbatim
+(`datrix_codegen_kernel.generation.inlined_runtime`); the emitted text is that implementation,
+not a second copy, and a hand-written copy in a template is. Logic that runs after generation
+therefore lives in modules that import only that standard library and each other, held there by
+a set comparison in code (imports − standard library − the emitted set = ∅). Detail:
+[shared-layer-and-one-fact](packs/shared-layer-and-one-fact.md).
 
 **G10. No backward compatibility, no pretend code.** A replaced path is deleted in the same
 change; nothing ships as a stub, placeholder, empty handler or temporary shim. Detail:
@@ -129,7 +138,7 @@ the static check that would have caught it. Detail:
 | G6 | Does every new knob change the output functionally? | inert surface |
 | G7 | Is the most secure available option taken, failing closed? | security defect |
 | G8 | Does every unsupported input stop with a full diagnostic? | silent fallback |
-| G9 | Is every behaviour implemented exactly once, at the most shared layer? | duplication |
+| G9 | Is every behaviour implemented exactly once, at the most shared layer, and does every generated script run without Datrix? | duplication, or a toolchain dependency after generation |
 | G10 | Is every replaced path deleted, and nothing stubbed? | dual path or pretend code |
 | G11 | Does each new test prove something that could break, in the right carrier? | inflated tests |
 | G12 | Is each new seam checked statically, in code? | runtime-only detection |

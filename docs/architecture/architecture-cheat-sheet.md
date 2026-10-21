@@ -26,7 +26,7 @@
 
 ## Packages
 
-The core packages plus optional **datrix-extensions**; `.claude/rules/repo-boundaries.md` holds the list. Dependencies point downward only.
+The core packages plus optional **datrix-extensions**; `.claude/docs/repo-boundaries.md` holds the list. Dependencies point downward only.
 
 | Package | Role |
 |---------|------|
@@ -45,7 +45,7 @@ The core packages plus optional **datrix-extensions**; `.claude/rules/repo-bound
 | datrix-extensions | Optional domain packs (`datrix.extensions`) |
 | datrix-testing | Shared test harness; a `dev` extra of every package, never a runtime dependency. The `pytest11` feature-tag plugin stays in common |
 
-Full per-package dependency detail and the layering invariants: [target-plugins](./packs/target-plugins.md). Repo tooling keys off what is on disk (a `pyproject.toml`/`src/` joins venv install and scans; a test suite joins `test.ps1`), so nothing is re-listed by hand. Repo boundaries and placement: `.claude/rules/repo-boundaries.md`.
+Full per-package dependency detail and the layering invariants: [target-plugins](./packs/target-plugins.md). Repo tooling keys off what is on disk (a `pyproject.toml`/`src/` joins venv install and scans; a test suite joins `test.ps1`), so nothing is re-listed by hand. Repo boundaries and placement: `.claude/docs/repo-boundaries.md`.
 
 - **Not a package:** the **datrix** showcase repo (`D:\datrix\datrix`) holds docs/examples/scripts only — **no test suite**, no product or cross-package tests; repo-level validation is scripts under `datrix/scripts/gates/` (and the test-tooling gates under `datrix/scripts/test/`).
 - **datrix-vscode** is TypeScript, not installable; its Node suite runs under `test.ps1` ([language-server](./packs/language-server.md)).
