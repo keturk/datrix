@@ -4,8 +4,9 @@
     Query the code index: definitions, references, outlines, search, logic-map markers.
 
 .DESCRIPTION
-    The behaviour is datrix_scripts.dev.code_index. The code index covers every Python file git
-    sees in the workspace repositories and lives beside the checkout it describes
+    The behaviour is datrix_scripts.dev.code_index. The code index covers every Python, Markdown,
+    PowerShell, .dtrx, .dcfg and TypeScript file git sees in the workspace repositories (references
+    and logic-map markers are read from Python only) and lives beside the checkout it describes
     (<workspace>\.code-index\). Each development machine builds its own from its own working tree;
     nothing is shared or synchronised between machines, and the first query on a machine builds it
     (about ten seconds). Every query refreshes it first, parsing only files whose content changed,
@@ -32,7 +33,10 @@
     Find definitions of a bare name, a glob (*Resolver), Class.method, or a dotted path.
 
 .PARAMETER Kind
-    With -Symbol: only this kind (class, function, method, variable, attribute).
+    With -Symbol: only this kind. Python: class, function, method, variable, attribute. Markdown:
+    section. PowerShell: function, parameter. TypeScript adds interface, type, enum, namespace.
+    .dcfg: config, block, profile, template, key, setting. .dtrx: the language server's outline
+    kinds (service, entity, field, endpoint, ...). An unknown kind is refused with the full list.
 
 .PARAMETER References
     Find the uses of a definition (a bare name, Class.method, or dotted path), resolved through imports.
@@ -116,7 +120,7 @@
 [CmdletBinding(DefaultParameterSetName = "Run")]
 param(
  [Parameter(ParameterSetName = "Run")][string]$Symbol,
- [Parameter(ParameterSetName = "Run")][ValidateSet("", "class", "function", "method", "variable", "attribute")][string]$Kind,
+ [Parameter(ParameterSetName = "Run")][string]$Kind,
  [Parameter(ParameterSetName = "Run")][string]$References,
  [Parameter(ParameterSetName = "Run")][string]$Outline,
  [Parameter(ParameterSetName = "Run")][string]$Search,

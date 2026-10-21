@@ -152,7 +152,15 @@ Lints documentation for common drift patterns: deprecated CLI flags, fixed phase
 
 ### `dev\code-index.ps1`
 
-Queries the code index: an SQLite index of every Python file git sees in the workspace repositories (tracked, plus untracked files no `.gitignore` excludes, minus `scripts/config/code-index.json`'s `exclude`). It lives beside the checkout at `d:\datrix\.code-index\`. **Each development machine has its own**, built from its own working tree, so nothing is synchronised between machines.
+Queries the code index: an SQLite index of every Python, Markdown, PowerShell, `.dtrx`, `.dcfg` and TypeScript file git sees in the workspace repositories (tracked, plus untracked files no `.gitignore` excludes, minus `scripts/config/code-index.json`'s `exclude`). Each format is read with its own parser (`datrix_scripts.code_index.formats`):
+
+- Markdown headings become `section`s, read with markdown-it, so headings inside code fences are skipped.
+- PowerShell functions and script/function `parameter`s are read with PowerShell 7's parser (`pwsh` on `PATH`).
+- `.dtrx` definitions get the language server's outline kinds (`service`, `entity`, `field`, `endpoint`, ...).
+- `.dcfg` `config`s, `block`s, `profile`s, `template`s, `key`s and `setting`s come from the Datrix grammar.
+- TypeScript classes, interfaces, types, enums, namespaces, functions, methods and fields come from tree-sitter.
+
+References, imports and logic-map markers are read from Python only. A non-Python file's module name is its path. It lives beside the checkout at `d:\datrix\.code-index\`. **Each development machine has its own**, built from its own working tree, so nothing is synchronised between machines.
 
 **Creating and updating.** Run `-Setup` once on each machine, and again whenever the server's script path changes: it builds the index (about ten seconds) and writes the index's MCP server into `d:\datrix\.mcp.json` with this machine's paths and the scripts `PYTHONPATH`, keeping any other servers in the file. It then approves the server for this machine in `.claude\settings.local.json` (gitignored), because current Claude Code builds ignore an approval in the checked-in `settings.json`. Last, it removes the local-scope registrations older versions made. Those two files are the only ones `-Setup` writes (here and in `local-llm.ps1 -Setup`, the same `datrix_scripts.dev.mcp_setup` writer); a file that is not valid JSON is refused, never overwritten. Claude Code reads `.mcp.json` from the opened folder for every installation and drive-letter spelling, so an extension update needs no re-run. Then restart Claude Code (in VS Code: Developer: Reload Window). `claude mcp get datrix-code-index` may still say "Pending approval"; a real session connects it regardless. There is nothing to schedule after that. Every query, from this script or an agent's MCP tool call, first brings the index up to date with the working tree (about 0.2 s when little changed), so edits, pulls and branch switches show up in the next query. Only files whose content changed are parsed again.
 
@@ -163,7 +171,7 @@ Queries never leave the machine. `-Summarize` is the exception, and it only runs
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Set up a machine** | `.\dev\code-index.ps1 -Setup` | Build the index and register the MCP server; re-run safely |
-| **Definitions** | `.\dev\code-index.ps1 -Symbol to_snake_case` | Bare name, glob (`*Resolver`), `Class.method`, or dotted path; `-Kind class\|function\|method\|variable\|attribute` |
+| **Definitions** | `.\dev\code-index.ps1 -Symbol to_snake_case` | Bare name, glob (`*Resolver`), `Class.method`, or dotted path; `-Kind` narrows to one kind (`class`, `function`, `method`, `section`, `parameter`, `entity`, `setting`, ...; an unknown kind is refused with the full list) |
 | **Uses** | `.\dev\code-index.ps1 -References datrix_common.utils.text.to_snake_case` | Resolved through imports (aliases, re-exports); methods match every `.name` access |
 | **File outline** | `.\dev\code-index.ps1 -Outline datrix-common/src/datrix_common/utils/text.py` | Definitions with line ranges and signatures; path, unique suffix, or module name |
 | **Search** | `.\dev\code-index.ps1 -Search "tenant isolation"` | Ranked full-text over names, signatures, docstrings, summaries, markers |
