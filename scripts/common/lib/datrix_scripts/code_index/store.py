@@ -19,7 +19,7 @@ from datrix_scripts.code_index.sources import INDEX_DB_NAME, SUMMARIES_DB_NAME, 
 
 # Bump whenever the index schema or what extraction records changes; an index built by
 # another version is dropped and rebuilt from source on the next refresh.
-INDEX_SCHEMA_VERSION = "5"
+INDEX_SCHEMA_VERSION = "6"
 META_SCHEMA_VERSION = "schema_version"
 META_LAST_REFRESH = "last_refresh"
 

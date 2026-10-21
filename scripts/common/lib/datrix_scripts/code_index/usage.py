@@ -33,6 +33,10 @@ CATEGORY_SHELL_SEARCH = "shell_search"
 CATEGORY_READ_REDIRECT = "read_redirect"
 # The same agent's repeat of that read, which the hook let through: it read the whole file anyway.
 CATEGORY_READ_REDIRECT_REPEAT = "read_redirect_repeat"
+# Written by the redirect-identifier-grep hook: a grep for one identifier answered from the index
+# before it ran, and the same agent's repeat of that grep, which the hook let through.
+CATEGORY_GREP_REDIRECT = "grep_redirect"
+CATEGORY_GREP_REDIRECT_REPEAT = "grep_redirect_repeat"
 
 # A grep for one identifier (optionally a dotted path, a word boundary, a def/class prefix,
 # or a trailing call paren): a definition or reference lookup find_symbol/find_references answers.
@@ -83,6 +87,12 @@ class UsageReport:
             lines.append(f"Whole reads of large files answered with an outline or digest instead: {redirected.calls} "
                          f"(the notices cost ~{redirected.chars // CHARS_PER_TOKEN:,} tokens in all); the agent read "
                          f"the whole file anyway after {repeated} of them")
+        grep_redirected = self.categories.get(CATEGORY_GREP_REDIRECT)
+        if grep_redirected is not None:
+            repeated = self.categories.get(CATEGORY_GREP_REDIRECT_REPEAT, Tally()).calls
+            lines.append(f"Identifier greps answered from the index instead: {grep_redirected.calls} (the answers cost "
+                         f"~{grep_redirected.chars // CHARS_PER_TOKEN:,} tokens in all); the agent ran the grep "
+                         f"anyway after {repeated} of them")
         tools =", ".join(f"{name} {count}" for name, count in self.index_tools.most_common()) or "none"
         lines.append(f"Index tools used: {tools}")
         lines.append(f"Index could have answered: identifier greps {self.identifier_greps.render()}; "

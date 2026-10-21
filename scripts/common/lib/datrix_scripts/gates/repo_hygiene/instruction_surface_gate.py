@@ -15,7 +15,8 @@ showed up anywhere Jon could read and drive to zero. This gate is that census.
 WHAT IT SCANS AND HOW
 ----------------------
 Every fenced code block (``` ... ```) and inline code span (`...`) inside
-`claude-config/.claude/CLAUDE.md`, `claude-config/.claude/rules/*.md`, and
+`claude-config/.claude/CLAUDE.md`, the four read-when docs under
+`claude-config/.claude/docs/` that CLAUDE.md routes to, and
 `claude-config/.claude/skills/**/*.md` (including `_shared/`) -- parsed with a
 real Markdown tokenizer (Python's stdlib has none; this module walks fence and
 backtick delimiters directly, which is the same "no line regex" discipline
@@ -78,7 +79,10 @@ FORBIDDEN_EXAMPLE_MARKER = "<!-- forbidden-example -->"
 #: purely for emphasis, not because it needs its own glob.
 SCAN_GLOBS: tuple[str, ...] = (
     "claude-config/.claude/CLAUDE.md",
-    "claude-config/.claude/rules/*.md",
+    "claude-config/.claude/docs/design-and-docs.md",
+    "claude-config/.claude/docs/harness-guards.md",
+    "claude-config/.claude/docs/repo-boundaries.md",
+    "claude-config/.claude/docs/task-orchestration.md",
     "claude-config/.claude/skills/**/*.md",
 )
 

@@ -1149,7 +1149,7 @@ def check_decision_status(
 # ---------------------------------------------------------------------------
 # Numeric package counts: a curated architecture doc states no count of the
 # packages or repositories. A count is a second copy of the list in
-# ``.claude/rules/repo-boundaries.md``, and three copies of it disagreed with
+# ``.claude/docs/repo-boundaries.md``, and three copies of it disagreed with
 # each other and with the disk. A number (digits or an English number word)
 # directly before ``packages`` / ``repos`` / ``repositories``, optionally through
 # up to two qualifiers (``installable``, ``core``, ``package``, ``toolchain``), in a

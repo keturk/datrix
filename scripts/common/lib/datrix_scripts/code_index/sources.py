@@ -33,6 +33,15 @@ USAGE_LOG_NAME = "usage.jsonl"
 LOGIC_MAP_DB = PurePosixPath(".logic-map") / "markers.db"
 
 PYTHON_SUFFIX = ".py"
+MARKDOWN_SUFFIX = ".md"
+POWERSHELL_SUFFIX = ".ps1"
+DATRIX_SUFFIX = ".dtrx"
+DATRIX_CONFIG_SUFFIX = ".dcfg"
+TYPESCRIPT_SUFFIX = ".ts"
+# Every suffix the index reads; ``formats.extract_source`` reads each one.
+INDEXED_SUFFIXES = (
+    PYTHON_SUFFIX, MARKDOWN_SUFFIX, POWERSHELL_SUFFIX, DATRIX_SUFFIX, DATRIX_CONFIG_SUFFIX, TYPESCRIPT_SUFFIX,
+)
 PACKAGE_INIT = "__init__.py"
 GIT_DIR_NAME = ".git"
 GIT_TIMEOUT_SECONDS = 60
@@ -108,11 +117,11 @@ def discover_repos(workspace: Path) -> list[Path]:
     )
 
 
-def _git_python_files(repo: Path) -> list[str]:
-    """Repository-relative paths of the Python files git sees in ``repo``."""
+def _git_indexed_files(repo: Path) -> list[str]:
+    """Repository-relative paths of the files of every indexed suffix git sees in ``repo``."""
     command = [
         "git", "-C", str(repo), "ls-files", "--cached", "--others", "--exclude-standard",
-        "-z", "--", f"*{PYTHON_SUFFIX}",
+        "-z", "--", *(f"*{suffix}" for suffix in INDEXED_SUFFIXES),
     ]
     try:
         result = subprocess.run(command, capture_output=True, timeout=GIT_TIMEOUT_SECONDS, check=False)
@@ -135,7 +144,7 @@ def list_sources(workspace: Path, config: CodeIndexConfig) -> dict[str, SourceFi
             f"checked out directly under the workspace root."
         )
     with ThreadPoolExecutor(max_workers=GIT_LIST_WORKERS) as pool:
-        listings = list(pool.map(_git_python_files, repos))
+        listings = list(pool.map(_git_indexed_files, repos))
     sources: dict[str, SourceFile] = {}
     for repo, paths in zip(repos, listings):
         for repo_path in paths:
@@ -152,12 +161,14 @@ def list_sources(workspace: Path, config: CodeIndexConfig) -> dict[str, SourceFi
 
 
 def module_name(rel_path: str, config: CodeIndexConfig) -> str:
-    """The dotted module name ``rel_path`` is imported as.
+    """The dotted module name ``rel_path`` is imported as; for a file that is not Python, its path.
 
     Computed from the nearest ancestor directory matching a ``module_roots`` pattern, or
     from the repository directory when none matches. A package's ``__init__.py`` is the
     package itself.
     """
+    if PurePosixPath(rel_path).suffix != PYTHON_SUFFIX:
+        return rel_path
     parts = PurePosixPath(rel_path).parts
     root_len = 1
     for depth in range(len(parts) - 1, 0, -1):

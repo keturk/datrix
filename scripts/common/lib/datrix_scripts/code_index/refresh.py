@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from datrix_scripts.code_index.extract import FileFacts, extract_file, extract_job
+from datrix_scripts.code_index.extract import FileFacts
+from datrix_scripts.code_index.formats import extract_powershell, extract_source, extract_source_job, is_batched
 from datrix_scripts.code_index.sources import (
     LOGIC_MAP_DB,
     CodeIndexConfig,
@@ -107,13 +108,21 @@ def _plan(sources: dict[str, SourceFile], known: dict[str, _Known], config: Code
     return plan
 
 
-def _extract_all(jobs: list[_Job]) -> list[FileFacts]:
-    args = [(job.data, job.source.rel_path, job.module, is_package_init(job.source.rel_path)) for job in jobs]
+def _extract_each(args: list[tuple[bytes, str, str, bool]]) -> list[FileFacts]:
     if len(args) < PARALLEL_THRESHOLD:
-        return [extract_file(*arg) for arg in args]
+        return [extract_source(*arg) for arg in args]
     workers = min(MAX_WORKERS, os.cpu_count() or 1)
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(extract_job, args, chunksize=EXTRACT_CHUNK_SIZE))
+        return list(pool.map(extract_source_job, args, chunksize=EXTRACT_CHUNK_SIZE))
+
+
+def _extract_all(jobs: list[_Job]) -> list[FileFacts]:
+    """Each job's facts, in job order: PowerShell files many per process, the rest one at a time."""
+    args = [(job.data, job.source.rel_path, job.module, is_package_init(job.source.rel_path)) for job in jobs]
+    batched = [is_batched(arg[1]) for arg in args]
+    batch_facts = iter(extract_powershell([(arg[0], arg[1]) for arg, b in zip(args, batched) if b]))
+    each_facts = iter(_extract_each([arg for arg, b in zip(args, batched) if not b]))
+    return [next(batch_facts) if b else next(each_facts) for b in batched]
 
 
 def indexed_markers(conn: sqlite3.Connection) -> list[Marker]:

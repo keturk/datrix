@@ -26,6 +26,7 @@ from datrix_scripts.code_index.extract import (
     SYMBOL_METHOD,
     SYMBOL_VARIABLE,
 )
+from datrix_scripts.code_index.formats import FORMAT_SYMBOL_KINDS
 from datrix_scripts.code_index.store import (
     FTS_MARKER,
     FTS_SYMBOL,
@@ -35,7 +36,9 @@ from datrix_scripts.code_index.store import (
     read_meta,
 )
 
-SYMBOL_KINDS = (SYMBOL_CLASS, SYMBOL_FUNCTION, SYMBOL_METHOD, SYMBOL_VARIABLE, SYMBOL_ATTRIBUTE)
+SYMBOL_KINDS = tuple(dict.fromkeys(
+    (SYMBOL_CLASS, SYMBOL_FUNCTION, SYMBOL_METHOD, SYMBOL_VARIABLE, SYMBOL_ATTRIBUTE, *FORMAT_SYMBOL_KINDS)
+))
 REF_IMPORT = "import"
 
 DEFAULT_SYMBOL_LIMIT = 30
@@ -61,7 +64,7 @@ _KIND_ORDER = f"CASE s.kind WHEN '{SYMBOL_CLASS}' THEN 0 WHEN '{SYMBOL_FUNCTION}
 # Production code before tests.
 _TESTS_LAST = "CASE WHEN f.path LIKE '%/tests/%' THEN 1 ELSE 0 END"
 
-_SYMBOL_COLUMNS = "f.path, s.line, s.end_line, s.kind, f.module, s.qualname, s.signature, s.doc"
+_SYMBOL_COLUMNS = "f.path, s.line, s.end_line, s.kind, f.module, s.qualname, s.signature, s.doc, s.name"
 
 
 class QueryError(ValueError):
@@ -78,18 +81,22 @@ class SymbolHit:
     qualname: str
     signature: str
     doc: str
+    # The definition's own name. A Markdown section's name is its heading, which may hold dots.
+    name: str
 
     @property
-    def name(self) -> str:
-        return self.qualname.rsplit(".", 1)[-1]
+    def depth(self) -> int:
+        """How many scopes enclose the definition: the dots before its own name."""
+        return self.qualname[: len(self.qualname) - len(self.name)].count(".")
 
     @property
     def is_top_level(self) -> bool:
-        return "." not in self.qualname
+        return self.depth == 0
 
     @property
     def dotted(self) -> str:
-        return f"{self.module}.{self.qualname}"
+        """``module.qualname``; for a file that is not Python (its module is its path), the qualname."""
+        return self.qualname if self.module == self.path else f"{self.module}.{self.qualname}"
 
     def render(self) -> str:
         doc = f"\n    {self.doc}" if self.doc else ""
@@ -148,7 +155,9 @@ class OutlineResult:
     symbols: list[SymbolHit]
 
     def render(self) -> str:
-        lines = [f"{self.path}  [{self.module}]  {self.line_count} lines"]
+        # A file that is not Python is its own module; naming it twice says nothing.
+        module = f"  [{self.module}]" if self.module != self.path else ""
+        lines = [f"{self.path}{module}  {self.line_count} lines"]
         if self.parse_error:
             lines.append(f"Not parsed: {self.parse_error}")
         if self.module_doc:
@@ -156,7 +165,7 @@ class OutlineResult:
         if self.summary:
             lines.append(f"Summary: {self.summary}")
         for symbol in self.symbols:
-            indent = "  " * symbol.qualname.count(".")
+            indent = "  " * symbol.depth
             span = f"{symbol.line}-{symbol.end_line}" if symbol.end_line > symbol.line else f"{symbol.line}"
             doc = f"  -- {symbol.doc}" if symbol.doc else ""
             lines.append(f"{indent}L{span} {symbol.signature}{doc}")
@@ -226,7 +235,7 @@ class CanonicalResult:
 
 def _symbol_hits(rows: list[tuple[object, ...]]) -> list[SymbolHit]:
     return [SymbolHit(str(r[0]), int(str(r[1])), int(str(r[2])), str(r[3]), str(r[4]), str(r[5]), str(r[6]),
-                      str(r[7])) for r in rows]
+                      str(r[7]), str(r[8])) for r in rows]
 
 
 def _kind_clause(kind: str | None) -> tuple[str, list[object]]:
@@ -249,9 +258,10 @@ def find_symbol(conn: sqlite3.Connection, name: str, kind: str | None = None,
     if "*" in query or "?" in query:
         where, args = "s.name GLOB ?", [last]
     elif "." in query:
-        where = "s.name = ? AND (f.module || '.' || s.qualname = ? OR s.qualname = ? " \
-                "OR f.module || '.' || s.qualname LIKE ? ESCAPE '\\')"
-        args = [last, query, query, "%." + query.replace("_", "\\_")]
+        # A dotted path, or a name that holds dots itself (a Markdown heading such as "11.6 Be certain").
+        where = "(s.name = ? AND (f.module || '.' || s.qualname = ? OR s.qualname = ? " \
+                "OR f.module || '.' || s.qualname LIKE ? ESCAPE '\\')) OR s.name = ?"
+        args = [last, query, query, "%." + query.replace("_", "\\_"), query]
     else:
         where, args = "s.name = ?", [query]
     rows = conn.execute(

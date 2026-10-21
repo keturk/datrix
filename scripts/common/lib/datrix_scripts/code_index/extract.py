@@ -88,7 +88,7 @@ class FileFacts:
     parse_error: str
 
 
-def _clip(text: str, limit: int) -> str:
+def clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
@@ -97,7 +97,7 @@ def first_paragraph(docstring: str | None) -> str:
     if not docstring:
         return ""
     paragraph = docstring.strip().split("\n\n", 1)[0]
-    return _clip(_WHITESPACE.sub(" ", paragraph).strip(), MAX_DOC_CHARS)
+    return clip(_WHITESPACE.sub(" ", paragraph).strip(), MAX_DOC_CHARS)
 
 
 def _decorators(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> str:
@@ -118,7 +118,7 @@ def _class_signature(node: ast.ClassDef) -> str:
 
 def _assignment_signature(name: str, node: ast.Assign | ast.AnnAssign) -> str:
     annotation = f": {ast.unparse(node.annotation)}" if isinstance(node, ast.AnnAssign) else ""
-    value = f" = {_clip(ast.unparse(node.value), MAX_VALUE_CHARS)}" if node.value is not None else ""
+    value = f" = {clip(ast.unparse(node.value), MAX_VALUE_CHARS)}" if node.value is not None else ""
     return f"{name}{annotation}{value}"
 
 
@@ -156,7 +156,7 @@ class _SymbolCollector:
         self.symbols.append(SymbolFact(
             name=node.name, qualname=qualname, kind=kind, line=node.lineno,
             end_line=node.end_lineno or node.lineno,
-            signature=_clip(signature, MAX_SIGNATURE_CHARS), doc=first_paragraph(ast.get_docstring(node)),
+            signature=clip(signature, MAX_SIGNATURE_CHARS), doc=first_paragraph(ast.get_docstring(node)),
         ))
         is_class = isinstance(node, ast.ClassDef)
         self.scope(node.body, f"{qualname}.", in_class=is_class, in_function=not is_class)
@@ -167,7 +167,7 @@ class _SymbolCollector:
             self.symbols.append(SymbolFact(
                 name=name, qualname=f"{prefix}{name}", kind=kind, line=node.lineno,
                 end_line=node.end_lineno or node.lineno,
-                signature=_clip(_assignment_signature(name, node), MAX_SIGNATURE_CHARS), doc="",
+                signature=clip(_assignment_signature(name, node), MAX_SIGNATURE_CHARS), doc="",
             ))
 
 
@@ -240,8 +240,3 @@ def extract_file(data: bytes, rel_path: str, module: str, is_package: bool) -> F
         markers=markers,
         parse_error="",
     )
-
-
-def extract_job(job: tuple[bytes, str, str, bool]) -> FileFacts:
-    """``extract_file`` for a process pool, which maps over single arguments."""
-    return extract_file(*job)

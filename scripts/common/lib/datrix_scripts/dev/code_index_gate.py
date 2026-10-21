@@ -66,8 +66,21 @@ from datrix_scripts.code_index.extract import (
     SYMBOL_VARIABLE,
     extract_file,
 )
+from datrix_scripts.code_index.formats import (
+    DATRIX_OUTLINE_KINDS,
+    SYMBOL_BLOCK,
+    SYMBOL_CONFIG,
+    SYMBOL_INTERFACE,
+    SYMBOL_PARAMETER,
+    SYMBOL_PROFILE,
+    SYMBOL_SECTION,
+    SYMBOL_SETTING,
+    SYMBOL_TYPE,
+    extract_source,
+)
 from datrix_scripts.code_index.queries import (
     REF_IMPORT,
+    SYMBOL_KINDS,
     find_canonical,
     find_references,
     find_symbol,
@@ -101,8 +114,9 @@ _GIT_IDENTITY = ("-c", "user.name=code-index-gate", "-c", "user.email=gate@examp
 #: The MCP server's command line after the interpreter, as code-index.ps1 -Setup registers it.
 _MCP_ARGS = ["-m", MCP_SERVER_MODULE]
 _USAGE_HOOK = SHOWCASE_DIR / "claude-config" / ".claude" / "hooks" / "record-search-usage.py"
-_REGISTRATION_MODULE = "_mcp_registration.py"
-_HOOK_LOG_MODULE = "_hook_log.py"
+#: The hooks' shared private modules (``_*.py``): copied with the hook, all of them, so a new import of the
+#: hook's never leaves the sandbox a module short.
+_HOOK_MODULE_GLOB = "_*.py"
 _PROJECT_DIR_VARIABLE = "CLAUDE_PROJECT_DIR"
 
 _CONFIG = CodeIndexConfig(exclude=("alpha/generated/*",), module_roots=("*/src",), summarize=("*/src/*",))
@@ -291,12 +305,200 @@ def check_generate_test_rules_drops_see_refs_to_unknown_topics() -> None:
     assert second.see == ["text/splitting"], second.see
 
 
+_GUIDE_MD = """# Guide
+
+Intro paragraph of the guide.
+
+## 11.6 Be certain
+
+First paragraph of the section.
+
+```text
+# not a heading inside a fence
+```
+
+### Detail
+
+## Next
+"""
+
+_TOOL_PS1 = """<#
+.SYNOPSIS
+    Run the fixture tool.
+
+.PARAMETER Target
+    What to run against.
+#>
+param(
+    [Parameter(Mandatory)]
+    [string]$Target,
+    [switch]$Force
+)
+
+function Invoke-Step {
+    <#
+    .SYNOPSIS
+        One step.
+    #>
+    param([int]$Count)
+    return $Count
+}
+"""
+
+_SHOP_DTRX = """service shop.OrderService('config/order.dcfg') : version('1.0.0') {
+    rdbms orderDb {
+        entity Order {
+            String(100) reference;
+        }
+    }
+}
+"""
+
+_SHOP_DCFG = """config service shop.OrderService {
+    base {
+        port = 8000;
+        resources {
+            cpu = "100m";
+        }
+    }
+    profile test {
+        port = 9000;
+    }
+}
+"""
+
+_CLIENT_TS = """/** Talks to the order service. */
+export class OrderClient {
+    private readonly base: string;
+
+    constructor(base: string) {
+        this.base = base;
+    }
+
+    fetch(id: string): string {
+        const local = id;
+        return local;
+    }
+}
+
+export interface Order {
+    reference: string;
+}
+
+export type OrderId = string;
+
+export const DEFAULT_BASE = "http://localhost";
+"""
+
+_FORMAT_FILES = {
+    "docs/guide.md": _GUIDE_MD,
+    "scripts/tool.ps1": _TOOL_PS1,
+    "examples/shop.dtrx": _SHOP_DTRX,
+    "examples/config/order.dcfg": _SHOP_DCFG,
+    "client/src/client.ts": _CLIENT_TS,
+}
+
+
+def _format_symbols(rel_path: str) -> dict[str, tuple[str, int]]:
+    """``qualname -> (kind, line)`` for one fixture file of ``_FORMAT_FILES``."""
+    data = _FORMAT_FILES[rel_path].encode("utf-8")
+    full = f"alpha/{rel_path}"
+    facts = extract_source(data, full, full, False)
+    assert not facts.parse_error, f"{rel_path}: {facts.parse_error}"
+    assert not facts.imports and not facts.refs and not facts.markers, f"{rel_path}: only Python records uses"
+    return {s.qualname: (s.kind, s.line) for s in facts.symbols}
+
+
+def check_extract_reads_each_format_with_its_own_parser() -> None:
+    markdown = _format_symbols("docs/guide.md")
+    expected_markdown = {"Guide": (SYMBOL_SECTION, 1), "11.6 Be certain": (SYMBOL_SECTION, 5),
+                         "Detail": (SYMBOL_SECTION, 13), "Next": (SYMBOL_SECTION, 15)}
+    assert markdown == expected_markdown, f"a heading inside a fence is not a section: {markdown}"
+    powershell = _format_symbols("scripts/tool.ps1")
+    expected_powershell = {"Target": (SYMBOL_PARAMETER, 10), "Force": (SYMBOL_PARAMETER, 11),
+                           "Invoke-Step": (SYMBOL_FUNCTION, 14), "Invoke-Step.Count": (SYMBOL_PARAMETER, 19)}
+    assert powershell == expected_powershell, powershell
+    datrix = _format_symbols("examples/shop.dtrx")
+    expected_datrix = {"OrderService": ("service", 1), "OrderService.orderDb": ("infrastructure_block", 2),
+                       "OrderService.orderDb.Order": ("entity", 3),
+                       "OrderService.orderDb.Order.reference": ("field", 4)}
+    assert datrix == expected_datrix, datrix
+    config = _format_symbols("examples/config/order.dcfg")
+    expected_config = {"OrderService": (SYMBOL_CONFIG, 1), "OrderService.port": (SYMBOL_SETTING, 3),
+                       "OrderService.resources": (SYMBOL_BLOCK, 4),
+                       "OrderService.resources.cpu": (SYMBOL_SETTING, 5),
+                       "OrderService.test": (SYMBOL_PROFILE, 8), "OrderService.test.port": (SYMBOL_SETTING, 9)}
+    assert config == expected_config, config
+    typescript = _format_symbols("client/src/client.ts")
+    expected_typescript = {"OrderClient": (SYMBOL_CLASS, 2), "OrderClient.base": (SYMBOL_ATTRIBUTE, 3),
+                           "OrderClient.constructor": (SYMBOL_METHOD, 5), "OrderClient.fetch": (SYMBOL_METHOD, 9),
+                           "Order": (SYMBOL_INTERFACE, 15), "Order.reference": (SYMBOL_ATTRIBUTE, 16),
+                           "OrderId": (SYMBOL_TYPE, 19), "DEFAULT_BASE": (SYMBOL_VARIABLE, 21)}
+    assert typescript == expected_typescript, f"a function's locals are not definitions: {typescript}"
+
+
+def check_extract_keeps_the_docs_each_format_writes() -> None:
+    guide = extract_source(_GUIDE_MD.encode("utf-8"), "alpha/docs/guide.md", "alpha/docs/guide.md", False)
+    docs = {s.name: (s.doc, s.end_line, s.signature) for s in guide.symbols}
+    assert guide.module_doc == "Guide", guide.module_doc
+    assert docs["11.6 Be certain"] == ("First paragraph of the section.", 14, "## 11.6 Be certain"), docs
+    assert docs["Guide"][1] == 15, "a section spans to the next heading of its level or above"
+    tool = extract_source(_TOOL_PS1.encode("utf-8"), "alpha/scripts/tool.ps1", "alpha/scripts/tool.ps1", False)
+    tool_docs = {s.qualname: s.doc for s in tool.symbols}
+    assert tool.module_doc == "Run the fixture tool.", tool.module_doc
+    assert tool_docs["Target"] == "What to run against." and tool_docs["Invoke-Step"] == "One step.", tool_docs
+    client = extract_source(_CLIENT_TS.encode("utf-8"), "alpha/client.ts", "alpha/client.ts", False)
+    assert client.symbols[0].doc == "Talks to the order service.", client.symbols[0]
+    assert client.symbols[0].signature == "export class OrderClient {", client.symbols[0].signature
+
+
+def check_extract_reports_a_file_each_parser_refuses() -> None:
+    broken = {
+        "alpha/tool.ps1": b"param(\n    [string]$Target\n",
+        "alpha/order.dcfg": b"config service shop.X {\n    port = ;\n",
+    }
+    for rel_path, data in broken.items():
+        facts = extract_source(data, rel_path, rel_path, False)
+        assert facts.parse_error and not facts.symbols, f"{rel_path}: {facts}"
+
+
+def check_datrix_outline_kinds_are_the_language_servers() -> None:
+    from datrix_language.lsp.symbols import SymbolKind
+
+    served = {kind.name.lower() for kind in SymbolKind}
+    listed = set(DATRIX_OUTLINE_KINDS)
+    assert listed == served, (f"DATRIX_OUTLINE_KINDS differs from the language server's SymbolKind: missing "
+                              f"{sorted(served - listed)}, extra {sorted(listed - served)}")
+    assert listed <= set(SYMBOL_KINDS), f"kinds find_symbol refuses: {sorted(listed - set(SYMBOL_KINDS))}"
+
+
+def check_refresh_indexes_every_format_and_queries_answer_for_it() -> None:
+    with _workspace(_FORMAT_FILES) as session:
+        report = session.refresh()
+        assert report.parse_errors == 1, f"only broken.py fails to parse: {report}"
+        indexed = {str(r[0]): str(r[1]) for r in session.conn.execute("SELECT path, module FROM files")}
+        for rel_path in _FORMAT_FILES:
+            path = f"alpha/{rel_path}"
+            assert path in indexed and indexed[path] == path, f"{path} not indexed under its own path: {indexed}"
+        section = find_symbol(session.conn, "11.6 Be certain").hits
+        assert [h.path for h in section] == ["alpha/docs/guide.md"], section
+        assert section[0].render().endswith("[11.6 Be certain]\n    First paragraph of the section."), \
+            section[0].render()
+        assert _names(session, "Order.reference") == ["Order.reference", "OrderService.orderDb.Order.reference"]
+        assert [h.path for h in find_symbol(session.conn, "Order*", kind="entity").hits] == ["alpha/examples/shop.dtrx"]
+        text = outline(session.conn, "alpha/examples/config/order.dcfg").render()
+        for fragment in ("L1-11 config service shop.OrderService {", "  L3 port = 8000;", "    L5 cpu = \"100m\";"):
+            assert fragment in text, f"outline lacks {fragment!r}:\n{text}"
+        assert any(h.ref == "Invoke-Step" for h in search(session.conn, "invoke step").hits), "search misses ps1"
+
+
 def check_module_names_follow_the_configured_roots() -> None:
     cases = {
         "alpha/src/alpha_pkg/text.py": "alpha_pkg.text",
         "alpha/src/alpha_pkg/__init__.py": "alpha_pkg",
         "alpha/tests/unit/test_x.py": "tests.unit.test_x",
         "alpha/setup.py": "setup",
+        "alpha/src/docs/guide.md": "alpha/src/docs/guide.md",
     }
     for rel_path, expected in cases.items():
         actual = module_name(rel_path, _CONFIG)
@@ -762,8 +964,8 @@ def _hook_sandbox(registered_directory: str | None,
         workspace = Path(temp) / "workspace"
         hooks = workspace / "datrix" / "claude-config" / ".claude" / "hooks"
         hooks.mkdir(parents=True)
-        for name in (_USAGE_HOOK.name, _REGISTRATION_MODULE, _HOOK_LOG_MODULE):
-            shutil.copyfile(_USAGE_HOOK.parent / name, hooks / name)
+        for source in (_USAGE_HOOK, *_USAGE_HOOK.parent.glob(_HOOK_MODULE_GLOB)):
+            shutil.copyfile(source, hooks / source.name)
         package_copy = workspace / PYTHONPATH_ROOT.relative_to(WORKSPACE_DIR) / PACKAGE_DIR.name
         shutil.copytree(PACKAGE_DIR, package_copy, ignore=shutil.ignore_patterns("__pycache__"))
         profile = Path(temp) / "profile"
@@ -839,35 +1041,30 @@ def _hook_hint(sandbox: _HookSandbox, payload: dict[str, object], project_dir: s
     return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
 
 
-def check_usage_hook_points_at_the_index_a_few_times_per_session() -> None:
+def check_usage_hook_points_at_the_index_once_per_agent() -> None:
     # Registered with forward slashes, asked from a backslash spelling: separators are normalised.
     with _hook_sandbox("D:/registered/workspace") as sandbox:
         cwd = "D:\\registered\\workspace"
-        identifier = {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"},
-                      "tool_response": "g", "session_id": "s1", "cwd": cwd}
-        hinted = [_hook_hint(sandbox, identifier) for _ in range(4)]
-        assert all("find_references" in text and "select:mcp__datrix-code-index__" in text for text in hinted[:3]), \
-            hinted
-        assert hinted[3] == "", "a session gets three identifier hints, then silence"
-        subagent = {**identifier, "agent_id": "a1"}
-        assert "find_symbol" in _hook_hint(sandbox, subagent), \
-            "a subagent has a fresh context: the main thread's spent hints must not silence it"
-        for silent in (
-            {"tool_name": "Grep", "tool_input": {"pattern": "tenant.*header"}, "session_id": "s1", "cwd": cwd},
-            {"tool_name": "Grep", "tool_input": {"pattern": "to_snake_case", "glob": "*.j2"}, "session_id": "s1",
-             "cwd": cwd},
-            {"tool_name": "Read", "tool_input": {"file_path": "x.py", "offset": 1}, "tool_response": "c" * 9000,
-             "session_id": "s1", "cwd": cwd},
-        ):
-            assert _hook_hint(sandbox, silent) == "", f"no hint for {silent['tool_input']}"
         large_read = {"tool_name": "Read", "tool_input": {"file_path": "big.py"}, "tool_response": "c" * 9000,
                       "session_id": "s1", "cwd": cwd}
-        assert "select:mcp__datrix-code-index__outline" in _hook_hint(sandbox, large_read), \
+        hinted = [_hook_hint(sandbox, large_read) for _ in range(2)]
+        assert "select:mcp__datrix-code-index__outline" in hinted[0], \
             "a whole read of a large Python file points at outline"
+        assert hinted[1] == "", "an agent gets one large-read hint, then silence"
+        assert "outline" in _hook_hint(sandbox, {**large_read, "agent_id": "a1"}), \
+            "a subagent has a fresh context: the main thread's spent hints must not silence it"
+        for silent in (
+            # An identifier grep is answered before it runs (redirect-identifier-grep.py), never hinted after.
+            {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"}, "tool_response": "g",
+             "session_id": "s2", "cwd": cwd},
+            {"tool_name": "Grep", "tool_input": {"pattern": "tenant.*header"}, "session_id": "s2", "cwd": cwd},
+            {"tool_name": "Read", "tool_input": {"file_path": "x.py", "offset": 1}, "tool_response": "c" * 9000,
+             "session_id": "s2", "cwd": cwd},
+        ):
+            assert _hook_hint(sandbox, silent) == "", f"no hint for {silent['tool_input']}"
         assert (sandbox.workspace / ".code-index" / "usage.jsonl").is_file(), "the log lands in the hook's workspace"
         # The agent changed directory: the payload's cwd moved, the session's project directory did not.
-        moved = {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"}, "tool_response": "g",
-                 "session_id": "s3", "cwd": "D:\\registered\\workspace\\pkg\\src"}
+        moved = {**large_read, "session_id": "s3", "cwd": "D:\\registered\\workspace\\pkg\\src"}
         assert "select:mcp__datrix-code-index__" in _hook_hint(sandbox, moved, project_dir=cwd), \
             "registration is looked up for the directory the session started in, not the shell's current one"
 
@@ -876,11 +1073,6 @@ def check_usage_hook_names_the_shell_where_the_session_has_no_index_tools() -> N
     # Registered for one directory; the session runs in another, or reports none.
     with _hook_sandbox("D:/registered/workspace") as sandbox:
         for session, cwd in (("s1", "D:/elsewhere"), ("s2", "")):
-            identifier = {"tool_name": "Grep", "tool_input": {"pattern": "\\bto_snake_case\\b"},
-                          "tool_response": "g", "session_id": session, "cwd": cwd}
-            text = _hook_hint(sandbox, identifier)
-            assert "code-index.ps1\" -Symbol to_snake_case" in text and "-Setup" in text, text
-            assert "ToolSearch" not in text, f"an unregistered session must not be sent to a ToolSearch: {text}"
             large_read = {"tool_name": "Read", "tool_input": {"file_path": "big.py"}, "tool_response": "c" * 9000,
                           "session_id": session, "cwd": cwd}
             text = _hook_hint(sandbox, large_read)
@@ -917,10 +1109,16 @@ def check_usage_report_counts_redirected_reads() -> None:
         notice = {"category": "read_redirect", "tool": "Read", "detail": "alpha/src/big.py", "response_chars": 8000,
                   "session": "s1", "agent": "a1", "ts": datetime.now(UTC).isoformat(timespec="seconds")}
         repeat = {**notice, "category": "read_redirect_repeat", "response_chars": 0}
-        log.write_text("".join(json.dumps(e) + "\n" for e in (notice, notice, repeat)), encoding="utf-8")
+        grep = {**notice, "category": "grep_redirect", "tool": "Grep", "detail": "\\bto_words\\b",
+                "response_chars": 2000}
+        grep_repeat = {**grep, "category": "grep_redirect_repeat", "response_chars": 0}
+        entries = (notice, notice, repeat, grep, grep_repeat)
+        log.write_text("".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8")
         rendered = usage_report(workspace, 0).render()
         assert ("answered with an outline or digest instead: 2 (the notices cost ~4,000 tokens in all); "
                 "the agent read the whole file anyway after 1 of them") in rendered, rendered
+        assert ("Identifier greps answered from the index instead: 1 (the answers cost ~500 tokens in all); "
+                "the agent ran the grep anyway after 1 of them") in rendered, rendered
 
 
 def check_usage_hook_never_writes_into_the_datrix_repository() -> None:
@@ -941,6 +1139,11 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_extract_keeps_markers_of_a_file_with_a_syntax_error,
     check_wrapped_rule_lines_belong_to_the_rule,
     check_markers_come_from_comments_and_the_module_docstring_only,
+    check_extract_reads_each_format_with_its_own_parser,
+    check_extract_keeps_the_docs_each_format_writes,
+    check_extract_reports_a_file_each_parser_refuses,
+    check_datrix_outline_kinds_are_the_language_servers,
+    check_refresh_indexes_every_format_and_queries_answer_for_it,
     check_module_names_follow_the_configured_roots,
     check_refresh_indexes_only_what_git_sees_minus_excludes,
     check_refresh_parses_only_changed_content,
@@ -961,7 +1164,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_mcp_server_answers_the_protocol_and_tools,
     check_mcp_server_stdout_carries_only_protocol,
     check_usage_hook_log_is_what_the_report_reads,
-    check_usage_hook_points_at_the_index_a_few_times_per_session,
+    check_usage_hook_points_at_the_index_once_per_agent,
     check_usage_hook_names_the_shell_where_the_session_has_no_index_tools,
     check_usage_hook_points_at_local_models_only_where_registered,
     check_usage_report_counts_redirected_reads,

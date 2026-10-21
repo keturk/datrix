@@ -56,8 +56,9 @@ SERVER_VERSION = "1"
 MAX_LIMIT = 500
 
 SERVER_INSTRUCTIONS = (
-    "Index of every Python file in the Datrix workspace repositories on this machine, refreshed "
-    "before each answer. Prefer these tools to grep-and-read when looking for a definition "
+    "Index of every Python, Markdown, PowerShell, .dtrx, .dcfg and TypeScript file in the Datrix "
+    "workspace repositories on this machine, refreshed before each answer (references are Python "
+    "only). Prefer these tools to grep-and-read when looking for a definition "
     "(find_symbol), its uses (find_references), the shape of a file (outline), code by what it "
     "does (search), or the declared canonical implementation of a concept (find_canonical)."
 )
@@ -88,11 +89,14 @@ def _status(session: IndexSession, _args: JsonObject) -> str:
 TOOLS: tuple[Tool[IndexSession], ...] = (
     Tool(
         "find_symbol",
-        "Find where a Python name is defined anywhere in the Datrix workspace (every repository's src, "
-        "tests and scripts). Accepts a bare name (to_snake_case), a glob (*Resolver), Class.method, or a "
-        "dotted path. Returns file:line, the signature, the dotted path and the first docstring line -- "
-        "cheaper than grepping and opening files. Offers similar names when nothing matches.",
-        {"name": {"type": "string"}, "kind": {"type": "string", "enum": list(SYMBOL_KINDS)},
+        "Find where a name is defined anywhere in the Datrix workspace: Python definitions, Markdown "
+        "headings, PowerShell functions and parameters, .dtrx definitions (services, entities, fields, "
+        "endpoints, ...), .dcfg blocks and settings, TypeScript declarations. Accepts a bare name "
+        "(to_snake_case), a glob (*Resolver), Class.method, or a dotted path. Returns file:line, the "
+        "signature, the dotted path and the first doc line -- cheaper than grepping and opening files. "
+        "Offers similar names when nothing matches. 'kind' narrows to one kind (class, function, method, "
+        "section, parameter, entity, setting, ...); an unknown kind is refused with the full list.",
+        {"name": {"type": "string"}, "kind": {"type": "string"},
          "limit": _limit_property(DEFAULT_SYMBOL_LIMIT)},
         ("name",),
         lambda s, a: find_symbol(s.conn, required_text(a, "name"), _kind(a),
@@ -112,8 +116,10 @@ TOOLS: tuple[Tool[IndexSession], ...] = (
     ),
     Tool(
         "outline",
-        "List a Python file's classes, functions, methods and constants in source order, with line "
-        "ranges, signatures and first docstring lines, plus the module docstring and summary. Read this "
+        "List a file's definitions in source order, with line ranges, signatures and first doc lines: "
+        "a Python file's classes, functions, methods and constants (plus module docstring and summary), "
+        "a Markdown file's sections, a PowerShell script's parameters and functions, a .dtrx or .dcfg "
+        "file's definitions, a TypeScript file's declarations. Read this "
         "before opening a large file, then read only the lines you need. Accepts a workspace-relative "
         "path, a unique path suffix, or a dotted module name.",
         {"path": {"type": "string"}},
