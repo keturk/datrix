@@ -203,31 +203,18 @@ def _audit(record: dict[str, object]) -> None:
 def _block(command: str, why: str) -> None:
     sys.stderr.write(
         "BLOCKED: this is a deploy, and no fresh pre-deploy analysis exists.\n\n"
-        f"Why: {why}\n\n"
-        "A deploy is the most expensive and latest-arriving evidence available — "
-        "minutes to hours, real money, one defect reported per round trip, after "
-        "the artifact is already out. Nearly everything it will tell you is "
-        "sitting in a file on disk right now.\n\n"
-        "Do this first (execution-contract-verification.md §12):\n"
-        "  1. Name every seam this deploy crosses — env/compose interpolation, "
-        "config-store keys, secret names, route inventories, image tags, module "
-        "outputs consumed by another module.\n"
-        "  2. For each, list what PRODUCES the names and what CONSUMES them, then "
-        "compute `consumed - produced`. Parse the artifact; do not eyeball it with "
-        "a regex, and prove your matcher finds an instance you know is there.\n"
-        "  3. Run the cheap rung that is never blocked: `--what-if` / `--dry-run` / "
-        "`terraform plan` / `--validate`. Read what it says.\n"
-        "  4. Fix what the census found, then record it:\n\n"
+        f"Why: {why}\n"
+        "First (execution-contract-verification.md §12): for every seam the deploy crosses "
+        "(env keys, secret names, routes, image tags, module outputs), parse producer and "
+        "consumer and compute `consumed - produced`; run the dry-run form; fix what it found; "
+        "then record it:\n"
         f"     {_ARTIFACT_DIR}\\<name>.json\n"
         '     {"targets": ["<substring of this command>"], '
         '"analyzed_at_epoch": <now>,\n'
         '      "seams": [{"name": "...", "produced_by": "...", "consumed_by": "...", '
         '"unsatisfied": []}],\n'
-        '      "checks": ["what-if: ..."], "verdict": "clear", "reason": "..."}\n\n'
-        f"Artifacts expire after {_MAX_AGE_S // 60} minutes — an analysis older than "
-        "the code it describes is not an analysis.\n\n"
-        "Read-only `az list/show/exists` and every dry-run form are never blocked. "
-        "If this command is not actually a deploy, run the read-only form instead."
+        '      "checks": ["what-if: ..."], "verdict": "clear", "reason": "..."}\n'
+        f"It expires after {_MAX_AGE_S // 60} minutes. Read-only and dry-run forms are never blocked."
     )
     sys.exit(2)
 

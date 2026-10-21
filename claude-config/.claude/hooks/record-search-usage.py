@@ -1,8 +1,9 @@
 """PostToolUse hook: log code-search tool calls, and point the agent at the cheaper tool.
 
-After a grep for a bare identifier in Python, or a whole read of a large Python file, the
-agent is told the index call that answers it (``additionalContext``): the MCP tool where the
-session has it, the shell command where it does not. After a whole read of a large log, an
+After a whole read of a large Python file, the agent is told the index call that answers it
+(``additionalContext``): the MCP tool where the session has it, the shell command where it does
+not. (A grep for a bare identifier is answered from the index before it runs, by
+``redirect-identifier-grep.py``.) After a whole read of a large log, an
 agent whose session has the local-model tools is pointed at ``digest_log``; after a whole
 read of a large Python file, also at ``ask_files``. Each kind of hint is given up to three
 times per agent context. See "Pointing the agent at the index" below for why.
@@ -60,13 +61,13 @@ _DIRECT_SEARCH: Final = re.compile(rf"(?:^|[;&(\n])\s*(?:&\s*)?{_SEARCH_TOOL}", 
 # command's output (``pytest ... | Select-String FAILED``) and is not a code search.
 _PIPED_SEARCH: Final = re.compile(rf"\|\s*{_SEARCH_TOOL}", re.IGNORECASE)
 _FILE_LISTING: Final = re.compile(r"(?:^|[\s;&(|])(?:get-childitem|gci|dir|ls|find)\s", re.IGNORECASE)
+_MAX_DETAIL_CHARS: Final = 300
 
 
 def _is_code_search(command: str) -> bool:
     if _DIRECT_SEARCH.search(command):
         return True
     return bool(_PIPED_SEARCH.search(command) and _FILE_LISTING.search(command))
-_MAX_DETAIL_CHARS: Final = 300
 
 
 def _response_chars(response: object) -> int:
@@ -141,7 +142,8 @@ def _append(entry: dict[str, object]) -> None:
 # and called the index 11 times. The index tools are deferred (they need a ToolSearch before
 # first use) and nothing on an agent's path names them, so a lookup the index answers in one
 # call went to grep-and-read instead. Right after such a call the agent is told the exact
-# call that answers it -- a few times per session, then silence.
+# call that answers it -- once per kind per agent, then silence: a hint repeated is paid for
+# again on every later turn, and an agent that ignored it once ignores it the second time too.
 #
 # The call named depends on what the session has. The MCP tools exist only where
 # ``code-index.ps1 -Setup`` registered the server for the session's directory; a hint naming
@@ -149,7 +151,7 @@ def _append(entry: dict[str, object]) -> None:
 # grep. So an unregistered session is given the shell command, and told why its tools are
 # missing.
 
-_HINTS_PER_SESSION_PER_KIND: Final = 3
+_HINTS_PER_SESSION_PER_KIND: Final = 1
 _HINT_STATE_DIR: Final = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".state")
 _LOCAL_PREFIX: Final = f"mcp__{LOCAL_LLM_SERVER}__"
 _LARGE_READ_CHARS: Final = 8000
@@ -157,80 +159,27 @@ _LOG_READ_KIND: Final = "log_read"
 _LOG_SUFFIXES: Final = (".log",)
 # Where test, generation and deploy runs write their output: anything read whole from here is a log.
 _LOG_DIRS: Final = (".test-output", ".test_results")
-_SCRIPTS_LIB_DIR: Final = os.path.join(_WORKSPACE, "datrix", "scripts", "common", "lib")
 _CODE_INDEX_SCRIPT: Final = os.path.join(_WORKSPACE, "datrix", "scripts", "dev", "code-index.ps1").replace("\\", "/")
 
 
-def _identifier_pattern() -> re.Pattern[str] | None:
-    """The usage report's definition of an identifier grep, so hint and report agree."""
-    if _SCRIPTS_LIB_DIR not in sys.path:
-        sys.path.insert(0, _SCRIPTS_LIB_DIR)
-    try:
-        from datrix_scripts.code_index.usage import IDENTIFIER_GREP_PATTERN
-    except ImportError:
-        return None
-    return IDENTIFIER_GREP_PATTERN
-
-
-def _python_scoped(entry: dict[str, object]) -> bool:
-    """False when the grep is fenced to something other than Python, which the index does not cover."""
-    kind, glob, path = str(entry.get("type", "")), str(entry.get("glob", "")), str(entry.get("path", ""))
-    if kind and kind != "py":
-        return False
-    if glob and ".py" not in glob:
-        return False
-    extension = os.path.splitext(path)[1].lower()
-    return not extension or extension == ".py"
-
-
-def _bare_name(pattern: str) -> str:
-    name = re.sub(r"^(?:def\s+|class\s+)|\\b|\\?\($", "", pattern)
-    return name.replace("\\.", ".")
-
-
 def _unregistered_note(cwd: str) -> str:
-    return (
-        f"The index's MCP tools are not registered for the directory this session started in ({cwd or 'unknown'}) on this "
-        f"machine, so they are absent here: tell Jon once that `{_CODE_INDEX_SCRIPT} -Setup` followed by a "
-        f"window reload adds them."
-    )
-
-
-def _identifier_hint(name: str, cwd: str) -> str:
-    if is_registered(cwd, CODE_INDEX_SERVER):
-        return (
-            f"Code index: '{name}' is a definition or usage lookup. {_INDEX_TOOL_PREFIX}find_symbol (where it is "
-            f"defined) and {_INDEX_TOOL_PREFIX}find_references (every use, resolved through imports) answer it across "
-            f"every repo in one call. Load them first with ToolSearch query "
-            f"'select:{_INDEX_TOOL_PREFIX}find_symbol,{_INDEX_TOOL_PREFIX}find_references'. Grep stays right for strings, "
-            f"comments, templates and non-Python files."
-        )
-    return (
-        f"Code index: '{name}' is a definition or usage lookup. `powershell -File \"{_CODE_INDEX_SCRIPT}\" "
-        f"-Symbol {name}` (where it is defined) and `-References <dotted.path>` (every use, resolved through "
-        f"imports) answer it across every repo in one call. {_unregistered_note(cwd)} Grep stays right for "
-        f"strings, comments, templates and non-Python files."
-    )
+    return f"(Index MCP tools absent here: tell Jon once to run `{_CODE_INDEX_SCRIPT} -Setup` and reload.)"
 
 
 def _large_read_hint(response_chars: int, cwd: str) -> str:
-    cost = f"Code index: that whole-file read cost about {response_chars // 4:,} tokens. "
+    cost = f"Code index: that read cost ~{response_chars // 4:,} tokens; "
     if is_registered(cwd, CODE_INDEX_SERVER):
         hint = (
-            f"{cost}{_INDEX_TOOL_PREFIX}outline lists a file's definitions with line ranges; then Read only the lines "
-            f"you need with offset/limit. Load it with ToolSearch query 'select:{_INDEX_TOOL_PREFIX}outline'."
+            f"{cost}{_INDEX_TOOL_PREFIX}outline gives line ranges to read by offset/limit "
+            f"(ToolSearch 'select:{_INDEX_TOOL_PREFIX}outline')."
         )
     else:
         hint = (
-            f"{cost}`powershell -File \"{_CODE_INDEX_SCRIPT}\" -Outline <path>` lists a file's definitions with line "
-            f"ranges; then Read only the lines you need with offset/limit. {_unregistered_note(cwd)}"
+            f"{cost}`powershell -File \"{_CODE_INDEX_SCRIPT}\" -Outline <path>` gives line ranges to read by "
+            f"offset/limit. {_unregistered_note(cwd)}"
         )
     if is_registered(cwd, LOCAL_LLM_SERVER):
-        hint += (
-            f" To learn what a file does or where something happens in it, {_LOCAL_PREFIX}ask_files answers the "
-            f"question from a local model with path:line citations, without the text entering your context "
-            f"(ToolSearch 'select:{_LOCAL_PREFIX}ask_files')."
-        )
+        hint += f" {_LOCAL_PREFIX}ask_files answers questions about a file without reading it."
     return hint
 
 
@@ -248,20 +197,13 @@ def _log_read_hint(tool: str, tool_input: dict[str, object], response_chars: int
     if not is_registered(cwd, LOCAL_LLM_SERVER):
         return ""
     return (
-        f"Local models: that whole log read cost about {response_chars // 4:,} tokens. {_LOCAL_PREFIX}digest_log "
-        f"lists a log's distinct failures (message, count, first log line, the source file:line it names) from a "
-        f"local model, without the log entering your context; logs too large to read whole are cut to the lines "
-        f"around errors. Load it with ToolSearch query 'select:{_LOCAL_PREFIX}digest_log'."
+        f"Local models: that log read cost ~{response_chars // 4:,} tokens; {_LOCAL_PREFIX}digest_log lists a "
+        f"log's distinct failures without reading it (ToolSearch 'select:{_LOCAL_PREFIX}digest_log')."
     )
 
 
 def _hint(entry: dict[str, object], cwd: str) -> str:
-    category, detail = entry.get("category"), str(entry.get("detail", ""))
-    if category == "grep" and _python_scoped(entry):
-        pattern = _identifier_pattern()
-        if pattern is None or not pattern.match(detail):
-            return ""
-        return _identifier_hint(_bare_name(detail), cwd)
+    category = entry.get("category")
     response_chars = int(str(entry.get("response_chars", 0)))
     if category == "read" and not entry.get("ranged") and response_chars >= _LARGE_READ_CHARS:
         return _large_read_hint(response_chars, cwd)

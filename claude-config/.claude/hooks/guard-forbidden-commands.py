@@ -110,18 +110,8 @@ _GIT_SUBCOMMAND_RE = re.compile(
 )
 
 _GIT_TAIL = (
-    "\n\nCLAUDE.md: 'No git reverts.' You do not know how many prior tasks have "
-    "modified working-tree files — reverting may destroy uncommitted work that is "
-    "not yours.\n\n"
-    "If your own edit was wrong, UNDO IT MANUALLY with Edit/Write. If you are trying "
-    "to escape a fix that went sideways, that is not an option either: read the error "
-    "text, re-diagnose, and fix the root cause "
-    "(.claude/skills/_shared/execution-contract.md).\n\n"
-    "Pulling over uncommitted work is Jon's `/resolve-conflicts` (he types it). Once "
-    "he has typed it in the session it allows path-limited `git stash push -- <paths>`, "
-    "`stash pop/apply/drop`, index-only `git reset [HEAD] -- <paths>`, "
-    "`git restore --staged`, and `git checkout --ours/--theirs` -- nothing that "
-    "discards work."
+    "\nNo git reverts (CLAUDE.md): the working tree may hold others' uncommitted work. "
+    "Undo your own edit with Edit/Write. Pulling over local changes is Jon's `/resolve-conflicts`."
 )
 
 # --- the /resolve-conflicts exemption ---------------------------------------------
@@ -311,19 +301,9 @@ _AFFECTED_GATE_RE = re.compile(r"(?<![\w.-])affected-gate\.(?:ps1|sh)\b", re.IGN
 _MYPY_SWITCH_RE = re.compile(r"(?<![\w.-])-{1,2}mypy\b", re.IGNORECASE)
 
 _TYPE_CHECKER_TAIL = (
-    "\n\nCLAUDE.md, 'Running Python': 'Never run a standalone type-checker — no "
-    "agent, skill, or gate invokes `mypy` or any equivalent. Write fully "
-    "type-hinted code; the tests of the code you changed are the gate.'\n\n"
-    "Two reasons, both load-bearing:\n"
-    "  * Type correctness is already gated by the tests of the code you changed. A separate "
-    "type-check is not your verification step and only burns tokens and turns.\n"
-    "  * mypy writes `.mypy_cache/` into its WORKING DIRECTORY. Run from a package "
-    "root it drops the cache inside that git repository — 15 such runs once left "
-    "~51,400 files (~1 GB) across 15 repos and failed the ignored-source gate.\n\n"
-    "A full type-check is a HUMAN-only tool: `.\\scripts\\test\\mypy.ps1 <project>` "
-    "(or `-All`), run by Jon in his own terminal. If he asked you for one, say that "
-    "in one line and hand him the command — do not run it, and do not route around "
-    "this guard."
+    "\nNo standalone type-checker (CLAUDE.md, Running Python): the tests of the code you changed "
+    "are the gate, and mypy drops `.mypy_cache/` into the repos. A type-check is Jon's to run: "
+    "hand him `scripts\\test\\mypy.ps1 <project>` in one line."
 )
 
 
@@ -484,17 +464,8 @@ _PACKAGE_RUNNERS = frozenset({"uv", "uvx", "poetry", "pipenv", "pdm", "hatch", "
 _PYTEST_MODULE_RE = re.compile(r"(?<![\w.-])-m\s+pytest\b", re.IGNORECASE)
 
 _PYTEST_TAIL = (
-    "\n\nCLAUDE.md, 'Running Python': 'Never invoke `pytest` directly, and never "
-    "reverse-engineer `test.ps1` to discover its interpreter.' `test.ps1` is the only "
-    "way an agent runs tests: it picks the shared venv's interpreter, enforces the "
-    "targeting limits, writes the run directory the fix skills read, and is where the "
-    "whole-suite guard lives. A bare pytest bypasses every one of those.\n\n"
-    "Use:\n"
-    "  powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" <package> -Specific \"a.py,b.py\"\n"
-    "  powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" <pkg-a> <pkg-b> -Tag <tag>\n"
-    "  powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" <package> -ListTags   (runs nothing)\n"
-    "(datrix/scripts/test/quick-reference.md). A one-off script is "
-    "`D:\\datrix\\.venv\\Scripts\\python.exe <script>`, not pytest."
+    "\nNever invoke pytest directly (CLAUDE.md, Running Python); use "
+    "`datrix/scripts/test/test.ps1 <pkg> -Specific \"a.py,b.py\"` or `-Tag <tag>`."
 )
 
 # FAMILY 4 -- a polling loop inside one tool call. A background task notifies you when
@@ -516,14 +487,8 @@ _POWERSHELL_POLL_RE = re.compile(
 )
 
 _POLLING_TAIL = (
-    "\n\nCLAUDE.md, Budget: 'Wait by notification, never by polling. Use "
-    "`run_in_background` and resume on the notification. Never `until <check>; do "
-    "sleep N; done`.' (`execution-contract-spend.md` section 11.1.)\n\n"
-    "Launch the long task with `run_in_background: true` and end your turn: the "
-    "harness re-invokes you when it completes. Waiting for a notification is not "
-    "handing back. To watch EXTERNAL state the harness cannot observe (a CI run, a "
-    "deploy, a remote queue), use the Monitor tool or `ScheduleWakeup` with an interval "
-    "matched to how fast that state changes -- not a sleep loop in one call."
+    "\nWait by notification, never by polling (CLAUDE.md, Budget): run the task with "
+    "`run_in_background: true` and resume on its notification; for external state use Monitor."
 )
 
 

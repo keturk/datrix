@@ -9,11 +9,16 @@ the advisor cannot recommend anything does the agent ask Jon. The advisor says s
 message: a verdict given before Jon last spoke belongs to an earlier question. Feedback a Stop
 hook feeds back to the agent is written as a user message too; it is not Jon speaking and does
 not end the stretch.
+
+Jon can also forbid every subagent, the advisor included (his global instructions). He says so
+to the harness with `DATRIX_NO_SUBAGENTS=1` in his user settings' `env`; the advisor cannot be
+consulted then, so a question goes straight to him (`Verdict.ADVISOR_FORBIDDEN`).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from enum import Enum
 from typing import Final
@@ -22,6 +27,7 @@ ADVISOR_AGENT: Final = "decision-advisor"
 _DISPATCH_TOOLS: Final = frozenset({"Agent", "Task"})
 _ASK_JON_RE: Final = re.compile(r"^[ \t>*_`-]*VERDICT[*_`]*:[ \t*_`]*ASK_JON\b", re.MULTILINE)
 _HOOK_FEEDBACK_PREFIX: Final = "Stop hook feedback"
+NO_SUBAGENTS_ENV: Final = "DATRIX_NO_SUBAGENTS"
 
 
 class Verdict(Enum):
@@ -30,6 +36,12 @@ class Verdict(Enum):
     ASK_JON = "ask_jon"
     NOT_ASK_JON = "not_ask_jon"
     UNREADABLE = "unreadable"
+    ADVISOR_FORBIDDEN = "advisor_forbidden"
+
+
+def subagents_forbidden() -> bool:
+    """Jon has forbidden every subagent dispatch, the decision advisor included."""
+    return os.environ.get(NO_SUBAGENTS_ENV) == "1"
 
 
 def _blocks(entry: dict[str, object]) -> list[dict[str, object]]:
@@ -87,6 +99,8 @@ def _entries(transcript_path: str) -> list[dict[str, object]] | None:
 
 def advisor_verdict(transcript_path: str) -> Verdict:
     """ASK_JON when an advisor dispatched since Jon's last message returned `VERDICT: ASK_JON`."""
+    if subagents_forbidden():
+        return Verdict.ADVISOR_FORBIDDEN
     entries = _entries(transcript_path)
     if entries is None:
         return Verdict.UNREADABLE
@@ -107,12 +121,7 @@ def advisor_verdict(transcript_path: str) -> Verdict:
 
 
 ADVISOR_REMEDY: Final = (
-    "Jon's order: put the question to the decision advisor first. Dispatch the Agent tool with "
-    f'subagent_type "{ADVISOR_AGENT}" (Fable, high effort) and a packet: the question, the '
-    "evidence you gathered (file:line, commands and output), the options and what each costs, "
-    "and your recommendation. If it answers `VERDICT: RECOMMEND`, act on the recommendation and "
-    "keep working: record it with the advisor's rationale where you record decisions (the "
-    "ledger's `## Decisions`, the task's How Solved, or your report). Only if it answers "
-    "`VERDICT: ASK_JON` do you ask Jon: its exact question, its options, and why it could not "
-    "recommend."
+    f'Put the question to the decision advisor first (Agent tool, subagent_type "{ADVISOR_AGENT}") '
+    "with the question, your evidence, the options and your recommendation. On `VERDICT: RECOMMEND` "
+    "act on it and record it; only on `VERDICT: ASK_JON` ask Jon its question."
 )

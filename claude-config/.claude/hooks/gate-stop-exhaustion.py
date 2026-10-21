@@ -129,29 +129,14 @@ _MAX_BLOCKS: Final = 6
 _STATE_DIR: Final = os.path.join(tempfile.gettempdir(), "datrix-stop-exhaustion")
 
 _EXHAUSTION_REMEDY: Final = (
-    "You cannot measure your remaining context, and neither can Jon. Stating it "
-    "as a reason is a claim about system state that no one can check -- the same "
-    "failure as reporting a test passed without running it.\n\n"
-    "What actually happens when context fills: it is COMPACTED. Earlier turns "
-    "become a summary, the governing docs are re-injected, and the session "
-    "continues. Nothing terminates. What survives is the code you landed and the "
-    "tests you left green. The handover paragraph you were about to write is the "
-    "one artifact that does NOT survive.\n\n"
-    "So spend what is left on the FIX: write the smallest correct change, run "
-    "its check, keep going. If files fell out of context, re-read them -- that "
-    "is two tool calls, not a blocker.\n\n"
-    "'Running low on context' is not on the B1-B4 list and never will be."
+    "Running low on context is not a blocker (not on the B1-B4 list): a full context is compacted "
+    "and the session continues. Spend what is left on the fix; re-read any file you lost."
 )
 
 _HANDOVER_REMEDY: Final = (
-    "A report is not an exit. That section IS the work you have not done.\n\n"
-    "Delete it and go do those items. When Jon authorizes a set of items, the "
-    "turn ends when EVERY item is fixed-and-proven -- never at the boundary "
-    "between items, and never at a natural-feeling pause. A green checkmark and "
-    "a tidy summary are a byproduct of progress, not the deliverable.\n\n"
-    "If one of those items is genuinely blocked, prove it: verbatim error text, "
-    "the fix you actually wrote and ran (file:line), why it failed, and the "
-    "B1-B4 code. Analysis alone is not an attempt."
+    "A report is not an exit: that section is the work not yet done. Delete it and do those items. "
+    "A genuinely blocked item needs proof: verbatim error, the fix you wrote and ran (file:line), "
+    "why it failed, the B1-B4 code."
 )
 
 

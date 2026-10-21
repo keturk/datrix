@@ -209,43 +209,22 @@ def _block(outstanding: list[tuple[str, str]], is_subagent: bool, compacted: boo
     # its only channel is this message. Carry the contract essentials in it —
     # a subagent that compacts mid-task is the case nobody is watching.
     subagent_note = (
-        "\nYOU ARE A SUBAGENT AND YOUR CONTEXT WAS COMPACTED MID-TASK. Re-read your "
-        "task/dispatch prompt too — your instructions were summarized, not preserved. "
-        "The execution contract still binds you: the default outcome is that the "
-        "problem is FIXED. Compaction is not a blocker (it is not B1-B4), it is not a "
-        "reason to return partial work, and 'context was lost' is not a valid report. "
-        "Re-read, re-orient, finish the job.\n"
+        "You are a subagent: re-read your dispatch prompt too. Compaction is not a "
+        "blocker (not B1-B4); finish the job.\n"
         if is_subagent and compacted
         else ""
     )
 
     if compacted:
-        headline = (
-            "BLOCKED: this context was compacted and you have not re-read the mandatory "
-            "documents since.\n\n"
-            "Compaction discarded every file you had read. You are about to edit code "
-            "against a summary of the rules rather than the rules themselves — that is "
-            "how architecture and agent-rule violations get in. Do not trust any "
-            "recollection you have of these files' contents.\n"
-        )
+        headline = "BLOCKED: this context was compacted; re-read the mandatory documents.\n"
     else:
-        headline = (
-            "BLOCKED: you have not read the mandatory documents in this session.\n\n"
-            "CLAUDE.md was injected into your context automatically; these were not, "
-            "and nothing else in the session will ask you for them. You are about to "
-            "edit code against rules you have not seen — that is how architecture and "
-            "agent-rule violations get in. Having read these in an EARLIER session "
-            "does not count: they change, and you do not have them now.\n"
-        )
+        headline = "BLOCKED: read the mandatory documents in this session before your first edit.\n"
 
     sys.stderr.write(
-        f"{headline}{subagent_note}\n"
-        "Read these with the Read tool, then retry the edit:\n\n"
-        f"{listing}\n\n"
-        "The block clears automatically once each file above has been read. It "
-        "cannot be argued with, and rephrasing the edit will not get past it.\n\n"
-        "(Scratch files under D:\\datrix\\.tmp\\, .scripts\\, and .test-output\\ remain "
-        "writable if you need to investigate first.)"
+        f"{headline}{subagent_note}"
+        "Read each with the Read tool, then retry the edit:\n"
+        f"{listing}\n"
+        "Scratch dirs (D:\\datrix\\.tmp\\, .scripts\\, .test-output\\) stay writable."
     )
     sys.exit(2)
 

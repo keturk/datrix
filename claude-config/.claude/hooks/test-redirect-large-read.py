@@ -5,7 +5,8 @@ customer-style repository, test output) with the real code index over it and a r
 Ollama-shaped server on loopback; the entry point is driven as a subprocess for the cases
 that must never reach the index or a model. Both directions, on purpose:
 
-  REDIRECT -- the first whole read, by one agent, of a large Python file or test log in scope.
+  REDIRECT -- the first whole read, by one agent, of a large Python file, Markdown file or test
+              log in scope.
   ALLOW -- the repeat of that read, a ranged read, a small file, a file outside the framework
            repositories, a file the index cannot outline, a log with no model server, any other
            tool, unparseable input.
@@ -104,6 +105,10 @@ try:
         customer = write(workspace / "acme-shop/big.py", many_small_functions(200))
         excluded = write(workspace / "datrix/examples/big.py", many_small_functions(200))
         notes = write(workspace / "datrix-alpha/docs/notes.md", "A long note. " * 2000)
+        guide = write(workspace / "datrix-alpha/docs/guide.md",
+                      "# Guide\n\nIntro.\n\n## Setup\n\n```bash\n# not a heading\n```\n\n" + "Body text. " * 1500
+                      + "\n\n## Usage\n\nMore.\n")
+        settings_json = write(workspace / "datrix-alpha/config/big.json", json.dumps({"k": "v" * 30000}))
         log_text = "".join(f"step {n} ok\n" for n in range(3000)) + "E   AssertionError: boom\n" * 3
         big_log = write(workspace / ".test-output/run/big.log", log_text)
         small_log = write(workspace / ".test-output/run/small.log", "all fine\n")
@@ -128,6 +133,17 @@ try:
               "READ REDIRECTED" in fat_message and "def fat_39" in fat_message and "more outline lines" not in fat_message,
               True)
 
+        print("== REDIRECT: the first whole read of a large Markdown file ==")
+        guide_message = decide(read(guide))
+        check("it is refused with the section outline",
+              "READ REDIRECTED" in guide_message and "datrix-alpha/docs/guide.md" in guide_message, True)
+        check("each heading carries the line range of its section",
+              "L1-15 # Guide" in guide_message and "L5-12 ## Setup" in guide_message
+              and "L13-15 ## Usage" in guide_message, True)
+        check("a '#' line inside a code fence is not a heading", "not a heading" in guide_message, False)
+        check("the repeat goes through", decide(read(guide)), "")
+        repeats.clear()
+
         print("== ALLOW: every way a read must go through ==")
         check("nothing was a repeat yet", repeats, [])
         check("the repeat of the same read", decide(read(big)), "")
@@ -141,7 +157,8 @@ try:
         check("a ranged read (limit)", decide(read(excluded, limit=50)), "")
         check("a small file", decide(read(small)), "")
         check("a file in another repository", decide(read(customer)), "")
-        check("a large file that is not Python or a log", decide(read(notes)), "")
+        check("a large Markdown file with no headings (nothing to outline)", decide(read(notes)), "")
+        check("a large file that is not Python, Markdown or a log", decide(read(settings_json)), "")
         check("a file the index does not cover (excluded by configuration)", decide(read(excluded)), "")
         check("a small log", decide(read(small_log)), "")
         check("a path that does not exist", decide(read(workspace / "datrix-alpha/src/nope.py")), "")

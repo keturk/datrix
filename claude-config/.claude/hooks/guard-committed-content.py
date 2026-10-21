@@ -43,12 +43,12 @@ _MAX_SHOWN: Final = 6
 _DESIGN_REMEDY: Final = (
     "Design docs (design/) and task files (.tasks/) are gitignored and numbered per machine, so a "
     "reference to one from committed content resolves to the wrong thing, or nothing, after a clone "
-    "(.claude/rules/design-and-docs.md). Say WHAT the code does and WHY instead; carry over content, "
+    "(.claude/docs/design-and-docs.md). Say WHAT the code does and WHY instead; carry over content, "
     "never a pointer to its source document."
 )
 _TERM_REMEDY: Final = (
     "A registered customer term may not appear in a framework repository "
-    "(.claude/rules/design-and-docs.md, 'Project domain isolation'). Use the neutral e-commerce domain "
+    "(.claude/docs/design-and-docs.md, 'Project domain isolation'). Use the neutral e-commerce domain "
     "(Product, Order, Customer, Warehouse) or a fictional one."
 )
 

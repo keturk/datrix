@@ -190,17 +190,9 @@ def main() -> None:
         _block(
             f"BLOCKED: generate.ps1 (generate.sh, datrix_scripts.dev.generate) must not be run with "
             f"{' or '.join(dict.fromkeys(used))}.\n"
-            "CLAUDE.md (Generation granularity): regenerate only the AFFECTED "
-            "project's system.dtrx. Never run group/-All/-TestSet/-Domains "
-            "generation.\n"
-            "Each example costs minutes to generate, and which example is worked "
-            "next is Jon's call, not an agent's.\n"
-            "To verify one project:\n"
-            '  powershell -File "d:/datrix/datrix/scripts/dev/generate.ps1" '
-            '"d:/datrix/datrix/examples/{group}/{example}/system.dtrx" -L {language}\n'
-            "To prove a fix generalizes beyond one example, write a test in the "
-            "owning datrix-codegen-* package — it proves the invariant forever, "
-            "whereas a sweep proves it once and evaporates."
+            "Regenerate only the affected project: "
+            '`generate.ps1 "d:/datrix/datrix/examples/{group}/{example}/system.dtrx" -L {language}`. '
+            "To prove a fix generalizes, write a test in the owning package."
         )
 
     # Only a command that RUNS a script under datrix/scripts/ needs the marker. A
@@ -220,14 +212,8 @@ def main() -> None:
 
     # Block: Claude hasn't verified the parameters
     msg = (
-        "BLOCKED: You are about to run a datrix script. "
-        "Before executing, you MUST:\n"
-        f"1. Read {ref_path}\n"
-        "2. Verify that EVERY parameter you are passing is documented there\n"
-        "3. Re-issue the command with description containing "
-        "VERIFIED_AGAINST_QUICK_REFERENCE\n\n"
-        "Do NOT guess parameters. Do NOT invent script names. "
-        "Look them up first."
+        f"BLOCKED: check every parameter against {ref_path}, then re-issue with "
+        "VERIFIED_AGAINST_QUICK_REFERENCE in the description."
     )
     sys.stderr.write(msg)
     sys.exit(2)

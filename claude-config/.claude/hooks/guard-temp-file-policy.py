@@ -104,20 +104,9 @@ def _is_tracked_by_git(raw_path: str) -> bool:
 
 def _block(path: str, reason: str) -> None:
     sys.stderr.write(
-        f"BLOCKED: refusing to write `{path}` — {reason}\n\n"
-        "CLAUDE.md § Temporary File Policy: temp files, scratch scripts, test logs, "
-        "and result dumps must NEVER be written into the repo tree. They get "
-        "committed and pushed.\n\n"
-        "Write it to one of these instead:\n"
-        "  D:\\datrix\\.scripts\\        temporary scripts / runners / helpers\n"
-        "  D:\\datrix\\.test-output\\    test output, result logs\n"
-        "  D:\\datrix\\.tmp\\            all other temp / scratch files\n\n"
-        "PREFER A TEST OVER A SCRATCH SCRIPT: if this check is worth proving, land it "
-        "as a real test in the owning package — a scratch script proves it once and "
-        "evaporates; a test proves it forever.\n\n"
-        "If this is NOT a temp file (it is real source, a real test, or real docs), "
-        "give it a proper name and a proper home in the owning package — the name you "
-        "chose is what triggered this."
+        f"BLOCKED: refusing to write `{path}` — {reason}\n"
+        "Temp files never go in a repo (they get committed). Use D:\\datrix\\.scripts\\ (scripts), "
+        ".test-output\\ (logs) or .tmp\\ (other). Real source needs a real name: the name triggered this."
     )
     sys.exit(2)
 

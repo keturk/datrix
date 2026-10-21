@@ -133,7 +133,7 @@ The following ambiguities must be resolved before tasks can be generated.
 
 Read these mandatory context files:
 - `d:\datrix\datrix-common\docs\contributing\ai-agent-rules.md` — Agent rules core with a read-when index into the packs (`ai-agent-rules/secure-by-default.md`, `static-analysis-first.md`, `multi-target-invariants.md`, `logic-map.md`, `prohibited-patterns.md`, `code-quality-standards.md`, `repo-specific-rules.md`, `canonical-imports.md`); the task names only the packs its surfaces need
-- `d:\datrix\.claude\rules.md` — Claude Code rules for the project
+- `d:\datrix\.claude\docs\task-orchestration.md` — how tasks are filed, completed and gated (the project rules themselves are in `d:\datrix\.claude\CLAUDE.md`, already in context)
 - Architecture and design principle docs referenced in the design document
 
 Identify relevant example `.dtrx` files from `d:\datrix\datrix\examples\`:

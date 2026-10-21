@@ -49,16 +49,9 @@ _STATE_DIR: Final = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".s
 _MAX_BLOCKS: Final = 5
 
 _MESSAGE: Final = (
-    "QUESTION REJECTED — you are handing a question to Jon before the decision advisor has.\n\n"
-    "Jon is the LAST rung of the ladder, not the first "
-    "(.claude/skills/_shared/decision-adjudication-protocol.md §0):\n\n"
-    "  1 INVESTIGATE — read the code, the design doc, the file:line yourself. Most "
-    "questions dissolve here; they were missing information, not genuine ties.\n"
-    "  2 DECIDE      — if the evidence, a doc or a rule settles it, decide and act. How and "
-    "where to build what was asked is always yours (execution-contract §4).\n"
-    "  3 ADVISOR     — still a question? " + ADVISOR_REMEDY + "\n"
-    "  4 ASK JON     — only after the advisor returned VERDICT: ASK_JON.\n\n"
-    "Everything that does not depend on the answer continues in the meantime."
+    "QUESTION REJECTED: no decision advisor has handed this question to Jon. If the code, a doc or a "
+    "rule settles it, decide and act (how and where to build is always yours). Otherwise: "
+    + ADVISOR_REMEDY
 )
 
 

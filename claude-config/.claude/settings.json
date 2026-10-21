@@ -1,5 +1,9 @@
 {
-  "autoCompactWindow": 300000,
+  "autoCompactWindow": 500000,
+  "env": {
+    "BASH_MAX_OUTPUT_LENGTH": "10000",
+    "MAX_MCP_OUTPUT_TOKENS": "8000"
+  },
   "permissions": {
     "allow": [
       "mcp__datrix-code-index",
@@ -22,7 +26,6 @@
       "PowerShell(if \\(!\\(Test-Path \"D:\\\\datrix\\\\reports\"\\)\\) { New-Item -ItemType Directory -Path \"D:\\\\datrix\\\\reports\" })",
       "Edit(/.claude/skills/task-orchestrator/**)",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-docker -Specific \"tests/unit/test_keycloak_compose.py\" 2>&1 | Select-Object -Last 30)",
-      "mcp__azure__subscription_list",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/tasks/latest-phase.ps1\" -BaseDir \"D:\\\\datrix\")",
       "PowerShell(powershell -File \"d:/datrix/datrix/scripts/test/test.ps1\" datrix-codegen-python -Specific \"tests/integration/test_cross_platform_datasource_parity.py\")",
       "PowerShell(Get-ChildItem d:\\\\datrix\\\\issues\\\\ -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name; if \\(-not \\(Test-Path d:\\\\datrix\\\\issues\\\\\\)\\) { \"DIRECTORY MISSING\" } else { \"EXISTS \\($\\(Get-ChildItem d:\\\\datrix\\\\issues\\\\ | Measure-Object\\).Count files\\)\" })",
@@ -137,6 +140,20 @@
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/redirect-large-read.py\"",
             "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/limit-grep-output.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/redirect-identifier-grep.py\"",
+            "timeout": 60
           }
         ]
       },

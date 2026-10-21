@@ -87,11 +87,8 @@ _GATED_DOCS: Final = (
 
 # Said in every session start: the docs are packs read on demand, and this finds the right one.
 _INEEDTOKNOW_NOTE: Final = (
-    "Don't know where something is documented? Ask instead of loading docs: "
-    f'`powershell -File "{_REPO_ROOT}/datrix/scripts/dev/ineedtoknow.ps1" "<your question>"` '
-    "answers from the architecture packs, agent rules and execution contract with the file and "
-    "line range to open (a lead: open the lines before acting). The docs are read on demand, "
-    "by pack — not all up front."
+    f'Unsure where something is documented: `powershell -File "{_REPO_ROOT}/datrix/scripts/dev/'
+    'ineedtoknow.ps1" "<question>"`.'
 )
 
 # How far back a task file counts as "the work in flight".
@@ -316,14 +313,9 @@ def _compaction_context(gated: list[tuple[str, str]], now: float) -> str:
 
     if gated:
         parts.append(
-            "===== MANDATORY READS — ENFORCED =====\n\n"
-            "These are too large to inline. Read each of them with the Read tool "
-            "NOW, before you resume work:\n\n"
-            f"{_gated_listing(gated)}\n\n"
-            "This is not advisory. Write, Edit, and NotebookEdit are BLOCKED by a "
-            "PreToolUse hook until every file above has been read in this "
-            "post-compaction window. Reading them first costs you one step; "
-            "discovering the block costs you a turn.\n\n"
+            "===== MANDATORY READS — ENFORCED =====\n"
+            "Read each before your next Write/Edit (a hook blocks edits until then):\n"
+            f"{_gated_listing(gated)}\n"
             f"{_INEEDTOKNOW_NOTE}"
         )
 
@@ -348,18 +340,10 @@ def _fresh_session_context(gated: list[tuple[str, str]]) -> str:
     if not gated:
         return ""
     parts = [
-        "===== MANDATORY READS — ENFORCED =====\n\n"
-        "Read these with the Read tool before your first Write/Edit in this session:\n\n"
-        f"{_gated_listing(gated)}\n\n"
-        "This is not advisory. Write, Edit, and NotebookEdit are BLOCKED by a "
-        "PreToolUse hook until every file above has been read.\n\n"
-        "CLAUDE.md is injected into your context automatically; these two are not, "
-        "and nothing else will ask you for them. Until this gate existed, a session "
-        "that never compacted could edit framework source from end to end having read "
-        "neither — which is exactly what happened, 66 edits deep, in "
-        "datrix-codegen-azure.\n\n"
-        "Answering a question costs nothing here: the block fires on the first edit, "
-        "not now.\n\n"
+        "===== MANDATORY READS — ENFORCED =====\n"
+        "Read each before your first Write/Edit (a hook blocks edits until then; "
+        "answering a question needs neither):\n"
+        f"{_gated_listing(gated)}\n"
         f"{_INEEDTOKNOW_NOTE}"
     ]
     canary = _schema_canary()
@@ -370,11 +354,9 @@ def _fresh_session_context(gated: list[tuple[str, str]]) -> str:
 
 def _absent_server_notice(cwd: str, server: str, title: str, script: str, fallback: str) -> str:
     return (
-        f"===== {title} — MCP TOOLS ABSENT =====\n\n"
-        f"The `{server}` MCP server is not registered for the directory this session started in "
-        f"({cwd or 'unknown'}) on this machine, so no `mcp__{server}__*` tool exists here. "
-        "Tell Jon once, in your first reply: it is fixed by running "
-        f"`powershell -File \"{script}\" -Setup` and reloading the window.\n\n{fallback}"
+        f"===== {title} — MCP TOOLS ABSENT =====\n"
+        f"`{server}` is not registered for {cwd or 'this directory'}. Tell Jon once: run "
+        f"`powershell -File \"{script}\" -Setup` and reload the window. {fallback}"
     )
 
 

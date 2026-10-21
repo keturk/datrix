@@ -136,12 +136,8 @@ def _check_workflow(path: str) -> None:
     if not _WORKFLOW_RE.search(lowered) or any(seg in lowered for seg in _THIRD_PARTY_SEGMENTS):
         return
     _block(
-        f"BLOCKED: `{path}` is a GitHub Actions workflow.\n\n"
-        "CLAUDE.md: 'No GitHub Actions.' This project does not use GitHub Actions: do not create, "
-        "edit, suggest or reference workflows or `.github/workflows/` files. Checks run as "
-        "scripts under `datrix/scripts/` (`datrix/scripts/quick-reference.md`) and as the harness "
-        "hooks under `.claude/hooks/`; a check that should run on every change belongs in one of "
-        "those, or in a test in the owning package."
+        f"BLOCKED: `{path}` is a GitHub Actions workflow; this project uses none (CLAUDE.md). "
+        "Put the check in a script under `datrix/scripts/`, a hook, or a test in the owning package."
     )
 
 
@@ -158,16 +154,9 @@ def _check_task_heading(tool: str, tool_input: dict[str, object], path: str) -> 
     if not _TASK_FILE_RE.search(path.lower()) or not _adds_completed_heading(tool, tool_input, path):
         return
     _block(
-        f"BLOCKED: this edit marks `{path}` COMPLETED by hand.\n\n"
-        ".claude/rules/task-orchestration.md: 'Always use complete.ps1. Never edit the task "
-        "heading directly -- Edit/Write bypass the validation `complete.ps1` enforces.' "
-        "That validation is what refuses a task whose own `## How Solved` says BLOCKED, `partial`, "
-        "`out of scope` or `workaround`, or whose design-acceptance property is unproven; a task was "
-        "once marked COMPLETED while its How-Solved said `Status: BLOCKED`.\n\n"
-        "Read `datrix/scripts/tasks/quick-reference.md` for the invocation, and call `complete.ps1`. "
-        "In /task-orchestrator and /execute-tasks-parallel runs, mark a task COMPLETED only after "
-        "the wave's test gate passes, never as an individual agent returns. Editing the rest of the "
-        "task file (How Solved, notes) is fine; only the status heading is `complete.ps1`'s."
+        f"BLOCKED: this edit marks `{path}` COMPLETED by hand, skipping `complete.ps1`'s validation "
+        "(.claude/docs/task-orchestration.md). Call `complete.ps1` "
+        "(`datrix/scripts/tasks/quick-reference.md`); the rest of the task file stays editable."
     )
 
 
@@ -182,17 +171,10 @@ def _check_new_phase(path: str, session_id: str) -> None:
     if _active_skill(session_id) in _PHASE_PLANNING_SKILLS:
         return
     _block(
-        f"BLOCKED: writing `{path}` would create the phase directory `{phase_dir}`, which does not exist.\n\n"
-        ".claude/rules/task-orchestration.md: 'Agents never create a phase.' Opening a new "
-        "`.tasks/phase-NN/` is a planning act reserved to Jon and to the planning skills he invokes by "
-        "name (`/generate-tasks`, `/operationalize-design`). A phase that appears on its own seeds the "
-        "next orchestration run with work nobody scheduled, and it moves what `latest-phase.ps1` reports. "
-        "A defect discovered mid-run is not authorization to open one.\n\n"
-        "A defect your task does not need is a findings file "
-        "(`d:\\datrix\\reports\\finding\\`, execution-contract-reporting.md section 5A), not a task. "
-        "If an adjudicated follow-up task belongs in the phase you are executing: number it the next "
-        "free {TT} (`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`) and put it in the owning "
-        "package's EXISTING `.tasks/phase-{NN}/`."
+        f"BLOCKED: writing `{path}` would create the phase directory `{phase_dir}`; agents never open "
+        "a phase (.claude/docs/task-orchestration.md). A defect your task does not need is a findings "
+        "file under `d:\\datrix\\reports\\finding\\`; a follow-up task goes in the existing phase you are "
+        "executing (`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`)."
     )
 
 
@@ -230,14 +212,10 @@ def _check_probe_gate(tool_input: dict[str, object], path: str) -> None:
         return
     _block(
         f"BLOCKED: `{path}` would add a gate that reads targets through conformance probes "
-        f"({', '.join(modules)} imports datrix_codegen_kernel.parity.conformance_probes).\n\n"
-        "A parity fact over generated artifacts is a ROW, never a new gate module: write it in "
-        "`datrix/scripts/gates/parity/cases/<area>.parity.yaml` (`parity-cases.ps1 observe` / `new`; "
-        "`datrix/scripts/gates/parity/quick-reference.md`), and `parity-cases-gate.ps1` reads it on every "
-        "registered target against the expectation you author. A reading no probe returns yet is a new "
-        "Protocol method in the kernel plus one implementation per target, and a facet in "
-        "`datrix_scripts.gates.parity.parity_observers` -- still no new gate. A new gate module is reserved for a "
-        "source census, which imports no probe."
+        f"({', '.join(modules)} imports datrix_codegen_kernel.parity.conformance_probes).\n"
+        "A parity fact is a row in `datrix/scripts/gates/parity/cases/<area>.parity.yaml` "
+        "(`parity-cases.ps1 observe` / `new`); a reading no probe returns yet is a kernel probe method plus a "
+        "facet in `datrix_scripts.gates.parity.parity_observers`. Only a source census is a new gate module."
     )
 
 
@@ -278,13 +256,10 @@ def _check_design_conformance(tool: str, tool_input: dict[str, object], path: st
     ids = ", ".join(f"G{number}" for number in sorted(missing))
     _block(
         f"BLOCKED: design doc `{path}` would lack an answer for {ids} in its "
-        f"`{_CONFORMANCE_HEADING}` section.\n\n"
-        ".claude/rules/design-and-docs.md: every design is checked against the binding design guidelines "
-        "(`datrix/docs/architecture/design-principles.md` section 'Design Guidelines (Binding)'). Read them, "
-        f"then give the doc a `{_CONFORMANCE_HEADING}` section with one bullet per guideline -- "
-        "`- G1: <how the design satisfies it>` or `- G1: N/A: <why the design does not touch it>` -- for "
-        f"every one of G{min(required)}..G{max(required)}. A design that breaks a guideline is a defective "
-        "draft: change the design, never the answer."
+        f"`{_CONFORMANCE_HEADING}` section.\n"
+        "Read `datrix/docs/architecture/design-principles.md` § Design Guidelines, then answer every one of "
+        f"G{min(required)}..G{max(required)} as `- G1: <how>` or `- G1: N/A: <why>`. A design that breaks one "
+        "is a defective draft: change the design, never the answer."
     )
 
 

@@ -39,19 +39,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _advisor import ADVISOR_AGENT  # noqa: E402
 
 _MESSAGE: Final = (
-    "NESTED AGENT BLOCKED — you are a subagent, and subagents may not spawn "
-    "subagents.\n\n"
-    "Do this work yourself, sequentially, with your own tool calls:\n"
-    "  - find a definition or its uses: code-index MCP tools "
-    "(find_symbol / find_references / outline / search / find_canonical), then Grep/Glob\n"
-    "  - read a large file or a log: ask_files / digest_log, then a ranged Read of "
-    "the cited lines\n"
-    "  - more work than fits: finish what you can, fix the root cause, and report "
-    "the expansion — the orchestrator that dispatched you owns any further fan-out\n\n"
-    "A question you cannot settle from the code and docs is the one exception: put it to "
-    f'the decision advisor (subagent_type "{ADVISOR_AGENT}") and act on its recommendation.\n\n'
-    "There is no other override. A nested fan-out multiplies token cost without adding "
-    "coverage."
+    "NESTED AGENT BLOCKED: a subagent may not spawn subagents. Do the work yourself with your own "
+    "tool calls (code index, ask_files/digest_log, ranged Reads); report any expansion to your dispatcher. "
+    f'The one exception is a question for the decision advisor (subagent_type "{ADVISOR_AGENT}").'
 )
 
 

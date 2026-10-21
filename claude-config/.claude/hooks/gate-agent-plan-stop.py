@@ -144,15 +144,10 @@ def _plan_reason(path: str, problems: list[str]) -> str:
     return (
         f"You may not stop yet: re-read `{path}` and make the goal true.\n- "
         + "\n- ".join(problems)
-        + "\nFinish the unticked steps (or add the real ones you discovered), run the "
-        "completion criteria, tick the steps, and write the evidence under "
-        f"`{plan.VERIFICATION_HEADING}`. If Jon told you to stop, or a B1-B4 blocker with "
-        "proof applies, add `Status: STOPPED_BY_JON` / `Status: BLOCKED B<n>` to the file. "
-        "If everything left waits on a question, put it to the decision advisor first "
-        "(Agent tool, subagent_type \"decision-advisor\") and act on its recommendation; only "
-        "when it returns `VERDICT: ASK_JON` end the reply on one line starting "
-        "`APPROVAL_REQUIRED:` (what, why, measured size in tokens and agent minutes per "
-        "execution-contract §4), and the stop is allowed. Never do unapproved work instead."
+        + f"\nFinish and tick the steps and write the evidence under `{plan.VERIFICATION_HEADING}`; "
+        "or add `Status: STOPPED_BY_JON` / `Status: BLOCKED B<n>` (with proof). If all that is left "
+        "waits on a question, ask the decision advisor (subagent_type \"decision-advisor\") and, on "
+        "`VERDICT: ASK_JON`, end on one line starting `APPROVAL_REQUIRED:` (what, why, measured size)."
     )
 
 

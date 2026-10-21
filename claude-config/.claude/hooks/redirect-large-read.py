@@ -12,6 +12,9 @@ framework repositories is refused (exit 2) with what the agent wanted:
   * a ``.py`` file -- its outline: every definition with its line range and signature, and the
     module summary a local model wrote (``code_index.queries.outline``, refreshed first so the
     line ranges are the file's as it is now);
+  * a ``.md`` file -- its sections from the same outline: each heading with the line range its
+    section spans, to the next heading of its level or above (headings in code fences are not
+    sections);
   * a ``.log`` file in test output -- the local model's digest of its distinct failures
     (``_local_digest``), which takes up to a minute.
 
@@ -59,6 +62,8 @@ REPEAT_CATEGORY: Final = "read_redirect_repeat"
 # so 14,000 bytes is about the 16,000 characters the measurement above is made at.
 LARGE_PY_BYTES: Final = 14_000
 LARGE_LOG_BYTES: Final = 20_000
+LARGE_MD_BYTES: Final = 16_000
+_LARGE_BYTES: Final = {"python": LARGE_PY_BYTES, "markdown": LARGE_MD_BYTES, "log": LARGE_LOG_BYTES}
 CHARS_PER_TOKEN: Final = 4
 MAX_OUTLINE_LINES: Final = 140
 MAX_OUTLINE_CHARS: Final = 7_000
@@ -70,6 +75,21 @@ _LOG_DIRS: Final = (".test-output", ".test_results")
 
 def _is_log(path: Path) -> bool:
     return path.suffix.lower() == ".log" and any(name in path.parts for name in _LOG_DIRS)
+
+
+def _kind(path: Path) -> str:
+    if path.suffix == ".py":
+        return "python"
+    if path.suffix.lower() == ".md":
+        return "markdown"
+    return "log" if _is_log(path) else ""
+
+
+def _clip(lines: list[str], rest_hint: str) -> str:
+    clipped = "\n".join(lines[:MAX_OUTLINE_LINES])[:MAX_OUTLINE_CHARS]
+    if len(clipped.splitlines()) < len(lines):
+        clipped += f"\n... {len(lines) - len(clipped.splitlines())} more outline lines: {rest_hint}"
+    return clipped
 
 
 def _state_path(session: str, agent: str) -> str:
@@ -102,7 +122,8 @@ def _mark_told(state: str, path: Path) -> None:
 
 
 def _outline_text(workspace: Path, relative: str) -> str:
-    """The file's outline from the code index, refreshed first; empty when the index has no such file."""
+    """The file's outline from the code index, refreshed first; empty when the index has no such file
+    or the file defines nothing (a Markdown file without headings)."""
     add_scripts_lib_to_path()
     from datrix_scripts.code_index.queries import QueryError, outline
     from datrix_scripts.code_index.session import open_session
@@ -114,17 +135,14 @@ def _outline_text(workspace: Path, relative: str) -> str:
         return ""
     try:
         session.refresh()
-        text = outline(session.conn, relative).render()
+        result = outline(session.conn, relative)
     except (QueryError, CodeIndexError):
         return ""
     finally:
         session.close()
-    lines = text.splitlines()
-    clipped = "\n".join(lines[:MAX_OUTLINE_LINES])[:MAX_OUTLINE_CHARS]
-    if len(clipped.splitlines()) < len(lines):
-        clipped += (f"\n... {len(lines) - len(clipped.splitlines())} more outline lines: ask the outline tool for "
-                    f"the rest, or read the ranges above.")
-    return clipped
+    if not result.symbols:
+        return ""
+    return _clip(result.render().splitlines(), "ask the outline tool for the rest, or read the ranges above.")
 
 
 def _tool_notes(directory: str) -> str:
@@ -145,6 +163,26 @@ def _python_message(label: str, size: int, outline: str, directory: str) -> str:
         f"If you do need the whole file (to rewrite it, say), repeat the same Read: this notice is shown once "
         f"per file per agent."
     )
+
+
+def _markdown_message(label: str, size: int, outline: str, directory: str) -> str:
+    return (
+        f"READ REDIRECTED: {label} is {size:,} bytes (about {size // CHARS_PER_TOKEN:,} tokens). Its sections:\n\n"
+        f"{outline}\n\nRead only the sections you need: Read with offset and limit.{_tool_notes(directory)}\n"
+        f"If you do need the whole file, repeat the same Read: this notice is shown once per file per agent."
+    )
+
+
+def _message(kind: str, path: Path, label: str, size: int, workspace: Path, settings: "LocalLlmSettings",
+             cwd: str) -> str:
+    if kind == "python":
+        outline = _outline_text(workspace, label)
+        return _python_message(label, size, outline, session_directory(cwd)) if outline else ""
+    if kind == "markdown":
+        outline = _outline_text(workspace, label)
+        return _markdown_message(label, size, outline, session_directory(cwd)) if outline else ""
+    digest = digest_of(path, workspace, settings, "redirect-large-read")
+    return _log_message(label, size, digest) if digest else ""
 
 
 def _log_message(label: str, size: int, digest: str) -> str:
@@ -177,23 +215,16 @@ def decide(payload: dict[str, object], workspace: Path, settings: "LocalLlmSetti
         path = scope.files([raw])[0]
     except ReadScopeError:
         return ""
-    kind = "python" if path.suffix == ".py" else "log" if _is_log(path) else ""
+    kind = _kind(path)
     size = path.stat().st_size
-    if not kind or size < (LARGE_PY_BYTES if kind == "python" else LARGE_LOG_BYTES):
+    if not kind or size < _LARGE_BYTES[kind]:
         return ""
     state = _state_path(str(payload.get("session_id", "")), str(payload.get("agent_id", "")) or "main")
     if _was_told(state, path):
         if on_repeat is not None:
             on_repeat()
         return ""
-    label = scope.label(path)
-    if kind == "python":
-        outline = _outline_text(workspace, label)
-        message = _python_message(label, size, outline, session_directory(str(payload.get("cwd", "")))) \
-            if outline else ""
-    else:
-        digest = digest_of(path, workspace, settings, "redirect-large-read")
-        message = _log_message(label, size, digest) if digest else ""
+    message = _message(kind, path, scope.label(path), size, workspace, settings, str(payload.get("cwd", "")))
     if message:
         _mark_told(state, path)
     return message

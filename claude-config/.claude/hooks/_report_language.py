@@ -406,8 +406,13 @@ def user_asked_to_pause_or_report(text: str) -> bool:
     stop, or asked a question, ending the turn is correct and a gate that
     refused it would be training evasive phrasing into every future status
     report. This is scope, not leniency.
+
+    A question is recognised by its wording above, or by Jon's turn ending on a question
+    mark -- "Will it be better or worse?" names none of those words and is still a question
+    whose answer ends the turn. A turn that asks something and then gives an order ends on
+    the order, so it is not read as a question.
     """
-    return bool(_PAUSE_REQUEST_RE.search(text))
+    return bool(_PAUSE_REQUEST_RE.search(text)) or text.rstrip().endswith("?")
 
 
 def last_user_text(transcript_path: str) -> str:
@@ -487,83 +492,25 @@ def last_assistant_text(transcript_path: str) -> str:
 
 # The remedy text is identical for both gates, so it lives with the vocabulary.
 DODGE_REMEDY: Final = (
-    "Per .claude/skills/_shared/execution-contract.md, that is NOT a blocker. "
-    "It is the work.\n\n"
-    "There are exactly four legitimate blockers:\n"
-    "  B1 MISSING_ACCESS  - needs a credential/endpoint/resource you cannot obtain\n"
-    "  B2 UNDECIDABLE     - two genuinely defensible designs, expensive to reverse\n"
-    "  B3 USER_FORBADE    - the only correct fix was explicitly prohibited\n"
-    "  B4 FENCED_SURFACE  - root cause is on a surface the user explicitly excluded\n\n"
-    "Everything the task needs is work: root cause unclear -> keep reading. Root "
-    "cause of your defect in another package -> go fix it there. "
-    "'Behavioral/environmental' -> prove it with the verbatim error text, or fix "
-    "it. No test -> write one.\n\n"
-    "If you SKIPPED a check rather than reassigned the work: go run it now. An "
-    "unverified claim is not a result. 'Should work' is not evidence - read the "
-    "file, run the check, and report what it actually said.\n\n"
-    "Do ONE of these, then finish:\n"
-    "  1. DO IT, if the task needs it and it stays within what was asked.\n"
-    "  2. ASK FOR APPROVAL - if doing it makes the task bigger or broader than "
-    "what was asked: one line starting APPROVAL_REQUIRED: with what, why and how "
-    "big (execution-contract.md §4). Keep working what does not depend on it.\n"
-    "  3. WRITE A FINDING - if the task does not need it (a defect you noticed, "
-    "a pre-existing failure, another instance, anything unrelated), just write "
-    "d:\\datrix\\reports\\finding\\YYYYMMDD-HHMMSS-<slug>.md "
-    "(execution-contract-reporting.md §5A), cite its path, and finish your own "
-    "task.\n"
-    "  4. PROVE A BLOCKER - give all four: verbatim error text; the fix you "
-    "actually wrote and ran (file:line); why it failed; and the B1-B4 code. "
-    "Analysis alone is not an attempt.\n\n"
-    "Do not rephrase to slip past this check. The rule is the behavior, not the "
-    "wordlist."
+    "That is not a blocker (execution-contract.md §3: only B1 MISSING_ACCESS, B2 UNDECIDABLE, "
+    "B3 USER_FORBADE, B4 FENCED_SURFACE). A skipped check: run it now. Then do one of: "
+    "1. DO IT if the task needs it; 2. APPROVAL_REQUIRED: one line (what, why, size; §4) if it grows the task; "
+    "3. WRITE A FINDING under d:\\datrix\\reports\\finding\\ (§5A) if the task does not need it; "
+    "4. PROVE A BLOCKER: verbatim error, the fix you wrote and ran (file:line), why it failed, the B1-B4 code. "
+    "Do not rephrase around this check."
 )
 
 # Neither of the next two is excused by a blocker proof or a filed task: they do
 # not describe WHOSE work it is, they describe shipping the wrong work.
 SECURITY_REMEDY: Final = (
-    "Per .claude/skills/_shared/execution-contract-security.md §13, security is a "
-    "ranked requirement, not a trade-off axis.\n\n"
-    "NEVER propose or implement a less secure option when a more secure one is "
-    "available. Convenience, brevity, fewer moving parts, one less dependency, "
-    "and finishing sooner do NOT outrank it. If the secure option costs more "
-    "code, more config, or more time, that cost is the price of the correct "
-    "option - not evidence that the weaker one was reasonable.\n\n"
-    "  - A difference in security posture SETTLES a design choice. It is not a "
-    "B2 tie, it is not a menu for Jon, and it is not yours to trade away.\n"
-    "  - A control that cannot evaluate its input DENIES. Fail closed. A guard "
-    "that permits on a missing claim, an unknown provider, or an unparseable "
-    "policy has turned an unknown into an approval - and no test suite can see "
-    "it.\n"
-    "  - If a test, build, or deploy fails AGAINST a control, the control is the "
-    "requirement and the thing failing it is the defect. Disabling, loosening, "
-    "or exempting it to turn red into green is banned - especially when it is "
-    "the only thing standing between you and a green suite.\n"
-    "  - What the generator EMITS counts double: an insecure default in a "
-    "template is one defect per generated project, forever.\n"
-    "  - An existing insecure pattern next door is evidence about the neighbour, "
-    "not permission.\n\n"
-    "Undo the downgrade, implement the secure option, and re-run the check. The "
-    "single exception is B3 USER_FORBADE - Jon's explicit constraint rules the "
-    "secure option out - and then you say so in one line, name the exposure, and "
-    "implement the most secure option compatible with the constraint."
+    "Never ship a less secure option when a more secure one exists (execution-contract-security.md §13): "
+    "fail closed, never loosen a control to turn a check green, and an emitted default counts double. "
+    "Undo the downgrade, implement the secure option, re-run the check. Only B3 USER_FORBADE excuses it: "
+    "then say so in one line, name the exposure, and implement the most secure compatible option."
 )
 
 EXPEDIENT_REMEDY: Final = (
-    "Per .claude/skills/_shared/execution-contract.md §14, the size of a fix is "
-    "set by the DEFECT - never by what is left of your context, budget, turn, or "
-    "patience.\n\n"
-    "There is no later. A fix labelled temporary is a "
-    "permanent fix with a note attached, and the note is the part that "
-    "evaporates: what survives a compaction is the code you landed, not the "
-    "sentence explaining that it was provisional.\n\n"
-    "Saying it honestly does not help. Honesty about a shortcut is not a "
-    "substitute for not taking it.\n\n"
-    "Economy means reading NARROWLY, never writing a LESSER change (§11.0 "
-    "applied to the fix itself). If the correct fix is bigger or broader than "
-    "what was asked, ask for approval (APPROVAL_REQUIRED:, §4) - never ship the "
-    "small version instead. If context is short, spend it on the CORRECT change - the "
-    "smallest correct change, not the smallest change.\n\n"
-    "Go back and make the change the defect deserves. The test: if this were the "
-    "only change ever made here, would it be right? If the answer needs a 'for "
-    "now', an 'until', or a 'then later', it is not the fix."
+    "The size of a fix is set by the defect, never by context, budget or patience "
+    "(execution-contract.md §14); there is no later. Make the change the defect deserves, or, if it is "
+    "bigger than what was asked, end on one APPROVAL_REQUIRED: line (§4) instead of shipping a smaller one."
 )

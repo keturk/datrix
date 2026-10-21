@@ -205,3 +205,12 @@ cause. Two identical failures are one failure and one wasted call.
 If a task cost far more than it should have, say so plainly in the report, with the cause. Cost
 overruns that nobody names repeat. This is not self-flagellation — it is the same
 report-what-happened discipline §9 applies to correctness.
+
+### 11.6 Be certain the fix worked before writing or running tests for it
+
+First re-run whatever showed the failure (the regeneration, the failing test, the reproduction) and
+watch it pass. Only then add or run tests for the fix. If the reproduction still fails, the fix is
+wrong, and tests written for it are wasted. The same holds for any follow-up that depends on an
+unconfirmed result (docs, findings, cleanup): it waits for the result. While a decisive run is in
+flight, wait for it; do not fill the gap with dependent work. Spend nothing outside the task: a side
+investigation, an extra check or a "while I'm here" is a cost Jon did not ask for.

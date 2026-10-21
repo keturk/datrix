@@ -92,11 +92,8 @@ def _block_sweep(reasons: list[str]) -> None:
     sys.stderr.write(
         "BLOCKED: this test run is a sweep assembled from targeting flags.\n"
         + "".join(f"  - {reason}\n" for reason in reasons)
-        + "\nA targeted flag is not permission to run broadly. Run the test files beside the "
-        "code you changed (-Specific) and the one or two tags of the behaviour you changed "
-        "(-Tag), only in packages that code reaches -- and no run at all when a static check "
-        "(a grep, a read) already answered the question. Routing around this guard with other "
-        "flags or several smaller runs is the same violation."
+        + "Run -Specific on the files you changed and -Tag for the behaviour you changed, only in "
+        "packages it reaches. Several smaller runs adding up to a sweep are the same violation."
     )
     sys.exit(2)
 
@@ -112,23 +109,10 @@ def _audit(record: dict[str, object]) -> None:
 def _block(packages_named: list[str]) -> None:
     named = ", ".join(packages_named)
     sys.stderr.write(
-        f"BLOCKED: whole test suite requested ({named}). Agents never run a whole suite -- "
-        "not mid-task, not at a wave or phase boundary, not as a quality gate. There is no "
-        "override.\n\n"
-        "Run the tests related to the code you changed:\n"
-        "  - by feature tag, across every package that carries it:\n"
-        '      powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-codegen-python '
-        "datrix-codegen-typescript -Tag gateway\n"
-        '  - by file (comma-separated, one session):\n'
-        '      powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package} '
-        '-Specific "tests/unit/test_a.py,tests/unit/test_b.py"\n'
-        "  - to find the tags a package carries (runs nothing):\n"
-        '      powershell -File "d:/datrix/datrix/scripts/test/test.ps1" {package} -ListTags\n\n'
-        "Pick tags from the behaviour you changed, and include every package whose code "
-        "reaches it (a shared-layer change reaches its consumers: run their tests for that "
-        "tag too). A behaviour no tagged test covers needs a new test -- write it, tag it, "
-        "run it. A test proves the invariant forever; a sweep proves nothing about the "
-        "question your change raised."
+        f"BLOCKED: whole test suite requested ({named}); agents never run one, no override.\n"
+        "Run the tests of what you changed, in every package it reaches:\n"
+        '  test.ps1 <pkg-a> <pkg-b> -Tag <tag>   |   test.ps1 <pkg> -Specific "tests/a.py,tests/b.py"\n'
+        "  test.ps1 <pkg> -ListTags lists a package's tags. An untested behaviour needs a new tagged test."
     )
     sys.exit(2)
 

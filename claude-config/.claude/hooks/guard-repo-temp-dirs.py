@@ -74,17 +74,8 @@ _WRITE_INTENT_RE = re.compile(
 _WRITE_INTENT_WINDOW = 60
 
 _GUIDANCE = (
-    "\n\nEach `datrix-*` package -- and `datrix` itself -- is its own GIT REPOSITORY. "
-    "A temp directory created inside one gets committed and pushed (5076 files of "
-    "test output already were, once). CLAUDE.md forbids it outright.\n\n"
-    "Put it outside every repo tree instead:\n"
-    "  D:\\datrix\\.scripts\\        temporary scripts / runners / helpers\n"
-    "  D:\\datrix\\.test-output\\    test output, result logs\n"
-    "  D:\\datrix\\.tmp\\            all other temp / scratch files\n\n"
-    "If a script or tool defaults to writing inside the package, pass it an output "
-    "path under one of those directories -- do not let it create its own.\n\n"
-    "If this is NOT temp output but a real part of the package, it needs a real "
-    "directory name: the name you chose is what triggered this."
+    "\nEvery package is a git repo, so a temp dir in one gets committed. Use D:\\datrix\\.scripts\\, "
+    ".test-output\\ or .tmp\\, and pass tools an output path there. A real directory needs a real name."
 )
 
 

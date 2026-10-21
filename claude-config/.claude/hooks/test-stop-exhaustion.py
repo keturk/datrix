@@ -88,6 +88,13 @@ check("Jon asked for status -> allowed",
            "what's left on the login BFF?"), 0)
 check("Jon said stop -> allowed",
       gate("Next up: the release leg.", "stop here for today"), 0)
+check("Jon asked a question in no listed words (the real misfire) -> allowed",
+      gate("Indexing everything would be worse. Do you want me to build the redirect first, then the "
+           ".md and .ps1 indexing?",
+           "Can we extend code-index to cover everything? Will it be better or worse?"), 0)
+check("a question followed by an order is an order -> still BLOCKED",
+      gate("I'm near the end of my context window; here is what I found.",
+           "Is the parser fine? Fix the extern service."), 2)
 
 # --- ALLOW: innocent prose, quoting, negation, proven blockers --------------
 print("\nstays out of the way otherwise:")

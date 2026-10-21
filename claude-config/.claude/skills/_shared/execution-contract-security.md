@@ -103,7 +103,7 @@ Land it with the fix.
 
 ### 13.7 When the design itself specifies the weaker option
 
-A design doc is a scope boundary (`.claude/rules/design-and-docs.md`) and you never edit one during
+A design doc is a scope boundary (`.claude/docs/design-and-docs.md`) and you never edit one during
 implementation. But a security downgrade is not a scope question — it changes the product's threat
 model, which is a decision reserved to Jon. So:
 

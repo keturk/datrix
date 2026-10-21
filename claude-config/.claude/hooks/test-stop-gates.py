@@ -40,9 +40,13 @@ ARM_PROMPT_EXPANDED = (
 )
 
 
-def run(hook, payload):
+def run(hook, payload, no_subagents=False):
+    """Run ``hook`` once; Jon's no-subagents switch is set only when asked for, whatever this session has."""
+    env = {k: v for k, v in os.environ.items() if k != "DATRIX_NO_SUBAGENTS"}
+    if no_subagents:
+        env["DATRIX_NO_SUBAGENTS"] = "1"
     p = subprocess.run([sys.executable, os.path.join(H, hook)],
-                       input=json.dumps(payload), capture_output=True, text=True)
+                       input=json.dumps(payload), capture_output=True, text=True, env=env)
     return p.returncode, (p.stderr or "").strip()
 
 
@@ -234,6 +238,9 @@ check("ASK_JON from another agent type -> DENIED", rc, 2)
 rc, _ = run("gate-decision-escalation.py", {"session_id": SID, "transcript_path": MISSING_TRANSCRIPT,
             "tool_input": {"questions": [{"question": TYPING_Q}]}})
 check("unreadable transcript fails open -> allowed", rc, 0)
+rc, _ = run("gate-decision-escalation.py", {"session_id": SID, "transcript_path": TRANSCRIPT,
+            "tool_input": {"questions": [{"question": TYPING_Q}]}}, no_subagents=True)
+check("Jon forbade every subagent (advisor included), no advisor -> allowed", rc, 0)
 if os.path.isfile(ASK_STATE):
     os.remove(ASK_STATE)
 

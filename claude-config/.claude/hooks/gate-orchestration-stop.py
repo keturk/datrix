@@ -243,15 +243,9 @@ def _unresolved(phase: int) -> tuple[int, int, list[str]] | None:
 
 
 _CONTRACT: Final = (
-    "A run ends when every task is COMPLETED or carries a "
-    "valid B1-B4 blocker proof, when Jon tells you to stop, or when everything left "
-    "waits on an APPROVAL_REQUIRED question to Jon. Not when the plan "
-    "looks good, not at a green phase boundary, not because the run is long or "
-    "expensive, and NEVER on an offer to hold for review.\n\n"
-    "If your draft reply contains a 'remaining', 'next up', or 'shall I continue' "
-    "section: delete it and dispatch the next wave instead.\n\n"
-    "Resume where you left off — Step 3 of the task-orchestrator skill. If the "
-    "wave plan is already computed, spawn the next wave's agents now."
+    "A run ends only when every task is COMPLETED or validly BLOCKED, Jon says stop, or all "
+    "that is left waits on an APPROVAL_REQUIRED question. Resume at Step 3 of the "
+    "task-orchestrator skill and dispatch the next wave."
 )
 
 

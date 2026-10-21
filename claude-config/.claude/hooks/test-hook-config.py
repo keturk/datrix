@@ -1,4 +1,4 @@
-"""settings.json's hook registrations must match the enforcement table in rules/harness-guards.md.
+"""settings.json's hook registrations must match the enforcement table in docs/harness-guards.md.
 
 THE FAILURE MODE: a hook registered in settings.json whose .py file is absent is still
 valid JSON. Claude Code reports nothing, the guard simply never runs, and the surface it
@@ -7,7 +7,7 @@ to settings.json but never written into the guards table blocks work that agents
 never told was blocked, and they burn a turn discovering it by being refused.
 
 This is a producer/consumer seam like any other: settings.json decides which hooks fire on
-which event, the "Enforced by the Harness" table (rules/harness-guards.md) tells agents what fires. The
+which event, the "Enforced by the Harness" table (docs/harness-guards.md) tells agents what fires. The
 two sets were never compared, and they had already drifted -- guard-repo-temp-dirs.py runs
 on Bash|PowerShell as well as on edits, and the table listed only the edit registration.
 
@@ -36,7 +36,8 @@ HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 CLAUDE_DIR = os.path.dirname(HOOKS_DIR)
 SETTINGS_JSON = os.path.join(CLAUDE_DIR, "settings.json")
 # The table lives in a read-when doc, not in CLAUDE.md, so it is not paid for on every turn.
-GUARDS_DOC = os.path.join(CLAUDE_DIR, "rules", "harness-guards.md")
+# Not under .claude/rules/: Claude Code injects every file there into every session.
+GUARDS_DOC = os.path.join(CLAUDE_DIR, "docs", "harness-guards.md")
 
 TABLE_HEADING = "## Enforced by the Harness"
 # A hook refuses either by exiting 2 or by printing the JSON `{"decision": "block", ...}`
@@ -110,7 +111,7 @@ def registered_pairs(settings: dict) -> set[tuple[str, str]]:
 
 
 def documented_pairs(claude_md: str) -> set[tuple[str, str]]:
-    """{(event, hook filename)} claimed by the enforcement table in rules/harness-guards.md.
+    """{(event, hook filename)} claimed by the enforcement table in docs/harness-guards.md.
 
     The table escapes the matcher's pipe for markdown (`Bash\\|PowerShell`); unescape it
     so both sides of the comparison spell the event the same way. One cell may name

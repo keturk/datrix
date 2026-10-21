@@ -113,18 +113,8 @@ _WRITE_API_RE: Final = re.compile(
 )
 
 _GUIDANCE: Final = (
-    "Author file content with the dedicated tools:\n"
-    "  * new file, or full replacement of one you have read  -> Write\n"
-    "  * change part of a file                               -> Edit\n"
-    "  * same change in many places in one file              -> Edit(replace_all=True)\n"
-    "  * many edits, across one or many files                -> ONE edit_lines call\n"
-    "    (mcp__datrix-edit__read_lines shows the lines numbered and hashed; edit_lines\n"
-    "    names them by number and hash, so the old text is never re-sent)\n"
-    "\n"
-    "One edit_lines call (or N Edit calls) IS the correct shape for a bulk change. It "
-    "is not worth one shell script: the edit tools never interrupt Jon, every one of "
-    "them runs the Write/Edit guards, and Write refuses to clobber a file you have not "
-    "read. A heredoc has none of that and breaks on an apostrophe in the content."
+    "Use Write (new file or full replacement), Edit (part of a file; replace_all for repeats), or one "
+    "mcp__datrix-edit__edit_lines call for many edits across files. They run the edit guards; a shell write does not."
 )
 
 

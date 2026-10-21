@@ -734,112 +734,66 @@ def _after_text(tool: str, tool_input: dict[str, object], before: str | None) ->
 
 _REMEDY: Final = {
     "mock": (
-        "CLAUDE.md, Code Standards: 'Testing: real objects only, no `unittest.mock`/`SimpleNamespace`/fakes.' "
-        "Build the real thing: a real AST from `datrix_testing` factories or a `.dtrx` snippet through the "
-        "parser, a real object of the class under test, a real temporary directory or loopback server. If "
-        "the real object is hard to build, that is the missing test helper to add in `datrix-testing`."
+        "Real objects only, no mocks/`SimpleNamespace`/fakes (CLAUDE.md). Build the real AST, object, "
+        "temp directory or loopback server; a missing builder is a helper to add in `datrix-testing`."
     ),
     "silent-except": (
-        "CLAUDE.md, Anti-patterns: 'No `except: pass`.' A handler that swallows an error turns a failure "
-        "into silence. Catch the narrowest exception you can name and handle it (return the documented "
-        "value, raise a clearer error with what was expected and valid options), log it with "
-        "`logging.getLogger(__name__)` if it is genuinely survivable, or let it propagate. For a benign, "
-        "narrowly-typed cleanup (`FileNotFoundError` on a delete) use `contextlib.suppress(FileNotFoundError)`, "
-        "which says what is ignored."
+        "No `except: pass` (CLAUDE.md). Catch the narrowest exception and handle, log or re-raise it; for a "
+        "benign typed cleanup use `contextlib.suppress(FileNotFoundError)`."
     ),
     "todo": (
-        "CLAUDE.md, Anti-patterns: 'No placeholders/TODOs.' A TODO is a promise nobody keeps: there is no "
-        "later. Do the work now, or, if it is genuinely a separate defect, file it (a tracked task, or a "
-        "findings file under `d:\\datrix\\reports\\finding\\`, execution-contract-reporting.md section 5A) "
-        "and leave the code without the comment."
+        "No placeholders/TODOs (CLAUDE.md). Do the work now, or write a findings file under "
+        "`d:\\datrix\\reports\\finding\\` and leave the comment out."
     ),
-    "type-hints": (
-        "CLAUDE.md, Code Standards: 'Type hints on all fns.' Annotate every parameter (except `self`/`cls`) "
-        "and the return type, `-> None` included. The tests of the code you changed are the type gate; "
-        "no type-checker runs."
-    ),
+    "type-hints": "Type hints on all fns (CLAUDE.md): every parameter but `self`/`cls`, and the return, `-> None` included.",
     "any": (
-        "CLAUDE.md, Code Standards: 'No `Any`' (the one exception is the data parameter of a Pydantic "
-        "`@model_validator(mode=\"before\")`). Name the real type: a union, a Protocol, a TypedDict, "
-        "`object` plus a narrowing `isinstance`, or a generic parameter."
+        "No `Any` (CLAUDE.md; only a `mode=\"before\"` model validator's data parameter). Use a union, "
+        "Protocol, TypedDict, generic, or `object` plus `isinstance`."
     ),
-    "log-format": (
-        "CLAUDE.md, Code Standards: 'Logging: `logging.getLogger(__name__)`, %-style.' Pass a format string "
-        "and its arguments, e.g. `LOG.info(\"Wrote %s (%d files)\", path, count)`, never an f-string, "
-        "`.format()`, `%` or `+`: the message is built only when the record is emitted, and handlers see "
-        "the arguments."
-    ),
+    "log-format": "%-style logging (CLAUDE.md): `LOG.info(\"Wrote %s\", path)`, never an f-string, `.format()`, `%` or `+`.",
     "get-none": (
-        "CLAUDE.md, Anti-patterns: 'No silent fallbacks (`dict.get(key, None)`).' Decide what a missing key "
-        "means: index it (`d[key]`) when it must exist, or check `if key not in d:` and raise an error that "
-        "says what was expected and what was found."
+        "No silent fallbacks (CLAUDE.md): index `d[key]` when it must exist, or check `key not in d` and "
+        "raise an error saying what was expected."
     ),
     "flattened-entities": (
-        "Architecture cheat sheet, Entity Access: 'Entities are block-scoped. Always iterate per-service, "
-        "per-block; never flatten across services.' A generator walks `for service in app.services.values()` "
-        "-> `service.rdbms_blocks` -> `block.entities` (or `service.all_entities()`), so every artifact it "
-        "emits keeps its owning service."
+        "Entities are block-scoped (architecture cheat sheet): iterate `app.services` -> "
+        "`service.rdbms_blocks` -> `block.entities`, never flatten across services."
     ),
     "complexity": (
-        "CLAUDE.md, Code Standards: 'Cognitive complexity <=15; max 3 nesting; early returns.' Split the "
-        "function: guard clauses and early returns for the edge cases, and a named helper per branch or "
-        "loop body. Only a function this edit takes over the limit is refused."
+        "Cognitive complexity <=15, max 3 nesting (CLAUDE.md): use early returns and a named helper per "
+        "branch or loop body."
     ),
     "literal-fact": (
-        "CLAUDE.md, Code Standards: in a package whose tests/ carries test_cases.py, a literal fact about a "
-        "stage result is a case row, never a test function (unit-test-guidelines.md section 4, 'Decision "
-        "facts as cases'). Add it with `datrix/scripts/test/cases.ps1 new <package> <area> -Id <area>.<slug> "
-        "-Tags <tags> -Input <named input> -Stage <stage> -Observer <kind> -Selector \"{...}\" -Expectation "
-        "<value> -Reason \"<the decision it protects>\"`. The observer kind follows the fact: a `not in` is "
-        "an `absent` case (no expectation), a field of a file's recorded render context a `context` case, a "
-        "parsed unit of a generated file a `surface` case, a file set a `paths` case, a diagnostic an "
-        "`analyze`-stage `diagnostics` case. A fact that is not one literal comparison -- an invariant over "
-        "a set, an exception path, an algorithm's edge cases -- stays a code test."
+        "A literal fact about a stage result is a case row, not a test function (unit-test-guidelines.md §4): "
+        "`datrix/scripts/test/cases.ps1 new <package> <area> -Id <area>.<slug> -Tags <tags> -Input <input> "
+        "-Stage <stage> -Observer <kind> -Selector \"{...}\" -Expectation <value> -Reason \"<why>\"`. "
+        "Observer: `not in` is an `absent` case; otherwise `context`, `surface`, `paths` or `diagnostics`. "
+        "An invariant over a set, an exception path or edge cases stays a code test."
     ),
     "migrated-shape": (
-        "CLAUDE.md, Code Standards: in a package whose tests/ carries test_cases.py, a diagnostic, "
-        "transpiled-expression, parse or language-server fact is carried by the fixture line that provokes "
-        "it, never by a test function (unit-test-guidelines.md section 4, 'Fixture-carried facts'): "
-        "`// @expect <CODE>[.<variant>]` or `// @expect-none` on the line a diagnostic fires at, "
-        "`// @emits <expression>` on a function whose body is one return, a `$0` cursor with `// @hover`, "
-        "`// @complete` or `// @definition` for a language-server answer. Until the fixture carries it, the "
-        "same fact is a case row (`cases.ps1 new`, an `analyze`/`diagnostics` or `transpile`/`transpiled` "
-        "case). A fact that is not one literal comparison stays a code test."
+        "A diagnostic, transpiled-expression, parse or language-server fact is an annotation on the fixture "
+        "line that provokes it (unit-test-guidelines.md §4): `// @expect <CODE>`, `// @expect-none`, "
+        "`// @emits <expr>`, or a `$0` cursor with `// @hover`/`@complete`/`@definition`; failing that, a "
+        "case row (`cases.ps1 new`)."
     ),
     "schema-shaped": (
-        "CLAUDE.md, Code Standards: a required-field, default, bound, pattern or unknown-key fact about a "
-        "model is never a test function: the package's model contract runner (tests/test_model_contracts.py) "
-        "derives it from the model and proves it on a committed .dcfg fixture sample "
-        "(unit-test-guidelines.md, 'Model facts are derived'). The fact is proven already, or will be once a "
-        "committed fixture reaches the model: write that fixture (`datrix/scripts/test/model-contracts.ps1 "
-        "facts <package>` lists the models no fixture reaches). A validator's rule stays a code test that "
-        "asserts the error's location and type after the `pytest.raises` block."
+        "A required-field, default, bound, pattern or unknown-key fact is proven by tests/test_model_contracts.py "
+        "on a committed .dcfg fixture, not a test function; `datrix/scripts/test/model-contracts.ps1 facts "
+        "<package>` lists models no fixture reaches. A validator's rule stays a code test."
     ),
     "table-row": (
-        "CLAUDE.md, Code Standards: a fact about one row of a registered table is proven by the table runner "
-        "(tests/test_tables.py), never by a test function (unit-test-guidelines.md, 'Table rows'): every row "
-        "of the table is one item, test_table[<table>::<row id>], that proves the row's property through the "
-        "real code path. Adding the row is the whole change; run it with `test.ps1 <package> -Tag <table "
-        "tag>` (`datrix/scripts/test/tables.ps1 rows <package>` lists the items). A specific value a design "
-        "decided for a row is a case row (`cases.ps1 new`) or the table's own reviewed diff. A row the item "
-        "fails is a row defect or a code-path defect: fix the row or the code."
+        "A fact about one row of a registered table is the runner's item test_table[<table>::<row>] "
+        "(tests/test_tables.py), not a test function: add the row and run `test.ps1 <package> -Tag <table tag>` "
+        "(`datrix/scripts/test/tables.ps1 rows <package>` lists the items)."
     ),
     "body-walk": (
-        "A generator reads the facts analysis records on a body instead of walking it again: "
-        "`datrix_common.datrix_model.effects` / `usage` / `reads` / `resolution` (what a body calls, "
-        "reads, writes and resolves). The walks that remain are a closed list, "
-        "`datrix/scripts/config/no_body_walk_allowlist.json`, each with one of the "
-        "categories render-traversal, emission-syntax, emission-decision, literal-content or "
-        "no-facts-boundary; adding a function to it needs Jon's approval, and a genuinely new category "
-        "is a design change that needs it too. `gates/repo-hygiene/no-body-walk-gate.ps1` holds the "
-        "same rule over every generator package."
+        "Read the facts analysis recorded instead of walking the body: `datrix_common.datrix_model.effects` / "
+        "`usage` / `reads` / `resolution`. The remaining walks are a closed list, "
+        "`datrix/scripts/config/no_body_walk_allowlist.json`; adding to it needs Jon's approval."
     ),
     "history-comment": (
-        "Code quality standards, Comments: a comment or docstring states what the code does now; git holds "
-        "the history. The local second reader read the quoted words as change history (what the code used "
-        "to do, where it came from, what it replaced, which phase or migration removed something). Rewrite "
-        "the comment to state what the code does now, or drop it if nothing remains once the history is "
-        "gone. A phase, design or task reference goes too."
+        "A comment states what the code does now; git holds the history. Rewrite the quoted words as present "
+        "behaviour, or drop the comment, along with any phase, design or task reference."
     ),
 }
 

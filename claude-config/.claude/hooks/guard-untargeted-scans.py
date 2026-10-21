@@ -90,16 +90,9 @@ _PARITY_SELECTED_RE = re.compile(r"(?<![\w-])(?:-(?:Tag|SelfTest)|--(?:tag|self-
 _EXECUTORS = frozenset({"powershell", "pwsh", "cmd", "bash", "sh", "zsh", "start"})
 
 _WHY = (
-    "\n\nCLAUDE.md, Budget: 'A check is bought for a question, never for a rung.' "
-    "A repo-wide anti-pattern scan inside a fix answers nothing the targeted tests "
-    "and the registration/parity gates have not already answered, and it costs "
-    "minutes of Jon's time. It belongs at the phase boundary / quality gate, run "
-    "once over the changed packages.\n\n"
-    "If you can name the rule this scan would trip, run that rule: "
-    "`semgrep.ps1 <package> -Rule <name>`. If you can name the question it answers "
-    "and why the targeted tests cannot, re-issue with `SCAN_QUESTION: <the question>` in the "
-    "command description. If you can do neither, the scan is punctuation -- skip it "
-    "and report the verification you already have."
+    "\nA check is bought for a question (CLAUDE.md, Budget). Run the one rule "
+    "(`semgrep.ps1 <package> -Rule <name>`), or re-issue with `SCAN_QUESTION: <question>` in the "
+    "description, or skip the scan."
 )
 
 
