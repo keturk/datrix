@@ -1,11 +1,13 @@
 {
   "_comment": [
     "What the code index (scripts/common/lib/datrix_scripts/code_index, wrapped by scripts/dev/code-index.ps1",
-    "and served to agents by datrix_scripts.dev.code_index_mcp) covers. The index indexes every Python file git",
-    "sees in each repository at the workspace root (tracked, plus untracked files no .gitignore excludes),",
-    "minus 'exclude'. Every pattern is an fnmatch pattern over the workspace-relative path with forward",
-    "slashes, in which '*' also matches '/'.",
-    "'exclude': files never indexed -- checked-in generated output is not framework source.",
+    "and served to agents by datrix_scripts.dev.code_index_mcp) covers. The index indexes every file of an",
+    "indexed suffix (code_index.sources.INDEXED_SUFFIXES: Python, Markdown, PowerShell, .dtrx, .dcfg,",
+    "TypeScript) git sees in each repository at the workspace root (tracked, plus untracked files no",
+    ".gitignore excludes), minus 'exclude'. Every pattern is an fnmatch pattern over the workspace-relative",
+    "path with forward slashes, in which '*' also matches '/'.",
+    "'exclude': files never indexed -- generated output under the examples is not framework source; the",
+    "examples' own .dtrx, .dcfg and Markdown sources are indexed.",
     "'module_roots': directories a dotted module name is computed from (the nearest matching ancestor",
     "wins; a file under none takes its repository as the root). They are where the code is imported from:",
     "each package's src/, and every scripts lib/ directory (common/lib holds the datrix_scripts package; each",
@@ -13,7 +15,9 @@
     "'summarize': files a local model is asked to summarize by code-index.ps1 -Summarize."
   ],
   "exclude": [
-    "datrix/examples/*"
+    "datrix/examples/*.py",
+    "datrix/examples/*.ts",
+    "datrix/examples/*.ps1"
   ],
   "module_roots": [
     "*/src",
