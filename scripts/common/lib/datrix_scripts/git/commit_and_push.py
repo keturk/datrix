@@ -48,6 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from datrix_scripts.claude_cli import AGENT_EFFORTS
 from datrix_scripts.customer_domain_isolation import (
     CorpusError,
     Violation,
@@ -79,10 +80,11 @@ from datrix_scripts.git.gate_repair import (
     DEFAULT_REPAIR_EFFORT,
     DEFAULT_REPAIR_MODEL,
     DEFAULT_REPAIR_TIMEOUT_MS,
-    REPAIR_EFFORTS,
+    GateLocation,
     GateRepairer,
     GateRunError,
     GateViolation,
+    check_code_excerpts_mark_the_flagged_line,
     check_repair_command_and_prompt,
     check_repair_loop_does_not_repair_other_failures,
     check_repair_loop_gives_up_after_the_last_attempt,
@@ -1332,6 +1334,7 @@ def enforce_polystring_case_roundtrips(dirty_repos: list[Path]) -> None:
         print(f"PolyString case round-trips: clean across {len(dirty_repos)} dirty repo(s).")
         return
 
+    repo_paths = {repo_path.name: repo_path for repo_path in dirty_repos}
     total = sum(len(result.hits) for result in violating)
     detail = "\n".join(
         f"  {hit.render()}" for result in violating for hit in result.hits
@@ -1343,6 +1346,11 @@ def enforce_polystring_case_roundtrips(dirty_repos: list[Path]) -> None:
         f"the PolyString (.snake/.camel/.pascal/.kebab/.screaming_snake/.simple) instead of "
         f"str()-ing it and calling a to_*_case function; if the value is genuinely plain "
         f"text, drop the str() -- case functions accept any str.\n" + detail,
+        tuple(
+            GateLocation(repo_paths[result.repo] / hit.rel_path, hit.line)
+            for result in violating
+            for hit in result.hits
+        ),
     )
 
 
@@ -1385,6 +1393,7 @@ def enforce_design_task_references(dirty_repos: list[Path]) -> None:
         f"document, a task file or an item label. Nothing was committed or pushed. Those "
         f"files are gitignored and numbered per machine, so the reference dangles after a "
         f"clone. Describe the WORK, not the ticket.\n" + detail,
+        tuple(GateLocation(dirty_repos[0].parent / rel, lineno) for rel, lineno, _, _ in hits),
     )
 
 
@@ -1435,6 +1444,7 @@ def enforce_python_lint_correctness(dirty_repos: list[Path]) -> None:
         f"before and after each top-level def/class); if a finding is "
         f"genuinely required, suppress it on its own line with `# noqa: <code>` and the "
         f"reason.\n" + detail,
+        tuple(GateLocation(repo / finding.path, finding.line) for repo, finding in findings),
     )
 
 
@@ -1551,7 +1561,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--gate-repair-effort",
-        choices=REPAIR_EFFORTS,
+        choices=AGENT_EFFORTS,
         default=DEFAULT_REPAIR_EFFORT,
         help=f"Effort level of the gate repair agent (default: {DEFAULT_REPAIR_EFFORT}).",
     )
@@ -1774,6 +1784,7 @@ def _run(args: argparse.Namespace) -> int:
                   check_repair_loop_retries_until_the_gate_passes, check_repair_loop_gives_up_after_the_last_attempt,
                   check_repair_loop_with_no_attempts_raises_the_violation_unchanged,
                   check_repair_loop_does_not_repair_other_failures, check_repair_command_and_prompt,
+                  check_code_excerpts_mark_the_flagged_line,
                   check_no_git_script_runs_a_forbidden_form]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=GIT_SCRIPTS_DIR)
     if args.max_commits_per_repo < 1:

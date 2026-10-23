@@ -24,27 +24,38 @@ WHAT THE AGENT CAN DO
 
 from __future__ import annotations
 
-import json
-import os
-import shutil
-import subprocess
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, TypeVar
 
-from datrix_scripts.claude_cli import CLAUDE, require_batch_safe
+from datrix_scripts.claude_cli import AgentRequest, AgentRunError, agent_command, run_agent
 from datrix_scripts.gate_harness import UsageError
 
 DEFAULT_REPAIR_ATTEMPTS: Final = 3
 DEFAULT_REPAIR_MODEL: Final = "claude-sonnet-5-5"
 DEFAULT_REPAIR_EFFORT: Final = "medium"
 DEFAULT_REPAIR_TIMEOUT_MS: Final = 1_800_000
-REPAIR_EFFORTS: Final = ("low", "medium", "high", "xhigh", "max")
 
-# The only tools the agent gets: reading, searching and editing files. No shell, so no git.
+# The built-in tools the agent gets: reading, searching and editing files. No shell, so no git.
 REPAIR_TOOLS: Final = "Read,Edit,Write,Grep,Glob"
 REPAIR_PERMISSION_MODE: Final = "acceptEdits"
+# Read-only MCP tools, let through without a prompt: the code index answers where a name is defined and
+# used (and so which import fixes an undefined name), and a local model reads a large file for a question.
+REPAIR_MCP_TOOLS: Final = (
+    "mcp__datrix-code-index__find_canonical",
+    "mcp__datrix-code-index__find_symbol",
+    "mcp__datrix-code-index__find_references",
+    "mcp__datrix-code-index__outline",
+    "mcp__datrix-code-index__search",
+    "mcp__datrix-local-llm__ask_files",
+)
+
+# Lines of code shown either side of a flagged line, and the most places shown. Past the cap the brief says
+# how many were left out; the report still lists every one.
+EXCERPT_RADIUS: Final = 6
+EXCERPT_MAX_LOCATIONS: Final = 40
 
 _T = TypeVar("_T")
 
@@ -53,15 +64,25 @@ class GateRunError(RuntimeError):
     """A pre-stage gate or its repair ended the run."""
 
 
+@dataclass(frozen=True)
+class GateLocation:
+    """One place a gate flagged: an absolute file path and a 1-based line."""
+
+    path: Path
+    line: int
+
+
 class GateViolation(GateRunError):
     """A gate ran and found problems in the pending changes -- the failures an agent can repair.
 
-    ``gate`` names the check; ``str(violation)`` is its full report, with every file and line.
+    ``gate`` names the check; ``str(violation)`` is its full report, with every file and line;
+    ``locations`` are the same places as data, so the repair brief can carry the code around them.
     """
 
-    def __init__(self, gate: str, report: str) -> None:
+    def __init__(self, gate: str, report: str, locations: tuple[GateLocation, ...] = ()) -> None:
         super().__init__(report)
         self.gate = gate
+        self.locations = locations
 
 
 class GateRepairError(GateRunError):
@@ -89,9 +110,36 @@ def run_with_repair(
                 raise GateViolation(
                     violation.gate,
                     f"{violation}\nThe repair agent ran {attempts} time(s) and the gate still fails.",
+                    violation.locations,
                 ) from violation
             repair(violation, attempt)
     raise AssertionError("unreachable: the last attempt returns or raises")
+
+
+def code_excerpts(locations: tuple[GateLocation, ...]) -> str:
+    """The code around each flagged line, numbered, with ``>`` on the flagged line.
+
+    Read here, so the agent starts from the code instead of spending turns opening it. A file that cannot
+    be read is named with the reason; the report still lists its finding.
+    """
+    unique = list(dict.fromkeys(locations))
+    sections: list[str] = []
+    for location in unique[:EXCERPT_MAX_LOCATIONS]:
+        try:
+            lines = location.path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as exc:
+            sections.append(f"--- {location.path}:{location.line} (unreadable: {exc.strerror or exc})")
+            continue
+        first = max(1, location.line - EXCERPT_RADIUS)
+        last = min(len(lines), location.line + EXCERPT_RADIUS)
+        body = "\n".join(
+            f"{'>' if number == location.line else ' '} {number:>5} | {lines[number - 1]}"
+            for number in range(first, last + 1)
+        )
+        sections.append(f"--- {location.path}:{location.line}\n{body}")
+    if len(unique) > EXCERPT_MAX_LOCATIONS:
+        sections.append(f"[{len(unique) - EXCERPT_MAX_LOCATIONS} more flagged place(s) not shown; the report lists them]")
+    return "\n\n".join(sections)
 
 
 def repair_prompt(
@@ -120,44 +168,36 @@ def repair_prompt(
         "(anything under datrix/scripts/gates, datrix/scripts/config or "
         "datrix/scripts/common/lib), and never loosen a rule to make the gate pass.\n"
         "- If a finding cannot be fixed within those rules, leave it and say so.\n\n"
+        "Finding things: the code around each flagged line is below, so start from it. To learn where a "
+        "name is defined or used, or which import fixes an undefined name, ask the code index "
+        "(find_symbol, find_references, find_canonical, outline, search) instead of grepping. To "
+        "understand a large file, ask_files (a local model) can read it for you; its answer is a lead, "
+        "so open the lines it cites before you rely on them.\n\n"
         "Finish with a short summary: each change as file:line, then anything you left unfixed and why.\n\n"
         "<<<GATE_REPORT>>>\n"
         f"{violation}\n"
-        "<<<END_GATE_REPORT>>>\n"
+        "<<<END_GATE_REPORT>>>\n\n"
+        "<<<FLAGGED_CODE>>>\n"
+        f"{code_excerpts(violation.locations) or '(the report names no file and line)'}\n"
+        "<<<END_FLAGGED_CODE>>>\n"
     )
 
 
-def repair_command(claude: str, model: str, effort: str) -> list[str]:
-    """The ``claude`` argument vector of one repair (its prompt goes to stdin).
-
-    Raises:
-        UsageError: for an effort the CLI does not take, an empty model, or an argument ``cmd.exe``
-            would parse when *claude* is a batch shim.
-    """
-    if effort not in REPAIR_EFFORTS:
-        raise UsageError(f"Gate repair effort '{effort}' is not one of {list(REPAIR_EFFORTS)}. Pass one of them.")
-    if not model:
-        raise UsageError("The gate repair model is empty. Pass a model alias or id such as claude-sonnet-5-5.")
-    command = [
-        claude, "-p", "--output-format", "json", "--permission-mode", REPAIR_PERMISSION_MODE,
-        "--tools", REPAIR_TOOLS, "--no-session-persistence", "--model", model, "--effort", effort,
-    ]
-    require_batch_safe(command, "pass a model alias or id without those characters")
-    return command
-
-
-def _agent_summary(stdout: str, gate: str) -> str:
-    try:
-        data = json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        raise GateRepairError(f"The repair agent for the '{gate}' gate returned non-JSON output: {exc}") from exc
-    if not isinstance(data, dict):
-        raise GateRepairError(f"The repair agent for the '{gate}' gate returned {type(data).__name__}, not an object.")
-    result = data.get("result")
-    summary = result if isinstance(result, str) else ""
-    if data.get("is_error"):
-        raise GateRepairError(f"The repair agent for the '{gate}' gate ended in error: {summary or data}")
-    return summary.strip()
+def repair_request(
+    violation: GateViolation, workspace: Path, model: str, effort: str, timeout_ms: int, prompt: str
+) -> AgentRequest:
+    """The agent run for one repair: file tools only, in the workspace, on *prompt*."""
+    return AgentRequest(
+        prompt=prompt,
+        model=model,
+        effort=effort,
+        permission_mode=REPAIR_PERMISSION_MODE,
+        tools=REPAIR_TOOLS,
+        allowed_tools=REPAIR_MCP_TOOLS,
+        cwd=workspace,
+        timeout_ms=timeout_ms,
+        label=f"'{violation.gate}' gate repair",
+    )
 
 
 @dataclass
@@ -172,35 +212,20 @@ class GateRepairer:
     previous_summary: str | None = None
 
     def __call__(self, violation: GateViolation, attempt: int) -> None:
-        claude = shutil.which(CLAUDE)
-        if claude is None:
-            raise GateRepairError(
-                f"The '{violation.gate}' gate failed and its repair agent cannot start: the claude CLI is not on "
-                "PATH. Install it: npm install -g @anthropic-ai/claude-code"
-            )
-        command = repair_command(claude, self.model, self.effort)
         print(
             f"\nGate '{violation.gate}' failed. Repair {attempt} of {self.attempts}: handing it to "
             f"{self.model} at {self.effort} effort (this can take minutes)...",
             flush=True,
         )
         prompt = repair_prompt(violation, self.workspace, attempt, self.attempts, self.previous_summary)
+        request = repair_request(violation, self.workspace, self.model, self.effort, self.timeout_ms, prompt)
         try:
-            result = subprocess.run(
-                command, input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                cwd=self.workspace, env={**os.environ, "NO_COLOR": "1"}, timeout=max(1, self.timeout_ms / 1000.0),
-            )
-        except subprocess.TimeoutExpired as exc:
+            self.previous_summary = run_agent(request)
+        except AgentRunError as exc:
             raise GateRepairError(
-                f"The repair agent for the '{violation.gate}' gate timed out after {self.timeout_ms} ms. "
-                "Raise -GateRepairTimeoutMs, or fix the gate's findings by hand."
+                f"{exc} Fix the '{violation.gate}' gate's findings by hand, or raise -GateRepairTimeoutMs "
+                "if it timed out."
             ) from exc
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "").strip()
-            raise GateRepairError(
-                f"The repair agent for the '{violation.gate}' gate exited {result.returncode}: {detail}"
-            )
-        self.previous_summary = _agent_summary(result.stdout, violation.gate)
         print(f"Repair {attempt} finished. Agent summary:\n{self.previous_summary or '(none)'}\n")
         print("Re-running the gates...", flush=True)
 
@@ -278,18 +303,42 @@ def check_repair_loop_does_not_repair_other_failures() -> None:
     assert repairs == [], repairs
 
 
+def check_code_excerpts_mark_the_flagged_line() -> None:
+    """Real files: the flagged line is marked, the window is clipped at the file's ends, a duplicate place is shown
+    once, an unreadable file is named, and the brief carries the excerpt."""
+    with tempfile.TemporaryDirectory() as raw:
+        source = Path(raw) / "a.py"
+        source.write_text("".join(f"line {number}\n" for number in range(1, 31)), encoding="utf-8")
+        missing = Path(raw) / "gone.py"
+        flagged = (GateLocation(source, 15), GateLocation(source, 15), GateLocation(source, 1), GateLocation(missing, 3))
+        shown = code_excerpts(flagged)
+        brief = repair_prompt(GateViolation("lint", "a.py:15", flagged[:1]), Path(raw), 1, 3, None)
+    assert shown.count(f"--- {source}:15\n") == 1, shown
+    assert ">    15 | line 15" in shown and "     21 | line 21" in shown and "line 22" not in shown, shown
+    assert f"--- {source}:1\n>     1 | line 1" in shown and "line 0" not in shown, shown
+    assert f"--- {missing}:3 (unreadable:" in shown, shown
+    assert f"<<<FLAGGED_CODE>>>\n--- {source}:15\n" in brief, brief
+    assert code_excerpts(()) == "", "no location, no excerpt"
+
+
 def check_repair_command_and_prompt() -> None:
     """The agent runs on the requested model and effort with file tools only; the brief carries the report."""
-    command = repair_command("claude", "claude-sonnet-5-5", "medium")
+    violation = GateViolation("Python lint-correctness", "repo/a.py:1:1 F401 unused import")
+
+    def request(model: str, effort: str) -> AgentRequest:
+        return repair_request(violation, Path("D:/ws"), model, effort, 1000, "brief")
+
+    command = agent_command("claude", request("claude-sonnet-5-5", "medium"))
     assert command[command.index("--model") + 1] == "claude-sonnet-5-5", command
     assert command[command.index("--effort") + 1] == "medium", command
     assert command[command.index("--tools") + 1] == REPAIR_TOOLS and "Bash" not in REPAIR_TOOLS, command
-    assert _refused(lambda: repair_command("claude", "claude-sonnet-5-5", "huge")), "an unknown effort must be refused"
-    assert _refused(lambda: repair_command("claude", "", "medium")), "an empty model must be refused"
-    assert _refused(lambda: repair_command("claude.cmd", "model&calc", "medium")), (
+    granted = command[command.index("--allowedTools") + 1].split(",")
+    assert granted == list(REPAIR_MCP_TOOLS) and all(tool.startswith("mcp__") for tool in granted), command
+    assert _refused(lambda: agent_command("claude", request("claude-sonnet-5-5", "huge"))), "an unknown effort must be refused"
+    assert _refused(lambda: agent_command("claude", request("", "medium"))), "an empty model must be refused"
+    assert _refused(lambda: agent_command("claude.cmd", request("model&calc", "medium"))), (
         "a cmd.exe metacharacter in the model must be refused for a batch shim"
     )
-    violation = GateViolation("Python lint-correctness", "repo/a.py:1:1 F401 unused import")
     first = repair_prompt(violation, Path("D:/ws"), 1, 3, None)
     again = repair_prompt(violation, Path("D:/ws"), 2, 3, "removed the import in a.py")
     assert "Python lint-correctness" in first and "repo/a.py:1:1 F401 unused import" in first, first
