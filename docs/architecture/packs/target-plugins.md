@@ -10,7 +10,7 @@ Open-world targets, derived conformance: [Decision 15](../architecture-overview.
 
 | # | Invariant | Check |
 |---|---|---|
-| I1 | Zero target-name policy references in shared layers (the shared set is *derived*: every package registering none of the four entry-point groups) | `check-import-boundaries.ps1 -CheckTargetLiterals`; reasoned, decrease-only baseline `datrix/scripts/config/target-literal-baseline.toml` |
+| I1 | Zero target-name policy references in shared layers (the shared set is *derived*: every package registering none of the four entry-point groups) | `check-import-boundaries.ps1 -CheckTargetLiterals`; reasoned, decrease-only baseline `datrix/scripts/config/target-literal-baseline.toml`. Shared-layer prose (comments, docstrings, string literals) is held by `-CheckSharedProsePlatformNames`: a registered platform name may not appear in a (file, name) pair the decrease-only baseline `shared-prose-platform-name-baseline.toml` does not record |
 | I2 | Add-a-language = one package | `datrix-codegen-common/tests/integration/testkit/test_closed_world_drill.py` |
 | I3 | Add-a-platform = one package | `datrix-testing/tests/integration/conformance/test_closed_world_drill.py` |
 | I4 | Drift is a red test in the drifting package | Kit self-consistency gate + mutation check (`test_mutation_check.py`) |

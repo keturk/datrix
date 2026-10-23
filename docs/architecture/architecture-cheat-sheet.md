@@ -39,7 +39,7 @@ The core packages plus optional **datrix-extensions**; `.claude/docs/repo-bounda
 | datrix-codegen-typescript-core | Shared TypeScript core (transpiler core, profile, type maps, naming/path facts, web-client mechanics). Library; used by the TS backend and every TS-emitting frontend |
 | datrix-codegen-python / -typescript | Backend language generators (FastAPI / NestJS-Express) |
 | datrix-codegen-sql / -component | SQL DDL; platform-agnostic artifacts (docs, config, scripts). Depend on the kernel, never on codegen-common |
-| datrix-codegen-docker / -aws / -azure | Platform generators: Compose; CDK/CloudFormation; Bicep/ARM |
+| datrix-codegen-docker / -aws / -azure | Platform generators: Compose; CloudFormation; Bicep/ARM |
 | datrix-codegen-angular / -flutter | Client targets (artifact-phase plugins, **not** languages); activate only when the app declares them |
 | datrix-cli | CLI; discovers plugins via entry points |
 | datrix-extensions | Optional domain packs (`datrix.extensions`) |
