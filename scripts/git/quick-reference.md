@@ -43,11 +43,13 @@ conflict resolution asks:
 |------|---------|
 | **Pull all** | `.\git\pull.ps1` |
 
-**Parameters:** `-SelfTest`.
+**A repo left Conflict or Blocked is handed to a Claude agent.** After every repo has been pulled, each one in either state gets an agent (`-ConflictRepairModel`, default `claude-sonnet-5-5`, at `-ConflictRepairEffort`, default `medium`) whose whole prompt is `/resolve-conflicts <repo>`: the skill runs as if Jon typed it, and the session is saved so `guard-forbidden-commands.py` finds the typed skill in the transcript and allows `resolve-pull.ps1` and its path-limited stash. The agent has a shell, file tools and the workspace's hooks; the hooks decide which git forms it may run. Afterwards the repo is pulled again and its new outcome replaces the old one (`conflicts resolved by the agent in N run(s)` on success). A run that leaves it needing attention is repeated up to `-ConflictRepairAttempts` times (default 2); an agent that cannot run marks the repo Failed with the reason; either way the other repos carry on. `-ConflictRepairAttempts 0` restores report-and-stop. The skill's own frontmatter names an effort (`high`), which may take precedence over `-ConflictRepairEffort` while the skill runs.
 
-**Exit codes:** 0 = every repo updated or up to date, 1 = at least one conflicted, was blocked or failed, 2 = the run could not start.
+**Parameters:** `-ConflictRepairAttempts` (default 2; 0 = report only), `-ConflictRepairModel`, `-ConflictRepairEffort`, `-ConflictRepairTimeoutMs` (default 3600000), `-SelfTest`.
 
-**Module:** `datrix_scripts.git.pull`; POSIX twin `git/pull.sh` (`--self-test`).
+**Exit codes:** 0 = every repo updated or up to date (after any agent run), 1 = at least one conflicted, was blocked or failed, 2 = the run could not start.
+
+**Module:** `datrix_scripts.git.pull`; POSIX twin `git/pull.sh` (`--conflict-repair-attempts`, `--conflict-repair-model`, `--conflict-repair-effort`, `--conflict-repair-timeout-ms`, `--self-test`). The headless agent run is shared with `commit-and-push` in `datrix_scripts.claude_cli` (`AgentRequest`, `run_agent`).
 
 ---
 
@@ -223,7 +225,7 @@ The scanner runs its own non-vacuity self-test first (a planted F401 + F821 must
 
 ### A failed gate is handed to a Claude agent, then the run continues
 
-When the PolyString, design/task-reference or Python lint-correctness check finds problems in the pending files, the run no longer ends with the report. The report goes to a Claude Code agent (`-GateRepairModel`, default `claude-sonnet-5-5`, at `-GateRepairEffort`, default `medium`) that reads, searches and edits files under the workspace's own CLAUDE.md and hooks. It has **no shell**: it cannot stage, commit, push or run this script, and it is told never to edit a gate, an exemption file, a baseline or a term corpus. Afterwards the dirty repos are found again and **every** check re-runs; the re-run is the proof, not the agent's summary. The run continues to messages, commits and pushes once the checks pass. A repair that leaves the gate failing is retried up to `-GateRepairAttempts` times (default 3, the previous summary handed to the next); then the run ends with the report as before. `-GateRepairAttempts 0` restores report-and-stop, and `-DryRun` never repairs.
+When the PolyString, design/task-reference or Python lint-correctness check finds problems in the pending files, the run no longer ends with the report. The report goes to a Claude Code agent (`-GateRepairModel`, default `claude-sonnet-5-5`, at `-GateRepairEffort`, default `medium`) that reads, searches and edits files under the workspace's own CLAUDE.md and hooks. It has **no shell**: it cannot stage, commit, push or run this script, and it is told never to edit a gate, an exemption file, a baseline or a term corpus. The brief already carries the code around every flagged line (read by the script), and the agent may call the read-only code-index tools (`find_symbol`, `find_references`, `find_canonical`, `outline`, `search`) and `ask_files` of the local-model server, so it looks a definition up instead of grepping and a local model can read a large file for it. Afterwards the dirty repos are found again and **every** check re-runs; the re-run is the proof, not the agent's summary. The run continues to messages, commits and pushes once the checks pass. A repair that leaves the gate failing is retried up to `-GateRepairAttempts` times (default 3, the previous summary handed to the next); then the run ends with the report as before. `-GateRepairAttempts 0` restores report-and-stop, and `-DryRun` never repairs.
 
 Not handed over: the customer-domain check (its report redacts the matched term on purpose) and the ignored-source check (fixed by loosening a `.gitignore` rule or the exemption file, which a person decides), and any check that could not run or failed its own self-test. Module: `datrix_scripts.git.gate_repair`.
 
