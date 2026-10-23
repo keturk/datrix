@@ -1,7 +1,7 @@
 """Exercise gate-agent-plan-stop.py end to end with synthetic payloads.
 
 An approval request ends the turn only after the decision advisor returned
-`VERDICT: ASK_JON` since Jon's last message (Jon's order: a question goes to the Fable
+`VERDICT: ASK_JON` since Jon's last message (Jon's order: a question goes to the decision
 advisor first, and to Jon only when the advisor cannot recommend anything).
 
 Both directions, on purpose. The ALLOW case that matters most is the verbatim reply

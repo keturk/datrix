@@ -100,7 +100,7 @@ fix needs broader changes than the request states, stop that part and ask:
   field, phase or diagnostic its requirements do not need; work on a behaviour it does not cover;
   or a measured size (below) that is a multiple of what the request names. Where the code lands
   is never, by itself, broader (see "Implementation decisions" below).
-- Put it to the decision advisor first: dispatch the `decision-advisor` agent (Fable 5.1, high
+- Put it to the decision advisor first: dispatch the `decision-advisor` agent (Opus 5.5, medium
   effort) with what the expansion is, why the task needs it (evidence, `file:line`), its measured
   size (below) and your recommendation (`decision-adjudication-protocol.md` §5). On
   `VERDICT: RECOMMEND`, act on it (a recommended expansion is approved), record it with the

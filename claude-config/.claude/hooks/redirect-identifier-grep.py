@@ -38,7 +38,7 @@ from typing import Final
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _hook_log import WORKSPACE, add_scripts_lib_to_path, append_record  # noqa: E402
+from _hook_log import SEARCH_USAGE_LOG_MAX_BYTES, WORKSPACE, add_scripts_lib_to_path, append_record  # noqa: E402
 from _mcp_registration import CODE_INDEX_SERVER, is_registered, session_directory  # noqa: E402
 
 # Must match datrix_scripts.code_index.usage.CATEGORY_GREP_REDIRECT / CATEGORY_GREP_REDIRECT_REPEAT, which the report reads.
@@ -49,7 +49,6 @@ MAX_REFERENCE_FILES: Final = 25
 MAX_ANSWER_CHARS: Final = 6_000
 _STATE_DIR: Final = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".state")
 _USAGE_LOG: Final = os.path.join(WORKSPACE, ".code-index", "usage.jsonl")
-_USAGE_LOG_MAX_BYTES: Final = 8 * 1024 * 1024
 _CODE_INDEX_SCRIPT: Final = os.path.join(WORKSPACE, "datrix", "scripts", "dev", "code-index.ps1").replace("\\", "/")
 _INDEX_TOOL_PREFIX: Final = f"mcp__{CODE_INDEX_SERVER}__"
 _DEFINITION_PREFIX: Final = re.compile(r"^(?:def|class)\s+")
@@ -209,7 +208,7 @@ def _record(payload: dict[str, object], category: str, response_chars: int) -> N
         "category": category, "tool": "Grep", "detail": detail[:300], "response_chars": response_chars,
         "session": str(payload.get("session_id", "")), "agent": str(payload.get("agent_id", "")) or "main",
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
-    }, "redirect-identifier-grep", _USAGE_LOG_MAX_BYTES)
+    }, "redirect-identifier-grep", SEARCH_USAGE_LOG_MAX_BYTES)
 
 
 def main() -> None:

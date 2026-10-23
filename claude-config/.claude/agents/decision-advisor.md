@@ -1,8 +1,8 @@
 ---
 name: decision-advisor
 description: Decides a question another Datrix agent could not settle from the code and docs, and returns a binding recommendation, or hands the question to Jon when no recommendation is possible. Any agent, subagents included, dispatches it before asking Jon anything. Read-only; never implements and never dispatches agents.
-model: claude-fable-5-1
-effort: high
+model: claude-opus-5-5
+effort: medium
 tools: Read, Grep, Glob, mcp__datrix-code-index__find_canonical, mcp__datrix-code-index__find_symbol, mcp__datrix-code-index__find_references, mcp__datrix-code-index__outline, mcp__datrix-code-index__search, mcp__datrix-local-llm__ask_files, mcp__datrix-local-llm__digest_log
 ---
 

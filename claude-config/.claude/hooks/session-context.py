@@ -226,7 +226,7 @@ def _ledger_section() -> str:
         + "\n\nIf a run is in flight, this is what finished means — every one of them "
         "COMPLETED or carrying a valid B1-B4 proof. A green test suite, a clean "
         "summary, and a phase boundary are not exits, and neither is handing a "
-        "decision to Jon (that is rung 3: spawn a Fable adjudicator). The Stop hook "
+        "decision to Jon (that is rung 3: dispatch the decision-advisor agent). The Stop hook "
         "reads these same files and will refuse a turn that ends above zero."
     )
 

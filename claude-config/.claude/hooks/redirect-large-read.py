@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Final
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _hook_log import WORKSPACE, add_scripts_lib_to_path, append_record  # noqa: E402
+from _hook_log import SEARCH_USAGE_LOG_MAX_BYTES, WORKSPACE, add_scripts_lib_to_path, append_record  # noqa: E402
 from _local_digest import default_settings, digest_of  # noqa: E402
 from _mcp_registration import (  # noqa: E402
     CODE_INDEX_SERVER,
@@ -69,7 +69,6 @@ MAX_OUTLINE_LINES: Final = 140
 MAX_OUTLINE_CHARS: Final = 7_000
 _STATE_DIR: Final = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".state")
 _USAGE_LOG: Final = os.path.join(WORKSPACE, ".code-index", "usage.jsonl")
-_USAGE_LOG_MAX_BYTES: Final = 8 * 1024 * 1024
 _LOG_DIRS: Final = (".test-output", ".test_results")
 
 
@@ -238,7 +237,7 @@ def _record(payload: dict[str, object], category: str, response_chars: int) -> N
         "response_chars": response_chars,
         "session": str(payload.get("session_id", "")), "agent": str(payload.get("agent_id", "")) or "main",
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
-    }, "redirect-large-read", _USAGE_LOG_MAX_BYTES)
+    }, "redirect-large-read", SEARCH_USAGE_LOG_MAX_BYTES)
 
 
 def main() -> None:

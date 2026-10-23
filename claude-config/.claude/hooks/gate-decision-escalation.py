@@ -6,12 +6,12 @@ The Stop gates see a question to Jon only when a turn ends on it. An agent that 
 through `AskUserQuestion` never reaches a Stop event: the tool blocks inside the turn,
 waiting on a human, and the run halts just as completely.
 
-Jon's order: "When an agent has a question it delegates the question to a Fable agent at
-high effort and acts on its recommendation. If that agent cannot recommend anything, then
-it asks me." The `decision-advisor` agent (`.claude/agents/decision-advisor.md`) is that
-Fable agent; it answers `VERDICT: RECOMMEND` or `VERDICT: ASK_JON`.
+Jon's order: when an agent has a question it delegates the question to the decision
+advisor and acts on its recommendation; if the advisor cannot recommend anything, then it
+asks Jon. The `decision-advisor` agent (`.claude/agents/decision-advisor.md`) is that
+agent (Opus 5.5 at medium effort); it answers `VERDICT: RECOMMEND` or `VERDICT: ASK_JON`.
 `_shared/decision-adjudication-protocol.md` holds the ladder:
-  1 INVESTIGATE -> 2 DECIDE -> 3 ADVISOR (Fable) -> 4 ASK JON
+  1 INVESTIGATE -> 2 DECIDE -> 3 ADVISOR -> 4 ASK JON
 
 WHAT IS AND IS NOT BLOCKED
 --------------------------

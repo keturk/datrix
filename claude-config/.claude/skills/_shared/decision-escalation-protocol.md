@@ -9,22 +9,22 @@ When execution reaches a genuine design or architectural decision — multiple v
 ## Where this doc sits on the Adjudication Ladder
 
 `decision-adjudication-protocol.md` defines the one ladder every decision climbs:
-**1 INVESTIGATE → 2 DECIDE → 3 ADJUDICATE (Fable) → 4 ASK THE USER.**
+**1 INVESTIGATE → 2 DECIDE → 3 ADJUDICATE (decision advisor) → 4 ASK THE USER.**
 
 **This doc is rungs 1–2**: how you investigate and reach a decision yourself, using an Opus analyst
 when the analysis is heavy. It is *not* an exit and it is *not* a route to the user.
 
 **If the Opus analysis does NOT settle it — you still cannot decide — you go to rung 3, not to the
-user.** Spawn a **Fable** adjudicator (`model: "fable"`, `effort: "high"`) per
+user.** Dispatch the **decision advisor** (`subagent_type: "decision-advisor"`; Opus 5.5, medium effort) per
 `decision-adjudication-protocol.md` §5 and execute its decision. The user is rung 4, reachable **only**
-when Fable returns decision **F (ASK_USER)**, or for the narrow closed list in that doc's §7
+when the decision advisor returns `VERDICT: ASK_JON`, or for the narrow closed list in that doc's §7
 (credential you don't have · irreversible outward-facing action needing authorization · genuine
 product call · a prohibition that must be lifted).
 
 **A delegated agent's BLOCKED report** does not enter here at all — it enters
 `decision-adjudication-protocol.md` at Door A: investigate the claim yourself against the code and the
 docs, correct-and-re-dispatch the agent if it is bogus (the common case), and — only if the blocker
-survives your investigation — hand the decision to Fable, whose ruling you then execute. Never stop on
+survives your investigation — hand the decision to the decision advisor (Opus 5.5, medium effort), whose ruling you then execute. Never stop on
 an agent's BLOCKED, and never relay one to the user unexamined.
 
 ## When to Escalate
@@ -46,7 +46,7 @@ an agent's BLOCKED, and never relay one to the user unexamined.
 - **Incomplete prereq task** → if it's genuinely required and unstarted, that is a *dependency-ordering* fact for the orchestrator, not a blocker for you — say so precisely, and do everything the prereq does not gate.
 - **Unclear root cause** → keep reading. Escalate only *after* real investigation has genuinely deadlocked.
 
-**Spec gaps / missing user-supplied input:** first try to derive the answer from the design docs and codebase. If you cannot derive it, that is **not** an automatic user question — a spec gap with two defensible readings is a rung-3 decision and goes to **Fable** (`decision-adjudication-protocol.md` §5). Only the closed §7 list reaches the user directly: a credential/account that exists nowhere in the repo · an irreversible outward-facing action needing authorization · a genuine product/business call · a user-set prohibition that must be lifted. Whenever you do reach the user, bring **your recommendation** — never a bare question.
+**Spec gaps / missing user-supplied input:** first try to derive the answer from the design docs and codebase. If you cannot derive it, that is **not** an automatic user question — a spec gap with two defensible readings is a rung-3 decision and goes to the **decision advisor** (`decision-adjudication-protocol.md` §5). Only the closed §7 list reaches the user directly: a credential/account that exists nowhere in the repo · an irreversible outward-facing action needing authorization · a genuine product/business call · a user-set prohibition that must be lifted. Whenever you do reach the user, bring **your recommendation** — never a bare question.
 
 ## How to Escalate
 
@@ -96,5 +96,5 @@ Be specific. The implementing agent will follow your recommendation directly.
 
 - **Opus reached a decision** → implement exactly what it recommended with the current model. Do NOT improvise beyond the recommendation. The work continues.
 - **Opus applied a trivial fix itself** (per the trivial-fix exception) → verify its returned diff against the no-workaround rules and confirm the test result from the run's `index.json`; then continue. Its self-report alone is not sufficient.
-- **Opus did NOT settle it** (it reports a genuine tie, or its recommendation fails when implemented, or it concludes the plan cannot be executed as written) → **go to rung 3: adjudicate.** Spawn a **Fable** adjudicator (`model: "fable"`, `effort: "high"`) per `decision-adjudication-protocol.md` §5, handing it Opus's full analysis as part of the packet, and **execute Fable's decision** (§6).
-- **Opus recommends "stop and ask the user"** → that is a recommendation, not a routing instruction. **Opus does not have the authority to send you to the user; only Fable does.** Take it to Fable with Opus's analysis attached. If Fable returns **F (ASK_USER)**, you ask — with Fable's exact question, options, and recommendation. If Fable returns A–E, you execute that instead.
+- **Opus did NOT settle it** (it reports a genuine tie, or its recommendation fails when implemented, or it concludes the plan cannot be executed as written) → **go to rung 3: adjudicate.** Dispatch the **decision advisor** (`subagent_type: "decision-advisor"`; Opus 5.5, medium effort) per `decision-adjudication-protocol.md` §5, handing it Opus's full analysis as part of the packet, and **execute the advisor's decision** (§6).
+- **Opus recommends "stop and ask the user"** → that is a recommendation, not a routing instruction. **Opus does not have the authority to send you to the user; only the decision advisor does.** Take it to the decision advisor with Opus's analysis attached. If it returns `VERDICT: ASK_JON`, you ask — with its exact question, options, and recommendation. If it returns `VERDICT: RECOMMEND`, you execute that instead.

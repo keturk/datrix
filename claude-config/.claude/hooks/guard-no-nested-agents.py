@@ -11,7 +11,7 @@ the agents work.
 THE ONE AGENT A SUBAGENT MAY CALL
 ---------------------------------
 Jon's order: any agent with a question delegates it to the decision advisor
-(`.claude/agents/decision-advisor.md`, Fable at high effort) and acts on its
+(`.claude/agents/decision-advisor.md`, Opus at medium effort) and acts on its
 recommendation. A subagent may therefore dispatch `subagent_type: "decision-advisor"`.
 The advisor is a leaf: its definition grants read-only tools and no Agent tool, so the
 depth stays bounded at two and no fan-out follows from it.

@@ -121,7 +121,7 @@ never ship the small version (§14).
 **A question goes to the decision advisor before it goes to Jon.** Any agent, subagents
 included, with a question it cannot settle from the code, the docs and the rules (a B2, an
 `APPROVAL_REQUIRED` growth, an open design item, anything it would otherwise ask Jon) dispatches
-the `decision-advisor` agent (Fable 5.1, high effort; `.claude/agents/decision-advisor.md`) with
+the `decision-advisor` agent (Opus 5.5, medium effort; `.claude/agents/decision-advisor.md`) with
 the question, its evidence, the options and its own recommendation. On `VERDICT: RECOMMEND` it
 acts on the recommendation (approved growth included), records it with the advisor's rationale,
 and keeps working. Only on `VERDICT: ASK_JON` does it ask Jon: the advisor's question and

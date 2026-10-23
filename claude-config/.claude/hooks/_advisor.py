@@ -1,7 +1,7 @@
 """Whether the decision advisor has handed the current question to Jon.
 
-Jon's order: an agent with a question delegates it to the `decision-advisor` agent (Fable,
-high effort, `.claude/agents/decision-advisor.md`) and acts on its recommendation; only when
+Jon's order: an agent with a question delegates it to the `decision-advisor` agent (Opus,
+medium effort, `.claude/agents/decision-advisor.md`) and acts on its recommendation; only when
 the advisor cannot recommend anything does the agent ask Jon. The advisor says so with a line
 `VERDICT: ASK_JON` in its result.
 

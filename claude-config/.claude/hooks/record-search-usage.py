@@ -9,7 +9,7 @@ read of a large Python file, also at ``ask_files``. Each kind of hint is given u
 times per agent context. See "Pointing the agent at the index" below for why.
 
 Appends one JSON line per call to ``<workspace>/.code-index/usage.jsonl`` on this machine,
-capped at ``_LOG_MAX_BYTES`` with one rotated file (``_hook_log.py``):
+capped at ``SEARCH_USAGE_LOG_MAX_BYTES`` with one rotated file (``_hook_log.py``):
 every code-index MCP tool call, and every call the index could have answered instead --
 Grep, Glob, a Read of a Python file, and a shell command running a text search. Each line
 records the tool, what was searched or read (a pattern or a path, never file content),
@@ -34,7 +34,7 @@ from typing import Final
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from _hook_log import append_record  # noqa: E402
+from _hook_log import SEARCH_USAGE_LOG_MAX_BYTES, append_record  # noqa: E402
 from _mcp_registration import (  # noqa: E402
     CODE_INDEX_SERVER,
     LOCAL_LLM_SERVER,
@@ -48,8 +48,6 @@ _WORKSPACE: Final = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirn
     os.path.realpath(__file__))))))
 # Must match code_index.sources.INDEX_DIR_NAME and USAGE_LOG_NAME, which the report reads.
 _LOG_PATH: Final = os.path.join(_WORKSPACE, ".code-index", "usage.jsonl")
-# Measured at about 2.6 MB a week of agent work; with the one rotated file, three weeks or more.
-_LOG_MAX_BYTES: Final = 8 * 1024 * 1024
 
 _INDEX_TOOL_PREFIX: Final = f"mcp__{CODE_INDEX_SERVER}__"
 _SHELL_TOOLS: Final = frozenset({"Bash", "PowerShell"})
@@ -134,7 +132,7 @@ def main() -> None:
 
 def _append(entry: dict[str, object]) -> None:
     # Reported, not raised: a lost log line must never disturb the tool call it observed.
-    append_record(_LOG_PATH, entry, "record-search-usage", _LOG_MAX_BYTES)
+    append_record(_LOG_PATH, entry, "record-search-usage", SEARCH_USAGE_LOG_MAX_BYTES)
 
 
 # --- Pointing the agent at the index ----------------------------------------------------

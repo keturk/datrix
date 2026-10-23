@@ -1,5 +1,4 @@
 {
-  "autoCompactWindow": 500000,
   "env": {
     "BASH_MAX_OUTPUT_LENGTH": "10000",
     "MAX_MCP_OUTPUT_TOKENS": "8000"
@@ -34,7 +33,9 @@
       "PowerShell(az monitor diagnostic-settings list --resource $ns --query \"[].{name:name,ws:workspaceId}\" -o json 2>$null)",
       "PowerShell(D:\\\\datrix\\\\datrix\\\\scripts\\\\test\\\\test.ps1 datrix-codegen-common -Specific \"tests/unit/testkit/test_plan_ownership.py\")",
       "Bash(cd \"D:/datrix\" && echo \"=== 13-06 banned-construct context ===\" && grep -n -B2 -A2 -E \"unittest\\\\.mock|MagicMock|SimpleNamespace\" \"datrix-codegen-common/.tasks/phase-13/task-13-06-money-guard-uses-seam-accessor.md\" | head -40; echo; echo \"=== 13-10 Tests section ===\" && sed -n '/^## Tests/,/^## /p' \"datrix-codegen-common/.tasks/phase-13/task-13-10-transpile-data-single-materialization.md\" | head -40; echo; echo \"=== 13-13 header block ===\" && sed -n '1,30p' \"datrix-codegen-common/.tasks/phase-13/task-13-13-quality-gate-datrix-codegen-common.md\")",
-      "WebFetch(domain:zitadel.com)"
+      "WebFetch(domain:zitadel.com)",
+      "Bash(/d/datrix/.venv/Scripts/python.exe -m ruff check --select F common/lib/datrix_scripts/git/commit_and_push.py common/lib/datrix_scripts/git/gate_repair.py)",
+      "Bash(powershell -File \"d:/datrix/datrix/scripts/git/commit-and-push.ps1\" -SelfTest)"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude",
@@ -271,5 +272,6 @@
         ]
       }
     ]
-  }
+  },
+  "autoCompactWindow": 500000
 }

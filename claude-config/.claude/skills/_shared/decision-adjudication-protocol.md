@@ -3,7 +3,7 @@
 **Used by every agent and every skill — main session, subagent, orchestrator, `claude -p` step.** It
 governs what an agent does with ANY question or decision it cannot settle itself — including, but NOT
 limited to, a subagent's BLOCKED report and an `APPROVAL_REQUIRED` growth request (Jon's order: a
-question goes to a Fable agent at high effort, the agent acts on its recommendation, and only when it
+question goes to the decision advisor (Opus 5.5, medium effort), the agent acts on its recommendation, and only when it
 cannot recommend anything is Jon asked).
 
 Read this alongside `execution-contract.md` (§1 the closed blocker list, §3 the four-part proof).
@@ -12,7 +12,7 @@ Read this alongside `execution-contract.md` (§1 the closed blocker list, §3 th
 > adjudication to "blockers" created a hole: a conflict the *skill itself* hit — a contradiction
 > between two designs, a design-named surface with no owning task, an unbreakable tie on fix scope —
 > was not a "blocker report", so it fell through to `AskUserQuestion` and landed on the user. That is
-> the failure this doc now closes. **Fable is not the blocker door. Fable is the decision door.**
+> the failure this doc now closes. **The decision advisor is not the blocker door. It is the decision door.**
 
 ---
 
@@ -25,7 +25,7 @@ you may not stop early.
 |---|---|---|
 | **1** | **INVESTIGATE** | Read the code and the docs **yourself**. Reproduce the error. Open the `file:line`. Read the governing design doc. Most "decisions" dissolve here — they were missing information, not genuine ties. |
 | **2** | **DECIDE** | If the evidence settles it, **decide and act**. Escalating a decision you are able to make is as much a failure as stopping. Mild discomfort deciding is not a tie. |
-| **3** | **ADVISE (Fable)** | If, after genuine investigation, you **truly cannot decide** — dispatch the **decision advisor** (`subagent_type: "decision-advisor"`: Fable 5.1, high effort, read-only). On `VERDICT: RECOMMEND` its recommendation is **binding**; you execute it. |
+| **3** | **ADVISE** | If, after genuine investigation, you **truly cannot decide** — dispatch the **decision advisor** (`subagent_type: "decision-advisor"`: Opus 5.5, medium effort, read-only). On `VERDICT: RECOMMEND` its recommendation is **binding**; you execute it. |
 | **4** | **ASK JON** | **Only** when the advisor returns `VERDICT: ASK_JON`. Never before. Never instead. |
 
 **Jon is the last rung, not the first.** If you find yourself drafting an `AskUserQuestion` or an
@@ -69,7 +69,7 @@ user. It opens for any of these:
   the code (see §7 for the narrow set that genuinely belongs to the user).
 - **Anything else you would otherwise have taken to the user**, other than §7's exceptions.
 
-**Both doors converge on §5 (the Fable adjudication) and §6 (execute the decision).**
+**Both doors converge on §5 (the advisor adjudication) and §6 (execute the decision).**
 
 ---
 
@@ -205,7 +205,7 @@ task is still in flight.
 
 ---
 
-## 5. Rung 3 — ADJUDICATE: hand the decision to Fable
+## 5. Rung 3 — ADJUDICATE: hand the decision to the decision advisor
 
 You reach this rung when **either**:
 
@@ -213,26 +213,26 @@ You reach this rung when **either**:
 - **Door B:** your investigation was genuine and thorough, and the decision is *still* not settled by
   the design docs, the architecture docs, the code, or CLAUDE.md.
 
-**You do not decide it yourself, and you do not stop.** You hand the decision to a **Fable** agent at
-**high** effort — the strongest model available — and then you execute whatever it decides.
+**You do not decide it yourself, and you do not stop.** You hand the decision to the **decision advisor**
+(Opus 5.5 at **medium** effort) and then you execute whatever it decides.
 
-Why Fable and not you: reaching this rung means *the plan cannot be executed as written*. That is a
+Why the advisor and not you: reaching this rung means *the plan cannot be executed as written*. That is a
 design-level judgment about what should happen instead — re-plan, re-scope, fix at another layer,
 change the task, reorder the work, or genuinely go ask the user. It is the highest-stakes call in the
-run and it gets the strongest model. **It is emphatically not the user's call — not yet.** The user
-is rung 4, and only Fable can put you there.
+run and it goes to a dedicated advisor, not to you. **It is emphatically not the user's call — not yet.** The user
+is rung 4, and only the advisor's `VERDICT: ASK_JON` can put you there.
 
 ### Dispatch the advisor
 
 ```
 Agent tool parameters:
-  subagent_type: "decision-advisor"   # .claude/agents/decision-advisor.md: Fable 5.1, high effort,
+  subagent_type: "decision-advisor"   # .claude/agents/decision-advisor.md: Opus 5.5, medium effort,
                                       # read-only; its first line is VERDICT: RECOMMEND | ASK_JON
   run_in_background: false            # you need the decision before you can proceed
   description: "Decision advisor: {task_id or short question name}"
 ```
 
-Do not pass `model` or `effort`: the definition sets them. A `general-purpose` agent on Fable is not
+Do not pass `model` or `effort`: the definition sets them. A `general-purpose` agent on Opus is not
 the advisor; the gates do not accept its verdict.
 
 ### Advisor packet
@@ -321,25 +321,25 @@ Return:
 
 | Decision | What you do |
 |---|---|
-| **A. NOT_ACTUALLY_BLOCKED / NO_CONFLICT** | Accept the correction. Re-dispatch with Fable's steps as a directed-implementer prompt (§4 shape). The blocker/conflict is void. |
-| **B. FIX_ELSEWHERE** | Dispatch an implementer (sonnet default; opus for a hard/cross-cutting change) with Fable's steps. Widen your own verification to the new files. |
-| **C. AMEND_TASK** | Amend the **task file** (never the design doc): update its scope, `**Design acceptance property:**`, and Success Criteria per Fable's decision. Rewire `Depends on` and `dependencies.md` if the scope moved. Then dispatch it. |
+| **A. NOT_ACTUALLY_BLOCKED / NO_CONFLICT** | Accept the correction. Re-dispatch with the advisor's steps as a directed-implementer prompt (§4 shape). The blocker/conflict is void. |
+| **B. FIX_ELSEWHERE** | Dispatch an implementer (sonnet default; opus for a hard/cross-cutting change) with the advisor's steps. Widen your own verification to the new files. |
+| **C. AMEND_TASK** | Amend the **task file** (never the design doc): update its scope, `**Design acceptance property:**`, and Success Criteria per the advisor's decision. Rewire `Depends on` and `dependencies.md` if the scope moved. Then dispatch it. |
 | **D. RESEQUENCE** | Add the dependency edges (task files **and** `dependencies.md`), re-run cycle detection, move the tasks/phases to the correct order, and run the prerequisite first. Then the work proceeds normally. |
-| **E. SPAWN_FOLLOW_UP** | File a **real task file** with an ID, design reference, and provable acceptance property — prose in a report is not filing (execution-contract §5). Then do whatever Fable said the current work does in the meantime. |
+| **E. SPAWN_FOLLOW_UP** | File a **real task file** with an ID, design reference, and provable acceptance property — prose in a report is not filing (execution-contract §5). Then do whatever the advisor said the current work does in the meantime. |
 | **F. ASK_USER** (`VERDICT: ASK_JON`) | **Only now does Jon enter the loop.** `AskUserQuestion`, or one line starting `APPROVAL_REQUIRED:` when a turn ends on it, with the advisor's exact question, its options, **and its leaning**. Keep working what does not depend on it; act on the answer and continue the run. |
 | **G. RECOMMEND** | Act on the recommendation as written: a recommended growth is approved, a recommended answer to a B2 or design item is the decision. Record it (below) and keep going. |
 
 **Only F reaches Jon.** A–E and G all keep the run moving. Verify the outcome yourself with the
-`acceptance_check` Fable specified — the implementer's self-report is never sufficient.
+`acceptance_check` the advisor specified — the implementer's self-report is never sufficient.
 
-**If you believe Fable's decision is wrong**, say so *to Fable* with the evidence (a second
+**If you believe the advisor's decision is wrong**, say so *to the advisor* with the evidence (a second
 adjudication turn). Do not silently substitute your own judgment, and do not route around it to the
 user.
 
 ### Record it
 
 An adjudicated decision is recorded as: the problem, (for Door A) the confirmed `B1`–`B4` code,
-Fable's decision, and what you did about it — **never as a bare "task BLOCKED"** and never as an
+the advisor's decision, and what you did about it — **never as a bare "task BLOCKED"** and never as an
 unexplained change of plan.
 
 ---
@@ -369,7 +369,7 @@ decisions. The advisor decides them.**
 
 ## 8. Anti-patterns (each of these is a skill-level failure)
 
-- **Skipping to rung 4.** Taking a decision to the user that Fable has not returned `F` on. The most
+- **Skipping to rung 4.** Taking a decision to the user that the advisor has not returned `ASK_JON` on. The most
   common form: "this feels like it's really the user's call." It almost never is — §7 is the whole
   list.
 - **Rationalizing the door.** Deciding that *your* conflict isn't a "blocker report" and therefore
@@ -379,13 +379,13 @@ decisions. The advisor decides them.**
   is the *least* informed party about whether its own wall is real.
 - **Trusting the form.** Accepting a four-part proof because it has four parts. Form ≠ truth.
 - **Investigating and then stopping anyway.** Confirming a blocker/conflict is real and halting,
-  instead of routing it to Fable. A confirmed problem is a *decision point*, not a stop sign.
-- **Deciding a confirmed blocker/conflict yourself to save a turn.** The Fable adjudication is the
+  instead of routing it to the advisor. A confirmed problem is a *decision point*, not a stop sign.
+- **Deciding a confirmed blocker/conflict yourself to save a turn.** The decision advisor's adjudication is the
   mechanism; skipping it is skipping the mechanism.
 - **Escalating what you could have decided.** Rung 3 is for genuine ties *after* investigation. An
   under-researched question is not a tie — it is rung 1 you have not finished.
-- **Deciding not to follow Fable's decision.** You dispatched the decision; execute it. If you
-  believe it is wrong, say so *to Fable* with the evidence — do not silently substitute your own, and
+- **Deciding not to follow the decision advisor's decision.** You dispatched the decision; execute it. If you
+  believe it is wrong, say so *to the decision advisor* with the evidence — do not silently substitute your own, and
   do not appeal to the user.
 - **Recording an illegitimate BLOCKED as a failure or a skip.** It is neither. It is a task still in
   flight.

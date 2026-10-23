@@ -23,6 +23,10 @@ WORKSPACE: Final = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirna
     os.path.realpath(__file__))))))
 #: The directory holding the shared scripts package, for hooks that import ``datrix_scripts.*``.
 SCRIPTS_LIB_DIR: Final = os.path.join(WORKSPACE, "datrix", "scripts", "common", "lib")
+#: Cap of ``<workspace>/.code-index/usage.jsonl``, which three hooks append to. Measured at about
+#: 1.2 MB a day of multi-session agent work, so the log and its one rotated copy hold about three
+#: days; ``code-index.ps1 -Usage`` prints the date its report starts from.
+SEARCH_USAGE_LOG_MAX_BYTES: Final = 2 * 1024 * 1024
 
 
 def add_scripts_lib_to_path() -> None:
