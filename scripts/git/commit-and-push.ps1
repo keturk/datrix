@@ -125,6 +125,26 @@ thousand sites while the only check was an on-demand Semgrep warning. Pass
 this only for a confirmed false positive -- it prints a warning and commits
 regardless.
 
+.PARAMETER GateRepairAttempts
+How many times a failed lint, PolyString or design/task-reference gate is handed to a
+Claude agent to fix before every check is re-run. Default 3; 0 reports the failure and
+ends the run instead. A dry run never repairs, since it must change nothing.
+
+The agent reads, searches and edits files only (no shell: it cannot stage, commit, push or
+run this script), under the workspace's own CLAUDE.md and hooks. The re-run of the checks is
+the proof; the commit and push continue once they pass. The customer-domain and
+ignored-source checks are never handed over: the first redacts its term on purpose, and the
+second is fixed by loosening a .gitignore rule or the exemption file, which a person decides.
+
+.PARAMETER GateRepairModel
+Claude model of the gate repair agent. Default: claude-sonnet-5-5
+
+.PARAMETER GateRepairEffort
+Effort level of the gate repair agent: low, medium, high, xhigh or max. Default: medium
+
+.PARAMETER GateRepairTimeoutMs
+Timeout (ms) for each gate repair agent run. Default 1800000.
+
 .PARAMETER SelfTest
 Run only the module's self-test (a planted customer term, registered by digest in a
 temporary workspace's corpus, fails the whole run with nothing committed or staged; the
@@ -164,6 +184,12 @@ param(
  [switch]$SkipCustomerDomainCheck,
  [switch]$SkipIgnoredSourceCheck,
  [switch]$SkipPolyStringCaseCheck,
+ [ValidateRange(0, [int]::MaxValue)]
+ [int]$GateRepairAttempts,
+ [string]$GateRepairModel,
+ [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')]
+ [string]$GateRepairEffort,
+ [int]$GateRepairTimeoutMs,
  [switch]$SelfTest
 )
 # Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
