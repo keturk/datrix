@@ -35,7 +35,10 @@
       "Bash(cd \"D:/datrix\" && echo \"=== 13-06 banned-construct context ===\" && grep -n -B2 -A2 -E \"unittest\\\\.mock|MagicMock|SimpleNamespace\" \"datrix-codegen-common/.tasks/phase-13/task-13-06-money-guard-uses-seam-accessor.md\" | head -40; echo; echo \"=== 13-10 Tests section ===\" && sed -n '/^## Tests/,/^## /p' \"datrix-codegen-common/.tasks/phase-13/task-13-10-transpile-data-single-materialization.md\" | head -40; echo; echo \"=== 13-13 header block ===\" && sed -n '1,30p' \"datrix-codegen-common/.tasks/phase-13/task-13-13-quality-gate-datrix-codegen-common.md\")",
       "WebFetch(domain:zitadel.com)",
       "Bash(/d/datrix/.venv/Scripts/python.exe -m ruff check --select F common/lib/datrix_scripts/git/commit_and_push.py common/lib/datrix_scripts/git/gate_repair.py)",
-      "Bash(powershell -File \"d:/datrix/datrix/scripts/git/commit-and-push.ps1\" -SelfTest)"
+      "Bash(powershell -File \"d:/datrix/datrix/scripts/git/commit-and-push.ps1\" -SelfTest)",
+      "Bash(claude -p --output-format stream-json --verbose --tools \"Read\" --no-session-persistence --model claude-sonnet-5-5 --effort low)",
+      "Bash(/d/datrix/.venv/Scripts/python.exe -I -c \"import sys,json; d=json.loads\\(sys.stdin.readline\\(\\)\\); print\\(d.get\\('mcp_servers'\\)\\)\")",
+      "Bash(/d/datrix/.venv/Scripts/python.exe -I -c ' *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude",
