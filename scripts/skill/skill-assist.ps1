@@ -32,6 +32,15 @@
                        --knowledge-only]         Implemented) and no line names it
                       [--also P..]
    bug-resolution     --report R --repo P.. ...  the Resolution section for a fixed bug report
+   design-inventory   [--dir D] [--design-dir DD] registered targets, existing designs, numbering and the
+                                                 unconverted consolidated sections (/consolidate-to-design)
+   design-verify      [--dir D] [--no-model]     does each consolidated defect still hold? (model leads)
+   design-plan        [--dir D] [--design-dir DD] fix shapes for the consolidated sections: plan JSON +
+                      [--no-model]               review view
+   design-check       [--design-dir DD]          is the design folder well formed (size, order, references,
+                                                 guideline answers, target consistency)?
+   design-close       --finding F.. [--fixed ID..] delete converted consolidated files when the designs pass
+                      [--apply]                  and carry every cited file
 
  Lines carrying a registered customer term are withheld before anything is sent to a model, and
  without the term corpus nothing is sent.
@@ -77,7 +86,8 @@ param(
  [Parameter(Position=0, Mandatory=$true, ParameterSetName="Run")]
  [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "findings-plan",
   "findings-assemble", "finding-select", "finding-close", "checklist", "absorb-transfer", "absorb-references",
-  "absorb-delete", "bug-resolution")]
+  "absorb-delete", "bug-resolution", "design-inventory", "design-verify", "design-plan", "design-check",
+  "design-close")]
  [string]$Command,
 
  [Parameter(Position=1, ValueFromRemainingArguments=$true, ParameterSetName="Run")]
