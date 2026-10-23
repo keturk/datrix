@@ -116,8 +116,12 @@ change; nothing ships as a stub, placeholder, empty handler or temporary shim. D
 raise a count. The fact chooses the carrier: an annotation on the fixture line, a case row, a
 `.dcfg` fixture, a table row, and a test function only for an invariant over a set, an exception
 path or an algorithm's edge cases. Real objects only. Framework tests are static: they never
-compile, run or deploy generated output. One invariant read on every target replaces N per-target
-copies. Detail: [test-guidelines](../../../datrix-common/docs/contributing/test-guidelines/).
+compile, run or deploy generated output, with one exception. SQL Datrix writes is checked against
+the engine that runs it, because only the engine can say what the SQL means: such a test runs on
+every registered RDBMS engine, through the one shared live-database fixture, at the server
+version the engine's deployment defaults name (a test of an engine extension uses the extension's
+image of that version), carries the `live-database` tag, and fails, never skips, when Docker is
+not reachable. One invariant read on every target replaces N per-target copies. Detail: [test-guidelines](../../../datrix-common/docs/contributing/test-guidelines/).
 
 **G12. Catch it statically, before running it.** Every producer/consumer seam gets a set
 comparison (consumed − produced) that lives in code as a validator or test; the emitted artifact
@@ -139,7 +143,7 @@ the static check that would have caught it. Detail:
 | G8 | Does every unsupported input stop with a full diagnostic? | silent fallback |
 | G9 | Is every behaviour implemented exactly once, at the most shared layer, and does every generated script run without Datrix? | duplication, or a toolchain dependency after generation |
 | G10 | Is every replaced path deleted, and nothing stubbed? | dual path or pretend code |
-| G11 | Does each new test prove something that could break, in the right carrier? | inflated tests |
+| G11 | Does each new test prove something that could break, in the right carrier, and run generated output only where it is SQL checked on the live-database fixture? | inflated tests, or a test that runs generated output |
 | G12 | Is each new seam checked statically, in code? | runtime-only detection |
 
 ---
