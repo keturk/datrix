@@ -74,6 +74,22 @@ from datrix_scripts.ignored_source import self_test as ignored_source_self_test
 from datrix_scripts.framework_repos import framework_repos
 from datrix_scripts.gate_harness import UsageError, write_files
 from datrix_scripts.git.forbidden_forms import check_no_git_script_runs_a_forbidden_form
+from datrix_scripts.git.gate_repair import (
+    DEFAULT_REPAIR_ATTEMPTS,
+    DEFAULT_REPAIR_EFFORT,
+    DEFAULT_REPAIR_MODEL,
+    DEFAULT_REPAIR_TIMEOUT_MS,
+    REPAIR_EFFORTS,
+    GateRepairer,
+    GateRunError,
+    GateViolation,
+    check_repair_command_and_prompt,
+    check_repair_loop_does_not_repair_other_failures,
+    check_repair_loop_gives_up_after_the_last_attempt,
+    check_repair_loop_retries_until_the_gate_passes,
+    check_repair_loop_with_no_attempts_raises_the_violation_unchanged,
+    run_with_repair,
+)
 from datrix_scripts.local_llm import (
     DEFAULT_GENERATE_TIMEOUT_MS,
     DEFAULT_LOAD_TIMEOUT_MS,
@@ -1320,12 +1336,13 @@ def enforce_polystring_case_roundtrips(dirty_repos: list[Path]) -> None:
     detail = "\n".join(
         f"  {hit.render()}" for result in violating for hit in result.hits
     )
-    raise ScriptError(
+    raise GateViolation(
+        "PolyString case round-trip",
         f"PolyString case round-trip check FAILED: {total} pending call(s) re-case a name "
         f"through plain text. Nothing was committed or pushed. Read the case variant off "
         f"the PolyString (.snake/.camel/.pascal/.kebab/.screaming_snake/.simple) instead of "
         f"str()-ing it and calling a to_*_case function; if the value is genuinely plain "
-        f"text, drop the str() -- case functions accept any str.\n" + detail
+        f"text, drop the str() -- case functions accept any str.\n" + detail,
     )
 
 
@@ -1362,11 +1379,12 @@ def enforce_design_task_references(dirty_repos: list[Path]) -> None:
         return
 
     detail = "\n".join(f"  [{label}] {rel}:{lineno}: {line}" for rel, lineno, label, line in hits)
-    raise ScriptError(
+    raise GateViolation(
+        "Design/task reference",
         f"Design/task reference check FAILED: {len(hits)} pending line(s) cite a design "
         f"document, a task file or an item label. Nothing was committed or pushed. Those "
         f"files are gitignored and numbered per machine, so the reference dangles after a "
-        f"clone. Describe the WORK, not the ticket.\n" + detail
+        f"clone. Describe the WORK, not the ticket.\n" + detail,
     )
 
 
@@ -1409,13 +1427,14 @@ def enforce_python_lint_correctness(dirty_repos: list[Path]) -> None:
         return
 
     detail = "\n".join(f"  {repo.name}/{finding.render()}" for repo, finding in findings)
-    raise ScriptError(
+    raise GateViolation(
+        "Python lint-correctness",
         f"Python lint-correctness check FAILED: {len(findings)} lint finding(s) in pending "
         f"files. Nothing was committed or pushed. Fix the code (delete the unused import, "
         f"import the undefined name, rename the shadowing definition, put two blank lines "
         f"before and after each top-level def/class); if a finding is "
         f"genuinely required, suppress it on its own line with `# noqa: <code>` and the "
-        f"reason.\n" + detail
+        f"reason.\n" + detail,
     )
 
 
@@ -1516,6 +1535,33 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--gate-repair-attempts",
+        type=int,
+        default=DEFAULT_REPAIR_ATTEMPTS,
+        help=(
+            "How many times a failed lint, PolyString or design/task-reference gate is handed to "
+            "a Claude agent to fix before the checks are re-run; 0 reports the failure and ends "
+            f"the run instead (default: {DEFAULT_REPAIR_ATTEMPTS}). A dry run never repairs."
+        ),
+    )
+    parser.add_argument(
+        "--gate-repair-model",
+        default=DEFAULT_REPAIR_MODEL,
+        help=f"Claude model of the gate repair agent (default: {DEFAULT_REPAIR_MODEL}).",
+    )
+    parser.add_argument(
+        "--gate-repair-effort",
+        choices=REPAIR_EFFORTS,
+        default=DEFAULT_REPAIR_EFFORT,
+        help=f"Effort level of the gate repair agent (default: {DEFAULT_REPAIR_EFFORT}).",
+    )
+    parser.add_argument(
+        "--gate-repair-timeout-ms",
+        type=int,
+        default=DEFAULT_REPAIR_TIMEOUT_MS,
+        help=f"Timeout for each gate repair agent run (default: {DEFAULT_REPAIR_TIMEOUT_MS}).",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help=(
@@ -1598,18 +1644,47 @@ def run_pre_stage_checks(dirty_repos: list[Path], args: argparse.Namespace, datr
     enforce_python_lint_correctness(dirty_repos)
 
 
+def check_dirty_repos(workspace_root: Path, args: argparse.Namespace) -> list[Path]:
+    """The dirty repos once every pre-stage check passes over them; empty when none is dirty."""
+    dirty_repos = find_dirty_repos(workspace_root)
+    if dirty_repos:
+        run_pre_stage_checks(dirty_repos, args, workspace_root / "datrix")
+    return dirty_repos
+
+
+def check_dirty_repos_with_repair(workspace_root: Path, args: argparse.Namespace) -> list[Path]:
+    """``check_dirty_repos``, with a gate that found problems in the pending files handed to a Claude agent.
+
+    The agent fixes the files, then the dirty repos are found again and every check re-runs --
+    the agent may have changed which repos are dirty -- up to ``--gate-repair-attempts`` times. A dry
+    run never repairs: it would edit files while promising to change nothing.
+    """
+    attempts = 0 if args.dry_run else args.gate_repair_attempts
+    repairer = GateRepairer(
+        workspace=workspace_root,
+        model=args.gate_repair_model,
+        effort=args.gate_repair_effort,
+        timeout_ms=args.gate_repair_timeout_ms,
+        attempts=attempts,
+    )
+    try:
+        return run_with_repair(lambda: check_dirty_repos(workspace_root, args), repairer, attempts)
+    except GateViolation:
+        if args.dry_run and args.gate_repair_attempts:
+            print("Dry run: the gate repair agent was not started.", file=sys.stderr)
+        raise
+
+
 def commit_and_push(workspace_root: Path, args: argparse.Namespace) -> int:
     """Check, commit and push every dirty framework repo under *workspace_root*; the exit code.
 
     Raises:
         ScriptError: a pre-stage check or a git command failed.
     """
-    dirty_repos = find_dirty_repos(workspace_root)
+    dirty_repos = check_dirty_repos_with_repair(workspace_root, args)
     if not dirty_repos:
         print("No uncommitted changes in any Datrix repo. Nothing to commit.")
         return 0
-
-    run_pre_stage_checks(dirty_repos, args, workspace_root / "datrix")
 
     # Backend selection comes after the checks: loading a large local model can take
     # minutes, and must not be paid for a run that commits nothing.
@@ -1661,7 +1736,7 @@ def _failed_run(workspace: Path, argv: list[str]) -> tuple[str, str, str]:
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             code = commit_and_push(workspace, args)
-    except ScriptError as exc:
+    except (ScriptError, GateRunError) as exc:
         repo = workspace / "datrix"
         return (str(exc), _fixture_git(repo, "rev-list", "--count", "HEAD").strip(),
                 _fixture_git(repo, "diff", "--cached", "--name-only").strip())
@@ -1696,6 +1771,9 @@ def _check_wrapper_options_reach_the_model_settings() -> None:
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
         checks = [_check_a_planted_customer_term_fails_the_whole_run, _check_wrapper_options_reach_the_model_settings,
+                  check_repair_loop_retries_until_the_gate_passes, check_repair_loop_gives_up_after_the_last_attempt,
+                  check_repair_loop_with_no_attempts_raises_the_violation_unchanged,
+                  check_repair_loop_does_not_repair_other_failures, check_repair_command_and_prompt,
                   check_no_git_script_runs_a_forbidden_form]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=GIT_SCRIPTS_DIR)
     if args.max_commits_per_repo < 1:
@@ -1703,9 +1781,14 @@ def _run(args: argparse.Namespace) -> int:
             f"--max-commits-per-repo must be at least 1, got {args.max_commits_per_repo}. "
             "Use 1 to commit each repo as a single change."
         )
+    if args.gate_repair_attempts < 0 or args.gate_repair_timeout_ms < 1:
+        raise UsageError(
+            f"--gate-repair-attempts must be 0 or more and --gate-repair-timeout-ms at least 1, got "
+            f"{args.gate_repair_attempts} and {args.gate_repair_timeout_ms}."
+        )
     try:
         return commit_and_push(WORKSPACE_DIR, args)
-    except ScriptError as exc:
+    except (ScriptError, GateRunError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return EXIT_FAILED
 

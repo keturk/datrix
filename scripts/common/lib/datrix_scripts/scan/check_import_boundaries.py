@@ -108,6 +108,17 @@ no written ``reason``.
 --update-baseline (combined with --check-shared-target-names) recomputes the
 counts and preserves every written reason.
 
+Also implements the shared-prose platform-name ratchet (Principle 10): opt-in
+via --check-shared-prose-platform-names, it TOKENIZES (never AST-walks) the
+src/ trees of the DERIVED shared-package set and counts every registered
+platform name spelled in a comment, docstring, string literal or f-string text
+-- the prose every identifier ratchet above deliberately skips. The vocabulary
+is the platform-token vocabulary I1 already uses (datrix.platforms minus its
+English-word exclusions). Fails if any (file, platform name) count increases
+past its frozen baseline (scripts/config/shared-prose-platform-name-baseline.toml);
+a pair with no entry is held at zero. --update-baseline (combined with
+--check-shared-prose-platform-names) recomputes and overwrites that baseline.
+
 Also implements the I4 own-target-name ratchet (Decision D5, Invariant I4):
 opt-in via --check-own-target-names, it AST-scans EVERY registered LANGUAGE
 package's own src/ tree (the discovered taxonomy's language_packages -- the
@@ -244,6 +255,7 @@ from datrix_scripts.scan.import_boundaries import (
     own_target_names,
     provider_conditionals,
     reexport_facades,
+    shared_prose_platform_names,
     shared_target_names,
     shared_vocabulary,
     target_literals,
@@ -282,6 +294,13 @@ from datrix_scripts.scan.import_boundaries.reexport_facades import (
     check_reexport_facades,
     format_reexport_facade_worklist,
     scan_reexport_facades,
+)
+from datrix_scripts.scan.import_boundaries.shared_prose_platform_names import (
+    SHARED_PROSE_PLATFORM_NAME_BASELINE_KEY,
+    check_shared_prose_platform_name_ratchet,
+    scan_shared_prose_platform_names,
+    shared_prose_platform_name_counts,
+    write_shared_prose_platform_name_baseline,
 )
 from datrix_scripts.scan.import_boundaries.shared_target_names import (
     check_shared_target_name_ratchet,
@@ -326,6 +345,7 @@ _SCANNER_MODULES: tuple[ModuleType, ...] = (
     provider_conditionals,
     function_level_imports,
     shared_target_names,
+    shared_prose_platform_names,
     shared_vocabulary,
     cross_package_vocabulary,
     own_target_names,
@@ -341,6 +361,7 @@ _PROVIDER_CONDITIONAL_BASELINE = "provider-conditional-baseline.toml"
 _FUNCTION_LEVEL_IMPORT_BASELINE = "function-level-import-baseline.toml"
 _SHARED_VOCABULARY_BASELINE = "shared-vocabulary-baseline.toml"
 _SHARED_TARGET_NAME_BASELINE = "shared-target-name-baseline.toml"
+_SHARED_PROSE_PLATFORM_NAME_BASELINE = "shared-prose-platform-name-baseline.toml"
 _CROSS_PACKAGE_VOCABULARY_BASELINE = "cross-package-vocabulary-baseline.toml"
 _OWN_TARGET_NAME_BASELINE = "own-target-name-baseline.toml"
 
@@ -645,6 +666,24 @@ def _shared_target_name_outcome(ctx: _ScanContext) -> _Outcome:
     )
 
 
+def _shared_prose_platform_name_counts(ctx: _ScanContext) -> dict[str, int]:
+    hits = scan_shared_prose_platform_names(ctx.packages, ctx.root, ctx.shared_packages)
+    return shared_prose_platform_name_counts(hits, ctx.root)
+
+
+def _shared_prose_platform_name_outcome(ctx: _ScanContext) -> _Outcome:
+    path = _existing_baseline(
+        ctx,
+        _SHARED_PROSE_PLATFORM_NAME_BASELINE,
+        "shared-prose platform-name",
+        "--check-shared-prose-platform-names",
+    )
+    baseline = load_count_baseline(path, key_field=SHARED_PROSE_PLATFORM_NAME_BASELINE_KEY).counts
+    return _Outcome(
+        check_shared_prose_platform_name_ratchet(_shared_prose_platform_name_counts(ctx), baseline)
+    )
+
+
 def _cross_package_vocabulary_outcome(ctx: _ScanContext) -> _Outcome:
     path = _existing_baseline(
         ctx,
@@ -745,6 +784,12 @@ _CHECKS: tuple[_Check, ...] = (
         header="G2 shared-target-name ratchet failed for {count} file(s)",
         clean_note="No G2 shared-target-name ratchet regressions found.",
         run=_shared_target_name_outcome,
+    ),
+    _Check(
+        enabled=lambda args: args.check_shared_prose_platform_names,
+        header="shared-prose platform-name ratchet failed for {count} entry(ies)",
+        clean_note="No shared-prose platform-name ratchet regressions found.",
+        run=_shared_prose_platform_name_outcome,
     ),
     _Check(
         enabled=lambda args: args.check_cross_package_vocabulary,
@@ -856,6 +901,13 @@ def _update_shared_target_name_baseline(ctx: _ScanContext) -> None:
     )
 
 
+def _update_shared_prose_platform_name_baseline(ctx: _ScanContext) -> None:
+    path = ctx.config_path(_SHARED_PROSE_PLATFORM_NAME_BASELINE)
+    counts = _shared_prose_platform_name_counts(ctx)
+    write_shared_prose_platform_name_baseline(path, counts)
+    _report_update(ctx, "shared-prose platform-name", len(counts), "entry(ies)", path)
+
+
 def _update_cross_package_vocabulary_baseline(ctx: _ScanContext) -> None:
     """Recompute the counts, carrying every written D9 reason across the regeneration."""
     path = ctx.config_path(_CROSS_PACKAGE_VOCABULARY_BASELINE)
@@ -901,6 +953,10 @@ _UPDATES: tuple[_Update, ...] = (
     _Update(lambda args: args.check_function_level_imports, _update_function_level_import_baseline),
     _Update(lambda args: args.check_shared_vocabulary, _update_shared_vocabulary_baseline),
     _Update(lambda args: args.check_shared_target_names, _update_shared_target_name_baseline),
+    _Update(
+        lambda args: args.check_shared_prose_platform_names,
+        _update_shared_prose_platform_name_baseline,
+    ),
     _Update(
         lambda args: args.check_cross_package_vocabulary,
         _update_cross_package_vocabulary_baseline,
@@ -1101,6 +1157,19 @@ def scan_parser() -> argparse.ArgumentParser:
             "reference declared in datrix_codegen_common carries a "
             "registered LANGUAGE name (datrix.languages only, never "
             "datrix.platforms) as an identifier segment."
+        ),
+    )
+    parser.add_argument(
+        "--check-shared-prose-platform-names",
+        action="store_true",
+        help=(
+            "Run the shared-prose platform-name ratchet check (Principle 10) "
+            "in addition to the import-boundary check. Fails when a comment, "
+            "docstring, string literal or f-string text in the DERIVED "
+            "shared-package set spells a registered platform name "
+            "(datrix.platforms, minus the English-word collisions the "
+            "platform-token match excludes) more often per (file, name) than "
+            "the frozen baseline records; a pair with no entry is held at zero."
         ),
     )
     parser.add_argument(
