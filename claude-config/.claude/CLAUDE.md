@@ -258,7 +258,7 @@ an unproven BLOCKED is the second worst.**
 `/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/verify-implementation`,
 `/absorb-design`, `/commit-and-push`,
 `/evaluate-generated`, `/evaluate-generated-service`, `/consolidate-findings`, `/merge-findings`,
-`/implement-finding`, `/fix-cli`, `/fix-common`,
+`/consolidate-to-design`, `/implement-finding`, `/fix-cli`, `/fix-common`,
 `/fix-extensions`, `/fix-language`, `/fix-migration`, `/fix-semantic`, `/fix-testing`,
 `/fix-vscode`, `/fix-errors` (several packages' index.json at once),
 `/fix-codegen-{angular,aws,azure,common,component,docker,flutter,kernel,python,sql,typescript,typescript-core}`.
