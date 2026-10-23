@@ -43,6 +43,9 @@ from datrix_scripts.skill.bug_resolution import (
 from datrix_scripts.skill.checklist import draft_checklist
 from datrix_scripts.skill.common import EXIT_NO_MODEL, MAP_WORKERS, AssistError, ContentFilter
 from datrix_scripts.skill.context_digest import build_digest
+from datrix_scripts.skill.design_check import check_designs, close_findings
+from datrix_scripts.skill.design_inventory import free_gaps, load_designs, next_number, registered_targets
+from datrix_scripts.skill.design_plan import VERDICT_HOLDS, VERDICT_UNCLEAR, draft_shapes, verify_units
 from datrix_scripts.skill.finding_inbox import EXIT_DELETED, EXIT_KEPT, EXIT_UNUSABLE, finding_files, test_runs
 from datrix_scripts.skill.findings import build_index, check_consolidation, extract_file
 from datrix_scripts.skill.findings_assemble import Theme, apply_assembly, assemble, draft_plan, load_sources, parse_source
@@ -637,6 +640,169 @@ def check_service_mechanical_renders_checks_and_dead_code() -> None:
         assert expected in text, f"missing {expected!r} in:\n{text}"
 
 
+# ===========================================================================
+# designs
+# ===========================================================================
+
+_PRINCIPLES = "# Principles\n\n**G1. One.** text\n\n**G2. Two.** text\n"
+_TARGET_GROUPS = (("python", "datrix.languages"), ("typescript", "datrix.languages"),
+                  ("aws", "datrix.platforms"), ("docker", "datrix.platforms"))
+
+
+def _design_workspace(root: Path) -> None:
+    """The guidelines document and four registered targets: two languages, two platforms."""
+    write_file(root / "datrix/docs/architecture/design-principles.md", _PRINCIPLES)
+    for key, group in _TARGET_GROUPS:
+        write_file(root / f"datrix-codegen-{key}/pyproject.toml",
+                   f'[project]\nname = "datrix-codegen-{key}"\n\n[project.entry-points."{group}"]\n{key} = "x:y"\n')
+
+
+def _design_text(title: str, *, depends: str = "none", body: str = "", answers: tuple[str, ...] = ("G1", "G2")) -> str:
+    bullets = "".join(f"- {guideline}: answered\n" for guideline in answers)
+    return (f"# {title}\n\nStatus: Draft\nDepends on: {depends}\n\n## Problem\n\n{body}\n\n"
+            f"## Design guidelines conformance\n{bullets}")
+
+
+def _write_design(root: Path, stem: str, text: str) -> Path:
+    return write_file(root / "design" / f"{stem}.md", text)
+
+
+def check_design_inventory_reads_targets_from_registration_and_numbers_the_gaps() -> None:
+    with _workspace() as root:
+        _design_workspace(root)
+        _write_design(root, "010-base", _design_text("Base"))
+        _write_design(root, "020-next", _design_text("Next", depends="010-base"))
+        _write_design(root, "040-late", _design_text("Late", depends="020-next"))
+        write_file(root / ".tmp/implement-direct-040-late.md", "- [ ] unit\n")
+        assert registered_targets(root) == {"language": ("python", "typescript"), "platform": ("aws", "docker"),
+                                            "generator": ()}, registered_targets(root)
+        designs = load_designs(root, root / "design")
+        assert [d.extendable for d in designs] == [True, True, False], "a design with a ledger is being implemented"
+        assert designs[1].depends == ("010-base",), designs[1]
+        assert next_number(designs) == 50 and next_number([]) == 10
+        gaps = free_gaps(designs)
+        assert [(low, high, free[0]) for low, high, free in gaps] == [(10, 20, 15), (20, 40, 25)], gaps
+
+
+def check_design_check_refuses_each_malformed_design_and_checks_target_consistency_as_a_set() -> None:
+    with _workspace() as root:
+        _design_workspace(root)
+        reached = "Changes `datrix-codegen-python/src/x.py` and `datrix-codegen-aws/src/y.py`."
+        _write_design(root, "010-base", _design_text("Base"))
+        _write_design(root, "020-forward", _design_text("Forward", depends="030-later", body="Needs 030-later."))
+        _write_design(root, "030-later", _design_text("Later"))
+        _write_design(root, "040-gaps", _design_text(
+            "Gaps", body="TBD. From consolidated-013 section 1. Takes 3 days.", answers=("G1",)))
+        _write_design(root, "050-long", _design_text("Long", body="\n".join(["line"] * 100)))
+        _write_design(root, "060-targets", _design_text("Targets", body=reached)
+                      + "\n## Target consistency\n\npython and aws rows only.\n")
+        _write_design(root, "070-complete", _design_text("Complete", body=reached)
+                      + "\n## Target consistency\n\npython, typescript, aws, docker: all realize it.\n")
+        _write_design(root, "080-a", _design_text("A"))
+        _write_design(root, "080-b", _design_text("B"))
+        problems = check_designs(root, root / "design")
+        messages ={p.design: " | ".join(q.message for q in problems if q.design == p.design) for p in problems}
+        assert "030-later, which is not lower-numbered" in messages["020-forward"], messages
+        assert "names 030-later, which has an equal or higher number" in messages["020-forward"], messages
+        assert "lacks answers for G2" in messages["040-gaps"] and "placeholder or deferral 'TBD'" in messages["040-gaps"]
+        assert "consolidated-013" in messages["040-gaps"] and "effort figure '3 days'" in messages["040-gaps"], messages
+        assert [p.review for p in problems if "effort figure" in p.message] == [True]
+        assert "lines; at most 100" in messages["050-long"], messages
+        assert "omits registered language target(s): typescript" in messages["060-targets"], messages
+        assert "omits registered platform target(s): docker" in messages["060-targets"], messages
+        assert "shares number 080" in messages["080-b"], messages
+        assert not {"010-base", "030-later", "070-complete"} & set(messages), messages
+
+
+def _consolidated(root: Path) -> Path:
+    return write_file(root / "reports/finding/consolidated-001-alpha.md",
+                      "# Alpha seam\n\n**Scope:** alpha\n\n## 1. First\n\nAt `datrix-alpha/src/a.py:1`.\n\n"
+                      "## 2. Second\n\nAt `datrix-alpha/src/b.py:2`.\n\n## 3. Third\n\nCites nothing.\n")
+
+
+def check_design_close_deletes_only_when_the_designs_pass_and_carry_every_unfixed_section() -> None:
+    with _workspace() as root:
+        _design_workspace(root)
+        finding = _consolidated(root)
+        folder, designs = finding.parent, root / "design"
+        for name in ("a.py", "b.py"):
+            write_file(root / f"datrix-alpha/src/{name}", "VALUE = 1\n")
+        carried = _design_text("Base", body="Fixes `datrix-alpha/src/a.py` in the shared layer.")
+        _write_design(root, "010-base", carried)
+        result = close_findings(root, designs, [finding], set(), apply=True)
+        assert result.uncarried == {"C001.2": ["datrix-alpha/src/b.py"]} and not result.deleted, result
+        assert result.uncheckable == ["C001.3 (consolidated-001-alpha.md): cites no file that exists"], \
+            result.uncheckable
+        assert finding.exists(), "a defect no design carries must keep its finding"
+        assert close_findings(root, designs, [finding], {"C001.2"}, apply=False).passed and finding.exists()
+        try:
+            close_findings(root, designs, [finding], {"C001.9"}, apply=False)
+        except AssistError as exc:
+            assert "C001.9" in str(exc), exc
+        else:
+            raise AssertionError("a --fixed id that is in no given file was accepted")
+        _write_design(root, "020-broken", _design_text("Broken", body="TBD", answers=("G1",)))
+        blocked = close_findings(root, designs, [finding], {"C001.2"}, apply=True)
+        assert blocked.design_problems and finding.exists(), "a failing design must keep the finding"
+        (designs / "020-broken.md").unlink()
+        done = close_findings(root, designs, [finding], {"C001.2"}, apply=True)
+        assert done.deleted == ["consolidated-001-alpha.md"] and not finding.exists() and folder.is_dir(), done
+
+
+def _design_reply(chat: Chat) -> str:
+    if "review the fix shapes" in chat.system:
+        return json.dumps({"merges": [], "extends": [{"shape": "S1", "design": "010-base"},
+                                                       {"shape": "S2", "design": "999-nope"}]})
+    if "group the defect sections" in chat.system:
+        return json.dumps({"shapes": [{"title": "Alpha core", "units": ["C001.1", "C001.9"]},
+                                      {"title": "Alpha gone", "units": ["C001.2"]}]})
+    return "STILL HOLDS\nHELPERS is defined at datrix-alpha/src/datrix_alpha/core.py:3."
+
+
+def check_design_verify_and_plan_check_every_answer_and_never_send_a_customer_term() -> None:
+    with _workspace() as root:
+        _write_design(root, "010-base", _design_text("Base"))
+        write_file(root / "reports/finding/consolidated-001-alpha.md", (
+            "# Alpha seam\n\n**Scope:** alpha\n\n"
+            "## 1. First\n\nAt `datrix-alpha/src/datrix_alpha/core.py:3` and `datrix-alpha/src/gone.py:1`.\n\n"
+            "## 2. Second\n\nOnly `datrix-alpha/src/gone.py:2`.\n\n"
+            f"## 3. Third\n\nThe {_GATE_TERM} line at `datrix-alpha/src/datrix_alpha/core.py:1`.\n"))
+        sources = load_sources(root / "reports/finding")
+        with LoopbackOllama(_design_reply) as server:
+            results = {r.unit_id: r for r in verify_units(root, _pool(server), sources)}
+            shapes = draft_shapes(root, _pool(server), sources, load_designs(root, root / "design"))
+        asked = [chat for chat in server.chats if "A report claims" in chat.user]
+        assert len(asked) == 2, "the section whose cited files are all gone must not reach a model"
+        assert results["C001.1"].verdict == VERDICT_HOLDS and results["C001.1"].gone == ("datrix-alpha/src/gone.py",)
+        assert results["C001.2"].verdict == VERDICT_UNCLEAR and "no cited file" in results["C001.2"].evidence
+        sent = " ".join(chat.user for chat in server.chats)
+        assert _GATE_TERM not in sent and "Third" in sent, "a registered customer term reached the model"
+        by_title = {shape.title: shape for shape in shapes}
+        assert by_title["Alpha core"].units == ["C001.1"], "an invented section id must be dropped"
+        assert by_title["Alpha core"].extends == "010-base" and by_title["Alpha gone"].extends == ""
+        third = by_title["Third"]
+        assert third.units == ["C001.3"] and "no shape" in " ".join(third.review), third
+
+
+def check_design_commands_exit_with_the_assist_codes() -> None:
+    with _workspace() as root:
+        _design_workspace(root)
+        _consolidated(root)
+        _write_design(root, "010-base", _design_text("Base", body="TBD", answers=("G1",)))
+
+        def run(*arguments: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run([sys.executable, *_CLI, "--workspace", str(root), *arguments],
+                                  capture_output=True, text=True, check=False, env=script_env())
+
+        assert run("design-inventory").returncode == 0 and (root / ".tmp/assist/design-inventory.md").is_file()
+        plan = run("design-plan", "--no-model")
+        assert plan.returncode == 0 and (root / ".tmp/assist/design-plan.md").is_file(), plan.stderr
+        check = run("design-check")
+        assert check.returncode == 2 and "lacks answers for G2" in check.stdout, (check.returncode, check.stdout)
+        close = run("design-close", "--finding", "consolidated-001-alpha.md", "--apply")
+        assert close.returncode == 2 and (root / "reports/finding/consolidated-001-alpha.md").is_file(), close.stdout
+
+
 def check_cli_exits_3_when_no_local_model_answers() -> None:
     with _workspace() as root:
         design = write_file(root / "design/042-fixture-design.md", _DESIGN)
@@ -679,6 +845,11 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_bug_resolution_keeps_every_row_of_a_repeated_flag,
     check_quick_report_renders_every_scan_fact,
     check_service_mechanical_renders_checks_and_dead_code,
+    check_design_inventory_reads_targets_from_registration_and_numbers_the_gaps,
+    check_design_check_refuses_each_malformed_design_and_checks_target_consistency_as_a_set,
+    check_design_close_deletes_only_when_the_designs_pass_and_carry_every_unfixed_section,
+    check_design_verify_and_plan_check_every_answer_and_never_send_a_customer_term,
+    check_design_commands_exit_with_the_assist_codes,
     check_cli_exits_3_when_no_local_model_answers,
 ]
 

@@ -24,6 +24,15 @@ Commands:
                                                  delete the design when its licence holds and no
                                                  line names it (exact)
     bug-resolution     --report R --repo P ...   the Resolution section for a fixed bug report
+    design-inventory   [--dir D] [--design-dir DD]
+                                                 registered targets, existing designs, numbering and the
+                                                 unconverted consolidated sections (exact)
+    design-verify      [--dir D] [--no-model]    does each consolidated defect still hold? (model, checked)
+    design-plan        [--dir D] [--design-dir DD] [--no-model]
+                                                 fix shapes for the consolidated sections (model, checked)
+    design-check       [--design-dir DD]         is the design folder well formed? (exact)
+    design-close       --finding F... [--fixed ID...] [--apply]
+                                                 delete converted consolidated files (exact)
 
 Exit codes: 0 done; 1 the request could not be carried out; 2 the check found something to act on;
 3 no local model answered (do the phase yourself, as before the assist).
@@ -78,6 +87,23 @@ from datrix_scripts.skill.common import (
     write_output,
 )
 from datrix_scripts.skill.context_digest import build_digest
+from datrix_scripts.skill.design_check import check_designs, close_findings, render_close, render_problems
+from datrix_scripts.skill.design_inventory import (
+    design_dir,
+    load_designs,
+    next_number,
+    registered_targets,
+    render_inventory,
+)
+from datrix_scripts.skill.design_plan import (
+    VERDICT_FIXED,
+    VERDICT_HOLDS,
+    draft_shapes,
+    exact_gone,
+    render_shapes,
+    render_verification,
+    verify_units,
+)
 from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
 from datrix_scripts.skill.finding_inbox import close_finding, finding_files, findings_dir
 from datrix_scripts.skill.findings import build_index, check_consolidation, render_check, render_index
@@ -300,11 +326,80 @@ def cmd_finding_select(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _design_dir(workspace: Path, spec: str | None) -> Path:
+    return Path(spec) if spec else design_dir(workspace)
+
+
+def cmd_design_inventory(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    sources = load_sources(_findings_dir(workspace, args.dir))
+    designs = load_designs(workspace, _design_dir(workspace, args.design_dir))
+    path = write_output(workspace, "design-inventory.md",
+                        render_inventory(workspace, registered_targets(workspace), designs, sources))
+    files = [source for source in sources if source.consolidated]
+    return _done(path, f"{sum(len(s.units) for s in files)} unconverted section(s) in {len(files)} consolidated "
+                       f"file(s); {len(designs)} design(s); an appended design is {next_number(designs):03d}.")
+
+
+def cmd_design_verify(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    sources = load_sources(_findings_dir(workspace, args.dir))
+    if args.no_model:
+        note = "Skipped (--no-model): only sections with no usable cited file are listed; verify the rest yourself."
+        results = exact_gone(sources, workspace)
+    else:
+        note = ""
+        results = verify_units(workspace, _pool(args), sources)
+    path = write_output(workspace, "design-verify.md", render_verification(results, note))
+    holds = sum(1 for result in results if result.verdict == VERDICT_HOLDS)
+    fixed = sum(1 for result in results if result.verdict == VERDICT_FIXED)
+    return _done(path, f"{len(results)} section(s): {holds} still hold, {fixed} read as fixed, "
+                       f"{len(results) - holds - fixed} unclear.")
+
+
+def cmd_design_plan(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    sources = load_sources(_findings_dir(workspace, args.dir))
+    designs = load_designs(workspace, _design_dir(workspace, args.design_dir))
+    shapes = draft_shapes(workspace, None if args.no_model else _pool(args), sources, designs)
+    if not shapes:
+        print("The findings folder holds no consolidated file.")
+        return EXIT_OK
+    view = write_output(workspace, "design-plan.md", render_shapes(shapes, sources, registered_targets(workspace)))
+    return _done(view, f"{sum(len(s.units) for s in shapes)} section(s) into {len(shapes)} fix shape(s); "
+                       f"{sum(1 for s in shapes if s.review)} shape(s) flagged for review.")
+
+
+def cmd_design_check(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _design_dir(workspace, args.design_dir)
+    problems = check_designs(workspace, directory)
+    print(render_problems(problems, len(load_designs(workspace, directory))), end="")
+    return EXIT_CHECK_FAILED if problems else EXIT_OK
+
+
+def cmd_design_close(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _findings_dir(workspace, args.dir)
+    files = [Path(spec) if Path(spec).is_absolute() else directory / spec for spec in args.finding]
+    missing = [str(path) for path in files if not path.is_file()]
+    if missing:
+        raise AssistError(f"Not files: {', '.join(missing)}. Pass the names of consolidated files in {directory}.")
+    result = close_findings(workspace, _design_dir(workspace, args.design_dir), files, set(args.fixed), args.apply)
+    print(render_close(result, args.apply), end="")
+    return EXIT_OK if result.passed else EXIT_CHECK_FAILED
+
+
 def cmd_finding_close(args: argparse.Namespace) -> int:
     session_log = Path(args.session_log).resolve() if args.session_log else None
     text, code = close_finding(Path(args.finding).resolve(), session_log)
     print(text)
     return code
+
+
+def _design_folders(sub: argparse.ArgumentParser) -> None:
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--design-dir", help="Design folder (default: <workspace>/design)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -364,6 +459,23 @@ def build_parser() -> argparse.ArgumentParser:
     licence.add_argument("--knowledge-only", action="store_true",
                          help="The design has no implementation scope (a decision record, a reference write-up)")
     sub.add_argument("--also", nargs="*", action="extend", default=[], help="Extra files or folders to search (e.g. the memory dir)")
+    sub = command("design-inventory", cmd_design_inventory, model=False)
+    _design_folders(sub)
+    sub = command("design-verify", cmd_design_verify, model=True)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--no-model", action="store_true", help="List only the sections with no usable cited file")
+    sub = command("design-plan", cmd_design_plan, model=True)
+    _design_folders(sub)
+    sub.add_argument("--no-model", action="store_true", help="One fix shape per consolidated file")
+    sub = command("design-check", cmd_design_check, model=False)
+    sub.add_argument("--design-dir", help="Design folder (default: <workspace>/design)")
+    sub = command("design-close", cmd_design_close, model=False)
+    _design_folders(sub)
+    sub.add_argument("--finding", nargs="+", action="extend", required=True,
+                     help="The consolidated files whose content is now in designs")
+    sub.add_argument("--fixed", nargs="*", action="extend", default=[],
+                     help="Section ids (C013.2) the code proves already fixed, so no design carries them")
+    sub.add_argument("--apply", action="store_true", help="Delete the files when every check passes")
     sub = command("bug-resolution", cmd_bug_resolution, model=True)
     sub.add_argument("--report", required=True)
     sub.add_argument("--repo", nargs="+", action="extend", default=[], help="Repositories the fix changed")
