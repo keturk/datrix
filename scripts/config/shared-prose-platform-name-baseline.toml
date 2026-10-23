@@ -1,0 +1,1494 @@
+# Shared-Prose Platform-Name Ratchet Baseline (Principle 10)
+#
+# Frozen counts of registered platform names (datrix.platforms entry points,
+# minus the English-word collisions the platform-token match excludes)
+# spelled in comments, docstrings, string literals and f-string text of
+# the derived shared-package set, one entry per (file, platform name).
+# A (file, name) pair with no entry is held at zero, so a platform name
+# entering shared prose anywhere new fails
+# datrix/scripts/scan/check-import-boundaries.ps1 -CheckSharedProsePlatformNames.
+# Any INCREASE fails; decreases are always allowed and are captured by
+# re-running with -UpdateBaseline once a change rewords a mention.
+# The target is an empty file: reword each mention provider-neutrally, or
+# move the fact into the platform's own declaration.
+#
+# Format:
+#   [[baseline]]
+#   entry = "path/relative/to/monorepo-root, forward slashes::platform-name"
+#   count = <int>
+
+[[baseline]]
+entry = "datrix-cli/src/datrix_cli/commands/generate.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-cli/src/datrix_cli/commands/generators/_shared.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-cli/src/datrix_cli/commands/generators/_shared.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-cli/src/datrix_cli/main.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-cli/src/datrix_cli/main.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-cli/src/datrix_cli/main.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/cqrs.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/deployment_test_context.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/deployment_test_context.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/dev_scripts_plan.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/rate_limit_plan_resolution.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/secret_resolver_plan.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/secret_resolver_plan.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/serverless_realization.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/serverless_realization.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/servicebus_connection_plan.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/servicebus_receivers.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/storage_fixtures.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/subscription_consumer.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/cache/connection_url.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/generation/doc_generator.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/generation/doc_generator.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/identity/machine_credential.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/identity/machine_credential.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/identity/machine_credential.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/identity/write_back_plan.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/orchestration/deploy_harness_context.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/platform/auth_resolver.py::aws"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/platform/auth_resolver.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/platform/auth_resolver.py::docker"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/testkit/__init__.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/testkit/__init__.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/testkit/__init__.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/testkit/capability_negotiation.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/transpiler/context.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/transpiler_context/builder.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/cqrs_projection_receivers.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/serverless.py::aws"
+count = 4
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/serverless.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/servicebus_lock_renewal.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/servicebus_naming.py::azure"
+count = 10
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/sqs_naming.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/context_models/serverless.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/context_models/serverless.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/context_models/serverless.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dashboards/models.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dashboards/models.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dashboards/models.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dashboards/panels.py::docker"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/deployment/deploy_binding_conformance.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/registrations.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/registry_adapter.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/resolver.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/target_registry.py::aws"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/target_registry.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/target_registry.py::docker"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/validator.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/agents_metrics.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/agents_metrics.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/agents_metrics.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/alert_metrics.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/alert_metrics.py::docker"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/alert_observation.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/api_helpers.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/app_context.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/app_context.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/app_context.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/application_metrics.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/client_runtime_paths.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/client_runtime_paths.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/client_runtime_paths.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/consumer_runtime.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/consumer_runtime.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/dgen_ir.py::docker"
+count = 4
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/dgen_registry.py::aws"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/dgen_registry.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/discovery.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/discovery.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/event_envelope.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/feature_catalog.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/framework_secret_handles.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/framework_secret_handles.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/gateway_routes.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/gateway_routes.py::docker"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/generator.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/generator.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/generator.py::docker"
+count = 4
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/kernel_service_predicates.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/language_runtime_spec.py::aws"
+count = 7
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/language_runtime_spec.py::azure"
+count = 14
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/language_runtime_spec.py::docker"
+count = 16
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/project_ignore.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/raise_site_guards.py::aws"
+count = 4
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/raise_site_guards.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/raise_site_guards.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/rate_limit_decorator.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/search_compose.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/search_compose.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/search_compose.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/service_features.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/validation.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/validation.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/orchestration/resolved_runtime_plan.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/orchestration/resolved_runtime_plan.py::azure"
+count = 10
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/orchestration/resolved_runtime_plan.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/parity/conformance_probes.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/baseline_alarms.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/baseline_alarms.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/cdn_realization.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/cdn_realization.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/container_image_supply.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/container_image_supply.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/dashboard_domains.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/dashboard_domains.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/env_constants.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/env_constants.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/env_constants.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/infrastructure.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/infrastructure.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/infrastructure.py::docker"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/pooling_scaffolding.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/pooling_scaffolding.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/pooling_scaffolding.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/preflight.py::aws"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/preflight.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/runtime.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/runtime.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/value_objects.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/value_objects.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/value_objects.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/web_security_headers.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/web_security_headers.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/web_security_headers.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/zero_env.py::aws"
+count = 8
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/platform/zero_env.py::azure"
+count = 9
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/pooling/contract.py::aws"
+count = 5
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/pooling/contract.py::azure"
+count = 6
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/pooling/contract.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/pooling/db_extensions.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/pooling/db_extensions.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/pooling/grouping.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/__init__.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/__init__.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/__init__.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/handle_derivation.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/handle_derivation.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/handle_derivation.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/manifest.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/manifest.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/manifest.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/manifest_builder.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/manifest_builder.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/manifest_builder.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/messaging_vendor_handles.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/render_contract.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/render_contract.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/render_contract.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/secret_placement.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/seed/config_seed_plan.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/seed/config_seed_plan.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/seed/config_seed_planner.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/seed/target_writers/storage.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/constants.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/directory_constants.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/web_client/endpoints.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/cdn/models.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/codegen_context.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/codegen_context.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/codegen_context.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/config_store/models.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/config_store/models.py::azure"
+count = 8
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/config_store/models.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/broker_engine.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/broker_engine.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/broker_engine.py::docker"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/cache_engine.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/identity_config.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/models.py::aws"
+count = 7
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/models.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/models.py::docker"
+count = 7
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/nosql_engine.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/nosql_engine.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/platform_helpers.py::aws"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/platform_helpers.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/platform_helpers.py::docker"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/queue_engine.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/queue_engine.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/datasource/rdbms_engine.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/dcfg/group_models.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/deployment_config.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/deployment_config.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/deployment_config.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/deployment_plan.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/deployment_validation.py::aws"
+count = 7
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/deployment_validation.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/engine_defaults.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/extern_service/loader.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/extern_service/models.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/flavor_identity.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/flavor_identity.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/gateway/models.py::aws"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/gateway/models.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/gateway/models.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/integrations/models.py::aws"
+count = 11
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/integrations/models.py::azure"
+count = 11
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/integrations/models.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/integrations/notification_vendor_profile.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/integrations/notification_vendor_profile.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/integrations/vendor_tokens.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/integrations/vendor_tokens.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/observability/models.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/observability/models.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/observability/models.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/platform/base.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/platform/base.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/platform/base.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/platform/diagnostics.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/platform/diagnostics.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/resolved_application.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/resolved_application.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/runtime_identity.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/runtime_identity.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/runtime_identity.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/secret_hygiene.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/secrets/models.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/serverless/hosting_validation.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/serverless/hosting_validation.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/serverless/models.py::aws"
+count = 10
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/serverless/models.py::azure"
+count = 13
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/serverless/models.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/service_config/models.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/service_config/models.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/service_config/readable_values.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/service_meta/models.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/storage/models.py::azure"
+count = 10
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/storage/models.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/system_config/models.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/system_config/models.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/system_config/platform_sections.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/unified_loader.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config/unified_loader.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config_resolution_blocks.py::aws"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/config_resolution_blocks.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/datrix_model/cache_connection_scope.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/datrix_model/serverless.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/datrix_model/service_accessors.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/datrix_model/service_accessors.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/datrix_model/service_pubsub_scope.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/datrix_model/service_pubsub_scope.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/cache_connection_identity.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/cache_connection_identity.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/cache_connection_identity.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/cache_transport.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/connection_surface.py::azure"
+count = 8
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/connection_surface.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/connection_surface_dependencies.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/connection_surface_dependencies.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/identity_write_back.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/rdbms_connection_identity.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/rdbms_connection_identity.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/rdbms_connection_identity.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/runtime_bootstrap.py::aws"
+count = 10
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/runtime_bootstrap.py::azure"
+count = 13
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/runtime_bootstrap.py::docker"
+count = 10
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/runtime_requirements.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/runtime_requirements.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/runtime_requirements.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/secret_backend.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/secret_backend.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/secret_backend.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/service_predicates.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/service_predicates.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/service_predicates.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/signing_backend.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/signing_backend.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/deployment_context.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/deployment_context.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/deployment_context.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/plan_artifact.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/plan_artifact.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/plan_artifact.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/planner/endpoints.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/planner/planner.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/identity/provider_type_registry.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/infra/providers.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/infra/registry.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/infra/registry.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/infra/registry.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/paths.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/paths.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/paths.py::docker"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability.py::azure"
+count = 7
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability.py::docker"
+count = 12
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability_cells.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability_cells.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability_cells.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability_policy.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability_policy.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability_resolution.py::aws"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability_resolution.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/capability_resolution.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/deployment/cache_pooled_slice_delivery.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/deployment/cache_pooled_slice_delivery.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/deployment/cache_pooled_slice_delivery.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/function_app_realization.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/identity.py::aws"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/identity.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/identity.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/language_capability.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/language_capability.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/language_capability.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/language_plugin.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/model_realization.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/model_realization.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/platform_config_contract.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/platform_config_contract.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/platform_runtime_spec.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/platform_runtime_spec.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/protocol.py::aws"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/protocol.py::azure"
+count = 3
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/protocol.py::docker"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/registry.py::aws"
+count = 9
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/registry.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/registry.py::docker"
+count = 8
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/runtime_spec_resolution.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/runtime_spec_resolution.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/runtime_spec_resolution.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/search_realization.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/plugin/untracked_project_artifact.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/duration.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/duration.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/job_helpers.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/job_helpers.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/pubsub_helpers.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/pubsub_helpers.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/resources.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/resources.py::docker"
+count = 8
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/utils/service_container_memory.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-semantic/src/datrix_semantic/validators/pooling_pubsub.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-semantic/src/datrix_semantic/validators/pooling_pubsub.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-semantic/src/datrix_semantic/validators/pooling_rdbms.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-semantic/src/datrix_semantic/validators/pooling_rdbms.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-semantic/src/datrix_semantic/validators/pooling_rdbms.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-semantic/src/datrix_semantic/validators/pooling_storage.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/config_realization.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/config_realization.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/fixture_language_runtime.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/fixture_language_runtime.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/fixture_platform.py::aws"
+count = 4
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/fixture_platform.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/fixture_platform.py::docker"
+count = 5
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/generated_text_assertions.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/realization_conformance.py::aws"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/realization_conformance.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/conformance/realization_conformance.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/dgen_harness.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/dgen_harness.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/fixture_platforms.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/fixture_platforms.py::azure"
+count = 2
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/fixture_platforms.py::docker"
+count = 2
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/fixtures.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/identity_example.py::aws"
+count = 4
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/identity_example.py::azure"
+count = 4
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/identity_example.py::docker"
+count = 7
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/infra_constants.py::aws"
+count = 2
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/infra_constants.py::azure"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/infra_constants.py::docker"
+count = 1
+
+[[baseline]]
+entry = "datrix-testing/src/datrix_testing/project_config.py::docker"
+count = 1
