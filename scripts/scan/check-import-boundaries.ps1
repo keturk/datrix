@@ -90,6 +90,16 @@
  scripts/config/shared-target-name-baseline.toml; every baseline entry
  carries a written `reason`, and -UpdateBaseline preserves each one.
 
+.PARAMETER CheckSharedProsePlatformNames
+ Run the shared-prose platform-name ratchet check (Principle 10) in addition
+ to the import-boundary check. Tokenizes every comment, docstring, string
+ literal and f-string text of the DERIVED shared-package set and counts each
+ registered platform name (datrix.platforms, minus the "local" English-word
+ collision the platform-token match excludes) per (file, name). Compares the
+ counts against the frozen baseline at
+ scripts/config/shared-prose-platform-name-baseline.toml; a (file, name) pair
+ with no entry is held at zero.
+
 .PARAMETER CheckCrossPackageVocabulary
  Run the G3 cross-package vocabulary ratchet check (Decision D2.1-D2.4) in
  addition to the import-boundary check. Fails when a module-level
@@ -224,6 +234,14 @@
  Recompute and overwrite the frozen shared-target-name baseline
 
 .EXAMPLE
+ .\check-import-boundaries.ps1 -CheckSharedProsePlatformNames
+ Run the shared-prose platform-name ratchet check against the frozen baseline
+
+.EXAMPLE
+ .\check-import-boundaries.ps1 -CheckSharedProsePlatformNames -UpdateBaseline
+ Recompute and overwrite the frozen shared-prose platform-name baseline
+
+.EXAMPLE
  .\check-import-boundaries.ps1 -CheckCrossPackageVocabulary
  Run the G3 cross-package vocabulary ratchet check (Decision D2.1-D2.4) against the frozen baseline
 
@@ -263,6 +281,7 @@ param(
     [switch]$CheckFunctionLevelImports,
     [switch]$CheckSharedVocabulary,
     [switch]$CheckSharedTargetNames,
+    [switch]$CheckSharedProsePlatformNames,
     [switch]$CheckCrossPackageVocabulary,
     [switch]$CheckOwnTargetNames,
     [switch]$CheckReexportFacades,
