@@ -93,7 +93,7 @@ _PARITY_RUNNER_MODULES: Final = frozenset(
 )
 
 # A numbered design doc in a `design/` folder; the `000-` index is not a design.
-_DESIGN_DOC_RE: Final = re.compile(r"(?:^|/)design/(?!000-)\d{3}-[^/]+\.md$")
+_DESIGN_DOC_RE: Final = re.compile(r"(?:^|/)design/(?!000-)\d{3,4}-[^/]+\.md$")
 _GUIDELINES_DOC: Final = os.path.join(_REPO_ROOT, "datrix", "docs", "architecture", "design-principles.md")
 # A guideline's definition in design-principles.md: `**G7. Secure by default ...`.
 _GUIDELINE_DEFINITION_RE: Final = re.compile(r"^\*\*G(\d+)\.", re.MULTILINE)

@@ -260,7 +260,7 @@ an unproven BLOCKED is the second worst.**
 `/evaluate-generated`, `/evaluate-generated-service`, `/consolidate-findings`, `/merge-findings`,
 `/consolidate-to-design`, `/implement-finding`, `/fix-cli`, `/fix-common`,
 `/fix-extensions`, `/fix-language`, `/fix-migration`, `/fix-semantic`, `/fix-testing`,
-`/fix-vscode`, `/fix-errors` (several packages' index.json at once),
+`/fix-vscode`, `/fix-test-suites` (several packages' index.json at once),
 `/fix-codegen-{angular,aws,azure,common,component,docker,flutter,kernel,python,sql,typescript,typescript-core}`.
 
 **Jon types these — you cannot:** `/delegate`, `/imports`,

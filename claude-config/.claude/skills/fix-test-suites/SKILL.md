@@ -4,7 +4,7 @@ model: claude-sonnet-5-5
 effort: high
 ---
 
-# Fix Errors
+# Fix Test Suites
 
 Diagnose and fix failures, errors, and warnings that show up in the structured test results (`index.json`) of **two or more `datrix-*` packages** at once, treating them as one problem set. Use it when a change in one package breaks tests in others, or when the same root cause surfaces in several runs. For a single package use that package's `/fix-*` skill.
 
@@ -13,7 +13,7 @@ Diagnose and fix failures, errors, and warnings that show up in the structured t
 ## How to Invoke
 
 ```
-/fix-errors D:\datrix\datrix-common\.test_results\test-results-YYYYMMDD-HHMMSS\index.json D:\datrix\datrix-codegen-kernel\.test_results\test-results-YYYYMMDD-HHMMSS\index.json
+/fix-test-suites D:\datrix\datrix-common\.test_results\test-results-YYYYMMDD-HHMMSS\index.json D:\datrix\datrix-codegen-kernel\.test_results\test-results-YYYYMMDD-HHMMSS\index.json
 ```
 
 The arguments are one or more absolute paths to an `index.json` inside a `.test_results/test-results-*/` directory, each from a different repo (two runs of the same repo are allowed; the newer one wins for that repo, and say so). Separate them with spaces, commas or new lines.
@@ -27,7 +27,7 @@ Reject at once, naming the file, any path that does not exist, is not an `index.
 
 ## Multi-package adjustments to the playbook
 
-The playbook's single-repo scope is a standing order for `/fix-{suffix}` skills. Jon's invoking `/fix-errors` with several runs lifts it for the repos in `{SCOPE}`, and only for them:
+The playbook's single-repo scope is a standing order for `/fix-{suffix}` skills. Jon's invoking `/fix-test-suites` with several runs lifts it for the repos in `{SCOPE}`, and only for them:
 
 - **Read, edit, and run tests in any package in `{SCOPE}`.** Never touch a package outside it.
 - **Tests:** `-Specific` and `-Tag` runs only, at most 3 tags per run, `-Keyword` in one package only. Never a whole suite, a tier switch, `-All`, `-Rerun`, or `affected-gate.ps1`. A package outside `{SCOPE}` is never named in a `test.ps1` call.
@@ -81,7 +81,7 @@ A failed run writes a new `.test_results/` directory: return to Step 1 with its 
 ### Step 6: Report
 
 ```
-FIX-ERRORS COMPLETE
+FIX-TEST-SUITES COMPLETE
 Runs: {package: index.json path} (one line each)
 Original issues: {E} errors, {F} failures in {C} clusters, {W} warnings — {R} distinct root causes
 Root cause {n}: {file:line in package} — {what was wrong} — covers {package: cluster #ids}
