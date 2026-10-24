@@ -44,12 +44,12 @@ declares with no structural pattern or does not declare at all, listing those
 languages. It never fails the gate on its own; only ``check_declaration_presence``
 does.
 
-**The MariaDB engine boundary needs no special-case code.** The
-MariaDB engine boundary is an ENGINE CHOICE inside the ``rdbms``/migration
-domains, not a withheld domain -- it never shows up as a domain-set diff at
-this script's grain. This script compares by ``domain_id`` (a coarser grain
-than per-engine), so MariaDB is naturally never a domain-id-level diff. Do
-not add a per-engine special case here.
+**An RDBMS engine boundary needs no special-case code.** An engine is a
+CHOICE inside the ``rdbms``/migration domains, not a withheld domain -- it
+never shows up as a domain-set diff at this script's grain. This script
+compares by ``domain_id`` (a coarser grain than per-engine), so an engine is
+naturally never a domain-id-level diff. Do not add a per-engine special case
+here.
 
 **Built-in non-vacuity self-test, every invocation.** Before any real
 comparison is trusted, ``run_self_test`` feeds ``check_declaration_presence``

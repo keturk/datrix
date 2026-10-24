@@ -303,7 +303,7 @@ def _self_test_shared_target_name_scanner() -> bool:
 
     # The design named these four sql/nosql-substring identifiers as
     # look-alikes: the substring denotes a database technology
-    # (postgresql/mysql dialects, the NoSQL store category), "sql" is not a
+    # (SQL dialects, the NoSQL store category), "sql" is not a
     # registered datrix.languages entry, and widening this vocabulary to any
     # group containing "sql" must break these assertions loudly.
     for lookalike in ("sql_engine", "sql_dialect", "NoSQLSeedWriter", "NoSqlFilterSyntax"):

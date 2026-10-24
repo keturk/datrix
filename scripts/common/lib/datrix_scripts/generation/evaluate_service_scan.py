@@ -97,7 +97,7 @@ MODULE_DIR_TO_FEATURE: dict[str, str] = {
 
 #: Skill Phase 3f unused-dependency table: feature -> libraries implying it.
 SUSPECT_DEPENDENCIES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("rdbms", ("asyncpg", "aiomysql", "pg", "mysql2")),
+    ("rdbms", ("asyncpg", "pg")),
     ("cache", ("redis", "aioredis", "ioredis")),
     ("pubsub", ("aiokafka", "aio-pika", "kafkajs", "amqplib")),
     ("storage", ("boto3", "minio", "@aws-sdk/client-s3")),
