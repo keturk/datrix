@@ -16,7 +16,7 @@
 | Touching `auth(...)`, identity providers, guards, tenancy, `@crossTenant`, `@produces`, API keys, revocation | [auth](./packs/auth.md) |
 | Touching Angular/Flutter or any client target, the client/UI contract, the `app` container, `UI0xx` diagnostics | [frontend-clients](./packs/frontend-clients.md) |
 | Touching DSL doc comments, enum keywords or wire/stored values, `work { }`, `extern service`, or needing the grammar snapshot | [dsl-features](./packs/dsl-features.md) |
-| Touching the transpiler, DAL generator paths/escaping, `#{}` interpolation, SQL literal quoting | [codegen-engine](./packs/codegen-engine.md) |
+| Touching the transpiler, DAL generator paths/escaping, `#"..."` interpolation, SQL literal quoting | [codegen-engine](./packs/codegen-engine.md) |
 | Touching generated-service startup, the secret backend, env vars, framework headers, problem types, gateways, observability | [runtime-and-deploy](./packs/runtime-and-deploy.md) |
 | Touching schema snapshots, the migration ledger, `migrations { }`, migration adapters | [migrations](./packs/migrations.md) |
 | Touching the LSP, keyword manifest, `datrix-vscode` | [language-server](./packs/language-server.md) |
