@@ -315,6 +315,10 @@ It is a repo-level validation **script**, not a pytest suite.
 
 Sets up the `datrix-edit` MCP server (`datrix_scripts.dev.line_edit_mcp`, logic in `common/lib/datrix_scripts/line_edits.py`). Its `read_lines` shows each line as `<number>:<hash>|<text>` (same `file_path`/`offset`/`limit` as Read). Its `edit_lines` replaces lines (`{file_path, start, end, hashes, text}`, `hashes` = the 2-character hash of every replaced line) or inserts after a line (`{file_path, after, hash, text}`, `after` 0 = the top). One call carries up to 200 edits across files.
 
+In a **Python file** a function, class or module/class-level variable is named instead of numbered (`datrix_scripts.symbol_spans`). `read_symbol` takes `{file_path, symbols}` (dotted names such as `Class.method`; a name defined twice is `name@<first line>`) and shows each symbol under a header with its line range and **span hash**, every line numbered and hashed as in `read_lines`. Two more `edit_lines` shapes use the span hash: `{file_path, symbol, span_hash, text}` replaces the whole symbol (`text` `''` deletes it) and `{file_path, after_symbol, span_hash, text}` inserts directly below its last line, so `text` starts with the blank line(s) the new code needs. A symbol's span runs from its first decorator, or the comment lines directly above it, to its last line.
+
+- **Symbol edits are line edits.** Each symbol edit is turned into the line replace or insert it stands for, so it shares the overlap check, the atomic write, the reply and the guards. A span hash that no longer matches refuses the whole call and shows the symbol now there.
+- **Python only.** Another file type, a file that does not parse, or a lone carriage return inside a line is refused with a pointer to `read_lines`/`edit_lines`.
 - **Old text is never re-sent.** An `Edit` re-sends its `old_string`, padded until unique, and every later response re-reads it. In one overnight run, old text made up 46% of all edit input.
 - **Checked before written.** Line numbers refer to the files as they were before the call, and edits apply bottom-up. Every edit is checked before any file is written. One wrong hash refuses the whole call and shows the lines now there.
 - **Ready for the next edit.** The reply gives each changed range's new numbers and hashes, so a follow-up edit needs no re-read.
@@ -340,6 +344,7 @@ Behaviour checks for line-addressed editing, run on real files in a temporary wo
 
 - numbered, hashed reading
 - hash-checked replaces, deletes and inserts (top, end, an empty file)
+- Python symbols read and edited by name: dotted names, decorators and leading comments in the span, definitions inside `if`/`try` blocks, a name defined twice, replace, delete and insert-below, a stale span hash, non-Python and unparsable files, symbol and line edits in one call
 - a whole call refused, with nothing written, when one hash is wrong
 - line numbers that refer to the file before the call
 - overlapping and misshapen edits refused
