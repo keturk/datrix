@@ -938,7 +938,7 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 ```yaml
 test:
   rdbms:
-    engine: postgres                    # Required: postgres, mysql, mariadb
+    engine: postgres                    # Required: postgres
     platform: container                 # Required: container, rds, flexible-server, etc.
     host: localhost
     port: 5432
@@ -948,7 +948,7 @@ test:
     docker_image: postgres:16-alpine    # Docker image (for container platform)
     volume_path: ./data/postgres        # Volume mount path
     sync_driver: psycopg2              # Sync driver: psycopg2, pg8000
-    async_driver: asyncpg              # Async driver: asyncpg, aiomysql
+    async_driver: asyncpg              # Async driver: asyncpg
     health_check_sql: "SELECT 1"       # Health check SQL
 
   cache:
@@ -994,7 +994,7 @@ production:
 
 | Field | Type | Options |
 |-------|------|---------|
-| `engine` | String | `postgres`, `mysql`, `mariadb` |
+| `engine` | String | `postgres` |
 | `platform` | String | `container`, `rds`, `aurora`, `aurora-serverless`, `flexible-server` |
 | `database` | String | Database name |
 
@@ -1017,8 +1017,6 @@ production:
 | Engine | Sync Drivers | Async Drivers |
 |--------|-------------|---------------|
 | `postgres` | `psycopg2`, `pg8000` | `asyncpg` |
-| `mysql` | `pymysql`, `mysqlclient` | `aiomysql` |
-| `mariadb` | `pymysql`, `mysqlclient` | `aiomysql` |
 
 **Aurora capacity/reader fields:**
 
@@ -2442,7 +2440,7 @@ ConfigError: language is a generation target, not system configuration. Remove '
 ### Error: Invalid enum value
 
 ```
-ConfigValidationError: Invalid value 'mysqll' for field 'engine'. Valid options: postgres, mysql, mariadb
+ConfigValidationError: Invalid value 'postgress' for field 'engine'. Valid options: postgres
 ```
 
 **Fix:** Check spelling and use valid option.

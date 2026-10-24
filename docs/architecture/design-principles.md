@@ -807,7 +807,7 @@ Example mapping on Azure (`runtime: azure-app-service, provider: azure`):
 | `serverless { … }` block handlers | Azure Function — per-handler trigger type |
 | `pubsub` block | Service Bus namespace or Event Hubs namespace (by engine) |
 | `queues` block | Service Bus queue |
-| `rdbms` block | Azure Flexible Server (PostgreSQL/MySQL/MariaDB) |
+| `rdbms` block | Azure Database for PostgreSQL Flexible Server |
 | `cache` block | Azure Cache for Redis |
 | `nosql` block | Cosmos DB |
 | `storage` block | Blob Storage |

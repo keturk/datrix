@@ -432,7 +432,6 @@ overwrites it; a `baseline` or `volume` seed is a starting state and leaves it a
 | Target | `reference` (overwrite) | `baseline` / `volume` (write only if absent) |
 |--------|-------------------------|----------------------------------------------|
 | PostgreSQL | `INSERT ... ON CONFLICT (key) DO UPDATE` | `INSERT ... ON CONFLICT (key) DO NOTHING` |
-| MySQL/MariaDB | `ON DUPLICATE KEY UPDATE` | `INSERT IGNORE` |
 | MongoDB/DocumentDB | upsert matched on every conflict-key field, `$set` | upsert matched on every conflict-key field, `$setOnInsert` |
 | DynamoDB | `PutItem` under the table's key | `PutItem` only where the key is absent |
 | Object storage | upload | upload only where the key is absent |

@@ -340,16 +340,16 @@ Datrix provides a rich type system that maps to appropriate types in each target
 
 ### Primitive Types
 
-| Datrix Type | Python | TypeScript | PostgreSQL | MySQL |
-|-------------|--------|------------|------------|-------|
-| `String` | `str` | `string` | `TEXT` | `VARCHAR` |
-| `String(n)` | `str` | `string` | `VARCHAR(n)` | `VARCHAR(n)` |
-| `Text` | `str` | `string` | `TEXT` | `TEXT` |
-| `Integer` | `int` | `number` | `INTEGER` | `INT` |
-| `Float` | `float` | `number` | `DOUBLE PRECISION` | `DOUBLE` |
-| `Boolean` | `bool` | `boolean` | `BOOLEAN` | `BOOLEAN` |
-| `Decimal(p,s)` | `Decimal` | `DecimalString` | `NUMERIC(p,s)` | `DECIMAL(p,s)` |
-| `Bytes` | `bytes` | `Buffer` | `BYTEA` | `BLOB` |
+| Datrix Type | Python | TypeScript | PostgreSQL |
+|-------------|--------|------------|------------|
+| `String` | `str` | `string` | `TEXT` |
+| `String(n)` | `str` | `string` | `VARCHAR(n)` |
+| `Text` | `str` | `string` | `TEXT` |
+| `Integer` | `int` | `number` | `INTEGER` |
+| `Float` | `float` | `number` | `DOUBLE PRECISION` |
+| `Boolean` | `bool` | `boolean` | `BOOLEAN` |
+| `Decimal(p,s)` | `Decimal` | `DecimalString` | `NUMERIC(p,s)` |
+| `Bytes` | `bytes` | `Buffer` | `BYTEA` |
 
 ### Domain Types
 

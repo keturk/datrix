@@ -261,7 +261,7 @@ service shop.CatalogService('config/catalog-service.dcfg') : version('1.0.0') {
 
 **Azure AI Search type mapping:** Elasticsearch field types, analyzers, and boost weights are translated to Azure AI Search equivalents. `boost` values become scoring profiles (an index-level construct). Language-specific analyzers map to `.lucene` variants (e.g., `"english"` → `"en.lucene"`). The mapping is exhaustive and fails fast on unsupported types.
 
-**`fulltext()` entity modifier** remains for database-native full-text indexes (PostgreSQL GIN / MySQL FULLTEXT). The `search` block targets external search engines with relevance scoring, faceted search, autocomplete, and multi-entity indexes — a different performance tier.
+**`fulltext()` entity modifier** remains for database-native full-text indexes (PostgreSQL GIN). The `search` block targets external search engines with relevance scoring, faceted search, autocomplete, and multi-entity indexes — a different performance tier.
 
 ### ArcGIS FeatureServer Integration (Planned)
 

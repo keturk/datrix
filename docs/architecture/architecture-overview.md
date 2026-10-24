@@ -129,7 +129,7 @@ graph TD
 - **datrix-codegen-common** (depends on datrix-common, datrix-migration and datrix-codegen-kernel) — The language layer: profile-driven transpiler, shared generator algorithms, context models, field analysis, parity checking, the language-generator orchestrators, and the conformance kit (`testkit`). Consumed by the language generators, the frontend targets and the CLI. Platform generators, SQL and component do **not** depend on it.
 - **Language Code Generators** (depend on datrix-codegen-common and datrix-codegen-kernel, which depend on datrix-common) — Python and TypeScript today. The set is open: each new target language is one more peer package here, and a language generator never depends on a sibling language package. `datrix-codegen-typescript` also depends on its own language core, `datrix-codegen-typescript-core` — an internal-family edge, not a frontend edge.
 - **datrix-codegen-typescript-core** (depends on datrix-common, datrix-codegen-kernel and datrix-codegen-common) — The TypeScript language core: transpiler core and visitors, language profile, type maps and resolver, the TypeScript naming and path facts the transpiler binds imports with, and the web-client mechanics. A library with no entry point; the TypeScript backend and every frontend target that emits TypeScript (Angular today) depend on it, so a frontend target never depends on the backend language package. It imports none of its consumers (its own import-linter contract, `TYPE_CHECKING` included, and a fresh-subprocess test that imports each module first). See [datrix-codegen-typescript-core architecture](../../../datrix-codegen-typescript-core/docs/architecture.md)
-- **Other Code Generators** (depend on datrix-common and datrix-codegen-kernel; SQL also on datrix-migration) — SQL (DAL generator runtime, migration adapter contract, PostgreSQL full-text and snapshot-index naming) and component (DAL generator runtime, derived domain declarations, serverless plans, NoSQL connection plans), all from the kernel. Neither depends on datrix-codegen-common. The SQL dialect facts — the SQL type map, column derivation, table and index naming, dialect constants, the dialect protocol with its PostgreSQL and MySQL dialects and registry — also live in the kernel (`datrix_codegen_kernel.sql_facts`), so the language generators' migration adapters read them without depending on the SQL generator.
+- **Other Code Generators** (depend on datrix-common and datrix-codegen-kernel; SQL also on datrix-migration) — SQL (DAL generator runtime, migration adapter contract, PostgreSQL full-text and snapshot-index naming) and component (DAL generator runtime, derived domain declarations, serverless plans, NoSQL connection plans), all from the kernel. Neither depends on datrix-codegen-common. The SQL dialect facts — the SQL type map, column derivation, table and index naming, dialect constants, the dialect protocol with its PostgreSQL dialect and registry — also live in the kernel (`datrix_codegen_kernel.sql_facts`), so the language generators' migration adapters read them without depending on the SQL generator.
 - **Platform Generators** (Docker, AWS, Azure) — all three depend on **datrix-codegen-kernel** for the generation framework and every language-agnostic platform service they use (DAL generator runtime, the shared provider library `platform/`, shared Grafana `DashboardBuilder`, pooling, secrets, seed planning, serverless and replayable-ingestion plans, shared enums), as well as datrix-common. They do **not** depend on datrix-codegen-common: the import-boundary scanner forbids every `datrix_codegen_common` import in their `src/` (only their tests may use its conformance kit, `datrix_codegen_common.testkit`), and they never import a language generator package — see [Import Boundaries](../../../datrix-common/docs/architecture/import-boundaries.md).
 - **datrix-cli** (depends on datrix-common, datrix-codegen-kernel, datrix-migration, datrix-semantic, datrix-language, and datrix-codegen-common — the migration and generator-inspection commands import the shared migration-state, migration-render, and DAL generator-definition surfaces lazily; owns `GenerationPipeline` orchestration; discovers generator plugins dynamically)
 
@@ -448,7 +448,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 - **Read-only drift detection** — `datrix migrations drift --live-snapshot` reports `diff(recorded R, live L)` classified, exits non-zero when drift exists (CI-guard friendly), and never writes the ledger or DB
 - **Append-only reconciliation** — `reconcile --adopt` appends an `adopted` revision whose after-state is `L`, sets `R := L`, and records live-snapshot alignment separately (a sibling of the `adapter-alignment.json` precedent), running no DDL; `reconcile --to-desired` emits `diff(L, D)` as a reconciliation revision with destructive entries `blocked` exactly as in source-driven generation — no override flag
 - **Adopt records reality; converge generates DDL** — adopting an observed dropped column documents fact (safe); regenerating one away is gated by `change_policy` (blocked). The ledger gains an `"adopted"` classification and an explicit non-DDL `adopt_live_schema` operation (schema version bumped)
-- **Policy split** — a per-environment selector (default off) makes production treat drift as a guard (detect & refuse, never auto-reconcile) while pre-prod gains the reconcile loop. First reflector scope: Postgres, MySQL, MariaDB (MariaDB routes through the MySQL-family reflector, matching the existing dialect mapping)
+- **Policy split** — a per-environment selector (default off) makes production treat drift as a guard (detect & refuse, never auto-reconcile) while pre-prod gains the reconcile loop. Reflector scope: every registered RDBMS engine (PostgreSQL)
 
 **Reference:** [RDBMS Migration Decisions D24–D29](rdbms-migration-decisions.md#database-drift-detection--reconciliation-d24d29) | [Migration API](../../../datrix-common/docs/architecture/migration.md)
 
@@ -1349,7 +1349,7 @@ Three shipped facts shape the whole realization. Semantic analysis mutates the a
   flaw at this boundary is replicated everywhere downstream. A source security review of the
   package found DAL generator's file emitter building output paths from unsanitized DSL-derived scope
   values, seed SQL escaping that only doubled quotes (defeated by a trailing backslash under
-  MySQL), and a DSL `#{...}` interpolation rule that — once written — was violated by a copy
+  a dialect that reads backslash as an escape), and a DSL `#{...}` interpolation rule that — once written — was violated by a copy
   into a second generator package citing the first violation as precedent.
 - Two of the three findings are shadow paths bypassing already-correct machinery, not missing
   machinery: the disk-write sink already enforced output containment, and the DSL grammar already
@@ -1390,8 +1390,8 @@ Three shipped facts shape the whole realization. Semantic analysis mutates the a
   the `SQLDialect` Protocol. SQL literal quoting is `SQLDialect.quote_literal` on
   `datrix-codegen-sql`'s dialect Protocol — `DialectBase.quote_literal` is pure delegation to
   `sql_string_literal`, passing `escape_backslashes=self.escapes_backslashes_in_literals()`, with
-  a PostgreSQL-correct default (`False`, matching `standard_conforming_strings` on) and a MySQL
-  override (`True`). Ad-hoc `.replace(...)` literal escaping at call sites is prohibited; every
+  a PostgreSQL-correct default (`False`, matching `standard_conforming_strings` on) that a
+  dialect reading backslash as an escape overrides (`True`). Ad-hoc `.replace(...)` literal escaping at call sites is prohibited; every
   downstream literal-emitting site routes through the dialect method or the canonical
   `datrix-common` encoder instead of hand-escaping. The seed writer emits no literals at all:
   seed values reach the database only as bound parameters. Shell-argument quoting
@@ -1399,7 +1399,7 @@ Three shipped facts shape the whole realization. Semantic analysis mutates the a
   built, is a sibling module under `datrix_common/utils/`, never `datrix_codegen_common.escaping`.
 - **D4 — A dialect that cannot encode a literal fails closed.** A dialect missing `quote_literal`
   raises a `GenerationError` naming the dialect class and the missing method. There is no
-  fallback to quote-doubling — that would silently reinstate the MySQL backslash-break-out
+  fallback to quote-doubling — that would silently reinstate the backslash break-out
   vulnerability the design closes.
 - **D5 — DSL `#{}` interpolation flows only through the validated expression visitor, and the
   rule now has a mechanical enforcer.** The binding rule — `#{}`/template interpolation MUST
@@ -3082,6 +3082,18 @@ datrix generate --source system.dtrx --output ./generated -L typescript
 - **`datrix validate` is analysis only** unless `--language <id>` names the run's language, when it also runs `check_targets`. The editor and `datrix validate` without a language report the same diagnostics.
 
 **Security posture.** No check is dropped; each moved stage. The custom-domain certificate (UI036) and signing (UI034) refusals now run against the run's actual platform and targets, and a declared target or platform no installed plugin answers for fails the stage rather than skipping its checks. No emitted surface changes. Details: [pipeline-stages](./packs/pipeline-stages.md), [frontend-clients](./packs/frontend-clients.md).
+
+### Decision 64: PostgreSQL Is the One Registered RDBMS Engine; MySQL and MariaDB Are Removed (Adopted)
+
+**Problem.** Every database fact a generator emits needed a second realization for the MySQL family: byte-hex literals, a random-bytes UUID chain, collation-dependent comparison, two regex engines behind one dialect, unordered JSON aggregation, implicit DDL commits and engine-specific error texts. Only three test fixtures in the workspace named either engine.
+
+**Decision.**
+
+- **The engines leave the registry.** `all_rdbms_engines()` returns PostgreSQL alone. A `.dcfg` naming `mysql` or `mariadb` is refused by the registry's unknown-identifier diagnostic, which names the value and the registered engines; no alias maps either name to PostgreSQL.
+- **Every realization goes.** The MySQL dialect and reflector, every MySQL-family branch in the shared layers, the languages' drivers and dialect settings, and the platforms' images, init and reader templates, RDS/Aurora and Flexible Server mappings, pooling rows and alerts are deleted.
+- **The registries stay.** The engine registry, the DDL-dialect rows, the reflector registry and every from-registration test remain, so a later engine slots in without a shared-code change; tests enumerate engines from `all_rdbms_engines()` rather than naming one.
+
+**Security posture.** The backslash-escaping literal path existed only for the MySQL family; PostgreSQL literals keep `standard_conforming_strings` semantics, and seed values stay bound parameters. A removed engine fails closed at config load. Details: [migrations](./packs/migrations.md).
 
 ## Next Steps
 
