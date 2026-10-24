@@ -50,8 +50,12 @@ GAP_PREVIEW: Final = 3
 
 DESIGN_NAME: Final = re.compile(r"^(\d{3,4})-([a-z0-9][a-z0-9-]*)\.md$")
 DESIGN_STEM: Final = re.compile(r"\d{3,4}-[a-z0-9][a-z0-9-]*")
-_STATUS: Final = re.compile(r"^Status:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
-_DEPENDS: Final = re.compile(r"^Depends on:[ \t]*(.*)$", re.MULTILINE)
+STATUS_LABEL: Final = "Status"
+DEPENDS_LABEL: Final = "Depends on"
+#: A header line ``Label: value``, the label plain or bold (``**Label:**``).
+_HEADER_LINE: Final = r"^\*{{0,2}}{label}:\*{{0,2}}[ \t]*(.*?)[ \t]*$"
+#: A line that starts the next header field, a heading or a section: it ends a wrapped header value.
+_HEADER_BREAK: Final = re.compile(r"^(?:\*{0,2}[A-Z][\w ]*:\*{0,2}(?:[ \t]|$)|#|\s*$)")
 _TITLE: Final = re.compile(r"^#[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 _LINE_SUFFIX: Final = re.compile(r":\d+(?:-\d+)?$")
 _REPO: Final = re.compile(r"^(datrix[\w-]*)/")
@@ -94,15 +98,30 @@ def _first(pattern: re.Pattern[str], text: str) -> str:
     return match.group(1) if match else ""
 
 
+def header_value(text: str, label: str) -> str | None:
+    """The value of the header field ``label`` (``Status``, ``Depends on``), the label plain or bold, with the
+    lines it wraps onto joined; ``None`` when the design has no such field."""
+    match = re.search(_HEADER_LINE.format(label=re.escape(label)), text, re.MULTILINE)
+    if match is None:
+        return None
+    parts = [match.group(1)]
+    for line in text[match.end():].split("\n")[1:]:
+        if _HEADER_BREAK.match(line):
+            break
+        parts.append(line.strip())
+    return " ".join(part for part in parts if part)
+
+
 def parse_design(workspace: Path, path: Path) -> DesignDoc:
     """One design file's header facts."""
     match = DESIGN_NAME.match(path.name)
     if match is None:
         raise ValueError(f"'{path.name}' is not NNN-<slug>.md")
     text = design_text(path)
-    return DesignDoc(path, int(match.group(1)), path.stem, _first(_TITLE, text), _first(_STATUS, text),
-                     tuple(DESIGN_STEM.findall(_first(_DEPENDS, text))), len(text.splitlines()),
-                     ledger_path(workspace, path.stem).is_file())
+    return DesignDoc(path, int(match.group(1)), path.stem, _first(_TITLE, text),
+                     header_value(text, STATUS_LABEL) or "",
+                     tuple(DESIGN_STEM.findall(header_value(text, DEPENDS_LABEL) or "")),
+                     len(text.splitlines()), ledger_path(workspace, path.stem).is_file())
 
 
 def load_designs(workspace: Path, directory: Path) -> list[DesignDoc]:

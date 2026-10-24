@@ -31,8 +31,13 @@ Commands:
     design-plan        [--dir D] [--design-dir DD] [--no-model]
                                                  fix shapes for the consolidated sections (model, checked)
     design-check       [--design-dir DD]         is the design folder well formed? (exact)
+    design-xref        [--design-dir DD]         cross-design index: decision references, name
+                                                 allocations and every design naming each name (exact)
     design-close       --finding F... [--fixed ID...] [--apply]
                                                  delete converted consolidated files (exact)
+    rule-names         --site PATH:LINE... [--sites-file F] [--apply]
+                                                 names for unnamed validate rules (model, checked; --apply
+                                                 writes the names that passed)
 
 Exit codes: 0 done; 1 the request could not be carried out; 2 the check found something to act on;
 3 no local model answered (do the phase yourself, as before the assist).
@@ -83,6 +88,7 @@ from datrix_scripts.skill.common import (
     ContentFilter,
     NoModelAnswer,
     output_dir,
+    read_text,
     workspace_label,
     write_output,
 )
@@ -104,6 +110,7 @@ from datrix_scripts.skill.design_plan import (
     render_verification,
     verify_units,
 )
+from datrix_scripts.skill.design_xref import build_xref, render_xref
 from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
 from datrix_scripts.skill.finding_inbox import close_finding, finding_files, findings_dir
 from datrix_scripts.skill.findings import build_index, check_consolidation, render_check, render_index
@@ -127,6 +134,7 @@ from datrix_scripts.skill.readiness import (
     unresolved_modules,
 )
 from datrix_scripts.skill.readiness import render as render_readiness
+from datrix_scripts.skill.rule_names import STATUS_OK, apply_names, propose_names, render_proposals
 from datrix_scripts.task_metadata import format_phase
 from datrix_scripts.test.wrappers import ensure_utf8_stdio
 
@@ -378,6 +386,16 @@ def cmd_design_check(args: argparse.Namespace) -> int:
     return EXIT_CHECK_FAILED if problems else EXIT_OK
 
 
+def cmd_design_xref(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    xref = build_xref(workspace, _design_dir(workspace, args.design_dir))
+    path = write_output(workspace, "design-xref.md", render_xref(xref))
+    print(f"{len(xref.errors)} error(s), {len(xref.pointers)} pointer(s) at later designs, {len(xref.names)} "
+          "name(s) indexed.")
+    print(f"Written: {path}")
+    return EXIT_CHECK_FAILED if xref.errors else EXIT_OK
+
+
 def cmd_design_close(args: argparse.Namespace) -> int:
     workspace = _workspace(args)
     directory = _findings_dir(workspace, args.dir)
@@ -388,6 +406,23 @@ def cmd_design_close(args: argparse.Namespace) -> int:
     result = close_findings(workspace, _design_dir(workspace, args.design_dir), files, set(args.fixed), args.apply)
     print(render_close(result, args.apply), end="")
     return EXIT_OK if result.passed else EXIT_CHECK_FAILED
+
+
+def cmd_rule_names(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    specs = list(args.site)
+    if args.sites_file:
+        specs += [line.strip() for line in read_text(Path(args.sites_file)).splitlines() if line.strip()]
+    if not specs:
+        raise AssistError("No rule site given. Pass --site path:line (repeatable) or --sites-file with one "
+                          "path:line per line: the rules analysis refuses for lacking a name.")
+    proposals = propose_names(workspace, _pool(args), specs)
+    written = apply_names(proposals) if args.apply else []
+    path = write_output(workspace, "rule-names.md", render_proposals(workspace, proposals, written))
+    failed = sum(1 for proposal in proposals if proposal.status != STATUS_OK)
+    print(f"{len(proposals) - failed} of {len(proposals)} name(s) passed the checks; {len(written)} written.")
+    print(f"Written: {path}")
+    return EXIT_CHECK_FAILED if failed else EXIT_OK
 
 
 def cmd_finding_close(args: argparse.Namespace) -> int:
@@ -469,6 +504,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--no-model", action="store_true", help="One fix shape per consolidated file")
     sub = command("design-check", cmd_design_check, model=False)
     sub.add_argument("--design-dir", help="Design folder (default: <workspace>/design)")
+    sub = command("design-xref", cmd_design_xref, model=False)
+    sub.add_argument("--design-dir", help="Design folder (default: <workspace>/design)")
     sub = command("design-close", cmd_design_close, model=False)
     _design_folders(sub)
     sub.add_argument("--finding", nargs="+", action="extend", required=True,
@@ -476,6 +513,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--fixed", nargs="*", action="extend", default=[],
                      help="Section ids (C013.2) the code proves already fixed, so no design carries them")
     sub.add_argument("--apply", action="store_true", help="Delete the files when every check passes")
+    sub = command("rule-names", cmd_rule_names, model=True)
+    sub.add_argument("--site", nargs="*", action="extend", default=[], help="A rule site, path:line (repeatable)")
+    sub.add_argument("--sites-file", help="A file holding one rule site (path:line) per line")
+    sub.add_argument("--apply", action="store_true", help="Write the names that passed the checks")
     sub = command("bug-resolution", cmd_bug_resolution, model=True)
     sub.add_argument("--report", required=True)
     sub.add_argument("--repo", nargs="+", action="extend", default=[], help="Repositories the fix changed")

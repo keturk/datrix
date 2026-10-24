@@ -3,7 +3,8 @@ consolidated file be deleted?
 
 DESIGN CHECK (exact)
     Per design: the number (three digits, 010 or more, unique); at most 100 lines; a ``Status:`` and a
-    ``Depends on:`` line, every dependency an existing LOWER-numbered design; no mention of any design with an
+    ``Depends on:`` line (the label plain or bold, the value possibly wrapped onto further lines), every
+    dependency an existing LOWER-numbered design; no mention of any design with an
     equal or higher number; every design guideline G1..Gn answered under ``## Design guidelines conformance``
     (the set is read from design-principles.md, as the edit guard reads it); no placeholder, deferral or
     reference to a consolidated file or findings file; and target consistency as a set comparison -- when a
@@ -27,11 +28,14 @@ from typing import Final
 from datrix_scripts.skill.common import AssistError, read_text
 from datrix_scripts.skill.design_inventory import (
     CODEGEN_PREFIX,
+    DEPENDS_LABEL,
     DESIGN_STEM,
     FIRST_NUMBER,
     MAX_DESIGN_LINES,
+    STATUS_LABEL,
     DesignDoc,
     design_text,
+    header_value,
     load_designs,
     registered_targets,
     unit_paths,
@@ -45,8 +49,6 @@ TAIL_COMPONENTS: Final = 2
 
 _GUIDELINE_DEFINITION: Final = re.compile(r"^\*\*G(\d+)\.", re.MULTILINE)
 _ANSWER: Final = re.compile(r"^[ \t]*[-*][ \t]+\**G(\d+)\**[ \t]*:\**[ \t]*\S", re.MULTILINE)
-_STATUS_LINE: Final = re.compile(r"^Status:[ \t]*\S", re.MULTILINE)
-_DEPENDS_LINE: Final = re.compile(r"^Depends on:[ \t]*(.*)$", re.MULTILINE)
 _PLACEHOLDER: Final = re.compile(
     r"\bTBD\b|\bTODO\b|verify during implementation|\bfor now\b|\blater phase\b|\bdecide later\b", re.IGNORECASE)
 _FINDING_REFERENCE: Final = re.compile(
@@ -108,13 +110,13 @@ def _header(design: DesignDoc, text: str, by_stem: dict[str, DesignDoc]) -> list
     problems: list[Problem] = []
     if design.lines > MAX_DESIGN_LINES:
         problems.append(Problem(design.stem, f"{design.lines} lines; at most {MAX_DESIGN_LINES}. Split it by seam"))
-    if not _STATUS_LINE.search(text):
+    if not header_value(text, STATUS_LABEL):
         problems.append(Problem(design.stem, "no 'Status:' line"))
-    depends = _DEPENDS_LINE.search(text)
+    depends = header_value(text, DEPENDS_LABEL)
     if depends is None:
         problems.append(Problem(design.stem, "no 'Depends on:' line (write 'Depends on: none')"))
         return problems
-    return problems + _dependencies(design, depends.group(1), by_stem)
+    return problems + _dependencies(design, depends, by_stem)
 
 
 def _forward_references(design: DesignDoc, text: str, designs: Sequence[DesignDoc]) -> list[Problem]:

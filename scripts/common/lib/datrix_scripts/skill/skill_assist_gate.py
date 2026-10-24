@@ -46,11 +46,13 @@ from datrix_scripts.skill.context_digest import build_digest
 from datrix_scripts.skill.design_check import check_designs, close_findings
 from datrix_scripts.skill.design_inventory import free_gaps, load_designs, next_number, registered_targets
 from datrix_scripts.skill.design_plan import VERDICT_HOLDS, VERDICT_UNCLEAR, draft_shapes, verify_units
+from datrix_scripts.skill.design_xref import build_xref
 from datrix_scripts.skill.finding_inbox import EXIT_DELETED, EXIT_KEPT, EXIT_UNUSABLE, finding_files, test_runs
 from datrix_scripts.skill.findings import build_index, check_consolidation, extract_file
 from datrix_scripts.skill.findings_assemble import Theme, apply_assembly, assemble, draft_plan, load_sources, parse_source
 from datrix_scripts.skill.phase_tasks import phase_tasks
 from datrix_scripts.skill.readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules
+from datrix_scripts.skill.rule_names import STATUS_OK, STATUS_WITHHELD, apply_names, propose_names
 from datrix_scripts.test.wrappers import SKILL_SCRIPTS_DIR, seam_checks
 
 MODULE: Final = "datrix_scripts.skill.skill_assist_gate"
@@ -471,8 +473,11 @@ def check_absorb_references_find_name_number_and_title_but_not_task_folders() ->
         write_file(root / "datrix-alpha/docs/b.md", "From 042-fixture-design.md and A Fixture Design With A Long "
                                                 "Enough Title.\n")
         write_file(root / "datrix-alpha/.tasks/phase-07/task-07-01-x.md", "Design reference: design 042\n")
+        write_file(root / "design/050-later-design.md", "Port 1042, version 042.5, v042x.\nBuilds on 042 D1.\n"
+                                                        "Keeps 042's gate.\n")
         found = {(r.file, r.line) for r in find_references(root, design, [])}
-        assert found == {("datrix-alpha/docs/a.md", 1), ("datrix-alpha/docs/b.md", 1)}, found
+        assert found == {("datrix-alpha/docs/a.md", 1), ("datrix-alpha/docs/b.md", 1),
+                         ("design/050-later-design.md", 2), ("design/050-later-design.md", 3)}, found
 
 
 def _absorb_delete(root: Path, design: Path, *licence: str) -> subprocess.CompletedProcess[str]:
@@ -714,6 +719,73 @@ def check_design_check_refuses_each_malformed_design_and_checks_target_consisten
         assert not {"010-base", "030-later", "070-complete"} & set(messages), messages
 
 
+def check_design_headers_read_bold_labels_and_wrapped_dependencies() -> None:
+    with _workspace() as root:
+        _design_workspace(root)
+        _write_design(root, "010-base", _design_text("Base"))
+        bold = _design_text("Bold").replace(
+            "Status: Draft\nDepends on: none\n",
+            "**Status:** Draft\n**Depends on:** 010-base (its renderer),\n015-missing\n**Series:** the series\n")
+        _write_design(root, "020-bold", bold)
+        designs = load_designs(root, root / "design")
+        assert designs[1].status == "Draft" and designs[1].depends == ("010-base", "015-missing"), designs[1]
+        messages = [p.message for p in check_designs(root, root / "design") if p.design == "020-bold"]
+        assert messages == ["depends on 015-missing, which does not exist"], messages
+
+
+def check_design_xref_checks_decision_references_and_allocations() -> None:
+    with _workspace() as root:
+        _design_workspace(root)
+        _write_design(root, "010-a", _design_text("A", body=(
+            "### D1. One\n\nSee 020 D1 and `CHECK_ADDED`.\n\n## 4. Size\n\nOne diagnostic, `DBO001`.\n")))
+        _write_design(root, "020-b", _design_text("B", depends="010-a", body=(
+            "### D1. Two\n\nAs 010 D2 and 010 D1 say; 999 D1 too.\n\n## 4. Size\n\n`DBO001` and `CHECK_ADDED`.\n")))
+        xref = build_xref(root, root / "design")
+        errors = [f"{p.design}: {p.message}" for p in xref.errors]
+        assert any("020-b" in e and "'010 D2'" in e and "no '### D2' heading" in e for e in errors), errors
+        assert any("020-b" in e and "'999 D1'" in e and "no file" in e for e in errors), errors
+        assert any(e.startswith("020-b: allocates DBO001") for e in errors), errors
+        assert any(e.startswith("010-a: names CHECK_ADDED before 020-b") for e in errors), errors
+        assert not any("'010 D1'" in e for e in errors), "a reference to an existing decision is no error"
+        assert [p.design for p in xref.pointers] == ["010-a"], xref.pointers
+        entry = next(e for e in xref.names if e.name == "DBO001")
+        assert entry.allocated_by == ("010-a", "020-b") and entry.named_in == ("010-a", "020-b"), entry
+
+
+_RULES = ("entity Product {\n    Decimal price;\n    validate {\n"
+          "        if (price < 0) ValidationError(\"Price cannot be negative\");\n"
+          "        price <= 1000 : \"Too expensive\";\n        price != 7 : \"No sevens\";\n"
+          "        price != 8 : \"No eights\";\n"
+          f"        price != 9 : \"No {_GATE_TERM}\";\n    }}\n}}\n")
+
+
+def _rule_reply(_chat: Chat) -> str:
+    return json.dumps({"names": [{"line": 4, "name": "positivePrice"}, {"line": 5, "name": "price"},
+                                 {"line": 6, "name": "Bad Name"}, {"line": 7, "name": "positivePrice"}]})
+
+
+def check_rule_names_checks_every_proposal_and_applies_only_unchanged_lines() -> None:
+    with _workspace() as root:
+        rules = write_file(root / "datrix-alpha/examples/shop.dtrx", _RULES)
+        specs = [f"datrix-alpha/examples/shop.dtrx:{line}" for line in (4, 5, 6, 7, 8)]
+        with LoopbackOllama(_rule_reply) as server:
+            proposals = propose_names(root, _pool(server), specs)
+        sent = " ".join(chat.user for chat in server.chats)
+        assert _GATE_TERM not in sent and len(server.chats) == 1, "one request per file, never a customer term"
+        status = {p.site.line: p.status for p in proposals}
+        assert status[4] == STATUS_OK and "collides" in status[5] and "camelCase" in status[6], status
+        assert "repeats" in status[7] and status[8] == STATUS_WITHHELD, status
+        assert apply_names(proposals) == [f"{rules.resolve()}:4"]
+        lines = rules.read_text(encoding="utf-8").split("\n")
+        assert lines[3] == '        positivePrice: if (price < 0) ValidationError("Price cannot be negative");', lines[3]
+        try:
+            apply_names(proposals)
+        except AssistError as exc:
+            assert "changed since the proposal" in str(exc), exc
+        else:
+            raise AssertionError("a proposal for a changed line was applied")
+
+
 def _consolidated(root: Path) -> Path:
     return write_file(root / "reports/finding/consolidated-001-alpha.md",
                       "# Alpha seam\n\n**Scope:** alpha\n\n## 1. First\n\nAt `datrix-alpha/src/a.py:1`.\n\n"
@@ -847,6 +919,9 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_service_mechanical_renders_checks_and_dead_code,
     check_design_inventory_reads_targets_from_registration_and_numbers_the_gaps,
     check_design_check_refuses_each_malformed_design_and_checks_target_consistency_as_a_set,
+    check_design_headers_read_bold_labels_and_wrapped_dependencies,
+    check_design_xref_checks_decision_references_and_allocations,
+    check_rule_names_checks_every_proposal_and_applies_only_unchanged_lines,
     check_design_close_deletes_only_when_the_designs_pass_and_carry_every_unfixed_section,
     check_design_verify_and_plan_check_every_answer_and_never_send_a_customer_term,
     check_design_commands_exit_with_the_assist_codes,

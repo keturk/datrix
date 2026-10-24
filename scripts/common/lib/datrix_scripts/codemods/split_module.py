@@ -14,7 +14,7 @@ plan names, for each new sibling module, the definitions it receives and its doc
 no entry claims stays in the original module.
 
 Each new module gets the original's import header with its own docstring, the imports of
-the names it uses from its siblings, the original's module-level ``pytestmark`` (a test
+the names it uses from its siblings and from the original, the original's module-level ``pytestmark`` (a test
 module's marks do not survive a split by themselves), and its definitions. The original keeps
 its header, the unclaimed definitions and imports of the moved names it still uses.
 
@@ -24,8 +24,9 @@ rewritten to the new home instead. The split refuses -- writing nothing -- when 
 wrong or incomplete:
 
 - a definition claimed twice, an unknown name, a reversed range, a claimed ``pytestmark``;
-- a cycle between the new modules, or moved code that uses a name left behind (the original
-  imports the new modules, so the reverse import would cycle);
+- an import cycle among the new modules and the original: moved code imports the names left
+  behind from the original, and the original imports the moved names it still uses, so moved code
+  may use what stays only when nothing that stays uses it back;
 - an ``__all__`` in the original naming a moved name;
 - an importer the rewrite cannot reach: ``alias.<moved name>`` on the module object, an import
   statement sharing its line with other code, or the dotted path ``<original>.<moved name>``
@@ -266,14 +267,19 @@ def assign(entries: Sequence[PlanEntry]) -> dict[str, str]:
     return assignment
 
 
-def _assert_acyclic(graph: Mapping[str, set[str]]) -> None:
+def _assert_acyclic(graph: Mapping[str, set[str]], edge_names: Mapping[tuple[str, str], set[str]]) -> None:
     state: dict[str, int] = {}
 
     def visit(node: str, path: list[str]) -> None:
         if state.get(node) == 2:
             return
         if state.get(node) == 1:
-            raise SplitRefused(f"The cut creates an import cycle: {' -> '.join([*path, node])}.")
+            cycle = [*path[path.index(node):], node]
+            uses = "; ".join(f"{a} uses {sorted(edge_names[(a, b)])} from {b}" for a, b in zip(cycle, cycle[1:]))
+            raise SplitRefused(
+                f"The cut creates an import cycle: {' -> '.join(cycle)} ({uses}). Fix: claim the names that "
+                "close the cycle into the same module."
+            )
         state[node] = 1
         for successor in sorted(graph.get(node, set())):
             visit(successor, [*path, node])
@@ -283,25 +289,31 @@ def _assert_acyclic(graph: Mapping[str, set[str]]) -> None:
         visit(node, [])
 
 
-def validate_cut(module: SourceModule, entries: Sequence[PlanEntry], provides: Mapping[str, str]) -> None:
-    """Refuse a cycle between the new modules and moved code that uses a name left behind."""
-    graph: dict[str, set[str]] = {entry.stem: set() for entry in entries}
-    kept = {name for key in module.order if key not in provides for name in module.owner[key]}
-    dangling: dict[str, set[str]] = {}
-    for entry in entries:
-        for key in entry.keys:
-            used = free_names(module.blocks[key])
-            graph[entry.stem].update(home for name in used if (home := provides.get(name)) and home != entry.stem)
-            left_behind = (used & kept) - {MARKER_NAME}
-            if left_behind:
-                dangling.setdefault(entry.stem, set()).update(left_behind)
-    _assert_acyclic(graph)
-    if dangling:
-        detail = "; ".join(f"{stem} uses {sorted(names)}" for stem, names in sorted(dangling.items()))
-        raise SplitRefused(
-            f"Moved code uses names that stay in the original module: {detail}. The original imports the "
-            "new modules, so importing back would cycle. Fix: claim those names into a new module too."
-        )
+def homes_of(module: SourceModule, provides: Mapping[str, str], original_stem: str) -> dict[str, str]:
+    """Every top-level name -> the module that defines it after the split: its new module, or the original."""
+    kept = {name: original_stem for key in module.order if key not in provides for name in module.owner[key]}
+    kept.pop(MARKER_NAME, None)
+    return {**kept, **provides}
+
+
+def validate_cut(module: SourceModule, entries: Sequence[PlanEntry], homes: Mapping[str, str], original_stem: str) -> None:
+    """Refuse an import cycle among the new modules and the original.
+
+    Moved code imports the names left behind from the original, and the original imports the moved
+    names it still uses, so the cut is sound exactly when those imports form no cycle.
+    """
+    blocks = {original_stem: [module.blocks[key] for key in module.order if homes.get(key) == original_stem]}
+    blocks.update({entry.stem: [module.blocks[key] for key in entry.keys] for entry in entries})
+    edge_names: dict[tuple[str, str], set[str]] = {}
+    for stem, sources in blocks.items():
+        for name in set().union(*(free_names(source) for source in sources)):
+            home = homes.get(name)
+            if home and home != stem:
+                edge_names.setdefault((stem, home), set()).add(name)
+    graph: dict[str, set[str]] = {stem: set() for stem in blocks}
+    for source, home in edge_names:
+        graph[source].add(home)
+    _assert_acyclic(graph, edge_names)
 
 
 def _check_all(module: SourceModule, moved: frozenset[str]) -> None:
@@ -337,11 +349,11 @@ def _header_with_doc(module: SourceModule, doc: str) -> str:
     return f'"""{doc}"""\n' + "".join(module.lines[doc_end : module.header_end])
 
 
-def _imports_from_siblings(sources: Sequence[str], own_stem: str | None, provides: Mapping[str, str], package: str) -> str:
+def _imports_from_siblings(sources: Sequence[str], own_stem: str, homes: Mapping[str, str], package: str) -> str:
     needed: dict[str, set[str]] = {}
     for source in sources:
         for name in free_names(source):
-            home = provides.get(name)
+            home = homes.get(name)
             if home is not None and home != own_stem:
                 needed.setdefault(home, set()).add(name)
     return "".join(_import_statement(f"{package}.{home}", sorted(names)) for home, names in sorted(needed.items()))
@@ -352,20 +364,20 @@ def _definitions(sources: Sequence[str]) -> str:
     return BLANK_LINES_BEFORE_DEFINITIONS + "".join(sources).lstrip("\n")
 
 
-def render_new_module(module: SourceModule, entry: PlanEntry, provides: Mapping[str, str], package: str) -> str:
+def render_new_module(module: SourceModule, entry: PlanEntry, homes: Mapping[str, str], package: str) -> str:
     sources = [module.blocks[key] for key in entry.keys]
     marker = module.blocks.get(MARKER_NAME, "").strip("\n")
     return (
         _header_with_doc(module, entry.doc)
-        + _imports_from_siblings(sources, entry.stem, provides, package)
+        + _imports_from_siblings(sources, entry.stem, homes, package)
         + (f"\n{marker}\n" if marker else "")
         + _definitions(sources)
     )
 
 
-def render_remainder(module: SourceModule, provides: Mapping[str, str], package: str) -> str:
-    kept = [module.blocks[key] for key in module.order if key not in provides]
-    return module.header + _imports_from_siblings(kept, None, provides, package) + _definitions(kept)
+def render_remainder(module: SourceModule, homes: Mapping[str, str], package: str, original_stem: str) -> str:
+    kept = [module.blocks[key] for key in module.order if homes.get(key, original_stem) == original_stem]
+    return module.header + _imports_from_siblings(kept, original_stem, homes, package) + _definitions(kept)
 
 
 # ---------------------------------------------------------------------------
@@ -555,18 +567,21 @@ def prepare(args: argparse.Namespace, workspace: Path) -> SplitPlan:
     entries = load_plan(args.plan, module)
     assignment = assign(entries)
     provides = {name: stem for key, stem in assignment.items() for name in module.owner[key]}
+    if target.stem in provides.values():
+        raise SplitRefused(f"A new module may not take the original's name {target.stem!r}. Pick another stem.")
+    homes = homes_of(module, provides, target.stem)
     _check_all(module, frozenset(provides))
-    validate_cut(module, entries, provides)
+    validate_cut(module, entries, homes, target.stem)
     clashes = [entry.stem for entry in entries if (target.parent / f"{entry.stem}.py").exists()]
     if clashes:
         raise SplitRefused(f"Module file(s) already exist: {clashes}. Pick new stems.")
-    outputs = {target.parent / f"{entry.stem}.py": render_new_module(module, entry, provides, package) for entry in entries}
+    outputs = {target.parent / f"{entry.stem}.py": render_new_module(module, entry, homes, package) for entry in entries}
     skip = frozenset({target, *(path.resolve() for path in outputs)})
     edits, blockers = plan_importers(f"{package}.{target.stem}", provides, skip, workspace.resolve())
     return SplitPlan(
         target=target,
         outputs=outputs,
-        remainder=render_remainder(module, provides, package),
+        remainder=render_remainder(module, homes, package, target.stem),
         kept_count=len(module.order) - len(assignment),
         edits=edits,
         blockers=blockers,
@@ -632,15 +647,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 _PLANTED_MODULE: Final = '"""Big."""\n\n\ndef alpha() -> int:\n    return 1\n\n\ndef beta() -> int:\n    return alpha() + 1\n'
 _PLANTED_IMPORTER: Final = "from planted_pkg.big import alpha\n\nVALUE = alpha()\n"
+_PLANTED_MUTUAL: Final = (
+    '"""Big."""\n\n\ndef alpha(n: int) -> int:\n    return 0 if n == 0 else beta(n - 1)\n\n\n'
+    "def beta(n: int) -> int:\n    return alpha(n)\n"
+)
 
 
-def _planted_workspace(root: Path, plan: Mapping[str, object]) -> tuple[Path, Path, Path]:
+def _planted_workspace(root: Path, plan: Mapping[str, object], source: str = _PLANTED_MODULE) -> tuple[Path, Path, Path]:
     """A workspace holding one framework repo: the module to split, an importer of it, and the plan."""
     package = root / f"{PACKAGE_DIR_PREFIX}planted" / SRC_DIR_NAME / "planted_pkg"
     package.mkdir(parents=True)
     (package / INIT_FILE_NAME).write_text("", encoding=WRITE_ENCODING)
     module = package / "big.py"
-    module.write_text(_PLANTED_MODULE, encoding=WRITE_ENCODING)
+    module.write_text(source, encoding=WRITE_ENCODING)
     (package / "user.py").write_text(_PLANTED_IMPORTER, encoding=WRITE_ENCODING)
     plan_path = root / "plan.json"
     plan_path.write_text(json.dumps(plan), encoding=WRITE_ENCODING)
@@ -668,6 +687,26 @@ def _check_a_planted_module_is_split_and_its_importer_rewritten() -> None:
         assert "def alpha" not in module.read_text(encoding=WRITE_ENCODING)
 
 
+def _check_moved_code_imports_what_stays_from_the_original() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        module, plan, importer = _planted_workspace(root, {"_beta": {PLAN_DOC_KEY: "Beta.", PLAN_NAMES_KEY: ["beta"]}})
+        code, text = _quiet_split([f"--module={module}", f"--plan={plan}"], root)
+        assert code == EXIT_OK, text
+        moved = (module.parent / "_beta.py").read_text(encoding=WRITE_ENCODING)
+        assert "from planted_pkg.big import alpha" in moved and "def beta" in moved, moved
+        remainder = module.read_text(encoding=WRITE_ENCODING)
+        assert "def alpha" in remainder and "_beta" not in remainder, remainder
+        assert importer.read_text(encoding=WRITE_ENCODING) == _PLANTED_IMPORTER
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plan_spec = {"_beta": {PLAN_DOC_KEY: "Beta.", PLAN_NAMES_KEY: ["beta"]}}
+        module, plan, _importer = _planted_workspace(root, plan_spec, _PLANTED_MUTUAL)
+        code, text = _quiet_split([f"--module={module}", f"--plan={plan}"], root)
+        assert code == EXIT_REFUSED and "import cycle" in text, text
+        assert module.read_text(encoding=WRITE_ENCODING) == _PLANTED_MUTUAL and not (module.parent / "_beta.py").exists()
+
+
 def _check_a_bad_plan_is_refused_and_nothing_written() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -680,7 +719,9 @@ def _check_a_bad_plan_is_refused_and_nothing_written() -> None:
 
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
-        checks = [_check_a_planted_module_is_split_and_its_importer_rewritten, _check_a_bad_plan_is_refused_and_nothing_written]
+        checks = [_check_a_planted_module_is_split_and_its_importer_rewritten,
+                  _check_moved_code_imports_what_stays_from_the_original,
+                  _check_a_bad_plan_is_refused_and_nothing_written]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
                              folder=CODEMODS_SCRIPTS_DIR)
     return run_split(args, WORKSPACE_DIR)

@@ -9,8 +9,10 @@ TRANSFER CHECK (a lead, cited)
 REFERENCES (exact)
     Every line in the framework repositories (and any extra paths named) that mentions the design's
     file name, its stem, its title or its number in a design-reference form (the word "design" or
-    "design doc" followed by the number, or "design/" and the number). Task folders are not searched:
-    they are gitignored orchestration files that may cite designs.
+    "design doc" followed by the number, or "design/" and the number), and every line of another design
+    in the design folder that names it, by those forms or by its bare number as its file name spells it
+    ("090 D1"). Task folders are not searched: they are gitignored orchestration files that may cite
+    designs.
 
 DELETE (exact)
     Deletes the design only when it lies in the workspace's design folder, its deletion licence holds
@@ -123,26 +125,44 @@ def _matches(line: str, literals: list[str], number: re.Pattern[str] | None) -> 
     return hit.group(0) if hit else ""
 
 
+def sibling_number(design: Path) -> re.Pattern[str] | None:
+    """How another design of the folder names *design*: its number as the file name spells it (``090 D1``,
+    ``090 §4``, ``090's gate``), the form the design series uses for each other."""
+    match = _DESIGN_NUMBER.match(design.name)
+    return re.compile(rf"(?<![\w.]){re.escape(match.group(1))}(?![\w.])") if match else None
+
+
+def _references_in(workspace: Path, path: Path, literals: list[str], number: re.Pattern[str] | None) -> list[Reference]:
+    text = path.read_bytes().decode("utf-8", errors="replace")
+    found: list[Reference] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        matched = _matches(line, literals, number)
+        if matched:
+            found.append(Reference(workspace_label(workspace, path), line_number, line.strip(), matched))
+    return found
+
+
 def find_references(workspace: Path, design: Path, extra: list[Path]) -> list[Reference]:
-    """Every line that names the design, across the framework repositories and the extra paths."""
+    """Every line that names the design, across the framework repositories, the extra paths and the other
+    designs of its folder (which also name it by its bare number)."""
     literals, number = design_identifiers(design)
     own = design.resolve()
     found: list[Reference] = []
     for root in [*framework_repos(workspace), *extra]:
         for path in _searchable(root):
-            if path.resolve() == own or path.stat().st_size > MAX_SEARCH_BYTES:
-                continue
-            text = path.read_bytes().decode("utf-8", errors="replace")
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                matched = _matches(line, literals, number)
-                if matched:
-                    found.append(Reference(workspace_label(workspace, path), line_number, line.strip(), matched))
+            if path.resolve() != own and path.stat().st_size <= MAX_SEARCH_BYTES:
+                found += _references_in(workspace, path, literals, number)
+    siblings = sibling_number(design)
+    if design.parent.name == DESIGN_DIR and siblings is not None:
+        for path in sorted(design.parent.glob(f"*{DESIGN_SUFFIX}")):
+            if path.resolve() != own:
+                found += _references_in(workspace, path, literals, siblings)
     return found
 
 
 def render_references(design_label: str, references: list[Reference]) -> str:
     if not references:
-        return f"No line in the framework repositories or the extra paths names {design_label}.\n"
+        return f"No line in the framework repositories, the extra paths or the other designs names {design_label}.\n"
     lines = [f"{len(references)} line(s) name {design_label}. Replace each with a pointer to where the content "
              "now lives, or remove it:", ""]
     lines += [f"- {r.file}:{r.line} (matched `{r.matched}`): {r.text}" for r in references]

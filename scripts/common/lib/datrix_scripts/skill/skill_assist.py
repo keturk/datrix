@@ -30,12 +30,13 @@ LLM_TIMEOUT_SECONDS: Final = 300
 COMMANDS: Final = (
     "context-digest", "readiness", "findings-index", "findings-check", "findings-plan", "findings-assemble",
     "finding-select", "finding-close", "checklist", "absorb-transfer", "absorb-references", "absorb-delete",
-    "bug-resolution", "design-inventory", "design-verify", "design-plan", "design-check", "design-close",
+    "bug-resolution", "design-inventory", "design-verify", "design-plan", "design-check", "design-xref",
+    "design-close", "rule-names",
 )
 # The commands that may ask a local model; the others are exact and take no model flags.
 MODEL_COMMANDS: Final = frozenset(
     {"readiness", "findings-index", "findings-plan", "checklist", "absorb-transfer", "bug-resolution",
-     "design-verify", "design-plan"}
+     "design-verify", "design-plan", "rule-names"}
 )
 # The assist command line's local-model flags (``local_llm.add_local_llm_arguments``).
 _CLI_TIMEOUT_FLAG: Final = "--local-timeout-ms"
@@ -111,7 +112,8 @@ _REQUIRED: Final[dict[str, list[str]]] = {
     "checklist": ["--design", "d.md"], "absorb-transfer": ["--design", "d.md", "--target", "t.md"],
     "absorb-references": ["--design", "d.md"], "absorb-delete": ["--design", "d.md"],
     "bug-resolution": ["--report", "r.md"], "design-inventory": [], "design-verify": [], "design-plan": [],
-    "design-check": [], "design-close": ["--finding", "f.md"],
+    "design-check": [], "design-xref": [], "design-close": ["--finding", "f.md"],
+    "rule-names": ["--site", "s.dtrx:1"],
 }
 
 
