@@ -283,7 +283,7 @@ For each entity-level file (model, schema/DTO, service, migration reference), ve
 **Unused Dependencies:**
 
 Check `requirements.txt` / `package.json` for libraries that correspond to unused features:
-- Database drivers (e.g., `asyncpg`, `aiomysql`, `pg`, `mysql2`) when no RDBMS block uses that engine
+- Database drivers (e.g., `asyncpg`, `pg`) when no RDBMS block uses that engine
 - Cache libraries (`redis`, `aioredis`, `ioredis`) when no cache block exists
 - Broker libraries (`aiokafka`, `aio-pika`, `kafkajs`, `amqplib`) when no pubsub block exists
 - Storage libraries (`boto3`/`minio`, `@aws-sdk/client-s3`) when no storage block exists
@@ -416,7 +416,7 @@ For each semantic issue found, document:
 
 #### 4d: Dependency Completeness
 - [ ] requirements.txt / package.json includes all needed libraries
-- [ ] Database drivers present (asyncpg for PostgreSQL, aiomysql for MySQL)
+- [ ] Database drivers present (asyncpg for PostgreSQL)
 - [ ] Cache libraries present (redis/aioredis)
 - [ ] Broker libraries present (aiokafka, aio-pika, etc.)
 - [ ] HTTP client libraries present (httpx for inter-service calls)

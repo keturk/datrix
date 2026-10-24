@@ -54,7 +54,7 @@ disable-model-invocation: true
 - `datrix_codegen_docker.secrets` → `SecretStore`, `generate_password`, `generate_secret_key`
 - `datrix_common.infra.registry` → `InfraRegistry`, `InfraGroup`, `InfraIdentity`
 - `datrix_testing.infra_constants` (test/dev extra only) → `RDBMS_DEPLOYMENT_DEFAULTS`, `CACHE_DEPLOYMENT_DEFAULTS`, `PUBSUB_DEPLOYMENT_DEFAULTS`, `NOSQL_DEPLOYMENT_DEFAULTS`
-- `datrix_common.config.datasource.rdbms_engine` → `RdbmsEngine`, `POSTGRES`, `MYSQL`, `MARIADB`, `get_rdbms_engine`, `get_rdbms_engine_by_sql_dialect`, `all_rdbms_engines`
+- `datrix_common.config.datasource.rdbms_engine` → `RdbmsEngine`, `POSTGRES`, `get_rdbms_engine`, `get_rdbms_engine_by_sql_dialect`, `all_rdbms_engines`
 - `datrix_common.errors.configuration` → `ConfigurationError`, `ConfigFileNotFoundError`, `ConfigParseError`, `ConfigValidationError`
 - `datrix_common.utils.engine_helpers` → `engine_str`, `validate_engine`, `resolve_sql_dialect`
 - `datrix_common.utils.job_helpers` → `job_timeout_seconds`, `job_retry_limit`, `get_job_render_context`
