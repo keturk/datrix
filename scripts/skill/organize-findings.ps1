@@ -12,8 +12,8 @@
     clients, language, migration, seed, kernel, docker, aws, azure, component, tests, tooling, docs); a name
     carrying a registered customer term is not sent. A move never overwrites an existing file.
 
-    finding-select, finding-close and the skills' inbox scans read *.md directly in one folder: point them
-    at an area subfolder with -Dir (implement-finding.ps1 -Dir "<folder>\azure").
+    finding-select, finding-close and implement-finding.ps1 work the area subfolders in turn, or one given
+    with -Dir (implement-finding.ps1 -Dir azure).
 
     Exit codes: 0 every file is sorted; 1 the folder cannot be read or a move failed; 2 some files stayed
     where they were (a withheld name, or no valid model answer for them); 3 a model was needed and none

@@ -32,7 +32,9 @@
     Work these findings files in place of the first -Count of the inbox.
 
 .PARAMETER Dir
-    The findings folder. Default: <workspace>\reports\finding.
+    Work only this folder: absolute, or relative to <workspace>\reports\finding (-Dir azure). Default: the
+    subfolders of <workspace>\reports\finding in turn (the next only once the one before holds no more),
+    then the files lying in it directly. -Finding is unchanged: those files are worked as given.
 
 .PARAMETER Model
     The model of each session. Default: claude-opus-5-5.
@@ -63,13 +65,16 @@
     .\implement-finding.ps1 -Count 3 -DryRun
 
 .EXAMPLE
+    .\implement-finding.ps1 D:\datrix\reports\finding\python
+
+.EXAMPLE
     .\implement-finding.ps1 -Finding "D:\datrix\reports\finding\<the finding>.md"
 #>
 [CmdletBinding()]
 param(
+    [Parameter(Position = 0)] [string]$Dir,
     [int]$Count,
     [string[]]$Finding,
-    [string]$Dir,
     [string]$Model,
     [ValidateSet("low", "medium", "high", "xhigh", "max")] [string]$Effort,
     [ValidateSet("auto", "acceptEdits", "dontAsk", "bypassPermissions")] [string]$PermissionMode,
