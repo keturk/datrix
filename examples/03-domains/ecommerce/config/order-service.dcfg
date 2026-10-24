@@ -302,7 +302,8 @@
     replace queues {
       engine = "service-bus";
       flavor = "service-bus";
-      sku = "Standard";
+      sku = "Premium";
+      capacity = 1;
     }
     strategy {
       rolling {
