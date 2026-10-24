@@ -38,7 +38,8 @@
       "Bash(powershell -File \"d:/datrix/datrix/scripts/git/commit-and-push.ps1\" -SelfTest)",
       "Bash(claude -p --output-format stream-json --verbose --tools \"Read\" --no-session-persistence --model claude-sonnet-5-5 --effort low)",
       "Bash(/d/datrix/.venv/Scripts/python.exe -I -c \"import sys,json; d=json.loads\\(sys.stdin.readline\\(\\)\\); print\\(d.get\\('mcp_servers'\\)\\)\")",
-      "Bash(/d/datrix/.venv/Scripts/python.exe -I -c ' *)"
+      "Bash(/d/datrix/.venv/Scripts/python.exe -I -c ' *)",
+      "mcp__datrix-code-index__search"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude",

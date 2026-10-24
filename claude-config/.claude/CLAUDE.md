@@ -92,7 +92,8 @@ asked for (or the design doc / task file you were given). Do that, completely.
 unrelated to your task gets a **findings file** at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`.
 Just write it: **do not look for an existing one** (duplicates are fine; `/consolidate-findings`
 merges them), do not fix it, do not file a task. Cite its path in your reply and carry on.
-Format: execution-contract-reporting.md §5A.
+Format: execution-contract-reporting.md §5A. **Exception — design work:** while working on
+designs, what you notice goes into a design instead, never a findings file (`.claude/docs/design-and-docs.md`).
 
 **Exactly three things end a turn: the task is FINISHED, Jon tells you to stop, or everything
 left waits on an `APPROVAL_REQUIRED` question to Jon.** Running long, getting tired of the
@@ -255,7 +256,7 @@ an unproven BLOCKED is the second worst.**
 ## Skills
 
 **You can invoke these:** `/fix-issue`, `/fix-bug-report`, `/fix-tests`, `/checkpoint-debug`,
-`/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/verify-implementation`,
+`/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/verify-design`, `/verify-implementation`,
 `/absorb-design`, `/commit-and-push`,
 `/evaluate-generated`, `/evaluate-generated-service`, `/consolidate-findings`, `/merge-findings`,
 `/consolidate-to-design`, `/implement-finding`, `/fix-cli`, `/fix-common`,

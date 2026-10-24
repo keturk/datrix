@@ -16,6 +16,20 @@ unspecified features.
   implementing straight from the design.
 - **Never modify a design doc during implementation.**
 
+## Reviewing a design for readiness
+
+Whether a design is ready is answered by `/verify-design`, never by a free-form review: one closed
+checklist, every finding proven with evidence and classed BLOCKING, IMPLEMENTER_CHOICE or
+FALSE_POSITIVE, and only BLOCKING findings make a design not ready. A design it recorded READY is
+not reviewed again until it, or a design it depends on, changes.
+
+## Design work files no findings
+
+While writing, reviewing or editing a design, or changing code a design's work turns up, nothing
+goes to `reports/finding/`. What the work turns up — a defect, another instance of one, a gap —
+goes into the design it belongs to, or into a new design numbered for it, with its census and
+conformance section like any other.
+
 ## Every design passes the design guidelines
 
 The twelve binding guidelines (G1–G12, `datrix/docs/architecture/design-principles.md` §
