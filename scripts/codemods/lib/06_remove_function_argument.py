@@ -5,13 +5,14 @@ Usage:
   .\run-codemod.ps1 06_remove_function_argument FUNC_NAME ARG_NAME [paths...]
   bowler run scripts/codemods/lib/06_remove_function_argument.py -- build verbose datrix-common/src
 
-Use .diff() to preview, .write() to apply.
+Previews a diff; run-codemod -Write writes it.
 """
 
 from __future__ import annotations
 
 import sys
 
+from _shared import finish
 from bowler import Query
 
 
@@ -26,12 +27,7 @@ def main() -> None:
         func_name = "my_func"
         arg_name = "param_to_remove"
 
-    (
-        Query(*paths)
-        .select_function(func_name)
-        .remove_argument(arg_name)
-        .diff()
-    )
+    finish(Query(*paths).select_function(func_name).remove_argument(arg_name))
 
 
 if __name__ == "__main__":

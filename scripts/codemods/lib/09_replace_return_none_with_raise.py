@@ -3,7 +3,7 @@ Replace "return None" with "raise SomeError(...)" in functions (fail-fast style)
 
 Configure ERROR_MODULE, ERROR_CLASS, and optionally restrict to function names
 matching FUNC_NAME_PATTERN (None = all functions). Adds import for the exception
-if missing. Use .diff() to preview.
+if missing. Previews a diff; run-codemod -Write writes it.
 
 Usage:
   .\run-codemod.ps1 09_replace_return_none_with_raise [paths...]
@@ -18,7 +18,7 @@ import re
 import sys
 
 import libcst as cst
-from _shared import add_from_import
+from _shared import add_from_import, finish
 from bowler import Query
 
 ERROR_MODULE = "datrix_common.errors.entity"
@@ -104,12 +104,7 @@ def replace_return_none(
 def main() -> None:
     paths = sys.argv[1:] if len(sys.argv) > 1 else ["."]
 
-    (
-        Query(*paths)
-        .select_root()
-        .modify(replace_return_none)
-        .diff()
-    )
+    finish(Query(*paths).select_root().modify(replace_return_none))
 
 
 if __name__ == "__main__":

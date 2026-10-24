@@ -1,7 +1,7 @@
 """
 Add "-> None" (or another type) to functions that have no return annotation.
 
-Configure RETURN_ANNOTATION (default "None"). Use .diff() to preview.
+Configure RETURN_ANNOTATION (default "None"). Previews a diff; run-codemod -Write writes it.
 
 Usage:
   .\run-codemod.ps1 10_add_return_type_annotation [paths...]
@@ -13,6 +13,7 @@ from __future__ import annotations
 import sys
 
 import libcst as cst
+from _shared import finish
 from bowler import Query
 
 RETURN_ANNOTATION = "None"  # e.g. "None", "bool", "str"
@@ -48,12 +49,7 @@ def add_return_annotation(
 def main() -> None:
     paths = sys.argv[1:] if len(sys.argv) > 1 else ["."]
 
-    (
-        Query(*paths)
-        .select_root()
-        .modify(add_return_annotation)
-        .diff()
-    )
+    finish(Query(*paths).select_root().modify(add_return_annotation))
 
 
 if __name__ == "__main__":

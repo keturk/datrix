@@ -2,7 +2,7 @@
 Apply a refactor only to files matching a pattern (conditional/context-aware).
 
 Example: rename a function only in test files, or only in one package.
-Edit INCLUDE and EXCLUDE below (regex), then run. Use .diff() to preview.
+Edit INCLUDE and EXCLUDE below (regex), then run. Previews a diff; run-codemod -Write writes it.
 
 Usage:
   .\run-codemod.ps1 11_filter_by_filename FUNC_NAME NEW_NAME [paths...]
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 
+from _shared import finish
 from bowler import Query
 
 # Restrict to files whose path matches this regex; None = no filter.
@@ -39,7 +40,7 @@ def main() -> None:
         query = query.is_filename(include=INCLUDE)
     if EXCLUDE is not None:
         query = query.is_filename(exclude=EXCLUDE)
-    query.rename(new_name).diff()
+    finish(query.rename(new_name))
 
 
 if __name__ == "__main__":

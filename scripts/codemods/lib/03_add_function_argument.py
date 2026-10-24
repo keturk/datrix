@@ -5,13 +5,15 @@ Usage:
   .\run-codemod.ps1 03_add_function_argument FUNC_NAME ARG_NAME DEFAULT_VALUE [paths...]
   bowler run scripts/codemods/lib/03_add_function_argument.py -- build "" "None" datrix-common/src
 
-Use .diff() to preview. For a keyword-only arg, the default is used in the definition only.
+Previews a diff; run-codemod -Write writes it. For a keyword-only arg, the default is used in the
+definition only.
 """
 
 from __future__ import annotations
 
 import sys
 
+from _shared import finish
 from bowler import Query
 
 
@@ -28,12 +30,7 @@ def main() -> None:
         arg_name = "new_param"
         default_value = "None"
 
-    (
-        Query(*paths)
-        .select_function(func_name)
-        .add_argument(arg_name, default_value, positional=False)
-        .diff()
-    )
+    finish(Query(*paths).select_function(func_name).add_argument(arg_name, default_value, positional=False))
 
 
 if __name__ == "__main__":

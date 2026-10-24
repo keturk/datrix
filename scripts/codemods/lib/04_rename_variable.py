@@ -5,13 +5,14 @@ Usage:
   .\run-codemod.ps1 04_rename_variable OLD_NAME NEW_NAME [paths...]
   bowler run scripts/codemods/lib/04_rename_variable.py -- MAX_RETRIES max_retries datrix-language/src
 
-Use .diff() to preview, .idiff() to apply interactively.
+Previews a diff; run-codemod -Write writes it.
 """
 
 from __future__ import annotations
 
 import sys
 
+from _shared import finish
 from bowler import Query
 
 
@@ -26,12 +27,7 @@ def main() -> None:
         old_name = "old_var"
         new_name = "new_var"
 
-    (
-        Query(*paths)
-        .select_var(old_name)
-        .rename(new_name)
-        .diff()
-    )
+    finish(Query(*paths).select_var(old_name).rename(new_name))
 
 
 if __name__ == "__main__":

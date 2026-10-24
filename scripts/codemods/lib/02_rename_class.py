@@ -5,13 +5,14 @@ Usage:
   .\run-codemod.ps1 02_rename_class OLD_NAME NEW_NAME [paths...]
   bowler run scripts/codemods/lib/02_rename_class.py -- TreeSitterParser DatrixParser datrix-language/src
 
-Use .diff() to preview, .idiff() to apply interactively, .write() to apply all.
+Previews a diff; run-codemod -Write writes it.
 """
 
 from __future__ import annotations
 
 import sys
 
+from _shared import finish
 from bowler import Query
 
 
@@ -26,12 +27,7 @@ def main() -> None:
         old_name = "OldClass"
         new_name = "NewClass"
 
-    (
-        Query(*paths)
-        .select_class(old_name)
-        .rename(new_name)
-        .diff()
-    )
+    finish(Query(*paths).select_class(old_name).rename(new_name))
 
 
 if __name__ == "__main__":

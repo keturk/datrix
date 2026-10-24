@@ -2,7 +2,7 @@
 Add a decorator to all functions (or classes) with a given name. Structural/pattern change.
 
 Edit DECORATOR_MODULE and DECORATOR_NAME below to add e.g. @deprecated or a custom decorator.
-Use .diff() to preview.
+Previews a diff; run-codemod -Write writes it.
 
 Usage:
   .\run-codemod.ps1 07_add_decorator FUNC_OR_CLASS_NAME [paths...]
@@ -16,6 +16,7 @@ from __future__ import annotations
 import sys
 
 import libcst as cst
+from _shared import finish
 from bowler import Query
 
 # Configure: decorator to add (module.name or bare name)
@@ -58,12 +59,7 @@ def main() -> None:
     else:
         name = "my_func"
 
-    (
-        Query(*paths)
-        .select_function(name)
-        .modify(add_decorator)
-        .diff()
-    )
+    finish(Query(*paths).select_function(name).modify(add_decorator))
 
 
 if __name__ == "__main__":

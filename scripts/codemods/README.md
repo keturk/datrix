@@ -22,16 +22,17 @@ Runs a Bowler codemod from `scripts/codemods/lib/`. All arguments after the code
 |------|---------|-------------|
 | **Rename function** | `.\codemods\run-codemod.ps1 01_rename_function parse_file parse_path` | Preview diff |
 | **Rename class** | `.\codemods\run-codemod.ps1 02_rename_class TreeSitterParser DatrixParser datrix-language\src` | Rename in path |
-| **Rename imports** | `.\codemods\run-codemod.ps1 08_rename_module_imports datrix_language.parser datrix_language.parsing datrix-language\src` | Update imports |
+| **Rename imports** | `.\codemods\run-codemod.ps1 08_rename_module_imports datrix_language.parser datrix_language.parsing datrix-language\src` | Preview the import updates (dotted submodules included) |
+| **Write** | `.\codemods\run-codemod.ps1 08_rename_module_imports datrix_language.parser datrix_language.parsing datrix-language\src -Write` | Write the previewed rewrite |
 | **Print to logger** | `.\codemods\run-codemod.ps1 13_print_to_logger datrix-cli\src` | Replace `print` with `logger.info` |
 
-**Parameters:** `-CodemodName` (positional 0, required), `-CodemodArgs` (positional, variadic), `-SelfTest`. Only a numbered recipe (`NN_name`) in `scripts/codemods/lib/` runs: any other name, or one holding a path, is refused with the list of recipes (exit 1).
+**Parameters:** `-CodemodName` (positional 0, required), `-CodemodArgs` (positional, variadic), `-Write`, `-SelfTest` (a planted rename previewed, then written; the refusals; the wrapper seam). Only a numbered recipe (`NN_name`) in `scripts/codemods/lib/` runs: any other name, or one holding a path, is refused with the list of recipes (exit 1).
 
-**Module:** `datrix_scripts.codemods.run_codemod`; POSIX twin `codemods/run-codemod.sh` (the recipe and its arguments as positionals, or `--codemod-name` / `--codemod-args`) — `bash codemods/run-codemod.sh 01_rename_function parse_file parse_path`.
+**Module:** `datrix_scripts.codemods.run_codemod`; POSIX twin `codemods/run-codemod.sh` (the recipe and its arguments as positionals, or `--codemod-name` / `--codemod-args`; `--write`) — `bash codemods/run-codemod.sh 01_rename_function parse_file parse_path`.
 
 - **Preview (diff only):** Default; no files are changed.
-- **Interactive (apply hunks):** Edit the codemod script: change `.diff()` to `.idiff()`.
-- **Apply all:** Change `.diff()` to `.write()` in the codemod script.
+- **Write:** `-Write` sets `DATRIX_CODEMOD_WRITE=1`; every recipe ends in `finish(query)` (`lib/_shared.py`), which then calls `.write()` instead of `.diff()`. A new recipe ends in `finish(...)` too. The runner puts `lib/` first on `PYTHONPATH`, so a recipe imports its helpers with `from _shared import ...`.
+- **`08_rename_module_imports` rewrites import statements only** (`import old`, `from old[.sub] import x`). A module bound by `import old` and used as `old.x` in the body, and a dotted path written as a string (an entry point, a `pyproject.toml` key, a lazy import), keep the old name: finish a rename with a text search for the old name that must come back empty.
 
 **Paths:** If you omit paths, the codemod uses the current directory. Pass one or more dirs or files as the last arguments.
 
@@ -79,7 +80,7 @@ receives:
 
 `range` claims a contiguous run in source order and `names` an explicit list. `doc` is required, so
 no new module inherits the original's docstring. Each new module gets the original's imports, the
-imports of what it uses from its siblings, and the original's module-level `pytestmark`. Unclaimed
+imports of what it uses from its siblings and from the original, and the original's module-level `pytestmark`. Unclaimed
 definitions stay in the original.
 
 **One import path per symbol:** the original does not re-export what moved. Instead, every
@@ -91,8 +92,7 @@ imports of the new modules and the original.
 The split **refuses and writes nothing** when it would be wrong or incomplete:
 
 - a double claim, an unknown name, a reversed range, or a claimed `pytestmark`;
-- an import cycle between the new modules;
-- moved code that uses a name left behind (the original imports the new modules, so the reverse import would cycle);
+- an import cycle among the new modules and the original. Moved code imports what stays from the original, and the original imports the moved names it still uses, so moved code may use what stays only when nothing that stays uses it back. The refusal names the cycle and the names on each edge: claim those into the same module;
 - an `__all__` naming a moved name;
 - a module-object read `alias.<moved name>`;
 - an import sharing its line with other code;
@@ -104,7 +104,7 @@ The split **refuses and writes nothing** when it would be wrong or incomplete:
 | **Split** | `.\codemods\split-module.ps1 -Module <file.py> -Plan D:\datrix\.tmp\split-plan.json` | Write the new modules, the remainder and the importer rewrites |
 | **Test module** | `.\codemods\split-module.ps1 -Module <tests\...\test_big.py> -Plan <plan> -PackageModule tests.unit.generators` | A module outside `src/` names its dotted package |
 
-**Parameters:** `-Module <path>` (required), `-Plan <path>` (required), `-PackageModule <dotted>` (required outside a `src/` tree), `-DryRun`, `-SelfTest` (a planted workspace: a dry run, a split with its importer rewritten, a refused plan). **Exit codes:** 0 = split done (or a clean dry run), 1 = refused (every reason printed), 2 = usage. Run the moved code's tests afterwards (`test.ps1 <pkg> -Specific` / `-Tag`).
+**Parameters:** `-Module <path>` (required), `-Plan <path>` (required), `-PackageModule <dotted>` (required outside a `src/` tree), `-DryRun`, `-SelfTest` (a planted workspace: a dry run, a split with its importer rewritten, moved code importing what stays, a cycle refused, a refused plan). **Exit codes:** 0 = split done (or a clean dry run), 1 = refused (every reason printed), 2 = usage. Run the moved code's tests afterwards (`test.ps1 <pkg> -Specific` / `-Tag`).
 
 **Module:** `datrix_scripts.codemods.split_module`; POSIX twin `codemods/split-module.sh` (`--module`, `--plan`, `--package-module`, `--dry-run`, `--self-test`).
 
@@ -117,5 +117,5 @@ The split **refuses and writes nothing** when it would be wrong or incomplete:
 
 ## Tips
 
-- Always run with **diff first** (default) before switching to `.idiff()` or `.write()`.
+- Always run with **diff first** (default) before `-Write`.
 - Restrict paths to the packages you care about (e.g. `datrix-language\src`) to avoid editing generated or third-party code.

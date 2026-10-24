@@ -3,7 +3,7 @@ Replace print(...) with logger.info(...) and ensure logging + logger exist.
 
 Fixes Datrix logging inconsistency: use standard logger instead of print.
 Adds 'import logging' and 'logger = logging.getLogger(__name__)' when missing.
-Drops print-only keyword args (file=, sep=, end=). Use .diff() to preview.
+Drops print-only keyword args (file=, sep=, end=). Previews a diff; run-codemod -Write writes it.
 
 Usage:
   .\run-codemod.ps1 13_print_to_logger [paths...]
@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 
 import libcst as cst
+from _shared import finish
 from bowler import Query
 
 
@@ -151,12 +152,7 @@ def print_to_logger(
 def main() -> None:
     paths = sys.argv[1:] if len(sys.argv) > 1 else ["."]
 
-    (
-        Query(*paths)
-        .select_root()
-        .modify(print_to_logger)
-        .diff()
-    )
+    finish(Query(*paths).select_root().modify(print_to_logger))
 
 
 if __name__ == "__main__":

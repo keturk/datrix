@@ -14,13 +14,13 @@
 
  "range" claims a contiguous run in source order, "names" an explicit list; "doc" is the new
  module's docstring (required, so no module inherits the original's). Each new module gets
- the original's imports, the imports of what it uses from its siblings and the original's
- module-level pytestmark. Unclaimed definitions stay in the original.
+ the original's imports, the imports of what it uses from its siblings and from the original,
+ and the original's module-level pytestmark. Unclaimed definitions stay in the original.
 
  The original does NOT re-export what moved (one import path per symbol): every
  `from <original> import <moved>` across the workspace is rewritten to the new home. The
- split refuses, writing nothing, on a double claim, an unknown name, an import cycle between
- the new modules, moved code using a name left behind, an __all__ naming a moved name, or a
+ split refuses, writing nothing, on a double claim, an unknown name, an import cycle among
+ the new modules and the original (named with the names on each edge), an __all__ naming a moved name, or a
  reference the rewrite cannot reach (a module-object attribute read, an import sharing its
  line, or the dotted path written as text in a source or pyproject.toml file). ruff
  (F401, I001) then tidies the imports of the new modules and the original.
@@ -42,7 +42,8 @@
 
 .PARAMETER SelfTest
  Run only the module's self-test: a planted module is split (dry run, then for real) with its
- importer rewritten, a bad plan is refused with nothing written, and the wrapper seam.
+ importer rewritten, moved code imports what stays while a cycle is refused, a bad plan is
+ refused with nothing written, and the wrapper seam.
 
 .EXAMPLE
  .\codemods\split-module.ps1 -Module D:\datrix\datrix-codegen-azure\src\datrix_codegen_azure\generators\resource_mapping\_gateway_app_service.py -Plan D:\datrix\.tmp\split-plan.json -DryRun

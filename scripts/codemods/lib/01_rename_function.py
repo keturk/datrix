@@ -5,13 +5,14 @@ Usage:
   .\run-codemod.ps1 01_rename_function OLD_NAME NEW_NAME [paths...]
   bowler run scripts/codemods/lib/01_rename_function.py -- parse_file parse_path datrix-language/src
 
-If no paths given, uses current directory. Use .diff() to preview, .idiff() to apply interactively.
+If no paths given, uses current directory. Previews a diff; run-codemod -Write writes it.
 """
 
 from __future__ import annotations
 
 import sys
 
+from _shared import finish
 from bowler import Query
 
 
@@ -26,12 +27,7 @@ def main() -> None:
         old_name = "old_func"
         new_name = "new_func"
 
-    (
-        Query(*paths)
-        .select_function(old_name)
-        .rename(new_name)
-        .diff()
-    )
+    finish(Query(*paths).select_function(old_name).rename(new_name))
 
 
 if __name__ == "__main__":

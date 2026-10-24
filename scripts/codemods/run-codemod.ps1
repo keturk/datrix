@@ -9,7 +9,7 @@
  passed through to the codemod (e.g. OLD_NAME NEW_NAME, or path list). Bowler comes from the
  "scripts" dependency group of datrix/pyproject.toml, which the shared venv installs; never
  pip-install it by hand. Only a numbered recipe in that folder runs: a name holding a path is
- refused.
+ refused. A recipe prints its rewrite as a diff; -Write writes it to the files instead.
 
  Exit codes: Bowler's own; 1 = no such recipe.
 
@@ -21,9 +21,12 @@
  Remaining arguments passed to the codemod (e.g. old name, new name, paths).
  ValueFromRemainingArguments.
 
+.PARAMETER Write
+ Write the rewrite to the files instead of printing its diff. Preview first.
+
 .PARAMETER SelfTest
- Run only the module's self-test: a recipe previews a planted rename, the refusals, and the
- wrapper seam.
+ Run only the module's self-test: a recipe previews and writes a planted rename, the refusals,
+ and the wrapper seam.
 
 .EXAMPLE
  .\run-codemod.ps1 01_rename_function parse_file parse_path
@@ -35,12 +38,17 @@
 
 .EXAMPLE
  .\run-codemod.ps1 08_rename_module_imports datrix_language.parser datrix_language.parsing datrix-language\src
- Update imports when a module is renamed.
+ Preview the import updates when a module is renamed.
+
+.EXAMPLE
+ .\run-codemod.ps1 08_rename_module_imports datrix_language.parser datrix_language.parsing datrix-language\src -Write
+ Write those import updates.
 #>
 [CmdletBinding(DefaultParameterSetName = "Run")]
 param(
  [Parameter(ParameterSetName = "Run", Position = 0, Mandatory = $true)][string]$CodemodName,
  [Parameter(ParameterSetName = "Run", Position = 1, ValueFromRemainingArguments = $true)][string[]]$CodemodArgs,
+ [Parameter(ParameterSetName = "Run")][switch]$Write,
  [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
 # Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the

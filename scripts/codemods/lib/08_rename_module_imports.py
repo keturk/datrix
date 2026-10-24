@@ -6,13 +6,15 @@ Usage:
   .\run-codemod.ps1 08_rename_module_imports OLD_MODULE NEW_MODULE [paths...]
   bowler run scripts/codemods/lib/08_rename_module_imports.py -- datrix_language.parser datrix_language.parsing datrix-language/src
 
-Use .diff() to preview. Does not rename the module file itself—only import references.
+Previews a diff; run-codemod -Write writes it. Does not rename the module file itself—only import
+references.
 """
 
 from __future__ import annotations
 
 import sys
 
+from _shared import finish
 from bowler import Query
 
 
@@ -27,12 +29,7 @@ def main() -> None:
         old_module = "old_module"
         new_module = "new_module"
 
-    (
-        Query(*paths)
-        .select_module(old_module)
-        .rename(new_module)
-        .diff()
-    )
+    finish(Query(*paths).select_module(old_module).rename(new_module))
 
 
 if __name__ == "__main__":

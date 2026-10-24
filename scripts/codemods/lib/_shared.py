@@ -2,7 +2,21 @@
 
 from __future__ import annotations
 
+import os
+from typing import Final
+
 import libcst as cst
+from bowler import Query
+
+# Set to "1" by ``run-codemod.ps1 -Write`` (``datrix_scripts.codemods.run_codemod.WRITE_ENV``).
+WRITE_ENV: Final = "DATRIX_CODEMOD_WRITE"
+
+
+def finish(query: Query) -> Query:
+    """Run *query*: write the rewrite when ``run-codemod -Write`` asked for it, else print its diff."""
+    if os.environ.get(WRITE_ENV) == "1":
+        return query.write()
+    return query.diff()
 
 
 def _module_expression(dotted: str) -> cst.BaseExpression:

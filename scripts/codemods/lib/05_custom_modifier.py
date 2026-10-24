@@ -3,7 +3,8 @@ Example custom modifier using libCST with Bowler: on each module (select_root),
 optionally add `logger = logging.getLogger(__name__)` after imports.
 
 Bowler passes libCST nodes to modifiers; select_root() matches the file root.
-Adjust the condition and inserted node for your use case. Run with .diff() first.
+Adjust the condition and inserted node for your use case. Previews a diff; run-codemod -Write
+writes it.
 
 Usage:
   .\run-codemod.ps1 05_custom_modifier [paths...]
@@ -15,6 +16,7 @@ from __future__ import annotations
 import sys
 
 import libcst as cst
+from _shared import finish
 from bowler import Query
 
 
@@ -67,12 +69,7 @@ def add_logger_if_missing(
 def main() -> None:
     paths = sys.argv[1:] if len(sys.argv) > 1 else ["."]
 
-    (
-        Query(*paths)
-        .select_root()
-        .modify(add_logger_if_missing)
-        .diff()
-    )
+    finish(Query(*paths).select_root().modify(add_logger_if_missing))
 
 
 if __name__ == "__main__":

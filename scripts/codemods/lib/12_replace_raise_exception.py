@@ -2,7 +2,7 @@
 Replace "raise Exception(...)" with "raise SpecificError(...)" and add import.
 
 Bulk validation/fix: use a specific exception type instead of generic Exception.
-Configure ERROR_MODULE and ERROR_CLASS below. Use .diff() to preview.
+Configure ERROR_MODULE and ERROR_CLASS below. Previews a diff; run-codemod -Write writes it.
 
 Usage:
   .\run-codemod.ps1 12_replace_raise_exception [paths...]
@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 
 import libcst as cst
-from _shared import add_from_import
+from _shared import add_from_import, finish
 from bowler import Query
 
 ERROR_MODULE = "datrix_common.errors.transform"
@@ -67,12 +67,7 @@ def replace_exception(
 def main() -> None:
     paths = sys.argv[1:] if len(sys.argv) > 1 else ["."]
 
-    (
-        Query(*paths)
-        .select_root()
-        .modify(replace_exception)
-        .diff()
-    )
+    finish(Query(*paths).select_root().modify(replace_exception))
 
 
 if __name__ == "__main__":
