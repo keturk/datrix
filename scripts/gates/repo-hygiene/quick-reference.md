@@ -151,6 +151,29 @@ A per-extension `eol=crlf` line (`*.ps1`) is untouched by either rule: the index
 
 ---
 
+## `gates\repo-hygiene\hidden-code-point-gate.ps1`
+
+**The repo's proof that no generator source holds a code point a reader cannot see.** A generator's templates and modules are what every generated project is built from: a bidi control (Trojan Source, CVE-2021-42574), a zero-width character, a non-ASCII space or a control written raw in one of them makes the source a reviewer reads differ from the source a compiler reads, in the framework and in every project it emits. What counts as hidden is `datrix_common.utils.hidden_text.hidden_in_source`, the one set every escaper reads: every code point that is not printable, every Default_Ignorable_Code_Point, and U+2800 BRAILLE PATTERN BLANK.
+
+Every file a commit could publish under `src/` of every `datrix-codegen-*` git checkout (tracked files and untracked files git does not ignore, discovered from disk, so a new generator package is checked the day it is cloned) is read as UTF-8, and every flagged code point other than TAB, LF and CR is reported as `<repo>/<path>:<line>:<column>: U+HHHH`. Lines count LF alone (U+0085, U+2028 and U+2029 are reported, never taken as line breaks); columns count code points; both start at 1. A file that is not UTF-8 text cannot be judged and is reported too. The fix is an escape of the file's language (a `\u` escape of the hex in a string literal), or deleting the code point.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| **Run the gate** | `.\gates\repo-hygiene\hidden-code-point-gate.ps1` | Check every generator repo in the workspace |
+| **One repo** | `.\gates\repo-hygiene\hidden-code-point-gate.ps1 -Repo datrix-codegen-angular` | Check only the named repo(s) |
+| **Self-test only** | `.\gates\repo-hygiene\hidden-code-point-gate.ps1 -SelfTest` | Run only the non-vacuity self-test; skip the real scan |
+| **Debug** | `.\gates\repo-hygiene\hidden-code-point-gate.ps1 -Dbg` | DEBUG logging; print the python invocation before running |
+
+**Parameters:** `-Repo <name[,name...]>`, `-SelfTest`, `-Dbg`
+
+**Self-test runs automatically, every invocation.** Every row of the shared hidden-text corpus (`datrix_testing.hidden_text_corpus`) must be reported at the line and column of each of its hidden code points (the joiner of an emoji sequence, not its glyphs); TAB, LF and CR must pass; U+2028 must be reported on its own line, not split it; and planted files under `D:\datrix\.tmp\` (one with a zero-width space, one not UTF-8, one clean) must report exactly the first two. A self-test failure aborts before any real result is trusted (exit 1).
+
+**Exit codes:** 0 = no hidden code point (or the self-test passed, with `-SelfTest`), 1 = a hidden code point, a file that is not UTF-8, a failing self-test, or package installs that are not current, 2 = usage error (unknown `-Repo` name, no generator repo found) or a failing git command or file read.
+
+**Module:** `datrix_scripts.gates.repo_hygiene.hidden_code_point_gate`; POSIX twin `gates/repo-hygiene/hidden-code-point-gate.sh` (`--repo`, `--self-test`, `--dbg`). `-SelfTest` also runs the wrapper seam checks. The last line is `[GATE] hidden-code-point PASSED|FAILED exit=<n> log=<path>`.
+
+---
+
 ## `gates\repo-hygiene\ignored-source-gate.ps1`
 
 **The repo's proof that no `.gitignore` rule is silently deleting a publishable file.** For the `datrix` showcase repo and every `datrix-*` clone in the workspace (discovered from disk at runtime — a new package is covered with no edit to the gate), it computes the set difference between the working tree and what a `git add -A` would stage. Every element of that difference must be a reviewed, scoped entry in `scripts/config/ignored-source-exemptions.json`; anything else is a source file that exists locally and will not survive a clone. An entry names the ignore rule by its pattern text and by a segment-aware glob over the repo-relative path of the `.gitignore` file git blames (a literal path matches only that file; `examples/**/generated/**/.gitignore` matches the nested files a generator writes into each emitted project), and scopes the paths it excuses with `path_glob`.
