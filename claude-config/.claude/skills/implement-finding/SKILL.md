@@ -17,13 +17,13 @@ it reaches; only a B1–B4 blocker with its four-part proof stops it.
 ## How to invoke
 
 ```
-/implement-finding                     # the first finding of the inbox, by name
+/implement-finding                     # the first finding of the first inbox subfolder that holds one
 /implement-finding FINDING: <path>
 ```
 
 | Field | Meaning | Default |
 |---|---|---|
-| `FINDING` | The findings file to work | the first file by name: `skill-assist.ps1 finding-select --count 1` |
+| `FINDING` | The findings file to work | the first file of the first inbox subfolder that holds one (area order), else the inbox's own files: `skill-assist.ps1 finding-select --count 1`; `--dir <subfolder>` (absolute, or relative to `reports\finding`) limits it to that folder |
 | `CLOSE` | `script` when `implement-finding.ps1` started the session: it deletes the finding itself | you delete it (step 6) |
 
 ## Steps

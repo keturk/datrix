@@ -17,9 +17,12 @@ H = r"d:\datrix\.claude\hooks"
 SID = "TESTSESSION-route-line-edits"
 TOOL = "mcp__datrix-edit__edit_lines"
 FIXTURE = r"d:\datrix\datrix-common\src\datrix_common\__init__.py"
+SYMBOL_FIXTURE = r"d:\datrix\datrix-extensions\src\datrix_extensions\geo\__init__.py"
+SYMBOL_FIXTURE_LINE = "logger = logging.getLogger(__name__)"
 
 sys.path.insert(0, r"d:\datrix\datrix\scripts\common\lib")
 from datrix_scripts.line_edits import line_hash, load_text_file  # noqa: E402
+from datrix_scripts.symbol_spans import span_hash  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 fails = []
@@ -45,13 +48,22 @@ def insert_after_last(text):
     return {"edits": [{"file_path": FIXTURE, "after": len(lines), "hash": line_hash(lines[-1].text), "text": text}]}
 
 
-before = Path(FIXTURE).read_bytes()
+def symbol_replacement(text):
+    return {"edits": [{"file_path": SYMBOL_FIXTURE, "symbol": "logger", "span_hash": span_hash([SYMBOL_FIXTURE_LINE]),
+                       "text": text}]}
+
+
+before = Path(SYMBOL_FIXTURE).read_bytes()
+before_init = Path(FIXTURE).read_bytes()
 
 print("passes a guard's refusal on:")
 code, _, err = run(TOOL, insert_after_last("# TODO: finish this later"))
 check("edit_lines adding a TODO to framework Python -> blocked (exit 2)", code, 2)
 check("the refusal names the file and is the guard's own", "datrix-common/src/datrix_common/__init__.py" in err
       and "TODO" in err, True)
+code, _, err = run(TOOL, symbol_replacement("logger = logging.getLogger(__name__)  # TODO: finish this later"))
+check("a symbol edit adding a TODO to framework Python -> blocked (exit 2)", code, 2)
+check("the symbol refusal names the file and is the guard's own", "geo/__init__.py" in err and "TODO" in err, True)
 
 print("lets everything else through:")
 check("a clean edit -> allowed", run(TOOL, insert_after_last("VERSION_NOTE: str = 'gate fixture'"))[0], 0)
@@ -60,7 +72,11 @@ wrong_hash["edits"][0]["hash"] = "zz"
 check("a call the planner refuses (wrong hash) -> allowed, the server refuses it", run(TOOL, wrong_hash)[0], 0)
 check("a call with no edits -> allowed, the server refuses it", run(TOOL, {})[0], 0)
 check("another tool -> allowed", run("Edit", {"file_path": FIXTURE, "old_string": "a", "new_string": "b"})[0], 0)
-check("the fixture file was never written", Path(FIXTURE).read_bytes() == before, True)
+check("a clean symbol edit -> allowed", run(TOOL, symbol_replacement("logger = logging.getLogger(__name__)"))[0], 0)
+check("a symbol edit with a stale span hash -> allowed, the server refuses it", run(TOOL, {"edits": [
+    {"file_path": SYMBOL_FIXTURE, "symbol": "logger", "span_hash": "00000000", "text": "x"}]})[0], 0)
+check("the fixture files were never written", Path(FIXTURE).read_bytes() == before_init
+      and Path(SYMBOL_FIXTURE).read_bytes() == before, True)
 
 print("reads its guards from settings.json:")
 spec = importlib.util.spec_from_file_location("route_line_edits", os.path.join(H, "route-line-edits.py"))

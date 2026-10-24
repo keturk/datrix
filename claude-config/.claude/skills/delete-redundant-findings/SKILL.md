@@ -50,6 +50,15 @@ findings folder, writes no register or archive of what it deleted, and dispatche
 powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-redundant
 ```
 
+**The inbox has area subfolders** (`organize-findings.ps1` sorts the loose files into
+`d:\datrix\reports\finding\<area>\`). The command reads the `*.md` directly in the inbox and in every
+one of its subfolders and compares them all with each other, so a duplicate in another area is found.
+Every file is named by its path under the inbox (`azure/0167-….md`) in the plan, the view and the
+delete step; a pointer in prose or in **Related:** names the file stem, as before. `--dir <folder>` narrows the
+run to that folder and its subfolders. On a full inbox the model has
+hundreds of pairs to read and the run takes tens of minutes: start it with `run_in_background`
+and wait for the notification.
+
 It writes `d:\datrix\.tmp\assist\findings-redundant.json` (the plan) and `findings-redundant.md` (the
 review view) and prints their paths with a one-line summary. Per file it works in three steps:
 
@@ -94,7 +103,7 @@ PARTIAL names what the survivor lacks, which is exactly why the file stays.
 The delete step refuses while another findings file names a file it will delete. Find the mentions:
 
 ```powershell
-Select-String -Path d:\datrix\reports\finding\*.md -Pattern '<doomed file name without .md>' -SimpleMatch
+Select-String -Path d:\datrix\reports\finding\*.md,d:\datrix\reports\finding\*\*.md -Pattern '<doomed file name without .md>' -SimpleMatch
 ```
 
 Edit each mention (in **Related:**, **Where:** or prose) to name the survivor instead. The plan view
@@ -123,7 +132,7 @@ Do not rename or renumber anything, do not move a deleted file anywhere, and do 
 
 ## Report to Jon
 
-Short: files in, files deleted, files out (`Get-ChildItem d:\datrix\reports\finding -File -Filter *.md`
+Short: files in, files deleted, files out (`Get-ChildItem d:\datrix\reports\finding -Recurse -File -Filter *.md`
 count). One line per deletion (`deleted → survivor §section`). Then the proposals you rejected with a
 one-clause reason, any pair that needs `/merge-findings`, any sentence or citation added to a survivor,
 and the Phase 4 exit code.

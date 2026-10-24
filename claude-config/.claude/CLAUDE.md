@@ -196,7 +196,10 @@ the wrong thing. The full table, and how to add a check (in a hook or a checklis
   number and hash from `read_lines`, many edits across files, the old text never re-sent), or N
   `Edit` calls — never a script (a shell write interrupts Jon and skips the guards; every edit
   tool runs the Write/Edit guards). Prefer `edit_lines` when an `old_string` would be long or need
-  padding to be unique: every later response re-reads what an edit sent.
+  padding to be unique: every later response re-reads what an edit sent. **In a Python file, read a
+  function, class or variable with `read_symbol` (dotted names, `Class.method`) instead of reading the
+  file**, and change it by name through `edit_lines` (`symbol` / `after_symbol` plus the `span_hash`
+  `read_symbol` showed); use `outline` to find the names.
   Redirecting *transient* output into `.tmp`/`.test-output`/`.scripts`/the scratchpad is fine.
 - **No workarounds.** Trace to the root cause and fix it there. No band-aids, no "good enough
   for now", no conditional guards hiding a broken path. This is not a binary between
