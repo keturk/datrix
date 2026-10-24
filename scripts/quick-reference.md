@@ -51,7 +51,7 @@ Read the category-specific file for the script you need:
 | **Visualization** | [visualize/quick-reference.md](visualize/quick-reference.md) | visualize.ps1, openapi-gen.ps1, schema-diff.ps1, schema-snapshot.ps1, all-reports.ps1, status-docs.ps1 |
 | **Tasks** | [tasks/quick-reference.md](tasks/quick-reference.md) | todo.ps1, complete.ps1, completed.ps1, cleanup.ps1, latest-phase.ps1, phase-status.ps1, plan-waves.ps1, plan-waves-multi.ps1, validate-dependencies.ps1, validate-task.ps1, task-orientation-gate.ps1 |
 | **Review** | [review/quick-reference.md](review/quick-reference.md) | review.ps1 (Tier 1 + Tier 2 task file reviewer), apply-reviews-prep.ps1, review-library-gate.ps1 |
-| **Skills** | [skill/quick-reference.md](skill/quick-reference.md) | implement-design.ps1, implement-finding.ps1, skill-chain.ps1, skill-assist.ps1, skill-assist-gate.ps1 |
+| **Skills** | [skill/quick-reference.md](skill/quick-reference.md) | implement-design.ps1, implement-finding.ps1, organize-findings.ps1, skill-chain.ps1, skill-assist.ps1, skill-assist-gate.ps1 |
 
 **Agents never run a whole test suite.** They run `test.ps1 <pkg> -Specific "…"` (files) and `test.ps1 <pkgs> -Tag <tags>` (feature tags), and list tags with `-ListTags`. Every whole-suite form — a bare package, `-All`, `-Rerun`, a tier switch, `affected-gate.ps1` — is Jon's alone and refused by `guard-full-suite-runs.py`.
 
