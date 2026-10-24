@@ -1,6 +1,6 @@
 ---
 description: Code-review completed tasks against the design document they implement, then fix anything wrong or missing so the implementation conforms to the design
-model: claude-opus-5-5
+model: claude-sonnet-5-5
 effort: high
 ---
 
