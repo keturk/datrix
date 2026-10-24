@@ -2916,9 +2916,11 @@ because their consumers range below the language layer: semantic analysis valida
 schema snapshot records the declared values, and the SQL facts and the migration differ read the stored
 label.
 
-**Validation.** `EnumLiteralSetValidator` (`ENUM008`–`ENUM011`) checks, once for every language and engine,
+**Validation.** `EnumLiteralSetValidator` (`ENUM008`–`ENUM012`) checks, once for every language and engine,
 that every stored literal is non-empty, NUL-free, at most 63 UTF-8 bytes (PostgreSQL's native enum label
-bound, the tightest supported) and distinct within the enum, and that the wire values are distinct.
+bound, the tightest supported) and distinct within the enum, that the wire values are distinct, and that
+neither holds a code point `hidden_in_source` flags (`ENUM012`): two members differing only by an
+invisible code point would look identical to a reader and never match.
 
 **Realization.** Every emitted enum literal is a string literal (`value(1)` stores `'1'`). Python's enum
 class carries wire values and `values_callable` binds the stored labels; an unknown stored label raises
