@@ -32,7 +32,11 @@
     make (its reply and session id are printed), or a command line the module cannot read.
 
 .PARAMETER Design
-    The design document to implement.
+    The design document to implement. Without it, the first -Count design documents of
+    <workspace>\design are implemented in name order; the first one that does not finish stops the run.
+
+.PARAMETER Count
+    How many designs to take from <workspace>\design, first by name. Default: 10. Not used with -Design.
 
 .PARAMETER StartAt
     The step to start at (implement | verify | absorb), to resume after answering a question.
@@ -66,6 +70,9 @@
     wrapper seam checks.
 
 .EXAMPLE
+    .\implement-design.ps1 -Count 3 -DryRun
+
+.EXAMPLE
     .\implement-design.ps1 -Design "D:\datrix\design\<the design>.md"
 
 .EXAMPLE
@@ -74,6 +81,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)] [string]$Design,
+    [int]$Count,
     [ValidateSet("implement", "verify", "absorb")] [string]$StartAt,
     [switch]$KeepSource,
     [switch]$Resume,
