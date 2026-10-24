@@ -281,10 +281,6 @@ file = "datrix-codegen-sql/src/datrix_codegen_sql/dgen/registrations.py"
 count = 2
 
 [[baseline]]
-file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/mysql_reflector.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/reflector_registry.py"
 count = 1
 
