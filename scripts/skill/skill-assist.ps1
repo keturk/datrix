@@ -67,10 +67,13 @@
  common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
- Models to use, best first. Omit to use any model already in memory.
+ Models to use, best first. Omit and readiness, findings-plan, checklist, absorb-transfer,
+ bug-resolution, design-verify and design-plan use nemotron-3-super:120b, then
+ qwen3-coder:30b-ctx32k (QUALITY_MODEL_PREFERENCE in local_llm.py): they wait for the most
+ capable machine. The other model commands use any model already in memory.
 
 .PARAMETER LlmTimeout
- Request timeout in seconds. Default: 300.
+ Request timeout in seconds. Default: 600.
 
 .PARAMETER SelfTest
  Run only the module's self-test (the wrapper commands are exactly the assist commands, the model
