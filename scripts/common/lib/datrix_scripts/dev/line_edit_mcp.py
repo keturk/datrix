@@ -5,7 +5,8 @@ Registered per machine with ``line-edit.ps1 -Setup``; Claude Code then starts it
 (with ``PYTHONPATH`` set to ``scripts/common/lib``). ``read_lines`` shows a file's lines numbered
 and hashed; ``edit_lines`` replaces or inserts line ranges, many at once across files, naming the
 old lines by number and hash instead of re-sending their text (``datrix_scripts.line_edits``).
-The Write/Edit guards run over every ``edit_lines`` call through the ``route-line-edits.py`` hook.
+``read_symbol`` shows named Python functions, classes and variables, and ``edit_lines`` replaces or
+inserts below such a symbol by name (``datrix_scripts.symbol_spans``). The Write/Edit guards run over every ``edit_lines`` call through the ``route-line-edits.py`` hook.
 
 Only existing UTF-8 text files under the workspace root are read or written. Nothing is sent off
 this machine; standard input/output is the only channel to Claude Code.
@@ -17,7 +18,15 @@ import logging
 import sys
 from pathlib import Path
 
-from datrix_scripts.line_edits import MAX_EDITS_PER_CALL, MAX_READ_LINES, LineEditError, apply_edits, read_lines
+from datrix_scripts.line_edits import (
+    MAX_EDITS_PER_CALL,
+    MAX_READ_LINES,
+    MAX_SYMBOLS_PER_READ,
+    LineEditError,
+    apply_edits,
+    read_lines,
+    read_symbols,
+)
 from datrix_scripts.mcp_stdio import (
     JsonObject,
     McpServer,
@@ -34,7 +43,7 @@ from datrix_scripts.paths import WORKSPACE_DIR
 LOG = logging.getLogger(__name__)
 
 SERVER_NAME = "datrix-edit"
-SERVER_VERSION = "1"
+SERVER_VERSION = "2"
 DEFAULT_OFFSET = 1
 MAX_OFFSET = 10_000_000
 
@@ -48,7 +57,11 @@ SERVER_INSTRUCTIONS = (
     "and hashes, so a follow-up edit needs no re-read. A mismatched hash is refused with the lines now there "
     "and nothing is written. After edit_lines changes a file, keep editing that file with edit_lines: the "
     "built-in Edit refuses a file changed outside it until you Read it again. New files are still written "
-    "with Write. The Write/Edit guards apply to edit_lines exactly as to Edit."
+    "with Write. The Write/Edit guards apply to edit_lines exactly as to Edit. In a Python file, name a function, "
+    "class or module/class-level variable instead of numbering it: read_symbol shows it (dotted name, e.g. "
+    "'Class.method') with its lines and a span hash, and edit_lines then replaces the whole symbol "
+    "({file_path, symbol, span_hash, text}) or inserts below it ({file_path, after_symbol, span_hash, text}), "
+    "so the symbol is read without reading the file and an edit above it does not move the target."
 )
 
 _EDIT_ITEM_SCHEMA: JsonObject = {
@@ -56,7 +69,13 @@ _EDIT_ITEM_SCHEMA: JsonObject = {
     "description": ("Replace: {file_path, start, end, hashes, text} -- lines start..end (inclusive), hashes = the "
                     "2-character hash of every one of them in order (e.g. 'a3f0' for two lines), text = the new "
                     "lines ('' deletes them). Insert: {file_path, after, hash, text} -- after = the line to insert "
-                    "below (0 = top of file), hash = that line's hash ('' for 0)."),
+                    "below (0 = top of file), hash = that line's hash ('' for 0). Python symbols: Replace symbol: "
+                    "{file_path, symbol, span_hash, text} -- the whole symbol from its first decorator or leading "
+                    "comment to its last line, span_hash = the one read_symbol showed, text = the new symbol ('' "
+                    "deletes it, leaving the blank lines around it). Insert below a symbol: {file_path, "
+                    "after_symbol, span_hash, text} -- text goes directly below the symbol's last line, so start "
+                    "it with the blank line(s) the new code needs. A name defined twice is given as 'name@<first "
+                    "line>'."),
     "properties": {
         "file_path": {"type": "string"},
         "start": {"type": "integer", "minimum": 1},
@@ -64,6 +83,9 @@ _EDIT_ITEM_SCHEMA: JsonObject = {
         "hashes": {"type": "string"},
         "after": {"type": "integer", "minimum": 0},
         "hash": {"type": "string"},
+        "symbol": {"type": "string"},
+        "after_symbol": {"type": "string"},
+        "span_hash": {"type": "string"},
         "text": {"type": "string"},
     },
     "required": ["file_path", "text"],
@@ -78,6 +100,13 @@ def _offset(args: JsonObject) -> int:
 def _read_lines(root: Path, args: JsonObject) -> str:
     return read_lines(root, required_text(args, "file_path"), _offset(args),
                       bounded_int(args, "limit", MAX_READ_LINES, MAX_READ_LINES))
+
+
+def _read_symbols(root: Path, args: JsonObject) -> str:
+    symbols = args.get("symbols")
+    if not isinstance(symbols, list) or not all(isinstance(item, str) for item in symbols):
+        raise ToolInputError(f"'symbols' is required: a list of 1 to {MAX_SYMBOLS_PER_READ} dotted symbol names.")
+    return read_symbols(root, required_text(args, "file_path"), [item for item in symbols if isinstance(item, str)])
 
 
 def _edit_lines(root: Path, args: JsonObject) -> str:
@@ -97,6 +126,18 @@ TOOLS: tuple[Tool[Path], ...] = (
          "limit": bounded_int_property(MAX_READ_LINES, MAX_READ_LINES)},
         ("file_path",),
         _read_lines,
+    ),
+    Tool(
+        "read_symbol",
+        "Read named functions, classes or module/class-level variables of a Python file without reading the "
+        "file. Each symbol is shown under a header with its line range and span hash, with every line as "
+        "'<number>:<hash>|<text>' (so edit_lines can change single lines of it, or replace the whole symbol by "
+        "name with the span hash). Names are dotted ('Class.method'); a name defined twice is given as "
+        "'name@<first line>'. Find names with the code-index outline tool.",
+        {"file_path": {"type": "string"},
+         "symbols": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": MAX_SYMBOLS_PER_READ}},
+        ("file_path", "symbols"),
+        _read_symbols,
     ),
     Tool(
         "edit_lines",

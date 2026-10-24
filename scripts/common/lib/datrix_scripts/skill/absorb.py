@@ -4,6 +4,13 @@ points at the design.
 TRANSFER CHECK (a lead, cited)
     For each section of the design, a local model reads the target docs and answers PRESENT, PARTIAL
     or MISSING, citing the target lines that carry it. Citations are checked against what it was sent.
+    A section copied line for line into a target is settled by exact text match, with no model; every
+    other section is sent only the target parts that share the most terms with it
+    (datrix_scripts.skill.transfer_match). Each section's numbers and words that occur nowhere in the
+    targets are found by plain search; when the model calls a section PRESENT, it is asked for other words
+    for those terms (it sees the design section, never the target text), the targets are searched for
+    them, and PRESENT is lowered to PARTIAL while terms stay unfound. The report file is rewritten as each
+    section is answered.
     The skill reads the PARTIAL and MISSING units itself; PRESENT ones it spot-checks by citation.
 
 REFERENCES (exact)
@@ -27,12 +34,15 @@ from __future__ import annotations
 import logging
 import os
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
+from threading import Lock
 
 from datrix_scripts.framework_repos import framework_repos
 from datrix_scripts.local_llm import LocalLlmPool
-from datrix_scripts.local_reading import ReadScope, ask_local, read_section
+from datrix_scripts.local_reading import WITHHELD_LINE, ReadScope, ask_local, read_section
+
 # The chain (datrix_scripts.skill.chain) writes the verify proof as .tmp/verify-proven-<design stem>.md and
 # reads its verdict with the same pattern.
 from datrix_scripts.skill.chain import PROOF_PREFIX, PROVEN, VERDICT_PATTERN
@@ -41,10 +51,24 @@ from datrix_scripts.skill.common import (
     EXIT_FAILED,
     EXIT_OK,
     ContentFilter,
+    MarkdownSection,
+    ask_json,
     markdown_sections,
+    object_list,
     parallel,
     read_text,
+    string_list,
     workspace_label,
+)
+from datrix_scripts.skill.transfer_match import (
+    LexicalCheck,
+    TargetIndex,
+    absent_terms,
+    build_target_index,
+    claim_terms,
+    find_alternative,
+    select_parts,
+    verbatim_citations,
 )
 
 LOG = logging.getLogger(__name__)
@@ -68,6 +92,32 @@ TRANSFER_QUESTION = (
     "Is its knowledge (each rule, decision, contract and fact it states) present in these files? Wording may "
     "differ. Begin your answer with exactly one of PRESENT, PARTIAL or MISSING on its own line. Then, in at "
     "most 6 lines, cite path:line where each part is stated, and for PARTIAL name what is absent.")
+ALTERNATIVES_SYSTEM = (
+    "You help check whether the content of a design document section is stated in other documentation. You "
+    "are given the section and some of its terms. For each term, give up to four other words or short "
+    "phrases that documentation would use to state the same thing: synonyms, other inflections, the term "
+    "as a code identifier. Set filler to true only for a term that carries no claim (a connective, a common "
+    "verb or adverb); never for a number, a name, or a term that says what the system does."
+)
+ALTERNATIVES_USER = "Design section:\n{section}\n\nTerms to give other words for: {terms}"
+ALTERNATIVES_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "alternatives": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "term": {"type": "string"},
+                    "alternatives": {"type": "array", "items": {"type": "string"}},
+                    "filler": {"type": "boolean"},
+                },
+                "required": ["term", "alternatives", "filler"],
+            },
+        }
+    },
+    "required": ["alternatives"],
+}
 DESIGN_DIR = "design"
 DESIGN_SUFFIX = ".md"
 _STATUS_LINE = re.compile(r"^\W*Status:\W*(\w+)", re.MULTILINE)
@@ -89,6 +139,10 @@ class UnitCheck:
     last: int
     verdict: str
     answer: str
+
+
+# Receives the checks finished so far (design order) and the number of sections in the design.
+ProgressSink = Callable[[list[UnitCheck], int], None]
 
 
 def design_identifiers(design: Path) -> tuple[list[str], re.Pattern[str] | None]:
@@ -226,26 +280,131 @@ def _verdict(text: str) -> str:
     return next((v for v in VERDICTS if first.startswith(v)), VERDICT_MISSING)
 
 
-def transfer_check(workspace: Path, pool: LocalLlmPool, design: Path, targets: list[str]) -> list[UnitCheck]:
-    """For each section of the design that carries text: is it present in the target docs? (leads)."""
+@dataclass(frozen=True)
+class Offer:
+    """What a model offers for one absent term: other words to search for, or that it is filler."""
+
+    alternatives: list[str]
+    filler: bool
+
+
+def _alternatives(pool: LocalLlmPool, body: str, absent: list[str]) -> dict[str, Offer]:
+    """Other words a model offers for each absent term. It is sent the design section and the terms, and no
+    target text."""
+    reply = ask_json(
+        pool,
+        ALTERNATIVES_SYSTEM,
+        ALTERNATIVES_USER.format(section=body[:MAX_UNIT_CHARS], terms=", ".join(absent)),
+        ALTERNATIVES_SCHEMA,
+    )
+    offered: dict[str, Offer] = {}
+    for item in object_list(reply["alternatives"] if "alternatives" in reply else []):
+        if "term" in item:
+            offered[str(item["term"]).lower()] = Offer(
+                string_list(item["alternatives"] if "alternatives" in item else []),
+                "filler" in item and item["filler"] is True,
+            )
+    return offered
+
+
+def lexical_check(pool: LocalLlmPool, index: TargetIndex, body_lines: list[str], *, search: bool) -> LexicalCheck:
+    """Which terms of a design section appear nowhere in the targets. With ``search`` the model also offers
+    other words for them and the targets are searched for those; it is asked only when a term is absent."""
+    terms = claim_terms(body_lines)
+    absent = absent_terms(index, terms)
+    if not absent:
+        return LexicalCheck(len(terms), (), ())
+    if not search:
+        return LexicalCheck(len(terms), (), tuple(absent), (), searched=False)
+    offered = _alternatives(pool, "\n".join(body_lines), absent)
+    found: list[tuple[str, str, str]] = []
+    unresolved: list[str] = []
+    filler: list[str] = []
+    for term in absent:
+        offer = offered[term] if term in offered else Offer([], False)
+        hits = [(alternative, find_alternative(index, alternative)) for alternative in offer.alternatives]
+        hit = next(((alternative, cite) for alternative, cite in hits if cite), None)
+        if hit is not None:
+            found.append((term, hit[0], hit[1]))
+        elif offer.filler and not term[0].isdigit():
+            filler.append(term)
+        else:
+            unresolved.append(term)
+    return LexicalCheck(len(terms), tuple(found), tuple(unresolved), tuple(filler))
+
+
+def _copied_check(unit: MarkdownSection, citations: str) -> UnitCheck:
+    answer = (f"{VERDICT_PRESENT}\nEvery substantive line of this section appears verbatim in the targets: "
+              f"{citations}.\n\n---\nSettled by exact text match; no model was asked.")
+    return UnitCheck(unit.heading or "(preamble)", unit.start, unit.end, VERDICT_PRESENT, answer)
+
+
+def transfer_check(workspace: Path, pool: LocalLlmPool, design: Path, targets: list[str],
+                   on_progress: ProgressSink | None = None) -> list[UnitCheck]:
+    """For each section of the design that carries text: is it present in the target docs? (leads).
+
+    A section copied line for line into a target is settled without a model. Every other section is asked
+    of a model that reads only the target parts sharing the most terms with it. ``on_progress`` receives
+    the checks finished so far, in design order, and the section count, each time one finishes.
+    """
     scope = ReadScope(workspace)
-    sections = [read_section(scope, path) for path in scope.files(targets)]
+    index = build_target_index([read_section(scope, path) for path in scope.files(targets)])
     text = read_text(design)
     lines = text.splitlines()
     filtered = ContentFilter(workspace).section(workspace_label(workspace, design), text)
     units = [s for s in markdown_sections(lines, max_level=3)
              if any(line.strip() for line in lines[s.start:s.end])]
+    finished: dict[int, UnitCheck] = {}
+    lock = Lock()
+
+    def finish(unit_index: int, check: UnitCheck) -> UnitCheck:
+        with lock:
+            finished[unit_index] = check
+            LOG.info("transfer check: %d of %d section(s) answered", len(finished), len(units))
+            if on_progress is not None:
+                on_progress([finished[i] for i in sorted(finished)], len(units))
+        return check
 
     def ask(unit_index: int) -> UnitCheck:
         unit = units[unit_index]
-        body = "\n".join(line.split("| ", 1)[-1] for line in filtered.lines[unit.start - 1:unit.end])
-        answer = ask_local(pool, TRANSFER_QUESTION.format(unit=body[:MAX_UNIT_CHARS]), sections)
-        return UnitCheck(unit.heading or "(preamble)", unit.start, unit.end, _verdict(answer.text), answer.render())
+        body_lines = [line.split("| ", 1)[-1] for line in filtered.lines[unit.start - 1:unit.end]]
+        body = "\n".join(body_lines)
+        selection = select_parts(index, body)
+        answer = ask_local(pool, TRANSFER_QUESTION.format(unit=body[:MAX_UNIT_CHARS]), list(selection.sections))
+        answer = replace(answer, notes=(*answer.notes, selection.note()))
+        verdict = _verdict(answer.text)
+        lexical = lexical_check(pool, index, [line for line in body_lines if line != WITHHELD_LINE],
+                                search=verdict == VERDICT_PRESENT)
+        lowered = verdict == VERDICT_PRESENT and lexical.lowers_present
+        text = answer.render()
+        if lexical.has_findings:
+            text = f"{lexical.render(lowered)}\n\n{text}"
+        return finish(unit_index, UnitCheck(unit.heading or "(preamble)", unit.start, unit.end,
+                                            VERDICT_PARTIAL if lowered else verdict, text))
 
-    return parallel(list(range(len(units))), ask)
+    pending: list[int] = []
+    for unit_index, unit in enumerate(units):
+        citations = verbatim_citations(index, lines[unit.start - 1:unit.end])
+        if citations:
+            finished[unit_index] = _copied_check(unit, citations)
+        else:
+            pending.append(unit_index)
+    if on_progress is not None:
+        on_progress([finished[i] for i in sorted(finished)], len(units))
+    parallel(pending, ask)
+    return [finished[i] for i in range(len(units))]
 
 
-def render_transfer(design_label: str, checks: list[UnitCheck]) -> str:
+def render_transfer(design_label: str, checks: list[UnitCheck], total: int | None = None) -> str:
+    """The report; with ``total`` above the checks given it is a progress report, in design order."""
+    if total is not None and len(checks) < total:
+        lines = [f"# Transfer check -- {design_label} (IN PROGRESS)", "",
+                 f"{len(checks)} of {total} section(s) answered so far; this file is rewritten as each answer "
+                 "arrives and replaced by the sorted report when all are in.", ""]
+        for check in checks:
+            lines += [f"## {check.verdict}: {check.heading} ({design_label}:{check.first}-{check.last})", "",
+                      check.answer, ""]
+        return "\n".join(lines) + "\n"
     short = [c for c in checks if c.verdict != VERDICT_PRESENT]
     lines = [f"# Transfer check -- {design_label}", "",
              f"{len(checks)} section(s): {len(checks) - len(short)} present, {len(short)} partial or missing "

@@ -1,5 +1,5 @@
-"""Work through the first findings files of the inbox one at a time: one fresh session per finding checks it
-against the code, fixes it when it still holds, and this module deletes it once proven.
+"""Run one /implement-finding session per findings file of the inbox, in turn. A session checks its finding
+against the code and fixes the defect when the code has it; this module deletes the finding on a passing proof.
 
 ``scripts/skill/implement-finding.ps1`` (and its ``.sh`` twin) runs this module, whose sessions are steps of
 ``datrix_scripts.skill.chain``. For each selected finding, in name order, one headless /implement-finding
@@ -12,7 +12,7 @@ session on ``--model`` ends with one line:
 The session never deletes the finding; this module does, through ``finding_inbox.close_finding`` in this
 process, not on a model's word: never while another findings file names it, and after DONE only when the
 session's last foreground test.ps1 or ``*-gate.ps1`` run passed (read from the step's stream log). Each
-finding is closed before the next one starts. ``finding_inbox.finding_files`` selects the findings, unless
+finding is closed before the next one starts. ``finding_inbox.select_findings`` selects the findings (the inbox's subfolders in turn, or the one given with ``--dir``), unless
 ``--finding`` names them.
 
 Exit codes: 0 every selected finding is deleted (or a passing self-test); 1 a step ended in error, replied
@@ -57,8 +57,10 @@ from datrix_scripts.skill.finding_inbox import (
     EXIT_KEPT,
     EXIT_UNUSABLE,
     close_finding,
-    finding_files,
-    findings_dir,
+    inbox_dir,
+)
+from datrix_scripts.skill.finding_inbox import (
+    select_findings as select_inbox,
 )
 from datrix_scripts.test.wrappers import SKILL_SCRIPTS_DIR, module_main, run_self_test
 
@@ -85,7 +87,7 @@ def select_findings(workspace: Path, findings: Sequence[str], count: int, direct
                 raise ChainStopped(EXIT_FAILED)
         return [Path(path).resolve() for path in findings]
     try:
-        return finding_files(findings_dir(workspace, directory), count)
+        return select_inbox(workspace, directory, count)
     except AssistError as exc:
         say(f"  ERROR: {exc}")
         say(f"Selecting the findings failed (exit {EXIT_UNUSABLE}).", ColorCodes.RED)
@@ -99,11 +101,11 @@ def finding_outcome(text: str) -> tuple[str, str]:
     return outcomes[-1] if outcomes else ("", "")
 
 
-def close(finding: Path, session_log: Path | None = None) -> int:
-    """Delete *finding* when nothing names it and, given *session_log*, its last test run passed; prints
-    why it was kept; the close exit code."""
+def close(finding: Path, session_log: Path | None = None, inbox: Path | None = None) -> int:
+    """Delete *finding* when nothing names it (in its folder, or anywhere in *inbox* when it lies there) and,
+    given *session_log*, its last test run passed; prints why it was kept; the close exit code."""
     try:
-        text, code = close_finding(finding.resolve(), session_log.resolve() if session_log else None)
+        text, code = close_finding(finding.resolve(), session_log.resolve() if session_log else None, inbox)
     except AssistError as exc:
         text, code = f"ERROR: {exc}", EXIT_UNUSABLE
     for line in text.splitlines():
@@ -127,10 +129,10 @@ def resolve_finding(chain: Chain, finding: Path, model: str, effort: str) -> str
     if blocker:
         return f"{NEEDS_JON_PREFIX}: stopped {blocker}; {resume}"
     if outcome == ALREADY_RESOLVED:
-        if close(finding) == EXIT_DELETED:
+        if close(finding, inbox=inbox_dir(WORKSPACE_DIR)) == EXIT_DELETED:
             return "deleted (no longer an issue)"
         return f"{FAILED_PREFIX}: already resolved, but not deletable (see above); {resume}"
-    if close(finding, row.stream_path) == EXIT_DELETED:
+    if close(finding, row.stream_path, inbox_dir(WORKSPACE_DIR)) == EXIT_DELETED:
         return "fixed and deleted"
     return f"{FAILED_PREFIX}: fixed, but left in place (see above); {resume}"
 
@@ -167,7 +169,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="How many findings files to take, first by name. Default: 10.")
     parser.add_argument("--finding", action="append", default=[],
                         help="A findings file to work, in place of the first --count of the inbox (repeat for each).")
-    parser.add_argument("--dir", default="", help="The findings folder. Default: <workspace>/reports/finding.")
+    parser.add_argument("--dir", default="",
+                        help="Work only this folder: absolute, or relative to <workspace>/reports/finding. "
+                             "Default: the subfolders of <workspace>/reports/finding in turn, then its own files.")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="The model of each session. Default: claude-opus-5-5.")
     parser.add_argument("--effort", choices=EFFORTS, default=DEFAULT_EFFORT,
                         help="The effort of each session. Default: high.")
@@ -216,6 +220,26 @@ def _check_findings_are_selected_and_closed_in_process() -> None:
     ], lines
 
 
+def _check_the_subfolders_are_worked_in_turn_or_only_the_one_given() -> None:
+    with TemporaryDirectory() as raw:
+        workspace = Path(raw)
+        inbox = workspace / "reports" / "finding"
+        write_files(inbox, {"z-loose.md": "z\n", "docs/d1.md": "d1\n", "azure/a2.md": "a2 names d1\n",
+                            "azure/a1.md": "a1\n", "python/p1.md": "p1\n", "extra/e1.md": "e1\n"})
+        names = [path.relative_to(inbox).as_posix() for path in select_findings(workspace, [], 10, "")]
+        assert names == ["python/p1.md", "azure/a1.md", "azure/a2.md", "docs/d1.md", "extra/e1.md", "z-loose.md"], names
+        two = [path.relative_to(inbox).as_posix() for path in select_findings(workspace, [], 2, "")]
+        assert two == ["python/p1.md", "azure/a1.md"], two
+        assert select_findings(workspace, [], 10, "azure") == [inbox / "azure" / "a1.md", inbox / "azure" / "a2.md"]
+        given = select_findings(workspace, [], 10, str(inbox / "docs"))
+        assert [path.name for path in given] == ["d1.md"], given
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            assert chain_exit_code(lambda: select_findings(workspace, [], 1, "absent")) == EXIT_FAILED
+            assert close(inbox / "docs" / "d1.md", inbox=inbox) == EXIT_KEPT, "azure/a2.md names d1.md"
+            assert close(inbox / "azure" / "a2.md", inbox=inbox) == EXIT_DELETED
+
+
 def _check_a_dry_run_prints_every_session() -> None:
     with TemporaryDirectory() as raw:
         workspace = Path(raw)
@@ -237,7 +261,9 @@ def _check_a_dry_run_prints_every_session() -> None:
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
         checks = [*CHAIN_CHECKS, _check_the_outcome_is_the_last_finding_fix_line,
-                  _check_findings_are_selected_and_closed_in_process, _check_a_dry_run_prints_every_session]
+                  _check_findings_are_selected_and_closed_in_process,
+                  _check_the_subfolders_are_worked_in_turn_or_only_the_one_given,
+                  _check_a_dry_run_prints_every_session]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SKILL_SCRIPTS_DIR)
 
     def body() -> NoReturn:

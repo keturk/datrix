@@ -13,6 +13,12 @@ is written, and each file is replaced atomically. Untouched lines keep their own
 new lines take the file's prevailing ending; a UTF-8 byte-order mark and a missing final newline
 are kept. Only existing UTF-8 text files under the workspace root are read or written.
 
+A Python function, class or module/class-level variable can be named instead of numbered
+(``datrix_scripts.symbol_spans``): ``read_symbols`` shows its lines with their numbers and hashes plus
+a hash of the whole symbol, and an edit may replace the symbol, or insert after it, by that name and
+span hash. Such an edit is turned into the line replace or insert it stands for before anything is
+checked, so it shares the overlap check, the atomic write, the report and the guards.
+
 Also imported by the Claude Code hook that runs the edit guards over an ``edit_lines`` call, so
 this module imports nothing beyond the standard library.
 """
@@ -27,6 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, NamedTuple
 
+from datrix_scripts.symbol_spans import SymbolError, SymbolSpan, find_spans, select_span, span_hash
+
 LOG = logging.getLogger(__name__)
 
 LINE_HASH_CHARS: Final = 2
@@ -36,6 +44,7 @@ MAX_SHOWN_LINE_CHARS: Final = 2000
 MAX_EDITS_PER_CALL: Final = 200
 MAX_LISTED_LINES: Final = 80
 MAX_SHOWN_MISMATCHES: Final = 5
+MAX_SYMBOLS_PER_READ: Final = 20
 UTF8_BOM: Final = "﻿"
 CRLF: Final = "\r\n"
 LF: Final = "\n"
@@ -145,6 +154,83 @@ def read_lines(root: Path, raw_path: str, offset: int, limit: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# symbols
+# ---------------------------------------------------------------------------
+
+
+def _symbol_span(shown: str, file: TextFile, symbol: str) -> tuple[SymbolSpan, list[str]]:
+    """The span ``symbol`` names in a Python file, and the text of its lines."""
+    texts = [line.text for line in file.lines]
+    try:
+        span = select_span(shown, find_spans(shown, texts), symbol)
+    except SymbolError as exc:
+        raise LineEditError(str(exc)) from exc
+    return span, texts[span.start - 1:span.end]
+
+
+def read_symbols(root: Path, raw_path: str, symbols: list[str]) -> str:
+    """Each named symbol's lines (numbered and hashed like ``read_lines``) under a header with its span hash."""
+    path = resolve_in_scope(root, raw_path)
+    file = load_text_file(path)
+    shown = display_path(root, path)
+    if not symbols or len(symbols) > MAX_SYMBOLS_PER_READ:
+        raise LineEditError(f"'symbols' is required: 1 to {MAX_SYMBOLS_PER_READ} dotted names such as "
+                            "'Class.method' or 'function'.")
+    parts: list[str] = []
+    for symbol in symbols:
+        span, texts = _symbol_span(shown, file, symbol)
+        if len(texts) > MAX_READ_LINES:
+            raise LineEditError(f"{shown}: {span.qualname} is {len(texts)} lines, over the {MAX_READ_LINES}-line "
+                                "read limit; read its members (Class.method) or use read_lines on a range.")
+        header = (f"{shown}: {span.qualname} ({span.kind}) lines {span.start}-{span.end} of {len(file.lines)}, "
+                  f"span hash {span_hash(texts)}")
+        parts.append("\n".join([header, *(numbered(span.start + i, text) for i, text in enumerate(texts))]))
+    return "\n\n".join(parts)
+
+
+@dataclass(frozen=True)
+class ReplaceSymbol:
+    """Replace a whole symbol (decorators to last line) by name; ``span_hash`` is the one ``read_symbols`` showed."""
+
+    file_path: str
+    symbol: str
+    span_hash: str
+    text: str
+
+
+@dataclass(frozen=True)
+class InsertAfterSymbol:
+    """Insert lines directly below a symbol's last line, named like :class:`ReplaceSymbol`."""
+
+    file_path: str
+    symbol: str
+    span_hash: str
+    text: str
+
+
+def _resolve_symbol_edit(shown: str, file: TextFile, edit: ReplaceSymbol | InsertAfterSymbol) -> Replace | Insert:
+    """The line replace or insert a symbol edit stands for; refused when its span hash differs from the symbol now."""
+    span, texts = _symbol_span(shown, file, edit.symbol)
+    current = span_hash(texts)
+    if current != edit.span_hash.lower():
+        listing = [f"  {numbered(span.start + i, text)}" for i, text in enumerate(texts[:MAX_LISTED_LINES])]
+        more = len(texts) - MAX_LISTED_LINES
+        raise LineEditError("\n".join([
+            f"{shown}: {span.qualname} (lines {span.start}-{span.end}) is not the text you named "
+            f"(span hash {edit.span_hash!r}, now {current}). Now there:", *listing,
+            *([f"  ...and {more} more"] if more > 0 else []),
+            "Nothing was written. Read it again with read_symbol and send the edit again."]))
+    if isinstance(edit, ReplaceSymbol):
+        return Replace(edit.file_path, span.start, span.end, "".join(line_hash(text) for text in texts), edit.text)
+    return Insert(edit.file_path, span.end, line_hash(texts[-1]), edit.text)
+
+
+def _resolve_symbol_edits(shown: str, file: TextFile, requested: list[RequestedEdit]) -> list[Edit]:
+    return [_resolve_symbol_edit(shown, file, edit) if isinstance(edit, (ReplaceSymbol, InsertAfterSymbol)) else edit
+            for edit in requested]
+
+
+# ---------------------------------------------------------------------------
 # edits
 # ---------------------------------------------------------------------------
 
@@ -171,11 +257,16 @@ class Insert:
 
 
 Edit = Replace | Insert
+RequestedEdit = Edit | ReplaceSymbol | InsertAfterSymbol
 
 _REPLACE_KEYS: Final = frozenset({"file_path", "start", "end", "hashes", "text"})
 _INSERT_KEYS: Final = frozenset({"file_path", "after", "hash", "text"})
-_EDIT_SHAPES: Final = ("replace {file_path, start, end, hashes, text} or "
-                       "insert {file_path, after, hash, text}")
+_REPLACE_SYMBOL_KEYS: Final = frozenset({"file_path", "symbol", "span_hash", "text"})
+_INSERT_SYMBOL_KEYS: Final = frozenset({"file_path", "after_symbol", "span_hash", "text"})
+_EDIT_SHAPES: Final = ("replace {file_path, start, end, hashes, text}, "
+                       "insert {file_path, after, hash, text}, "
+                       "replace symbol {file_path, symbol, span_hash, text} or "
+                       "insert after symbol {file_path, after_symbol, span_hash, text}")
 
 
 def _int_field(raw: dict[str, object], key: str, index: int) -> int:
@@ -192,7 +283,7 @@ def _text_field(raw: dict[str, object], key: str, index: int) -> str:
     return value
 
 
-def parse_edit(raw: object, index: int) -> Edit:
+def parse_edit(raw: object, index: int) -> RequestedEdit:
     """One edit object of an ``edit_lines`` call, checked for shape only."""
     if not isinstance(raw, dict):
         raise LineEditError(f"Edit {index} must be an object: {_EDIT_SHAPES}; got {raw!r}.")
@@ -204,10 +295,16 @@ def parse_edit(raw: object, index: int) -> Edit:
     if keys == _INSERT_KEYS:
         return Insert(_text_field(raw, "file_path", index), _int_field(raw, "after", index),
                       _text_field(raw, "hash", index).strip(), _text_field(raw, "text", index))
+    if keys == _REPLACE_SYMBOL_KEYS:
+        return ReplaceSymbol(_text_field(raw, "file_path", index), _text_field(raw, "symbol", index),
+                             _text_field(raw, "span_hash", index).strip(), _text_field(raw, "text", index))
+    if keys == _INSERT_SYMBOL_KEYS:
+        return InsertAfterSymbol(_text_field(raw, "file_path", index), _text_field(raw, "after_symbol", index),
+                                 _text_field(raw, "span_hash", index).strip(), _text_field(raw, "text", index))
     raise LineEditError(f"Edit {index} has keys {sorted(keys)}; pass exactly the keys of {_EDIT_SHAPES}.")
 
 
-def parse_edits(raw: object) -> list[Edit]:
+def parse_edits(raw: object) -> list[RequestedEdit]:
     if not isinstance(raw, list) or not raw or len(raw) > MAX_EDITS_PER_CALL:
         raise LineEditError(f"'edits' is required: a list of 1 to {MAX_EDITS_PER_CALL} edit objects "
                             f"({_EDIT_SHAPES}).")
@@ -342,13 +439,14 @@ class FileChange:
 def plan_edits(root: Path, raw_edits: object) -> list[FileChange]:
     """Check every edit of a call against the files as they are now; nothing is written."""
     edits = parse_edits(raw_edits)
-    by_path: dict[Path, list[Edit]] = {}
+    by_path: dict[Path, list[RequestedEdit]] = {}
     for edit in edits:
         by_path.setdefault(resolve_in_scope(root, edit.file_path), []).append(edit)
     changes: list[FileChange] = []
-    for path, file_edits in by_path.items():
+    for path, requested in by_path.items():
         before = load_text_file(path)
         shown = display_path(root, path)
+        file_edits = _resolve_symbol_edits(shown, before, requested)
         for edit in file_edits:
             if isinstance(edit, Replace):
                 _check_replace(shown, before.lines, edit)

@@ -16,7 +16,7 @@ import argparse
 import json
 import subprocess
 import sys
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -31,7 +31,16 @@ from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, an
 from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from datrix_scripts.local_reading import WITHHELD_LINE
 from datrix_scripts.paths import script_env
-from datrix_scripts.skill.absorb import VERDICT_MISSING, VERDICT_PRESENT, find_references, transfer_check
+from datrix_scripts.skill.absorb import (
+    ALTERNATIVES_SYSTEM,
+    VERDICT_MISSING,
+    VERDICT_PARTIAL,
+    VERDICT_PRESENT,
+    UnitCheck,
+    find_references,
+    render_transfer,
+    transfer_check,
+)
 from datrix_scripts.skill.assist_cli import build_parser as assist_cli_parser
 from datrix_scripts.skill.bug_resolution import (
     STATUS_RESOLVED,
@@ -423,6 +432,30 @@ def check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_d
         assert delete_redundant(folder, proposals).deleted == [near.name] and not near.exists()
 
 
+def check_findings_redundant_compares_across_the_inbox_subfolders_by_relative_path() -> None:
+    with _workspace() as root:
+        inbox = root / "reports/finding"
+        keep = write_file(inbox / "azure/20261001-000000-keep.md",
+                          f"# Keep\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/b.py:2`.\n")
+        dup = write_file(inbox / "docker/20261001-000001-dup.md",
+                         f"# Dup\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1`.\n")
+        pointer = write_file(inbox / "tooling/20261001-000002-ref.md", f"# Ref\n\nSee {dup.stem}.\n")
+        with LoopbackOllama(_redundancy_reply) as server:
+            proposals = find_redundant(inbox, _pool(server), ContentFilter(root)).proposals
+        assert [(p.doomed, p.survivor) for p in proposals] == [
+            ("docker/20261001-000001-dup.md", "azure/20261001-000000-keep.md")], proposals
+        assert proposals[0].referrers == ["tooling/20261001-000002-ref.md"], proposals[0].referrers
+        blocked = delete_redundant(inbox, proposals)
+        assert not blocked.passed and "named by tooling/" in blocked.problems[0] and dup.exists(), blocked
+        outside = write_file(root / "reports/outside.md", "# Outside\n")
+        escape = Proposal("../outside.md", proposals[0].survivor, "", VERDICT_SAME, "", "", "0", True)
+        escaped = delete_redundant(inbox, [escape])
+        assert not escaped.passed and "outside the findings folder" in escaped.problems[0] and outside.exists()
+        pointer.unlink()
+        done = delete_redundant(inbox, proposals)
+        assert done.deleted == ["docker/20261001-000001-dup.md"] and not dup.exists() and keep.exists(), done
+
+
 def check_findings_redundant_commands_exit_with_the_assist_codes() -> None:
     with _workspace() as root:
         folder = _redundancy_folder(root)
@@ -478,6 +511,28 @@ def check_implement_finding_selects_the_first_files_by_name() -> None:
             write_file(folder / name, "# X\n")
         assert [p.name for p in finding_files(folder, 2)] == ["20261001-000000-a.md", "20261002-000000-b.md"]
         assert len(finding_files(folder, 10)) == 3
+
+
+def _select(root: Path, *args: str) -> list[str]:
+    done = subprocess.run([sys.executable, *_CLI, "--workspace", str(root), "finding-select", *args],
+                          capture_output=True, text=True, check=True, env=script_env())
+    return [Path(line).relative_to(root / "reports/finding").as_posix() for line in done.stdout.splitlines()]
+
+
+def check_finding_select_and_close_work_the_inbox_subfolders() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        for name in ("docs/d1.md", "azure/a2.md", "azure/a1.md", "python/p1.md", "loose.md"):
+            write_file(folder / name, "# X\n")
+        write_file(folder / "azure/a2.md", "# X\nnames d1\n")
+        assert _select(root) == ["python/p1.md", "azure/a1.md", "azure/a2.md", "docs/d1.md", "loose.md"]
+        assert _select(root, "--count", "2") == ["python/p1.md", "azure/a1.md"]
+        assert _select(root, "--dir", "azure") == ["azure/a1.md", "azure/a2.md"]
+        assert _select(root, "--dir", str(folder / "docs")) == ["docs/d1.md"]
+        kept = _close(root, folder / "docs/d1.md")
+        assert kept.returncode == EXIT_KEPT and "azure/a2.md still names it" in kept.stdout, kept.stdout
+        assert _close(root, folder / "azure/a2.md").returncode == 0
+        assert _close(root, folder / "docs/d1.md").returncode == 0
 
 
 def check_implement_finding_test_runs_reads_foreground_test_ps1_results_only() -> None:
@@ -642,18 +697,134 @@ def check_absorb_delete_deletes_only_a_licensed_unreferenced_design() -> None:
         assert result.returncode == EXIT_DELETED and not design.exists(), result.stdout
 
 
+_NO_ALTERNATIVES = json.dumps({"alternatives": []})
+
+
+def _transfer_answer(judge: Callable[[Chat], str], alternatives: str = _NO_ALTERNATIVES) -> Callable[[Chat], str]:
+    """The stand-in model of the transfer check: ``alternatives`` answers the request for other search words,
+    ``judge`` the PRESENT / PARTIAL / MISSING question."""
+    return lambda chat: alternatives if ALTERNATIVES_SYSTEM in chat.system else judge(chat)
+
+
+def _judgements(server: LoopbackOllama) -> list[str]:
+    """The PRESENT / PARTIAL / MISSING questions the server was asked (not the requests for other words)."""
+    return [chat.user for chat in server.chats if ALTERNATIVES_SYSTEM not in chat.system]
+
+
 def check_absorb_transfer_gives_a_verdict_per_section() -> None:
     with _workspace() as root:
         design = write_file(root / "design/042-fixture-design.md", _DESIGN)
-        write_file(root / "datrix-alpha/docs/guards.md", "# Guards\n\nRoute guards fail closed.\n")
+        write_file(root / "datrix-alpha/docs/guards.md",
+                   "# Guards\n\nRoute guards: every route guard must fail closed when the token is absent, always.\n")
 
-        def respond(chat: Chat) -> str:
+        def judge(chat: Chat) -> str:
             return "PRESENT\ndatrix-alpha/docs/guards.md:3" if "D1 Guards" in chat.user else "MISSING"
 
-        with LoopbackOllama(respond) as server:
+        with LoopbackOllama(_transfer_answer(judge)) as server:
             checks = transfer_check(root, _pool(server), design, ["datrix-alpha/docs/guards.md"])
         verdicts = {c.heading: c.verdict for c in checks}
         assert verdicts["D1 Guards"] == VERDICT_PRESENT and verdicts["D2 Names"] == VERDICT_MISSING, verdicts
+
+
+_COPIED_LINE = "Every route guard must fail closed when the token is absent."
+
+
+def check_absorb_transfer_settles_a_copied_section_without_a_model_and_reports_progress() -> None:
+    with _workspace() as root:
+        design = write_file(root / "design/042-fixture-design.md", _DESIGN)
+        write_file(root / "datrix-alpha/docs/guards.md", f"# Guards\n\n- {_COPIED_LINE}\n")
+        snapshots: list[tuple[int, int, int]] = []
+        partial: list[list[UnitCheck]] = []
+        with LoopbackOllama(_transfer_answer(lambda _chat: "MISSING")) as server:
+            def progress(done: list[UnitCheck], total: int) -> None:
+                snapshots.append((len(done), total, len(server.chats)))
+                partial.append(list(done))
+
+            checks = transfer_check(root, _pool(server), design, ["datrix-alpha/docs/guards.md"], progress)
+        copied = next(c for c in checks if c.heading == "D1 Guards")
+        assert copied.verdict == VERDICT_PRESENT and "datrix-alpha/docs/guards.md:3" in copied.answer, copied
+        asked = _judgements(server)
+        everything = [chat.user for chat in server.chats]
+        assert len(checks) == 3 and len(asked) == 2 and not any("D1 Guards" in user for user in everything), everything
+        assert snapshots[0] == (1, 3, 0), "the copied section must be reported before any model is asked"
+        assert [s[0] for s in snapshots] == [1, 2, 3] and snapshots[-1] == (3, 3, 2), snapshots
+        label = "design/042-fixture-design.md"
+        assert "IN PROGRESS" in render_transfer(label, partial[0], 3) and "1 of 3" in render_transfer(label, partial[0], 3)
+        assert "IN PROGRESS" not in render_transfer(label, checks), "a complete report must not read as in progress"
+
+
+def check_absorb_transfer_sends_only_the_target_parts_sharing_terms() -> None:
+    with _workspace() as root:
+        design = write_file(root / "design/042-fixture-design.md", _DESIGN)
+        write_file(root / "datrix-alpha/docs/guards.md",
+                   "# Guards\n\n## Naming\n\nThe emitter rejects every reserved name it meets.\n\n"
+                   "## Zebras\n\nZebras graze on the savanna.\n")
+        with LoopbackOllama(_transfer_answer(lambda _chat: "PRESENT\nnothing cited")) as server:
+            checks = transfer_check(root, _pool(server), design, ["datrix-alpha/docs/guards.md"])
+        sent = next(user for user in _judgements(server) if "D2 Names" in user)
+        assert "reserved name" in sent and "savanna" not in sent, sent
+        names = next(c for c in checks if c.heading == "D2 Names")
+        assert "Sent 1 of 3 target part(s)" in names.answer, names.answer
+        asked_for_words = [chat.user for chat in server.chats if ALTERNATIVES_SYSTEM in chat.system]
+        assert asked_for_words and not any("savanna" in user or "it meets" in user for user in asked_for_words), \
+            "a request for other search words carried target text"
+
+
+_INVENTED_DESIGN = (
+    "# 042: A Fixture Design With A Long Enough Title\n\n"
+    "## D1 Guards\n\nRoute guards fail closed when the token is absent. Retries use exponential backoff with jitter.\n"
+)
+_REWORDED_DESIGN = (
+    "# 042: A Fixture Design With A Long Enough Title\n\n"
+    "## D1 Guards\n\nRoute guards fail closed when the token is absent. Retries also use exponential backoff.\n"
+)
+
+
+def check_absorb_transfer_does_not_accept_present_while_terms_stay_unfound() -> None:
+    with _workspace() as root:
+        design = write_file(root / "design/042-fixture-design.md", _INVENTED_DESIGN)
+        write_file(root / "datrix-alpha/docs/guards.md", "# Guards\n\nRoute guards fail closed when the token is absent.\n")
+        with LoopbackOllama(_transfer_answer(lambda _chat: "PRESENT\ndatrix-alpha/docs/guards.md:3")) as server:
+            checks = transfer_check(root, _pool(server), design, ["datrix-alpha/docs/guards.md"])
+        guards = next(c for c in checks if c.heading == "D1 Guards")
+        assert guards.verdict == VERDICT_PARTIAL, guards
+        assert "PRESENT is not accepted" in guards.answer, guards.answer
+        for term in ("retries", "exponential", "backoff", "jitter"):
+            assert term in guards.answer.split("- not found:")[1].split("\n")[0], (term, guards.answer)
+
+
+def check_absorb_transfer_asks_for_other_words_only_when_the_model_called_a_section_present() -> None:
+    with _workspace() as root:
+        design = write_file(root / "design/042-fixture-design.md", _INVENTED_DESIGN)
+        write_file(root / "datrix-alpha/docs/guards.md", "# Guards\n\nRoute guards fail closed when the token is absent.\n")
+        with LoopbackOllama(_transfer_answer(lambda _chat: "MISSING")) as server:
+            checks = transfer_check(root, _pool(server), design, ["datrix-alpha/docs/guards.md"])
+        guards = next(c for c in checks if c.heading == "D1 Guards")
+        assert guards.verdict == VERDICT_MISSING, guards
+        assert "absent (no other words searched): " in guards.answer and "jitter" in guards.answer, guards.answer
+        assert all(ALTERNATIVES_SYSTEM not in chat.system for chat in server.chats), "other words were asked for"
+
+
+def check_absorb_transfer_finds_a_reworded_term_by_the_words_a_model_offers() -> None:
+    with _workspace() as root:
+        design = write_file(root / "design/042-fixture-design.md", _REWORDED_DESIGN)
+        write_file(root / "datrix-alpha/docs/guards.md",
+                   "# Guards\n\nRoute guards fail closed when the token is absent.\n\n"
+                   "Failed calls are re-attempted after a growing delay.\n")
+        offer = json.dumps({"alternatives": [
+            {"term": "retries", "alternatives": ["re-attempted"], "filler": False},
+            {"term": "exponential", "alternatives": ["growing"], "filler": False},
+            {"term": "backoff", "alternatives": ["delay"], "filler": False},
+            {"term": "also", "alternatives": [], "filler": True},
+        ]})
+        with LoopbackOllama(_transfer_answer(lambda _chat: "PRESENT\ndatrix-alpha/docs/guards.md:3", offer)) as server:
+            checks = transfer_check(root, _pool(server), design, ["datrix-alpha/docs/guards.md"])
+        guards = next(c for c in checks if c.heading == "D1 Guards")
+        assert guards.verdict == VERDICT_PRESENT, guards
+        assert 'retries -> "re-attempted" at datrix-alpha/docs/guards.md:5' in guards.answer, guards.answer
+        assert "set aside by the model as filler" in guards.answer, guards.answer
+        asked_for_words = [chat.user for chat in server.chats if ALTERNATIVES_SYSTEM in chat.system]
+        assert len(asked_for_words) == 1, "one request for other words per section with absent terms"
 
 
 # ===========================================================================
@@ -1029,8 +1200,10 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_redundant_proposes_only_what_a_checked_same_verdict_and_the_citations_prove,
     check_findings_redundant_delete_proves_every_condition_before_it_removes_a_file,
     check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_does_not_cite,
+    check_findings_redundant_compares_across_the_inbox_subfolders_by_relative_path,
     check_findings_redundant_commands_exit_with_the_assist_codes,
     check_implement_finding_selects_the_first_files_by_name,
+    check_finding_select_and_close_work_the_inbox_subfolders,
     check_implement_finding_test_runs_reads_foreground_test_ps1_results_only,
     check_implement_finding_test_runs_judges_a_gate_run_by_its_verdict_line,
     check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_passing_last_test_run,
@@ -1038,6 +1211,11 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_absorb_references_find_name_number_and_title_but_not_task_folders,
     check_absorb_delete_deletes_only_a_licensed_unreferenced_design,
     check_absorb_transfer_gives_a_verdict_per_section,
+    check_absorb_transfer_settles_a_copied_section_without_a_model_and_reports_progress,
+    check_absorb_transfer_sends_only_the_target_parts_sharing_terms,
+    check_absorb_transfer_does_not_accept_present_while_terms_stay_unfound,
+    check_absorb_transfer_asks_for_other_words_only_when_the_model_called_a_section_present,
+    check_absorb_transfer_finds_a_reworded_term_by_the_words_a_model_offers,
     check_bug_resolution_describes_framework_diffs_only_and_appends_once,
     check_bug_resolution_refuses_incomplete_facts,
     check_bug_resolution_keeps_every_row_of_a_repeated_flag,

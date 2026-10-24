@@ -17,7 +17,7 @@ Commands:
                                                  delete the plan's proposals still marked delete (exact)
     findings-plan      [--dir D] [--no-model]    theme plan for the findings inbox (model, checked)
     findings-assemble  [--plan P] [--apply]      write the theme files from a plan, verbatim (exact)
-    finding-select     [--count N] [--dir D]     the first N findings files by name (exact)
+    finding-select     [--count N] [--dir D]     the first N findings files: --dir only, else subfolder by subfolder (exact)
     finding-close      --finding F [--session-log L]
                                                  delete F unless a findings file names it or L shows
                                                  no passing test run (exact)
@@ -68,6 +68,7 @@ from datrix_scripts.paths import WORKSPACE_DIR
 from datrix_scripts.skill import findings_redundant
 from datrix_scripts.skill.absorb import (
     VERDICT_PRESENT,
+    UnitCheck,
     delete_design,
     find_references,
     render_references,
@@ -117,7 +118,7 @@ from datrix_scripts.skill.design_plan import (
 )
 from datrix_scripts.skill.design_xref import build_xref, render_xref
 from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
-from datrix_scripts.skill.finding_inbox import close_finding, finding_files, findings_dir
+from datrix_scripts.skill.finding_inbox import close_finding, inbox_dir, select_findings
 from datrix_scripts.skill.findings import build_index, check_consolidation, render_check, render_index
 from datrix_scripts.skill.findings_assemble import (
     apply_assembly,
@@ -327,9 +328,17 @@ def cmd_checklist(args: argparse.Namespace) -> int:
 def cmd_absorb_transfer(args: argparse.Namespace) -> int:
     workspace = _workspace(args)
     design = _design(workspace, args.design)
-    checks = transfer_check(workspace, _pool(args), design, args.target)
     label = workspace_label(workspace, design)
-    path = write_output(workspace, f"transfer-{design.stem}.md", render_transfer(label, checks))
+    name = f"transfer-{design.stem}.md"
+    print(f"Progress is written to {output_dir(workspace) / name}, rewritten as each section is answered.",
+          file=sys.stderr, flush=True)
+
+    def report(done: list[UnitCheck], total: int) -> None:
+        write_output(workspace, name, render_transfer(label, done, total))
+        print(f"transfer check: {len(done)} of {total} section(s) answered", file=sys.stderr, flush=True)
+
+    checks = transfer_check(workspace, _pool(args), design, args.target, report)
+    path = write_output(workspace, name, render_transfer(label, checks))
     short = sum(1 for check in checks if check.verdict != VERDICT_PRESENT)
     _done(path, f"{len(checks)} section(s); {short} partial or missing.")
     return EXIT_CHECK_FAILED if short else EXIT_OK
@@ -369,7 +378,7 @@ def cmd_bug_resolution(args: argparse.Namespace) -> int:
 
 
 def cmd_finding_select(args: argparse.Namespace) -> int:
-    for path in finding_files(findings_dir(_workspace(args), args.dir or ""), args.count):
+    for path in select_findings(_workspace(args), args.dir or "", args.count):
         print(path)
     return EXIT_OK
 
@@ -467,7 +476,7 @@ def cmd_rule_names(args: argparse.Namespace) -> int:
 
 def cmd_finding_close(args: argparse.Namespace) -> int:
     session_log = Path(args.session_log).resolve() if args.session_log else None
-    text, code = close_finding(Path(args.finding).resolve(), session_log)
+    text, code = close_finding(Path(args.finding).resolve(), session_log, inbox_dir(_workspace(args)))
     print(text)
     return code
 
@@ -518,7 +527,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--apply", action="store_true",
                      help="Write the theme files and delete the superseded sources (default: a preview)")
     sub = command("finding-select", cmd_finding_select, model=False)
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--dir", help="One findings folder, absolute or relative to <workspace>/reports/finding "
+                     "(default: the inbox's subfolders in turn, then its own files)")
     sub.add_argument("--count", type=int, default=DEFAULT_FINDING_COUNT)
     sub = command("finding-close", cmd_finding_close, model=False)
     sub.add_argument("--finding", required=True, help="The findings file to delete")

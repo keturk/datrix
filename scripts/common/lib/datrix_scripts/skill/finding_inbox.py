@@ -6,11 +6,14 @@ The skill decides whether a finding still holds and fixes it; this module decide
 code. It does the parts that must not rest on a model's word:
 
 SELECT
-    The first N findings files of the inbox (``*.md`` directly in the folder, by name).
+    The first N findings files. Given a folder (``--dir``: absolute, or relative to the inbox
+    ``reports/finding``), the ``*.md`` directly in it, by name. Given none, the inbox's area subfolders in
+    turn (the areas of ``AREAS`` in order, then other subfolders by name, then the inbox's own loose files):
+    a folder is left for the next only once it holds no more.
 
 CLOSE
-    Deletes the finding file, but not while another findings file in the folder names it (deleting
-    it would leave that pointer dangling). Given the fix session's stream log (``--session-log``,
+    Deletes the finding file, but not while another findings file names it -- in its folder, or anywhere in
+    the inbox when it lies there (deleting it would leave that pointer dangling). Given the fix session's stream log (``--session-log``,
     the ``.stream.jsonl`` a headless step writes), it also requires the session's last foreground
     proving run -- a ``test.ps1`` run, or a ``*-gate.ps1`` run for code no ``test.ps1`` reaches
     (the scripts tree hosts no test suite) -- to have passed: a fix with no passing proving run is
@@ -39,6 +42,25 @@ EXIT_KEPT = EXIT_CHECK_FAILED
 
 DEFAULT_COUNT = 10
 FINDINGS_DIR_PARTS = ("reports", "finding")
+# The areas of /merge-findings in its order, each with what it holds. The inbox's area subfolders are named by
+# them (``organize-findings.ps1``) and worked in this order.
+AREAS: dict[str, str] = {
+    "python": "the Python backend generator (FastAPI)",
+    "typescript": "the TypeScript backend generator (NestJS / Express) and the shared TypeScript core",
+    "backends": "both backend languages, or the shared language layer (transpiler, profiles, context builders)",
+    "clients": "the Angular and Flutter client targets",
+    "language": "the parser, semantic analysis and the DSL",
+    "migration": "schema snapshots, the migration ledger and migration adapters",
+    "seed": "seed data",
+    "kernel": "shared generation, secrets, hosting, pooling, observability export",
+    "docker": "the Docker Compose platform generator",
+    "aws": "the AWS CloudFormation platform generator",
+    "azure": "the Azure Bicep / ARM platform generator",
+    "component": "the platform-agnostic component generator (docs, config, scripts)",
+    "tests": "red or weak test suites",
+    "tooling": "scripts, gates, skills and the harness",
+    "docs": "documentation",
+}
 SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
 
 _TEST_COMMAND = re.compile(r"(?<![\w-])test\.ps1", re.IGNORECASE)
@@ -78,15 +100,59 @@ def finding_files(directory: Path, count: int) -> list[Path]:
     return sorted(path for path in directory.glob("*.md") if path.is_file())[:count]
 
 
+def inbox_dir(workspace: Path) -> Path:
+    """The findings inbox: ``<workspace>/reports/finding``."""
+    return workspace.joinpath(*FINDINGS_DIR_PARTS)
+
+
 def findings_dir(workspace: Path, given: str) -> Path:
-    """The findings folder: ``given`` when set, else ``<workspace>/reports/finding``."""
-    return Path(given).resolve() if given else workspace.joinpath(*FINDINGS_DIR_PARTS)
+    """The findings folder: ``given`` when set -- an absolute path, or one relative to the inbox -- else the
+    inbox itself."""
+    inbox = inbox_dir(workspace)
+    return (inbox / given).resolve() if given else inbox
 
 
-def referrers(finding: Path) -> list[str]:
-    """The other findings files beside ``finding`` that name it, whose pointer its deletion would break."""
-    return sorted(other.name for other in finding.parent.glob("*.md")
-                  if other.is_file() and other != finding and finding.stem in read_text(other))
+def inbox_folders(inbox: Path) -> list[Path]:
+    """The folders the findings of ``inbox`` live in, in the order they are worked: each area subfolder (the
+    areas in their order, then any other subfolder by name), then the inbox itself for its loose files."""
+    if not inbox.is_dir():
+        raise AssistError(f"Findings folder '{inbox}' does not exist. Pass --dir with an existing folder.")
+    subfolders = {path.name: path for path in inbox.iterdir() if path.is_dir()}
+    ordered = [subfolders.pop(area) for area in AREAS if area in subfolders]
+    return [*ordered, *(subfolders[name] for name in sorted(subfolders)), inbox]
+
+
+def select_findings(workspace: Path, given: str, count: int) -> list[Path]:
+    """The first ``count`` findings to work. With ``given`` (a folder, absolute or relative to the inbox) only
+    that folder's files; without it the inbox's folders in turn, the next one only once the one before holds
+    no more."""
+    if count < 1:
+        raise AssistError(f"--count must be at least 1 (got {count}).")
+    folders = [findings_dir(workspace, given)] if given else inbox_folders(inbox_dir(workspace))
+    selected: list[Path] = []
+    for folder in folders:
+        if not folder.is_dir():
+            raise AssistError(f"Findings folder '{folder}' does not exist. Pass --dir with an existing folder.")
+        selected.extend(finding_files(folder, count - len(selected)))
+        if len(selected) == count:
+            break
+    return selected
+
+
+def inbox_markdown(inbox: Path) -> list[Path]:
+    """Every ``*.md`` directly in the inbox or in one of its subfolders."""
+    return sorted(path for folder in inbox_folders(inbox) for path in folder.glob("*.md") if path.is_file())
+
+
+def referrers(finding: Path, inbox: Path | None = None) -> list[str]:
+    """The other findings files that name ``finding``, whose pointer its deletion would break: those beside it,
+    or, when it lies in ``inbox`` or one of its subfolders, those anywhere in the inbox."""
+    if inbox is not None and inbox.is_dir() and finding.resolve().parent in {f.resolve() for f in inbox_folders(inbox)}:
+        root, scope = inbox, inbox_markdown(inbox)
+    else:
+        root, scope = finding.parent, sorted(finding.parent.glob("*.md"))
+    return sorted(other.relative_to(root).as_posix() for other in scope
+                  if other.is_file() and other.resolve() != finding.resolve() and finding.stem in read_text(other))
 
 
 def _test_command(block: dict[str, object]) -> str:
@@ -172,11 +238,12 @@ def test_runs(session_log: Path) -> list[TestRun]:
     return runs
 
 
-def close_finding(finding: Path, session_log: Path | None) -> tuple[str, int]:
-    """Delete ``finding`` when nothing still names it and, given a session log, its last test or gate run passed."""
+def close_finding(finding: Path, session_log: Path | None, inbox: Path | None = None) -> tuple[str, int]:
+    """Delete ``finding`` when nothing still names it -- in its folder, or anywhere in ``inbox`` when it lies
+    there -- and, given a session log, its last test or gate run passed."""
     if not finding.is_file():
         return f"Finding '{finding}' does not exist. Pass an existing findings file.", EXIT_UNUSABLE
-    reasons = [f"{name} still names it: remove that pointer first" for name in referrers(finding)]
+    reasons = [f"{name} still names it: remove that pointer first" for name in referrers(finding, inbox)]
     if session_log is not None:
         runs = test_runs(session_log)
         if not runs:

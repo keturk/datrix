@@ -21,8 +21,8 @@ MOVE
     stays and the run fails.
 
 The areas are those of /merge-findings, in its order. A finding that names the sorted folder's files keeps
-its pointers (they name the file stem, not a path), but ``finding-select``, ``finding-close`` and the
-skills' inbox scans read ``*.md`` directly in one folder: point them at an area subfolder with ``--dir``.
+its pointers (they name the file stem, not a path). ``finding-select``, ``finding-close`` and
+``implement-finding.ps1`` work the area subfolders in turn, or one given with ``--dir``.
 
 Exit codes: 0 every file is sorted (or a dry run found nothing wrong); 1 the folder cannot be read or a move
 failed; 2 some files stayed put (a withheld name, or no valid model answer for them); 3 a model was needed
@@ -67,7 +67,7 @@ from datrix_scripts.skill.common import (
     object_list,
     parallel,
 )
-from datrix_scripts.skill.finding_inbox import findings_dir
+from datrix_scripts.skill.finding_inbox import AREAS, findings_dir
 from datrix_scripts.test.wrappers import SKILL_SCRIPTS_DIR, module_main, run_self_test
 
 LOG = logging.getLogger(__name__)
@@ -78,24 +78,6 @@ LLM_TIMEOUT_SECONDS: Final = 300
 CALLER: Final = "organize-findings"
 NAMES_PER_REQUEST: Final = 40
 
-# The areas of /merge-findings in its order, each with what it holds (sent to the model with the names).
-AREAS: Final[dict[str, str]] = {
-    "python": "the Python backend generator (FastAPI)",
-    "typescript": "the TypeScript backend generator (NestJS / Express) and the shared TypeScript core",
-    "backends": "both backend languages, or the shared language layer (transpiler, profiles, context builders)",
-    "clients": "the Angular and Flutter client targets",
-    "language": "the parser, semantic analysis and the DSL",
-    "migration": "schema snapshots, the migration ledger and migration adapters",
-    "seed": "seed data",
-    "kernel": "shared generation, secrets, hosting, pooling, observability export",
-    "docker": "the Docker Compose platform generator",
-    "aws": "the AWS CloudFormation platform generator",
-    "azure": "the Azure Bicep / ARM platform generator",
-    "component": "the platform-agnostic component generator (docs, config, scripts)",
-    "tests": "red or weak test suites",
-    "tooling": "scripts, gates, skills and the harness",
-    "docs": "documentation",
-}
 # First word of a slug -> area, besides the area names themselves.
 ALIASES: Final[dict[str, str]] = {
     "ts": "typescript", "angular": "clients", "flutter": "clients", "migrations": "migration",

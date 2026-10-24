@@ -1,6 +1,11 @@
 """The mechanical and model halves of /delete-redundant-findings: which findings files add nothing beyond
 another file, and the deletion of the ones the skill confirms.
 
+FILES
+    The findings are the ``*.md`` directly in the folder given (the inbox) and in its subfolders (the area
+    folders ``organize-findings.ps1`` fills), compared across all of them. A file is named by its path under
+    the folder, ``azure/<name>.md``; pointers to it elsewhere name its stem.
+
 REDUNDANT (a lead, checked)
     A file is a candidate for deletion when it holds one finding (a raw file, or a theme file with at most
     one section) and another file's unit -- a raw file, or one ``## N.`` section of a theme file -- of higher
@@ -43,8 +48,8 @@ from datrix_scripts.skill.common import (
     section_body,
     string_list,
 )
-from datrix_scripts.skill.finding_inbox import referrers
-from datrix_scripts.skill.findings import check_consolidation, finding_files, references, render_check
+from datrix_scripts.skill.finding_inbox import inbox_markdown, referrers
+from datrix_scripts.skill.findings import check_consolidation, references, render_check
 
 LOG = logging.getLogger(__name__)
 
@@ -96,6 +101,7 @@ class Unit:
     heading: str
     text: str
     refs: frozenset[str]
+    words: frozenset[str]
 
     @property
     def label(self) -> str:
@@ -168,9 +174,17 @@ def _words(text: str) -> frozenset[str]:
     return frozenset(word.lower() for word in _WORD.findall(text))
 
 
-def _similarity(first: str, second: str) -> float:
-    left, right = _words(first), _words(second)
+def _similarity(left: frozenset[str], right: frozenset[str]) -> float:
     return len(left & right) / len(left | right) if left | right else 0.0
+
+
+def _unit(name: str, heading: str, text: str) -> Unit:
+    return Unit(name, heading, text, frozenset(references(text)), _words(text))
+
+
+def _relative_name(directory: Path, path: Path) -> str:
+    """The id of a findings file: its path under ``directory`` (the inbox) in posix form."""
+    return path.resolve().relative_to(directory.resolve()).as_posix()
 
 
 def _squash(text: str) -> str:
@@ -187,11 +201,8 @@ def file_units(name: str, text: str) -> FileUnits:
     sections = [s for s in markdown_sections(lines, SECTION_LEVEL)
                 if s.level == SECTION_LEVEL and _NUMBERED_HEADING.match(s.heading)]
     if len(sections) < 2:
-        return FileUnits(name, text, (Unit(name, "", text, frozenset(references(text))),), frozenset(references(text)))
-    units = []
-    for section in sections:
-        body = "\n".join(lines[section.start - 1:section.end])
-        units.append(Unit(name, section.heading, body, frozenset(references(body))))
+        return FileUnits(name, text, (_unit(name, "", text),), frozenset(references(text)))
+    units = [_unit(name, s.heading, "\n".join(lines[s.start - 1:s.end])) for s in sections]
     return FileUnits(name, text, tuple(units), frozenset(references(text)))
 
 
@@ -203,7 +214,7 @@ def _ranked(files: list[FileUnits]) -> list[FileUnits]:
 
 def _candidates(doomed: Unit, higher: list[FileUnits]) -> list[Unit]:
     """The units of higher-ranked files that could say everything ``doomed`` says, nearest first."""
-    scored = [(_similarity(doomed.text, u.text), u) for f in higher for u in f.units]
+    scored = [(_similarity(doomed.words, u.words), u) for f in higher for u in f.units]
     near = [(score, u) for score, u in scored if score >= LEXICAL_THRESHOLD or (doomed.refs and doomed.refs <= u.refs)]
     near.sort(key=lambda pair: pair[0], reverse=True)
     return [u for _score, u in near[:SURVIVORS_PER_FILE]]
@@ -261,12 +272,12 @@ def _proposal(directory: Path, doomed: FileUnits, survivor: Unit, judgement: Jud
         exact = "survivor cites every citation of the doomed file"
     return Proposal(doomed.name, survivor.file, survivor.heading, judgement.verdict, judgement.reason, exact,
                     _sha256(doomed.text), bool(unit.refs) and not notes, notes,
-                    referrers(directory / doomed.name))
+                    referrers(directory / doomed.name, directory))
 
 
 def find_redundant(directory: Path, pool: LocalLlmPool | None, content: ContentFilter | None) -> Redundancy:
     """Every file another file already covers. ``pool`` None lists the candidates without a model."""
-    files = [file_units(path.name, read_text(path)) for path in finding_files(directory)]
+    files = [file_units(_relative_name(directory, path), read_text(path)) for path in inbox_markdown(directory)]
     ranked = _ranked(files)
     result = Redundancy(files=len(files))
     jobs: list[tuple[int, FileUnits, Unit]] = []
@@ -311,8 +322,9 @@ def load_plan(path: Path) -> list[Proposal]:
 def render(result: Redundancy, plan: Path | None) -> str:
     lines = ["# Redundant findings", "",
              f"{result.files} file(s); {result.candidates} candidate pair(s); {len(result.proposals)} proposed "
-             f"for deletion, {len(result.kept)} pair(s) that looked alike and stay. A local model judged each "
-             "pair and its quotes were checked against the files; it is a lead."]
+             f"for deletion, {len(result.kept)} pair(s) that looked alike and stay. "
+             + ("No model judged them." if result.unjudged else
+                "A local model judged each pair and its quotes were checked against the files; it is a lead.")]
     if plan is not None:
         lines += ["", f"Plan: `{plan}`. Set `delete` to false for every proposal you reject after reading both "
                       "files, then run `findings-redundant-delete`."]
@@ -343,7 +355,8 @@ def delete_redundant(directory: Path, proposals: list[Proposal]) -> DeleteResult
         if problem:
             result.problems.append(f"{p.doomed}: {problem}")
     if chosen and not result.problems:
-        check = check_consolidation(directory, [directory / p.doomed for p in chosen], raw_may_remain=True)
+        check = check_consolidation(directory, [directory / p.doomed for p in chosen], raw_may_remain=True,
+                                    scope=inbox_markdown(directory))
         result.check_report = render_check(check)
         if not check.passed:
             result.problems.append("findings-check failed; nothing deleted.")
@@ -357,6 +370,9 @@ def delete_redundant(directory: Path, proposals: list[Proposal]) -> DeleteResult
 def _blocker(directory: Path, proposal: Proposal, doomed_names: set[str]) -> str:
     """The reason this proposal cannot be carried out; empty when every proof holds."""
     doomed, survivor = directory / proposal.doomed, directory / proposal.survivor
+    outside = [p for p in (doomed, survivor) if not p.resolve().is_relative_to(directory.resolve())]
+    if outside:
+        return f"{outside[0].name} is outside the findings folder"
     if not doomed.is_file():
         return "the file does not exist"
     if _sha256(read_text(doomed)) != proposal.sha256:
@@ -368,7 +384,7 @@ def _blocker(directory: Path, proposal: Proposal, doomed_names: set[str]) -> str
     lost = sorted(references(read_text(doomed)) - references(read_text(survivor)))
     if lost:
         return "the survivor does not cite " + ", ".join(f"`{item}`" for item in lost)
-    named_by = [name for name in referrers(doomed) if name not in doomed_names]
+    named_by = [name for name in referrers(doomed, directory) if name not in doomed_names]
     if named_by:
         return f"named by {', '.join(named_by)}: repoint those mentions to {proposal.survivor}"
     return ""

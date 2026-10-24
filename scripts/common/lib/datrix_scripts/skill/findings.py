@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -216,21 +217,32 @@ class ConsolidationCheck:
         return not (self.lost or self.dangling_related or self.mojibake or self.raw_left)
 
 
-def check_consolidation(directory: Path, delete: list[Path], raw_may_remain: bool = False) -> ConsolidationCheck:
+def _label(directory: Path, path: Path) -> str:
+    """``path`` relative to ``directory`` in posix form (just the name for a file directly in it)."""
+    resolved, root = path.resolve(), directory.resolve()
+    return resolved.relative_to(root).as_posix() if resolved.is_relative_to(root) else path.name
+
+
+def check_consolidation(directory: Path, delete: list[Path], raw_may_remain: bool = False,
+                        scope: Sequence[Path] | None = None) -> ConsolidationCheck:
     """Would deleting ``delete`` lose a citation, leave a dangling pointer, or leave a raw file behind?
 
     ``raw_may_remain`` is for /merge-findings, which collapses duplicates into one surviving raw file and
-    leaves every distinct finding where it is: raw files left behind are then the expected result."""
+    leaves every distinct finding where it is: raw files left behind are then the expected result.
+    ``scope`` is every findings file that may carry what is deleted (default: the ``*.md`` directly in
+    ``directory``); pass the inbox's files when its findings lie in area subfolders. Files are named in the
+    result by their path relative to ``directory``."""
     doomed = {path.resolve() for path in delete}
-    remaining = [path for path in finding_files(directory) if path.resolve() not in doomed]
-    texts = {path.name: read_text(path) for path in remaining}
+    candidates = finding_files(directory) if scope is None else list(scope)
+    remaining = [path for path in candidates if path.resolve() not in doomed]
+    texts = {_label(directory, path): read_text(path) for path in remaining}
     kept_refs: set[str] = set().union(*(references(text) for text in texts.values())) if texts else set()
     result = ConsolidationCheck()
     for path in delete:
         lost = sorted(references(read_text(path)) - kept_refs)
         if lost:
-            result.lost[path.name] = lost
-    kept_numbers = {m.group(1) for name in texts if (m := _CONSOLIDATED_NUMBER.match(name))}
+            result.lost[_label(directory, path)] = lost
+    kept_numbers = {m.group(1) for name in texts if (m := _CONSOLIDATED_NUMBER.match(Path(name).name))}
     for name, text in texts.items():
         pointed = {n for line in _RELATED_LINE.findall(text) for n in _CONSOLIDATED_NUMBER.findall(line)}
         dangling = sorted(pointed - kept_numbers)
@@ -239,7 +251,7 @@ def check_consolidation(directory: Path, delete: list[Path], raw_may_remain: boo
         if any(mark in text for mark in MOJIBAKE):
             result.mojibake.append(name)
     if not raw_may_remain:
-        result.raw_left = sorted(name for name in texts if not name.startswith(CONSOLIDATED_PREFIX))
+        result.raw_left = sorted(name for name in texts if not Path(name).name.startswith(CONSOLIDATED_PREFIX))
     return result
 
 
