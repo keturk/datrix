@@ -77,8 +77,8 @@ def _check_the_steps_are_the_prompts_in_order() -> None:
             code = chain_exit_code(lambda: run_steps(chain, ["/a", "/b\nTASKS: none"]))
     assert code == EXIT_DONE, code
     assert printed.getvalue().splitlines() == [
-        "", "=== step 01-step1 [compacts at 300000 tokens] ===", "/a",
-        "", "=== step 02-step2 [compacts at 300000 tokens] ===", "/b", "TASKS: none",
+        "", "=== step 01-step1 [compacts at 500000 tokens] ===", "/a",
+        "", "=== step 02-step2 [compacts at 500000 tokens] ===", "/b", "TASKS: none",
     ], printed.getvalue()
 
 

@@ -54,9 +54,10 @@ DEFAULT_MAX_ROUNDS: Final = 3
 # CLAUDE_CODE_AUTO_COMPACT_WINDOW. Every response re-reads the whole context, so the context size, not
 # the size of an edit or a test log, sets what a long step costs. Left to the model's own window (1M),
 # one overnight step grew to about 965k before each compaction and re-read 473k per response on
-# average; at 300k the average falls to about 180k, at the price of compacting about three times as
-# often. 0 leaves the choice to Claude Code.
-DEFAULT_AUTO_COMPACT_WINDOW: Final = 300000
+# average; at 500k a step compacts at about half that window, at the price of compacting more often
+# than the model's own window. The interactive sessions' "autoCompactWindow" setting holds the same
+# value. 0 leaves the choice to Claude Code.
+DEFAULT_AUTO_COMPACT_WINDOW: Final = 500000
 AUTO_COMPACT_WINDOW_VARIABLE: Final = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 RUN_DIR_PARTS: Final = (".tmp", "skill-chain")
 RUN_DIR_FORMAT: Final = "%Y%m%d-%H%M%S"
