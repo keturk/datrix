@@ -9,17 +9,19 @@
     datrix_scripts.skill.chain. The script form of /implement-design-direct. Typed in one session,
     that skill runs verify and absorb on its own model, because a skill invoked from another skill
     runs on the caller's; here each step is typed into its own `claude -p` run (on its stdin):
-      implement  /implement-design-direct with STOP AFTER: implement (its Steps 1-3), on its model
+      implement  /implement-design-direct on its model, one fresh session per piece: STOP AFTER: plan
+                 (its Steps 1-2), UNIT: <id> for each ledger unit, then UNIT: sweep
       verify     /verify-implementation, TASKS: none, FILES from the ledger, on its model
       absorb     /absorb-design, on its model
 
     The implement step keeps its work plan in a ledger the script names:
     <workspace>\.tmp\implement-direct-<design file name>.md. The checks between steps are done by
     the script, not by a model:
-      * implement is done only when the ledger exists, has no unchecked unit and has a
-        "## Files changed" section. No ledger means it stopped at its gate for a decision (exit 2);
-        unchecked units mean it ran out of turn, so implement runs again from the ledger (up to
-        -MaxRounds).
+      * the plan session runs only when there is no ledger (or verify left gaps). No ledger after it
+        means it stopped at its gate for a decision (exit 2). Each unchecked unit then gets its own
+        session (up to -MaxRounds sessions per unit); every response re-reads the whole context, so
+        short sessions cost far less than one long one. Implement is done only when the sweep session
+        leaves a ledger with no unchecked unit and a "## Files changed" section.
       * absorb runs only after verify replies "Design conformance: PROVEN". That reply is kept at
         <workspace>\.tmp\verify-proven-<design file name>.md and passed to absorb as VERIFIED, its
         licence to delete the design; -StartAt absorb needs that file from an earlier run. On
@@ -56,7 +58,8 @@
     Stop a step that passes this list-price cost. Default: no cap.
 
 .PARAMETER MaxRounds
-    How many times implement (and verify) may run before the chain gives up. Default: 3.
+    How many sessions one unit (or the sweep), and how many verify runs, may take before the chain
+    gives up. Default: 3.
 
 .PARAMETER Quiet
     Show only each step's prompt and summary line. By default every agent message, tool call
