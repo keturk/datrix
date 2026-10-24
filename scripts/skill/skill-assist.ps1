@@ -17,6 +17,10 @@
    findings-index     [--dir D]                  atomic-finding index of the findings inbox
    findings-check     --delete F... [--dir D]    would deleting F lose a citation or leave a dangling
                       [--keep-raw]               Related pointer? (--keep-raw: raw files may remain)
+   findings-redundant [--dir D] [--no-model]     findings files another file already covers: plan JSON +
+                                                 review view (model verdict on exact candidates, checked)
+   findings-redundant-delete [--plan P] [--dir D] delete the plan's proposals still marked delete, when every
+                                                 proof holds
    findings-plan      [--dir D] [--no-model]     theme plan for the findings inbox: plan JSON + review view
    findings-assemble  [--plan P] [--apply]       write the theme files from the plan, carrying every unit
                                                  verbatim; --apply writes, checks, deletes the sources
@@ -67,8 +71,8 @@
  common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
- Models to use, best first. Omit and readiness, findings-plan, checklist, absorb-transfer,
- bug-resolution, design-verify and design-plan use nemotron-3-super:120b, then
+ Models to use, best first. Omit and readiness, findings-redundant, findings-plan, absorb-transfer,
+ bug-resolution and design-plan use nemotron-3-super:120b, then
  qwen3-coder:30b-ctx32k (QUALITY_MODEL_PREFERENCE in local_llm.py): they wait for the most
  capable machine. The other model commands use any model already in memory.
 
@@ -91,10 +95,10 @@
 [CmdletBinding(DefaultParameterSetName = "Run")]
 param(
  [Parameter(Position=0, Mandatory=$true, ParameterSetName="Run")]
- [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "findings-plan",
-  "findings-assemble", "finding-select", "finding-close", "checklist", "absorb-transfer", "absorb-references",
-  "absorb-delete", "bug-resolution", "design-inventory", "design-verify", "design-plan", "design-check",
-  "design-xref", "design-close", "rule-names")]
+ [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "findings-redundant",
+  "findings-redundant-delete", "findings-plan", "findings-assemble", "finding-select", "finding-close",
+  "checklist", "absorb-transfer", "absorb-references", "absorb-delete", "bug-resolution", "design-inventory",
+  "design-verify", "design-plan", "design-check", "design-xref", "design-close", "rule-names")]
  [string]$Command,
 
  [Parameter(Position=1, ValueFromRemainingArguments=$true, ParameterSetName="Run")]
