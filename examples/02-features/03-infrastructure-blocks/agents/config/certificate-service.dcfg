@@ -334,7 +334,8 @@ config service credentials.CertificateService {
     replace queues {
       engine = "service-bus";
       flavor = "service-bus";
-      sku = "Standard";
+      sku = "Premium";
+      capacity = 1;
     }
     secrets {                                   // merged into the base table: the bearer token
       secret analyst_model_token {              // the external analyst server expects

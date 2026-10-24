@@ -284,7 +284,8 @@ config service credentials.SupportService {
     replace queues {
       engine = "service-bus";
       flavor = "service-bus";
-      sku = "Standard";
+      sku = "Premium";
+      capacity = 1;
     }
     replace agents support {                    // replace: a managed handle carries sizing only,
       models {                                  // never the direct flavor's credential key
