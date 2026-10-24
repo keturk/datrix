@@ -19,14 +19,15 @@ import sys
 from collections.abc import Sequence
 from typing import Final
 
-from datrix_scripts.local_llm import MILLISECONDS_PER_SECOND, add_wrapper_llm_arguments
+from datrix_scripts.local_llm import MILLISECONDS_PER_SECOND, QUALITY_MODEL_PREFERENCE, add_wrapper_llm_arguments
 from datrix_scripts.skill.assist_cli import build_parser as assist_cli_parser
 from datrix_scripts.test.wrappers import SKILL_SCRIPTS_DIR, add_command_arguments, run_command_wrapper
 
 MODULE: Final = "datrix_scripts.skill.skill_assist"
 WRAPPER: Final = "skill-assist"
 CLI_MODULE: Final = "datrix_scripts.skill.assist_cli"
-LLM_TIMEOUT_SECONDS: Final = 300
+# A request to the most capable model reads a prompt at about half the speed of the fast one.
+LLM_TIMEOUT_SECONDS: Final = 600
 COMMANDS: Final = (
     "context-digest", "readiness", "findings-index", "findings-check", "findings-plan", "findings-assemble",
     "finding-select", "finding-close", "checklist", "absorb-transfer", "absorb-references", "absorb-delete",
@@ -37,6 +38,13 @@ COMMANDS: Final = (
 MODEL_COMMANDS: Final = frozenset(
     {"readiness", "findings-index", "findings-plan", "checklist", "absorb-transfer", "bug-resolution",
      "design-verify", "design-plan", "rule-names"}
+)
+# The model commands whose answer decides something or is written into the docs: with no -LlmModel they use
+# QUALITY_MODEL_PREFERENCE, the most capable model first, and wait for it. The others (an index entry, a
+# name proposal a person reviews) take whichever model is resident.
+QUALITY_COMMANDS: Final = frozenset(
+    {"readiness", "findings-plan", "checklist", "absorb-transfer", "bug-resolution", "design-verify",
+     "design-plan"}
 )
 # The assist command line's local-model flags (``local_llm.add_local_llm_arguments``).
 _CLI_TIMEOUT_FLAG: Final = "--local-timeout-ms"
@@ -52,7 +60,8 @@ def assist_argv(args: argparse.Namespace, command: str, arguments: list[str]) ->
     line += [_CLI_TIMEOUT_FLAG, str(args.llm_timeout * MILLISECONDS_PER_SECOND)]
     for machine in args.local_machine_specs or ():
         line += [_CLI_MACHINE_FLAG, machine]
-    for model in args.local_models or ():
+    models = args.local_models or (QUALITY_MODEL_PREFERENCE if command in QUALITY_COMMANDS else ())
+    for model in models:
         line += [_CLI_MODEL_FLAG, model]
     return line
 
@@ -99,7 +108,12 @@ def _check_model_commands_get_the_local_model_flags() -> None:
     exact = parser.parse_intermixed_args(["--command=absorb-delete", "--arguments=--design", "--arguments=d.md"])
     assert assist_argv(exact, "absorb-delete", ["--design", "d.md"]) == ["absorb-delete", "--design", "d.md"]
     default = parser.parse_intermixed_args(["checklist"])
-    assert assist_argv(default, "checklist", []) == ["checklist", "--local-timeout-ms", "300000"]
+    quality = ["checklist", "--local-timeout-ms", "600000"]
+    for name in QUALITY_MODEL_PREFERENCE:
+        quality += [_CLI_MODEL_FLAG, name]
+    assert assist_argv(default, "checklist", []) == quality, assist_argv(default, "checklist", [])
+    assert assist_argv(default, "findings-index", []) == ["findings-index", "--local-timeout-ms", "600000"]
+    assert QUALITY_COMMANDS <= MODEL_COMMANDS, sorted(QUALITY_COMMANDS - MODEL_COMMANDS)
     for command in COMMANDS:
         assist_cli_parser().parse_args(assist_argv(model, command, []) + _REQUIRED[command])
 

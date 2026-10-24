@@ -86,6 +86,13 @@ OLLAMA_PORT = 11434
 # machine could never serve, because nothing else on it is loadable.
 OLLAMA_LOAD_PREFERENCE: tuple[str, ...] = ("qwen3-coder:30b-ctx32k", "qwen3.6:35b")
 
+# Models for work whose answer's quality matters more than how long it takes (a design's verdict, a
+# document written into the docs), most capable first. A caller names them as its models, so the work
+# waits for the most capable machine and falls to the next model only when the first is not available.
+# nemotron-3-super:120b (10.94.0.102, loaded at its boot) answers a small request in 5-7 s where
+# qwen3-coder answers in about 1 s, so a hook, which cannot wait, never names them.
+QUALITY_MODEL_PREFERENCE: tuple[str, ...] = ("nemotron-3-super:120b", "qwen3-coder:30b-ctx32k")
+
 # Ollama capability a model needs to answer a prompt; an embedding model lacks it.
 OLLAMA_COMPLETION_CAPABILITY = "completion"
 
