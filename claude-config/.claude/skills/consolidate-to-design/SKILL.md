@@ -205,6 +205,15 @@ set comparison. Fix every line it prints (a `[review]` line is judged: a retenti
 is fine, an effort figure is not) and run it again until it prints `PASS`.
 
 ```
+skill-assist.ps1 design-xref
+```
+
+Exact, over the whole folder: every `NNN Dk` / `NNN §k` reference names a design and a decision
+that exist; no name a Size section allocates (a diagnostic code, an upper-snake name) is allocated
+twice or used before its allocating design. Fix every error until it exits 0; read its
+later-design pointers, each of which must be a pointer, never a premise.
+
+```
 skill-assist.ps1 design-close --finding <consolidated file>... [--fixed C013.2 ...] [--apply]
 ```
 

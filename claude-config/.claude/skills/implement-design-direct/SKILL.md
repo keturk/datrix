@@ -78,6 +78,14 @@ Typed here, the whole run is on this skill's model: `/verify-implementation` and
 - **Never cite the design in a committed artifact** — no design number, filename, or path in code comments, docstrings, docs, tests, or commit messages (`design-and-docs.md`).
 - **No subagents, except the decision advisor.** Only `/task-orchestrator` dispatches work. Do every step yourself, sequentially. A subagent never runs this skill. A question you cannot settle (an open item, a growth request, a B2) goes to the `decision-advisor` agent (`decision-adjudication-protocol.md` §5): act on its `VERDICT: RECOMMEND` and record it under `## Decisions`; only its `VERDICT: ASK_JON` question goes to Jon.
 - **Read narrowly, never less.** Use the code-index tools (`find_canonical`, `find_symbol`, `find_references`, `outline`, `search`) and ranged reads; `ask_files` for "what does this do" is a lead you confirm with a ranged Read; `ineedtoknow.ps1 "<question>"` for documented knowledge (a rule, an invariant, which pack holds what). Do not read large source files whole.
+- **Mechanical work goes to the scripts, not to your edits or your context** (each in `datrix/scripts/quick-reference.md`; preview first, every time):
+  - moving definitions to a sibling module, importers included: `codemods\split-module.ps1 -Module <file> -Plan <json under D:\datrix\.tmp> -DryRun`, then without `-DryRun`. A refusal names what blocks (a cycle with its names, a text reference); fix that, never hand-copy the code;
+  - renaming a function, class, variable or module's imports, adding or removing an argument: `codemods\run-codemod.ps1 <NN_recipe> <args> <paths>` (a diff), then `-Write`. Recipe 08 rewrites import statements only: finish a module rename with a text search for the old name;
+  - the worklist of a move, rename or deletion: `dev\find-imports.ps1 -Module <dotted,...>` (exact sites, src and tests), and the code index's `find_references` for a symbol;
+  - many line edits across files: one `edit_lines` call (`datrix-edit` MCP) rather than N `Edit` calls;
+  - a test fact over many cases: a case row (`cases.ps1 observe|new|migrate|accept`) or a table (`tables.ps1`), per test-guidelines, never N near-identical test functions;
+  - names for unnamed `validate` rules: `skill\skill-assist.ps1 rule-names --sites-file <sites>`, a local model's checked proposals, `--apply` after review;
+  - a test, generation or deploy log: `digest_log` (datrix-local-llm MCP) for the distinct failures, then a ranged Read of the lines it cites; never the log whole.
 
 ---
 

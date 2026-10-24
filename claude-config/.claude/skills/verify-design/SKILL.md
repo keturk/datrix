@@ -53,8 +53,13 @@ A finding made without this context is the commonest false positive. Read, in fu
 3. The registered targets: `skill-assist.ps1 design-inventory` (languages, platforms, generators,
    from their entry points); the RDBMS engines from `all_rdbms_engines()`
    (`datrix_common/config/datasource/rdbms_engine.py`).
-4. `skill-assist.ps1 design-check` (`datrix/scripts/skill/quick-reference.md`). Every line it prints
-   is a candidate, judged in Phase 3 like any other.
+4. `skill-assist.ps1 design-check` and `skill-assist.ps1 design-xref`
+   (`datrix/scripts/skill/quick-reference.md`). Every line they print is a candidate, judged in
+   Phase 3 like any other. `design-xref.md`'s names index lists, for each name a Size section
+   allocates, every design naming it: that is C2's worklist, read before any grep.
+5. A large code file a decision cites: ask `ask_files` (datrix-local-llm MCP) what it does before
+   reading it whole, then confirm the cited lines with a ranged Read. Definitions and call sites
+   come from the code index, never from a model.
 
 Decisions a design records as Jon's ("by Jon's decision", an accepted size) are settled. A finding
 that only reopens one is a FALSE_POSITIVE. A recorded decision that causes a checklist defect is
@@ -66,9 +71,9 @@ Check every design in scope against each item. These are the only questions.
 
 | Id | Check | How |
 |---|---|---|
-| C1 | **Order.** The design depends only on lower-numbered designs; no decision of it needs something a later design defines. A later design may be named as a pointer ("320 deletes it"), never as a premise. | `design-check`; read each mention of a higher number |
-| C2 | **No contradiction.** No other design in the folder defines the same name, symbol, change kind, diagnostic code, entry kind, file or behaviour differently, and the design agrees with itself. | grep the folder for every name the design introduces or changes |
-| C3 | **Code facts hold.** Every `path:line`, symbol and census in it exists and says what the design claims, in the current code. | ranged Read or the code index for each; re-run each census command |
+| C1 | **Order.** The design depends only on lower-numbered designs; no decision of it needs something a later design defines. A later design may be named as a pointer ("320 deletes it"), never as a premise. | `design-check`; `design-xref` (its later-design pointers); read each mention of a higher number |
+| C2 | **No contradiction.** No other design in the folder defines the same name, symbol, change kind, diagnostic code, entry kind, file or behaviour differently, and the design agrees with itself. | `design-xref` (decision references, double allocations, the names index); grep the folder for every other name the design introduces or changes |
+| C3 | **Code facts hold.** Every `path:line`, symbol and census in it exists and says what the design claims, in the current code. | ranged Read or the code index for each; re-run each census command (an import census with `dev\find-imports.ps1`, a split with `codemods\split-module.ps1 -DryRun`) |
 | C4 | **Every registered target is covered.** For each language, platform, generator and engine the design reaches, its behaviour is stated, and it matches the others' (or the difference is a counted `capability_gaps` row). A vendor fact the design relies on (an engine's limit, a platform's API) is cited from the vendor's documentation. | registration (Phase 1); the vendor's docs |
 | C5 | **Everything it adds is consumed.** Each new change kind, diagnostic, model field, entry kind, verb or knob has its consumer stated: its outcome, phase, renderer, refusal, and a test. | trace each to the design or the lower design that consumes it |
 | C6 | **One reading.** No sentence admits two readings that would build different behaviour, and every work item names its package, file or symbol and the change. Detail the code standards or existing conventions settle (names, signatures, test placement, fixture layout) is not ambiguity. | for each candidate, write both readings and the behaviour each builds |

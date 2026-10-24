@@ -209,9 +209,10 @@ WAIT for user decision.
    ```bash
    powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" absorb-references --design "{document path}"
    ```
-   It lists every line in the package repos that names the document's file name, stem, title, or number in a design-reference form ("design NNN", "design/NNN", "design doc NNN"), across `.md`, `.py`, `.ts`, `.js`, `.json`, `.yaml`, `.toml`, `.ps1`, `.j2`, `.dtrx` and similar files. Task folders (`.tasks`) are not searched. Exit 0 = no reference; exit 2 = the listed lines need handling.
+   It lists every line in the package repos that names the document's file name, stem, title, or number in a design-reference form ("design NNN", "design/NNN", "design doc NNN"), across `.md`, `.py`, `.ts`, `.js`, `.json`, `.yaml`, `.toml`, `.ps1`, `.j2`, `.dtrx` and similar files, and every line of another design in `d:\datrix\design\` that names it, by those forms or by its bare number (`090 D1`, `090 §4`, a `Depends on` entry). Task folders (`.tasks`) are not searched. Exit 0 = no reference; exit 2 = the listed lines need handling.
 2. **Replace or remove each reference:**
    - If a reference points readers to the design doc for details → replace with a pointer to the target doc(s) where the content now lives
+   - If another design cites it (`NNN Dk`, a `Depends on` entry) → that design may still be implemented, so its reference must stay exact: name what the cited decision built (the module, function, gate or rule) and the doc that now states it; drop the design from `Depends on` (what it built is code now, not a pending design)
    - If a reference is a backlog/index entry → remove the line entirely
    - If a reference is in CLAUDE.md or MEMORY.md → update or remove as appropriate
 3. **If KEEP SOURCE is true** → preserve the source document and skip deletion
