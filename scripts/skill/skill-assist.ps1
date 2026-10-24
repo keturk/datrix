@@ -39,8 +39,12 @@
                       [--no-model]               review view
    design-check       [--design-dir DD]          is the design folder well formed (size, order, references,
                                                  guideline answers, target consistency)?
+   design-xref        [--design-dir DD]          cross-design index: decision references, name allocations
+                                                 and every design naming each name (/verify-design)
    design-close       --finding F.. [--fixed ID..] delete converted consolidated files when the designs pass
                       [--apply]                  and carry every cited file
+   rule-names         --site PATH:LINE.. [--sites-file F]  names for unnamed validate rules (model leads,
+                      [--apply]                  checked; --apply writes the names that passed)
 
  Lines carrying a registered customer term are withheld before anything is sent to a model, and
  without the term corpus nothing is sent.
@@ -87,7 +91,7 @@ param(
  [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "findings-plan",
   "findings-assemble", "finding-select", "finding-close", "checklist", "absorb-transfer", "absorb-references",
   "absorb-delete", "bug-resolution", "design-inventory", "design-verify", "design-plan", "design-check",
-  "design-close")]
+  "design-xref", "design-close", "rule-names")]
  [string]$Command,
 
  [Parameter(Position=1, ValueFromRemainingArguments=$true, ParameterSetName="Run")]
