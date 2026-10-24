@@ -49,7 +49,23 @@ from datrix_scripts.skill.design_plan import VERDICT_HOLDS, VERDICT_UNCLEAR, dra
 from datrix_scripts.skill.design_xref import build_xref
 from datrix_scripts.skill.finding_inbox import EXIT_DELETED, EXIT_KEPT, EXIT_UNUSABLE, finding_files, test_runs
 from datrix_scripts.skill.findings import build_index, check_consolidation, extract_file
-from datrix_scripts.skill.findings_assemble import Theme, apply_assembly, assemble, draft_plan, load_sources, parse_source
+from datrix_scripts.skill.findings_assemble import (
+    Theme,
+    apply_assembly,
+    assemble,
+    draft_plan,
+    load_sources,
+    parse_source,
+)
+from datrix_scripts.skill.findings_redundant import (
+    VERDICT_SAME,
+    Proposal,
+    Redundancy,
+    delete_redundant,
+    find_redundant,
+)
+from datrix_scripts.skill.findings_redundant import VERDICT_UNCLEAR as PAIR_UNCLEAR
+from datrix_scripts.skill.findings_redundant import plan_json as redundant_plan_json
 from datrix_scripts.skill.phase_tasks import phase_tasks
 from datrix_scripts.skill.readiness import VERDICT_SATISFIED, missing_edges, satisfied_leads, unresolved_modules
 from datrix_scripts.skill.rule_names import STATUS_OK, STATUS_WITHHELD, apply_names, propose_names
@@ -318,6 +334,112 @@ def check_findings_assemble_flags_a_customer_term_in_the_output() -> None:
         theme = Theme("", "term", "Term", "", [["20261001-000000-t"]])
         assembly = assemble([theme], load_sources(folder), ContentFilter(root))
         assert not assembly.safe and assembly.term_files == ["consolidated-001-term.md"], assembly
+
+
+_HEADER_QUOTE = "The emitter drops the header"
+
+
+def _redundancy_reply(chat: Chat) -> str:
+    first = chat.user.split("SECOND (stays):")[0]
+    if "Caches miss" in first:
+        return json.dumps({"verdict": "SAME", "unique_in_first": [], "quote_first": "a line the file never had",
+                           "quote_second": _HEADER_QUOTE, "reason": "claims a match"})
+    return json.dumps({"verdict": "SAME", "unique_in_first": [], "quote_first": _HEADER_QUOTE,
+                       "quote_second": _HEADER_QUOTE, "reason": "the same header defect"})
+
+
+def _redundancy_folder(root: Path) -> Path:
+    folder = root / "reports/finding"
+    write_file(folder / "20261001-000000-keep.md",
+               f"# Keep\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/b.py:2`.\n")
+    write_file(folder / "20261001-000001-dup.md", f"# Dup\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1`.\n")
+    write_file(folder / "20261001-000002-extra.md",
+               "# Extra\n\nSchema export skips indexes at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/z.py:9`.\n")
+    write_file(folder / "20261001-000003-fake.md", "# Fake\n\nCaches miss at `datrix-alpha/src/b.py:2`.\n")
+    write_file(folder / "20261001-000004-term.md",
+               f"# Term\n\nThe {_GATE_TERM} header at `datrix-alpha/src/a.py:1`.\n")
+    return folder
+
+
+def check_findings_redundant_proposes_only_what_a_checked_same_verdict_and_the_citations_prove() -> None:
+    with _workspace() as root:
+        folder = _redundancy_folder(root)
+        with LoopbackOllama(_redundancy_reply) as server:
+            result = find_redundant(folder, _pool(server), ContentFilter(root))
+        proposed = {p.doomed: p for p in result.proposals}
+        assert list(proposed) == ["20261001-000001-dup.md"], list(proposed)
+        dup = proposed["20261001-000001-dup.md"]
+        assert dup.delete and dup.verdict == VERDICT_SAME and (folder / dup.survivor).is_file(), dup
+        # A citation no other file carries leaves a file without a candidate; a model quote that is not in the
+        # file, or a withheld line, never stands as SAME.
+        assert "20261001-000002-extra.md" not in {k.file for k in result.kept} | set(proposed), result.kept
+        fake = [k for k in result.kept if k.file == "20261001-000003-fake.md"]
+        assert fake and all(k.verdict == PAIR_UNCLEAR for k in fake), result.kept
+        assert "20261001-000004-term.md" not in proposed, proposed
+        sent = " ".join(chat.user for chat in server.chats)
+        assert _GATE_TERM not in sent and WITHHELD_LINE in sent, "a registered customer term reached the model"
+
+
+def check_findings_redundant_delete_proves_every_condition_before_it_removes_a_file() -> None:
+    with _workspace() as root:
+        folder = _redundancy_folder(root)
+        with LoopbackOllama(_redundancy_reply) as server:
+            proposals = find_redundant(folder, _pool(server), ContentFilter(root)).proposals
+        dup = folder / "20261001-000001-dup.md"
+        original = dup.read_text(encoding="utf-8")
+        write_file(dup, original + "\nA detail added after the judgement.\n")
+        changed = delete_redundant(folder, proposals)
+        assert not changed.passed and "changed since" in changed.problems[0] and dup.exists(), changed
+        write_file(dup, original)
+        referrer = write_file(folder / "20261001-000009-ref.md", f"# Ref\n\nSee {dup.stem}.\n")
+        named = delete_redundant(folder, proposals)
+        assert not named.passed and "named by" in named.problems[0] and dup.exists(), named
+        referrer.unlink()
+        proposals[0].delete = False
+        assert delete_redundant(folder, proposals).deleted == [] and dup.exists()
+        proposals[0].delete = True
+        done = delete_redundant(folder, proposals)
+        assert done.passed and done.deleted == [dup.name] and not dup.exists(), done
+        assert (folder / "20261001-000000-keep.md").exists()
+
+
+def check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_does_not_cite() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        write_file(folder / "20261001-000000-orig.md",
+                   f"# Orig\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/b.py:2`.\n")
+        near = write_file(folder / "20261001-000001-near.md",
+                          f"# Near\n\n{_HEADER_QUOTE} at `datrix-alpha/src/c.py:7`.\n")
+        with LoopbackOllama(_redundancy_reply) as server:
+            proposals = find_redundant(folder, _pool(server), ContentFilter(root)).proposals
+        assert [p.doomed for p in proposals] == [near.name], proposals
+        assert not proposals[0].delete and "c.py:7" in proposals[0].exact, proposals[0]
+        proposals[0].delete = True
+        refused = delete_redundant(folder, proposals)
+        assert not refused.passed and "does not cite" in refused.problems[0] and near.exists(), refused
+        write_file(folder / "20261001-000000-orig.md",
+                   f"# Orig\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1`, `datrix-alpha/src/b.py:2` and "
+                   "`datrix-alpha/src/c.py:7`.\n")
+        assert delete_redundant(folder, proposals).deleted == [near.name] and not near.exists()
+
+
+def check_findings_redundant_commands_exit_with_the_assist_codes() -> None:
+    with _workspace() as root:
+        folder = _redundancy_folder(root)
+        base = [sys.executable, *_CLI, "--workspace", str(root)]
+        listed = subprocess.run([*base, "findings-redundant", "--no-model"], capture_output=True, text=True,
+                                check=False, env=script_env())
+        assert listed.returncode == 0 and "nothing proposed" in listed.stdout, (listed.returncode, listed.stdout)
+        nothing = subprocess.run([*base, "findings-redundant-delete"], capture_output=True, text=True, check=False,
+                                 env=script_env())
+        assert nothing.returncode == 0 and "Deleted 0" in nothing.stdout, (nothing.returncode, nothing.stdout)
+        ghost = Proposal("20261001-009999-ghost.md", "20261001-000000-keep.md", "", VERDICT_SAME, "", "", "0",
+                         True)
+        plan = write_file(root / "plan.json", redundant_plan_json(Redundancy(proposals=[ghost])))
+        refused = subprocess.run([*base, "findings-redundant-delete", "--plan", str(plan)], capture_output=True,
+                                 text=True, check=False, env=script_env())
+        assert refused.returncode == 2 and "does not exist" in refused.stdout, (refused.returncode, refused.stdout)
+        assert len(list(folder.glob("*.md"))) == 5, "a refused delete removed a file"
 
 
 # ===========================================================================
@@ -904,6 +1026,10 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_assemble_refuses_a_dropped_unit_and_repoints_a_folded_file,
     check_findings_parse_repairs_mojibake_and_nests_raw_headings,
     check_findings_assemble_flags_a_customer_term_in_the_output,
+    check_findings_redundant_proposes_only_what_a_checked_same_verdict_and_the_citations_prove,
+    check_findings_redundant_delete_proves_every_condition_before_it_removes_a_file,
+    check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_does_not_cite,
+    check_findings_redundant_commands_exit_with_the_assist_codes,
     check_implement_finding_selects_the_first_files_by_name,
     check_implement_finding_test_runs_reads_foreground_test_ps1_results_only,
     check_implement_finding_test_runs_judges_a_gate_run_by_its_verdict_line,

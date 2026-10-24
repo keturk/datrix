@@ -11,6 +11,10 @@ Commands:
     findings-index     [--dir D]                 atomic-finding index of the findings inbox (model, checked)
     findings-check     --delete F... [--dir D] [--keep-raw]
                                                  would deleting F lose a citation? (exact)
+    findings-redundant [--dir D] [--no-model]    findings files another file already covers: plan JSON +
+                                                 review view (exact candidates, model verdict, checked)
+    findings-redundant-delete [--plan P] [--dir D]
+                                                 delete the plan's proposals still marked delete (exact)
     findings-plan      [--dir D] [--no-model]    theme plan for the findings inbox (model, checked)
     findings-assemble  [--plan P] [--apply]      write the theme files from a plan, verbatim (exact)
     finding-select     [--count N] [--dir D]     the first N findings files by name (exact)
@@ -61,6 +65,7 @@ from datrix_scripts.local_llm import (
 )
 from datrix_scripts.local_reading import ReadScopeError
 from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.skill import findings_redundant
 from datrix_scripts.skill.absorb import (
     VERDICT_PRESENT,
     delete_design,
@@ -231,6 +236,41 @@ def cmd_findings_check(args: argparse.Namespace) -> int:
     result = check_consolidation(directory, delete, raw_may_remain=args.keep_raw)
     print(render_check(result), end="")
     return EXIT_OK if result.passed else EXIT_CHECK_FAILED
+
+
+REDUNDANT_PLAN = "findings-redundant.json"
+
+
+def cmd_findings_redundant(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _findings_dir(workspace, args.dir)
+    if args.no_model:
+        result = findings_redundant.find_redundant(directory, None, None)
+    else:
+        result = findings_redundant.find_redundant(directory, _pool(args), ContentFilter(workspace))
+    plan = write_output(workspace, REDUNDANT_PLAN, findings_redundant.plan_json(result))
+    view = write_output(workspace, "findings-redundant.md", findings_redundant.render(result, plan))
+    print(f"Plan JSON: {plan}")
+    if args.no_model:
+        return _done(view, f"{result.files} file(s); {result.candidates} candidate pair(s) found without a model; "
+                           "nothing judged, so nothing proposed.")
+    return _done(view, f"{result.files} file(s); {len(result.proposals)} proposed for deletion from "
+                       f"{result.candidates} candidate pair(s); {len(result.kept)} pair(s) kept.")
+
+
+def cmd_findings_redundant_delete(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    directory = _findings_dir(workspace, args.dir)
+    plan = Path(args.plan) if args.plan else output_dir(workspace) / REDUNDANT_PLAN
+    result = findings_redundant.delete_redundant(directory, findings_redundant.load_plan(plan))
+    print(result.check_report, end="")
+    for problem in result.problems:
+        print(f"- {problem}")
+    if result.problems:
+        print("Nothing deleted: fix what is listed above, then run again.")
+        return EXIT_CHECK_FAILED
+    print(f"Deleted {len(result.deleted)} redundant file(s): {', '.join(result.deleted) or 'none'}.")
+    return EXIT_OK
 
 
 def cmd_findings_plan(args: argparse.Namespace) -> int:
@@ -463,6 +503,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--delete", nargs="+", action="extend", required=True, help="The files you are about to delete")
     sub.add_argument("--keep-raw", action="store_true",
                      help="Raw files may remain (/merge-findings keeps every distinct finding in place)")
+    sub = command("findings-redundant", cmd_findings_redundant, model=True)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--no-model", action="store_true", help="Find the candidate pairs only; propose nothing")
+    sub = command("findings-redundant-delete", cmd_findings_redundant_delete, model=False)
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--plan", help="Plan JSON (default: <workspace>/.tmp/assist/findings-redundant.json)")
     sub = command("findings-plan", cmd_findings_plan, model=True)
     sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
     sub.add_argument("--no-model", action="store_true", help="Every raw finding becomes its own new theme")
