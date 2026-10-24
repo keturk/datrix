@@ -71,6 +71,14 @@ INCOMPLETE: Final = "INCOMPLETE"
 REPLY_SEPARATOR: Final = "\n\n---\n\n"
 # A model name the CLI accepts: an alias (opus) or an id (claude-opus-5-5, claude-opus-5-5[1m]).
 MODEL_PATTERN: Final = re.compile(r"[A-Za-z0-9._\[\]-]+")
+# The built-in tools an implement session uses, passed as --tools. Every tool's schema is part of the context
+# each response re-reads: with the full set (50 tools, the claude.ai connectors included) a headless session
+# starts at 56k tokens, with this set and only the workspace's own MCP servers at 34k. Task is the decision
+# advisor's dispatch.
+IMPLEMENT_TOOLS: Final = "Bash,Read,Edit,Write,Grep,Glob,Skill,ToolSearch,Task"
+# A --tools value the CLI takes here: comma-separated tool names.
+TOOLS_PATTERN: Final = re.compile(r"[A-Za-z]+(,[A-Za-z]+)*")
+MCP_CONFIG_FILE: Final = ".mcp.json"
 PROGRESS_TEXT_LIMIT: Final = 300
 PROGRESS_DETAIL_LIMIT: Final = 140
 TAIL_LINES: Final = 25
@@ -290,12 +298,15 @@ def summary_table(steps: Iterable[StepRow]) -> list[str]:
     return table_lines(SUMMARY_COLUMNS, rows, _RIGHT_ALIGNED)
 
 
-def step_command(claude: str, options: ChainOptions, *, session_id: str, model: str, effort: str) -> list[str]:
-    """The ``claude`` argument vector of one step (its prompt goes to stdin).
+def step_command(claude: str, options: ChainOptions, *, session_id: str, model: str, effort: str,
+                 tools: str = "") -> list[str]:
+    """The ``claude`` argument vector of one step (its prompt goes to stdin). *tools* limits the session to
+    those built-in tools and to the MCP servers of the workspace's ``.mcp.json``; empty leaves every tool.
 
     Raises:
-        UsageError: for a model name, effort, permission mode or session id outside what the CLI takes, or
-            an argument ``cmd.exe`` would parse when *claude* is a batch shim.
+        UsageError: for a model name, effort, tools, permission mode or session id outside what the CLI takes,
+            a *tools* step in a workspace with no ``.mcp.json``, or an argument ``cmd.exe`` would parse when
+            *claude* is a batch shim.
     """
     if options.permission_mode not in PERMISSION_MODES:
         raise UsageError(f"Permission mode '{options.permission_mode}' is not one of {list(PERMISSION_MODES)}. "
@@ -305,6 +316,12 @@ def step_command(claude: str, options: ChainOptions, *, session_id: str, model: 
                          "Pass an alias such as opus or an id such as claude-opus-5-5.")
     if effort and effort not in EFFORTS:
         raise UsageError(f"Effort '{effort}' is not one of {list(EFFORTS)}. Pass one of them.")
+    if tools and not TOOLS_PATTERN.fullmatch(tools):
+        raise UsageError(f"Tools '{tools}' are not comma-separated tool names. Pass names such as Read,Edit.")
+    mcp_config = options.workspace / MCP_CONFIG_FILE
+    if tools and not mcp_config.is_file():
+        raise UsageError(f"A tools-limited step reads its MCP servers from {mcp_config}, and there is none. "
+                         "Create it, or run the chain from the workspace that holds it.")
     command = [claude, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", options.permission_mode]
     if options.resume and session_id:
         command += ["--resume", _session_argument(session_id)]
@@ -314,6 +331,8 @@ def step_command(claude: str, options: ChainOptions, *, session_id: str, model: 
         command += ["--model", model]
     if effort:
         command += ["--effort", effort]
+    if tools:
+        command += ["--tools", tools, "--strict-mcp-config", "--mcp-config", str(mcp_config)]
     require_batch_safe(command, _BATCH_SAFE_FIX)
     return command
 
@@ -386,10 +405,11 @@ class Chain:
         """A chain over the ``claude`` on ``PATH`` (exit 1 when there is none)."""
         return cls(options, find_claude())
 
-    def step(self, name: str, prompt: str, *, model: str = "", effort: str = "") -> StepRow:
+    def step(self, name: str, prompt: str, *, model: str = "", effort: str = "", tools: str = "") -> StepRow:
         """Run *prompt* as one headless step and return its row. *model* and *effort* start the session on
         that model and effort; a skill's own ``model:``/``effort:`` still applies while it runs, so they are
-        for skills that declare none and leave the choice to the caller."""
+        for skills that declare none and leave the choice to the caller. *tools* limits the session to those
+        built-in tools and the workspace's own MCP servers (``step_command``)."""
         self._number += 1
         label = f"{self._number:02d}-{name}"
         window = self.options.auto_compact_window
@@ -401,7 +421,8 @@ class Chain:
         stream_path = self.run_dir / f"{label}.stream.jsonl"
         if self.options.dry_run:
             return StepRow(label, False, "", "", "", "", 0, 0.0, 0.0, 0, stream_path, dry_run=True)
-        command = step_command(self.claude, self.options, session_id=self.session_id, model=model, effort=effort)
+        command = step_command(self.claude, self.options, session_id=self.session_id, model=model, effort=effort,
+                               tools=tools)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         error_path = self.run_dir / f"{label}.stderr.txt"
         started = time.monotonic()
@@ -593,6 +614,23 @@ def _check_the_prompt_reaches_stdin_never_an_argument() -> None:
     assert fresh == ["claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto"], fresh
 
 
+def _check_tools_limit_the_session_to_the_workspace_mcp_servers() -> None:
+    with TemporaryDirectory() as raw:
+        workspace = Path(raw)
+        write_files(workspace, {MCP_CONFIG_FILE: '{"mcpServers": {}}\n'})
+        command = step_command("claude", ChainOptions(workspace=workspace), session_id="", model="", effort="",
+                               tools=IMPLEMENT_TOOLS)
+        assert command[-5:] == ["--tools", IMPLEMENT_TOOLS, "--strict-mcp-config", "--mcp-config",
+                                str(workspace / MCP_CONFIG_FILE)], command
+        options = ChainOptions(workspace=workspace)
+        expect_usage_error(lambda: step_command("claude", options, session_id="", model="", effort="",
+                                                tools="Read,Edit&calc"), "not comma-separated tool names")
+        empty = workspace / "none"
+        empty.mkdir()
+        expect_usage_error(lambda: step_command("claude", ChainOptions(workspace=empty), session_id="", model="",
+                                                effort="", tools=IMPLEMENT_TOOLS), "there is none")
+
+
 def _check_unsafe_step_arguments_are_refused() -> None:
     resuming = ChainOptions(workspace=Path("w"), resume=True)
     cases: tuple[tuple[ChainOptions, str, str, str, str], ...] = (
@@ -698,6 +736,7 @@ def _check_a_dry_run_prints_the_steps_and_runs_none() -> None:
 #: The chain's checks, run by the ``--self-test`` of every module that runs a chain.
 CHAIN_CHECKS: Final = (
     _check_the_prompt_reaches_stdin_never_an_argument,
+    _check_tools_limit_the_session_to_the_workspace_mcp_servers,
     _check_unsafe_step_arguments_are_refused,
     _check_the_stream_is_kept_and_its_events_shown,
     _check_tool_details_and_short_text,
