@@ -26,7 +26,10 @@ CONFLICT AND BLOCKED REPOSITORIES ARE HANDED TO AN AGENT
     ``/resolve-conflicts <repo>``: the skill runs as if Jon typed it, which is also what the
     permission guard requires before it allows the skill's path-limited stash. The agent merges
     the overlap by hand and finishes through ``resolve-pull``; this script then pulls that
-    repository again and reports the new outcome. One repository's trouble never stops the
+    repository again. Once that pull succeeds the repository is reported from its HEAD before the
+    first pull -- UPDATED with the range and commit count the agent's own pull brought in, which the
+    second pull no longer sees -- with a note naming what the agent resolved ("blocked by local
+    changes" or "merge conflicts") and in how many runs. One repository's trouble never stops the
     others. ``--conflict-repair-attempts 0`` reports and stops instead.
 
 ``--self-test`` pulls real repositories in a temporary directory (one updated, one blocked by a local
@@ -123,6 +126,8 @@ class RepoPull:
     outcome: PullOutcome
     paths: list[str] = field(default_factory=list)
     detail: str = ""
+    #: HEAD before this pull; empty when it could not be read.
+    head_before: str = ""
 
 
 @dataclass
@@ -243,18 +248,24 @@ def classify(repo: Path, before: str, pull: GitResult) -> RepoPull:
     """Decide the outcome of one pull from git's exit code, output and repository state."""
     unmerged = _unmerged_paths(repo)
     if unmerged:
-        return RepoPull(repo.name, PullOutcome.CONFLICT, unmerged)
+        return RepoPull(repo.name, PullOutcome.CONFLICT, unmerged, head_before=before)
     if pull.returncode != 0:
         blocked = overwritten_paths(pull.output)
         if blocked:
             verdicts = [f"{path}  [{overlap_verdict(repo, path)}]" for path in blocked]
-            return RepoPull(repo.name, PullOutcome.BLOCKED, verdicts)
-        return RepoPull(repo.name, PullOutcome.FAILED, detail=failure_reason(pull.output))
+            return RepoPull(repo.name, PullOutcome.BLOCKED, verdicts, head_before=before)
+        return RepoPull(repo.name, PullOutcome.FAILED, detail=failure_reason(pull.output), head_before=before)
+    return progress_since(repo, before)
+
+
+def progress_since(repo: Path, before: str) -> RepoPull:
+    """UPDATED with the range and commit count when HEAD has moved past *before*, else UP_TO_DATE."""
     after = _head(repo)
     if after == before:
-        return RepoPull(repo.name, PullOutcome.UP_TO_DATE)
+        return RepoPull(repo.name, PullOutcome.UP_TO_DATE, head_before=before)
     count = _git_value(repo, ["rev-list", "--count", f"{before}..{after}"])
-    return RepoPull(repo.name, PullOutcome.UPDATED, detail=f"{before[:9]}..{after[:9]}, {count} commit(s)")
+    return RepoPull(repo.name, PullOutcome.UPDATED, detail=f"{before[:9]}..{after[:9]}, {count} commit(s)",
+                    head_before=before)
 
 
 def pull_repo(repo: Path) -> RepoPull:
@@ -277,6 +288,8 @@ ConflictResolver = Callable[[RepoPull, int], str]
 #: Pull a repository again and classify it.
 Repuller = Callable[[Path], RepoPull]
 NEEDS_AGENT = frozenset({PullOutcome.CONFLICT, PullOutcome.BLOCKED})
+#: What the agent was handed, as the note on a repository it resolved names it.
+AGENT_PROBLEMS: Final = {PullOutcome.CONFLICT: "merge conflicts", PullOutcome.BLOCKED: "blocked by local changes"}
 
 
 @dataclass(frozen=True)
@@ -313,9 +326,11 @@ class ConflictAgent:
 def resolve_repo(result: RepoPull, repo: Path, resolve: ConflictResolver, repull: Repuller, attempts: int) -> RepoPull:
     """Run *resolve* on *result* up to *attempts* times, pulling *repo* again after each run.
 
-    Ends at the first run after which the pull succeeds. An agent that cannot run ends the repository as
-    FAILED with the reason; one that runs but leaves the repository needing attention is run again.
+    Ends at the first run after which the pull succeeds (see ``resolved_by_agent``). An agent that cannot
+    run ends the repository as FAILED with the reason; one that runs but leaves the repository needing
+    attention is run again.
     """
+    first = result
     for attempt in range(1, attempts + 1):
         try:
             summary = resolve(result, attempt)
@@ -324,9 +339,25 @@ def resolve_repo(result: RepoPull, repo: Path, resolve: ConflictResolver, repull
         print(f"{result.name}: run {attempt} finished. Agent summary:\n{summary or '(none)'}\n", flush=True)
         result = repull(repo)
         if result.outcome in SUCCESSFUL_OUTCOMES:
-            note = f"conflicts resolved by the agent in {attempt} run(s)"
-            return replace(result, detail=f"{result.detail}; {note}" if result.detail else note)
+            return resolved_by_agent(first, repo, attempt)
     return replace(result, detail=f"the conflict agent ran {attempts} time(s) and the repository still needs attention")
+
+
+def resolved_by_agent(first: RepoPull, repo: Path, attempt: int) -> RepoPull:
+    """*repo* once the agent has resolved *first*, its result before any agent run.
+
+    The agent pulls through ``resolve-pull`` itself, so the pull after it sees nothing new; the outcome is
+    measured from HEAD before the first pull instead, and the note names what the agent was handed.
+    """
+    note = f"{AGENT_PROBLEMS[first.outcome]}, resolved by the agent in {attempt} run(s)"
+    try:
+        result = progress_since(repo, first.head_before)
+    except PullError as exc:
+        result = RepoPull(first.name, PullOutcome.FAILED, detail=f"{note}, but HEAD could not be compared: {exc}")
+    else:
+        result = replace(result, detail=f"{result.detail}; {note}" if result.detail else note)
+    print(colorize(f"{result.name}: {result.outcome.value} ({result.detail})", outcome_color(result.outcome)), flush=True)
+    return result
 
 
 def hand_over_conflicts(
@@ -387,9 +418,8 @@ def _fixture_git(cwd: Path, *args: str) -> None:
     subprocess.run(["git", *_FIXTURE_IDENTITY, *args], cwd=cwd, check=True, capture_output=True)
 
 
-def _numbered(edited_line: int, text: str) -> str:
-    return "".join(f"{text if number == edited_line else f'line {number}'}\n"
-                   for number in range(1, _FIXTURE_LINES + 1))
+def _numbered(edits: dict[int, str]) -> str:
+    return "".join(f"{edits.get(number, f'line {number}')}\n" for number in range(1, _FIXTURE_LINES + 1))
 
 
 def _check_pull_outcomes_over_real_repositories() -> None:
@@ -399,7 +429,7 @@ def _check_pull_outcomes_over_real_repositories() -> None:
         seed, workspace = root / "seed", root / "workspace"
         workspace.mkdir()
         _fixture_git(root, "clone", "-q", "remote.git", str(seed))
-        write_files(seed, {_FIXTURE_FILE: _numbered(0, "")})
+        write_files(seed, {_FIXTURE_FILE: _numbered({})})
         _fixture_git(seed, "add", "-A")
         _fixture_git(seed, "commit", "-q", "-m", "seed")
         _fixture_git(seed, "push", "-q", "origin", _FIXTURE_BRANCH)
@@ -410,10 +440,10 @@ def _check_pull_outcomes_over_real_repositories() -> None:
         write_files(lonely, {_FIXTURE_FILE: "alone\n"})
         _fixture_git(lonely, "add", "-A")
         _fixture_git(lonely, "commit", "-q", "-m", "no upstream")
-        write_files(seed, {_FIXTURE_FILE: _numbered(2, "incoming")})
+        write_files(seed, {_FIXTURE_FILE: _numbered({2: "incoming"})})
         _fixture_git(seed, "commit", "-q", "-am", "incoming")
         _fixture_git(seed, "push", "-q", "origin", _FIXTURE_BRANCH)
-        write_files(workspace / "beta", {_FIXTURE_FILE: _numbered(3, "local")})
+        write_files(workspace / "beta", {_FIXTURE_FILE: _numbered({3: "local"})})
         with contextlib.redirect_stdout(io.StringIO()) as printed:
             code = pull_workspace(workspace, None, 0)
         summary = printed.getvalue()
@@ -434,16 +464,16 @@ def _blocked_workspace(root: Path) -> Path:
     seed, workspace = root / "seed", root / "workspace"
     workspace.mkdir()
     _fixture_git(root, "clone", "-q", "remote.git", str(seed))
-    write_files(seed, {_FIXTURE_FILE: _numbered(0, "")})
+    write_files(seed, {_FIXTURE_FILE: _numbered({})})
     _fixture_git(seed, "add", "-A")
     _fixture_git(seed, "commit", "-q", "-m", "seed")
     _fixture_git(seed, "push", "-q", "origin", _FIXTURE_BRANCH)
     _fixture_git(root, "clone", "-q", "remote.git", str(workspace / "alpha"))
     _fixture_git(workspace / "alpha", "config", "pull.rebase", "false")
-    write_files(seed, {_FIXTURE_FILE: _numbered(2, "incoming")})
+    write_files(seed, {_FIXTURE_FILE: _numbered({2: "incoming"})})
     _fixture_git(seed, "commit", "-q", "-am", "incoming")
     _fixture_git(seed, "push", "-q", "origin", _FIXTURE_BRANCH)
-    write_files(workspace / "alpha", {_FIXTURE_FILE: _numbered(15, "local")})
+    write_files(workspace / "alpha", {_FIXTURE_FILE: _numbered({15: "local"})})
     return workspace
 
 
@@ -470,16 +500,22 @@ def _check_a_blocked_repository_goes_to_the_resolver_and_is_pulled_again() -> No
     with TemporaryDirectory() as raw:
         workspace = _blocked_workspace(Path(raw))
 
-        def commit_local_edit(result: RepoPull, attempt: int) -> str:
+        def pull_keeping_local_edit(result: RepoPull, attempt: int) -> str:
+            """What resolve-pull does: set the local edit aside, pull, put it back uncommitted."""
             calls.append((result.name, attempt))
-            _fixture_git(workspace / "alpha", "commit", "-q", "-am", "local")
-            return "committed the local edit"
+            alpha = workspace / "alpha"
+            write_files(alpha, {_FIXTURE_FILE: _numbered({})})
+            _fixture_git(alpha, "pull", "-q")
+            write_files(alpha, {_FIXTURE_FILE: _numbered({2: "incoming", 15: "local"})})
+            return "pulled, local edit kept"
 
         with contextlib.redirect_stdout(io.StringIO()) as printed:
-            resolved_code = pull_workspace(workspace, commit_local_edit, 2)
+            resolved_code = pull_workspace(workspace, pull_keeping_local_edit, 2)
     resolved = printed.getvalue()
+    summary = resolved.split(SUMMARY_RULE, 1)[1]
     assert calls == [("alpha", 1)] and resolved_code == EXIT_ALL_PULLED, (calls, resolved)
-    assert "Updated (1):" in resolved and "conflicts resolved by the agent in 1 run(s)" in resolved, resolved
+    assert "Updated (1):" in summary and "Up to date (" not in summary, summary
+    assert ", 1 commit(s); blocked by local changes, resolved by the agent in 1 run(s))" in summary, summary
 
     calls.clear()
     stuck_code, stuck = _pulled_with(do_nothing, 2)

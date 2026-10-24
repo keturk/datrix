@@ -16,6 +16,10 @@ units mean it ran out of turn, so implement runs again from the ledger (up to ``
 runs only after verify replies ``Design conformance: PROVEN`` (``Chain.verify_design``); on INCOMPLETE,
 implement runs again with ``GAPS:`` naming verify's saved reply.
 
+Without ``--design`` it takes the first ``--count`` (default 10) ``*.md`` files of ``<workspace>/design``, by
+name, and runs the chain on each in turn. Later designs build on earlier ones, so the first design that does
+not finish stops the run.
+
 Exit codes: 0 the design is absorbed (or a passing self-test); 1 a step ended in error, a check failed, or
 the arguments name no usable design or ledger; 2 a step stopped for a decision only Jon can make (its reply
 and session id are printed), or a command line this module cannot read.
@@ -52,6 +56,7 @@ from datrix_scripts.skill.chain import (
     chain_exit_code,
     chain_options,
 )
+from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT
 from datrix_scripts.test.wrappers import SKILL_SCRIPTS_DIR, module_main, run_self_test
 
 MODULE: Final = "datrix_scripts.skill.implement_design"
@@ -60,6 +65,7 @@ STEPS: Final = ("implement", "verify", "absorb")
 UNCHECKED_UNIT: Final = re.compile(r"^\s*\|.*\[ \]", re.MULTILINE | re.IGNORECASE)
 FILES_CHANGED: Final = re.compile(r"^##\s+Files changed\s*$", re.MULTILINE | re.IGNORECASE)
 NO_LEDGER: Final = "no ledger"
+DESIGN_DIR_PARTS: Final = ("design",)
 
 
 def ledger_path(workspace: Path, design: Path) -> Path:
@@ -80,12 +86,36 @@ def ledger_gap(ledger: Path) -> str:
     return ""
 
 
+def design_files(workspace: Path, count: int) -> list[Path]:
+    """The first *count* ``*.md`` files directly in ``<workspace>/design``, by name; stops with 1 when the
+    folder is missing or *count* is below 1."""
+    directory = workspace.joinpath(*DESIGN_DIR_PARTS)
+    if not directory.is_dir():
+        say(f"Design folder '{directory}' does not exist. Pass -Design <path>.", ColorCodes.RED)
+        raise ChainStopped(EXIT_FAILED)
+    if count < 1:
+        say(f"-Count must be at least 1 (got {count}).", ColorCodes.RED)
+        raise ChainStopped(EXIT_FAILED)
+    return sorted(path for path in directory.glob("*.md") if path.is_file())[:count]
+
+
+def select_designs(design: str, count: int, start_at: str, workspace: Path) -> list[Path]:
+    """The designs to implement: *design* alone when given, else the first *count* of the design folder;
+    stops with 1 when -StartAt is given without -Design (a later start needs one named design's ledger)."""
+    if design:
+        return [Path(design)]
+    if start_at != STEPS[0]:
+        say(f"-StartAt {start_at} resumes one design's run; pass that design with -Design <path>.", ColorCodes.RED)
+        raise ChainStopped(EXIT_FAILED)
+    return design_files(workspace, count)
+
+
 def preflight(design: str, start_at: str, *, dry_run: bool, workspace: Path) -> tuple[Path, Path]:
     """The design's absolute path and its ledger; stops with 1 when the design is missing, or a later
     start has no ledger to start from."""
     if not design or not Path(design).exists():
-        say(f"Pass the design document: -Design <path> (got '{design}'). Get-Help .\\implement-design.ps1 "
-            "-Full.", ColorCodes.RED)
+        say(f"Design document not found: '{design}'. Pass an existing file to -Design. "
+            "Get-Help .\\implement-design.ps1 -Full.", ColorCodes.RED)
         raise ChainStopped(EXIT_FAILED)
     design_path = Path(os.path.abspath(design))
     ledger = ledger_path(workspace, design_path)
@@ -120,8 +150,9 @@ def implement(chain: Chain, design: Path, ledger: Path, max_rounds: int, gaps: s
 
 
 def run_direct(chain: Chain, design: Path, ledger: Path, *, start_at: str, keep_source: bool,
-               max_rounds: int) -> NoReturn:
-    """The chain from *start_at*: implement, verify (implementing again on INCOMPLETE), absorb."""
+               max_rounds: int) -> None:
+    """One design's chain from *start_at*: implement, verify (implementing again on INCOMPLETE), absorb.
+    Returns when the design is absorbed; any failure stops the whole chain."""
     first = STEPS.index(start_at)
     if first <= 0:
         implement(chain, design, ledger, max_rounds)
@@ -131,6 +162,17 @@ def run_direct(chain: Chain, design: Path, ledger: Path, *, start_at: str, keep_
         chain.verify_design(prompt, design, lambda report: implement(chain, design, ledger, max_rounds, str(report)),
                             max_rounds)
     chain.absorb_design(design, keep_source=keep_source)
+
+
+def run_designs(chain: Chain, designs: Sequence[Path], *, start_at: str, keep_source: bool, max_rounds: int,
+                dry_run: bool, workspace: Path) -> NoReturn:
+    """Each design in turn, in name order. Later designs build on earlier ones, so the first design that
+    does not finish stops the chain."""
+    for number, name in enumerate(designs, start=1):
+        design, ledger = preflight(str(name), start_at, dry_run=dry_run, workspace=workspace)
+        say("")
+        say(f"##### design {number} of {len(designs)}: {design.name}", ColorCodes.MAGENTA)
+        run_direct(chain, design, ledger, start_at=start_at, keep_source=keep_source, max_rounds=max_rounds)
     chain.complete()
 
 
@@ -140,7 +182,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Implement a design directly: implement -> verify -> absorb, each step a fresh headless session.",
         allow_abbrev=False,
     )
-    parser.add_argument("--design", default="", help="The design document to implement.")
+    parser.add_argument("--design", default="",
+                        help="The design document to implement, in place of the first --count of the design folder.")
+    parser.add_argument("--count", type=int, default=DEFAULT_COUNT,
+                        help="How many designs to take from the design folder, first by name. Default: 10.")
     parser.add_argument("--start-at", choices=STEPS, default=STEPS[0],
                         help="The step to start at, to resume after answering a question.")
     parser.add_argument("--keep-source", action="store_true", help="Pass KEEP SOURCE: true to /absorb-design.")
@@ -182,24 +227,43 @@ def _check_a_missing_design_or_ledger_stops_before_any_step() -> None:
             assert preflight(str(design), "absorb", dry_run=True, workspace=workspace) == (
                 design, workspace / ".tmp" / "implement-direct-099-x.md")
     lines = printed.getvalue().splitlines()
-    assert lines[0] == "Pass the design document: -Design <path> (got ''). Get-Help .\\implement-design.ps1 -Full.", lines
+    assert lines[0] == ("Design document not found: ''. Pass an existing file to -Design. "
+                        "Get-Help .\\implement-design.ps1 -Full."), lines
     assert lines[-1] == (f"-StartAt absorb needs the implement step's ledger, and there is none: "
                          f"{workspace / '.tmp' / 'implement-direct-099-x.md'}"), lines
+
+
+def _check_designs_are_selected_by_name_and_count() -> None:
+    with TemporaryDirectory() as raw:
+        workspace = Path(raw)
+        folder = workspace / "design"
+        write_files(folder, {"020-b.md": "b\n", "010-a.md": "a\n", "030-c.md": "c\n", "notes.txt": "x\n"})
+        assert select_designs("", 2, "implement", workspace) == [folder / "010-a.md", folder / "020-b.md"]
+        assert select_designs("x.md", 2, "verify", workspace) == [Path("x.md")]
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            assert chain_exit_code(lambda: select_designs("", 0, "implement", workspace)) == EXIT_FAILED
+            assert chain_exit_code(lambda: select_designs("", 2, "verify", workspace)) == EXIT_FAILED
+            assert chain_exit_code(lambda: select_designs("", 2, "implement", workspace / "none")) == EXIT_FAILED
+    assert len(printed.getvalue().splitlines()) == 3, printed.getvalue()
 
 
 def _check_a_dry_run_prints_implement_verify_and_absorb() -> None:
     with TemporaryDirectory() as raw:
         workspace = Path(raw)
         design = workspace / "d.md"
+        write_files(workspace, {design.name: "# d\n"})
         ledger = ledger_path(workspace, design)
         chain = Chain(ChainOptions(workspace=workspace, dry_run=True, auto_compact_window=0), CLAUDE)
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed):
-            code = chain_exit_code(lambda: run_direct(chain, design, ledger, start_at="implement", keep_source=False,
-                                                      max_rounds=DEFAULT_MAX_ROUNDS))
+            code = chain_exit_code(lambda: run_designs(chain, [design], start_at="implement", keep_source=False,
+                                                       max_rounds=DEFAULT_MAX_ROUNDS, dry_run=True,
+                                                       workspace=workspace))
     assert code == EXIT_DONE, code
     proof = workspace / ".tmp" / "verify-proven-d.md"
     assert printed.getvalue().splitlines() == [
+        "", "##### design 1 of 1: d.md",
         "", "=== step 01-implement ===", "/implement-design-direct", f"DOCUMENT: {design}", f"LEDGER: {ledger}",
         "STOP AFTER: implement",
         "", "=== step 02-verify ===", "/verify-implementation", f"DESIGN: {design}", "TASKS: none",
@@ -210,15 +274,22 @@ def _check_a_dry_run_prints_implement_verify_and_absorb() -> None:
 
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
-        checks = [*CHAIN_CHECKS, _check_the_ledger_gap_is_read_from_the_ledger,
+        checks = [*CHAIN_CHECKS, _check_designs_are_selected_by_name_and_count,
+                  _check_the_ledger_gap_is_read_from_the_ledger,
                   _check_a_missing_design_or_ledger_stops_before_any_step, _check_a_dry_run_prints_implement_verify_and_absorb]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SKILL_SCRIPTS_DIR)
 
     def body() -> NoReturn:
-        design, ledger = preflight(args.design, args.start_at, dry_run=args.dry_run, workspace=WORKSPACE_DIR)
+        designs = select_designs(args.design, args.count, args.start_at, WORKSPACE_DIR)
+        if not designs:
+            say("No design documents to work on.")
+            raise ChainStopped(EXIT_DONE)
+        say(f"Designs ({len(designs)}):")
+        for design in designs:
+            say(f"  {design}")
         chain = Chain.start(chain_options(args, WORKSPACE_DIR, resume=args.resume))
-        run_direct(chain, design, ledger, start_at=args.start_at, keep_source=args.keep_source,
-                   max_rounds=args.max_rounds)
+        run_designs(chain, designs, start_at=args.start_at, keep_source=args.keep_source,
+                    max_rounds=args.max_rounds, dry_run=args.dry_run, workspace=WORKSPACE_DIR)
 
     return chain_exit_code(body)
 
