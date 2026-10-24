@@ -140,7 +140,7 @@ Browse the full example: [ecommerce/](examples/03-domains/ecommerce/), and the s
 |----------------|-------------------|
 | Python (FastAPI) | Docker + Compose |
 | TypeScript (NestJS) | AWS (CDK + CloudFormation) |
-| SQL (PostgreSQL, MySQL, MariaDB) | Azure (Bicep + ARM) |
+| SQL (PostgreSQL) | Azure (Bicep + ARM) |
 | Component (configs, schemas, docs) | |
 
 The language list is open — each target language is an independent generator package.
