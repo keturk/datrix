@@ -48,8 +48,8 @@ TARGET_GROUPS: Final[dict[str, str]] = {
 }
 GAP_PREVIEW: Final = 3
 
-DESIGN_NAME: Final = re.compile(r"^(\d{3})-([a-z0-9][a-z0-9-]*)\.md$")
-DESIGN_STEM: Final = re.compile(r"\d{3}-[a-z0-9][a-z0-9-]*")
+DESIGN_NAME: Final = re.compile(r"^(\d{3,4})-([a-z0-9][a-z0-9-]*)\.md$")
+DESIGN_STEM: Final = re.compile(r"\d{3,4}-[a-z0-9][a-z0-9-]*")
 _STATUS: Final = re.compile(r"^Status:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
 _DEPENDS: Final = re.compile(r"^Depends on:[ \t]*(.*)$", re.MULTILINE)
 _TITLE: Final = re.compile(r"^#[ \t]+(.+?)[ \t]*$", re.MULTILINE)

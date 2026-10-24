@@ -84,7 +84,7 @@ from datrix_scripts.paths import WORKSPACE_DIR
 _SEP = r"[-_\s]*"
 PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("task-file id", re.compile(rf"\btasks?{_SEP}\d{{2,3}}-\d{{2,3}}\b", re.IGNORECASE)),
-    ("design path", re.compile(r"designs?[/\\]\d{3}-[a-z0-9-]+", re.IGNORECASE)),
+    ("design path", re.compile(r"designs?[/\\]\d{3,4}-[a-z0-9-]+", re.IGNORECASE)),
     (
         "design doc number",
         re.compile(

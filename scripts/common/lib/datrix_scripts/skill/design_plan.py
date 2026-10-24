@@ -122,9 +122,9 @@ def _verify_unit(workspace: Path, scope: ReadScope, pool: LocalLlmPool, content:
     claim = section_body(content.section(f"{unit.unit_id} {unit.title}", unit_text(unit)), 1, CLAIM_LINES)
     try:
         sections = [read_section(scope, path) for path in scope.files(present[:MAX_FILES_PER_SECTION])]
+        answer = ask_local(pool, VERIFY_QUESTION.format(claim=claim), sections)
     except ReadScopeError as exc:
         return Verification(unit.unit_id, source.name, unit.title, VERDICT_UNCLEAR, f"Not read: {exc}", gone)
-    answer = ask_local(pool, VERIFY_QUESTION.format(claim=claim), sections)
     return Verification(unit.unit_id, source.name, unit.title, _verdict(answer.text), answer.render(), gone)
 
 
