@@ -65,17 +65,17 @@
     "reason": "Which bare names a body assigns at any depth (the Dart scope's reassigned set); consults no declaration."
   },
   {
-    "site": "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/visitor_statements.py::_statements_contain_return",
+    "site": "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/_transactions.py::_statements_contain_return",
     "category": "emission-syntax",
     "reason": "Whether a statement block returns, a local syntax question of the emitted control flow."
   },
   {
-    "site": "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/visitor_statements.py::collect_assigned_identifiers",
+    "site": "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/_statement_types.py::collect_assigned_identifiers",
     "category": "emission-syntax",
     "reason": "Which identifiers a body reassigns or loop-introduces (the emitted TypeScript's reassigned variables); consults no declaration."
   },
   {
-    "site": "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_controller_template_context.py::_body_introduced_identifiers",
+    "site": "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/api/_controller_bodies.py::_body_introduced_identifiers",
     "category": "emission-syntax",
     "reason": "Which names a handler body declares, so a local cannot collide with an injected @Req()/@Res() parameter."
   },

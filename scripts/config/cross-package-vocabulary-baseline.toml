@@ -217,9 +217,14 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generation/dependency_ta
 count = 3
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/agents/renderer.py"
-count = 2
-reason = "Both hits are this language target's per-target realization tables (Decision 36 D9). PROVIDER_CLIENT_REALIZATIONS: the per-provider decide-client table (template, runtime, class per provider); AI agents (Decision 46 invariant 5) forbid any provider name in a shared layer, and which providers a platform realizes is that platform's own declaration (docker/aws/azure plugin capability), so the key sets coincide by design and can have no shared home. MANAGED_CREDENTIAL_REALIZATIONS: the per-kind managed-credential realization (class, scope keyword, parameter keywords), keyed by the ManagedCredentialKind vocabulary datrix-common declares (plugin/model_realization.py); the values are this package's own emitted classes, so the table has no shared home, and its key set is held equal to the declared kinds by tests/integration/generators/test_agents_managed_rendering.py."
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/agents/_agents_shared.py"
+count = 1
+reason = "PROVIDER_CLIENT_REALIZATIONS, a per-target realization table of this language target (Decision 36 D9); the sibling entry for _agents_realizations.py holds the other table. PROVIDER_CLIENT_REALIZATIONS: the per-provider decide-client table (template, runtime, class per provider); AI agents (Decision 46 invariant 5) forbid any provider name in a shared layer, and which providers a platform realizes is that platform's own declaration (docker/aws/azure plugin capability), so the key sets coincide by design and can have no shared home. MANAGED_CREDENTIAL_REALIZATIONS: the per-kind managed-credential realization (class, scope keyword, parameter keywords), keyed by the ManagedCredentialKind vocabulary datrix-common declares (plugin/model_realization.py); the values are this package's own emitted classes, so the table has no shared home, and its key set is held equal to the declared kinds by tests/integration/generators/test_agents_managed_rendering.py."
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/agents/_agents_realizations.py"
+count = 1
+reason = "MANAGED_CREDENTIAL_REALIZATIONS, a per-target realization table of this language target (Decision 36 D9): the per-kind managed-credential realization (class, scope keyword, parameter keywords), keyed by the ManagedCredentialKind vocabulary datrix-common declares (plugin/model_realization.py); the values are this package's own emitted classes, so the table has no shared home, and its key set is held equal to the declared kinds by tests/integration/generators/test_agents_managed_rendering.py."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entity_test_create_fields.py"
@@ -400,7 +405,7 @@ count = 1
 reason = "STRING_CONSTRAINTS: the scalar-declaration constraints only a String-based scalar accepts. datrix-language transformers/config_transformer.py's _STRING_ONLY_ATTRIBUTES is the .dcfg config-key attributes only a String key accepts; both are {pattern} today, but scalar constraints and config-key attributes are separate vocabularies (their numeric counterparts already differ: min/max/range against min/max)."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/ui_derivation.py"
+file = "datrix-common/src/datrix_common/datrix_model/_ui_form_derivation.py"
 count = 1
 reason = "TEMPORAL_INPUT_KIND_BY_SCALAR_NAME: the UI input kind (date/dateTime/time) each temporal scalar derives to, the one table the UI derivation and the UI validator both read. Its key set (Date, DateTime, Time) coincides with Python's cross-field test inference set and the migration canonicalizer's timestamp category because every one enumerates the DSL's temporal scalars; each maps them to a different fact of its own subsystem."
 

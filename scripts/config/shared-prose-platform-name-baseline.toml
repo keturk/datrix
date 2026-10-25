@@ -75,7 +75,11 @@ count = 1
 
 [[baseline]]
 entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/serverless_realization.py::azure"
-count = 2
+count = 1
+
+[[baseline]]
+entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/_serverless_realization_routes.py::azure"
+count = 1
 
 [[baseline]]
 entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/servicebus_connection_plan.py::azure"
@@ -166,11 +170,11 @@ entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/cqrs_project
 count = 2
 
 [[baseline]]
-entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/serverless.py::aws"
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/_serverless_paths.py::aws"
 count = 4
 
 [[baseline]]
-entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/serverless.py::azure"
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/algorithms/_serverless_paths.py::azure"
 count = 4
 
 [[baseline]]
@@ -1031,10 +1035,14 @@ count = 1
 
 [[baseline]]
 entry = "datrix-common/src/datrix_common/deployment/connection_surface.py::azure"
-count = 8
+count = 3
 
 [[baseline]]
-entry = "datrix-common/src/datrix_common/deployment/connection_surface.py::docker"
+entry = "datrix-common/src/datrix_common/deployment/_surface_nosql_storage.py::azure"
+count = 5
+
+[[baseline]]
+entry = "datrix-common/src/datrix_common/deployment/_surface_nosql_storage.py::docker"
 count = 1
 
 [[baseline]]

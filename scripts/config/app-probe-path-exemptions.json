@@ -17,12 +17,12 @@
       "reason": "Loki's own readiness endpoint: a probe for an infrastructure container the docker platform provisions, whose route is Loki's, not a generated application's. gateway_routes.py records that infra-container probes are owned by the provisioning platform."
     },
     {
-      "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/observability_infra.py",
+      "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/_observability_constants.py",
       "snippet": "_LOKI_HC_TEST = ",
       "reason": "The compose healthcheck for the Loki infrastructure container, probing Loki's own /ready endpoint. Infrastructure-container probe owned by the provisioning platform; no generated application is behind it."
     },
     {
-      "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/observability_infra.py",
+      "file": "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/_observability_constants.py",
       "snippet": "'printf \"GET /ready HTTP/1.1",
       "reason": "The raw-socket readiness probe for the Promtail infrastructure container (its image ships no HTTP client), targeting Promtail's own /ready endpoint. Infrastructure-container probe owned by the provisioning platform."
     },
