@@ -1,0 +1,174 @@
+# Skill Scripts
+
+Scripts that exist for the agent skills under `.claude/skills/`: running skills as headless steps on
+their own models, and the mechanical skill phases done by a script or a local model. The commands,
+parameters and exit codes are in [quick-reference.md](quick-reference.md); this file holds what they do
+and how they decide.
+
+Each `.ps1` is rendered from the shared entrypoint template and runs a module of
+`common/lib/datrix_scripts/skill/`; each has a POSIX twin `.sh` beside it taking the same options as
+`--kebab` flags.
+
+## Headless skill chains: `implement-design.ps1`, `skill-chain.ps1`
+
+**Run skills one after another as headless `claude -p` steps, each on its own skill's
+`model:`/`effort:`.** A skill invoked from inside another skill runs on the caller's model; a typed
+slash command switches to the skill's own. Each step here is a typed slash command in its own run, with
+the workspace's hooks, CLAUDE.md and guards. The shared step runner is `datrix_scripts.skill.chain`. It
+types each prompt into the step's `claude -p` run on stdin, never as an argument (the `claude.cmd` shim
+is a batch file, and cmd.exe ends an argument at its first newline), refuses an argument cmd.exe would
+reinterpret, and validates the model, effort, permission mode and session id before launching. It starts
+every step with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=500000`, so a long step compacts at 500k tokens instead
+of growing toward the model's 1M window: each response re-reads the whole context, so the context size
+sets what a long step costs (the caller's own value comes back after the step). Interactive sessions get
+the same window from `"autoCompactWindow": 500000` in the workspace `.claude/settings.json`; the
+variable, when set, takes precedence over it. Needs the workspace trusted in `~/.claude.json`
+(`hasTrustDialogAccepted`), or headless runs ignore `settings.json`'s permissions.
+
+`implement-design.ps1` with `-Design` runs `/implement-design-direct` as a `STOP AFTER: plan` session,
+one `UNIT: <id>` session per ledger unit, and a `UNIT: sweep` session → verify → absorb. `-StartAt`
+starts at `implement`, `verify` or `absorb` (after `implement`, its ledger must exist). `-Resume` carries
+one session through every step instead of a fresh one per step. By default each agent message, tool call
+and refused tool call is printed as it happens; `-Quiet` shows only each step's prompt and summary.
+
+`implement-design.ps1` checks the result between steps itself; no model decides it:
+- The implement step keeps its ledger at `D:\datrix\.tmp\implement-direct-<design file name>.md`. The plan session runs only when there is no ledger (or verify left gaps); no ledger after it means it stopped at its gate for a decision. Each unchecked unit then runs in its own fresh session (up to `-MaxRounds` per unit), because every response re-reads the whole context: one session over all units of a 7-unit design averaged 270k tokens per response and compacted twice. Implement sessions run with `--tools` limited to Bash, Read, Edit, Write, Grep, Glob, Skill, ToolSearch and Task, and with only the workspace `.mcp.json` servers (`--strict-mcp-config`): that start-up context is 34k tokens, against 56k with all 50 tools. The step is done only when the sweep session leaves a ledger with no unchecked unit and a `## Files changed` section.
+- Absorb runs only after verify replies `Design conformance: PROVEN`. The verdict is read from every reply of the verify session's transcript, not only the last (a Stop hook that refuses a reply makes the session send another), and `.claude/checklists/verify-verdict.json` refuses a `/verify-implementation` turn that ends without the line. On INCOMPLETE, implement runs again with `GAPS:` set to verify's saved report, then verify. On PROVEN, verify's replies are kept at `D:\datrix\.tmp\verify-proven-<design file name>.md` and passed to `/absorb-design` as `VERIFIED:`, its licence to delete the design whatever the design's own `Status:` line says; `-StartAt absorb` stops with exit 1 when that file is missing or not PROVEN. Without `-KeepSource`, absorb must have deleted the design; otherwise it stopped at a question.
+
+**Fresh vs `-Resume`.** A fresh step pays the workspace start-up context (about 52k tokens measured on an
+implement session: system prompt, tools, skill list, CLAUDE.md and the skill itself, mostly served from
+the prompt cache when the model repeats) plus the mandatory reads, and starts with its context window
+free. `-Resume` re-reads nothing, but every turn of every step re-reads all previous steps' transcript,
+and on a model change that whole transcript is written to the cache again at the new model's price. The
+design steps hand over through files (ledger, reports), so fresh is the default.
+
+Logs: `D:\datrix\.tmp\skill-chain\<timestamp>\` (each step's result `.json`, every streamed event
+`.stream.jsonl`, stderr, and each INCOMPLETE verify report). Exit code 2 means a step stopped for a
+decision only Jon can make (its reply and session id are printed), or a command line the module cannot
+read.
+
+Modules: `datrix_scripts.skill.implement_design`, `datrix_scripts.skill.skill_chain`; POSIX twins
+`skill/implement-design.sh` (`--design`, `--start-at`, `--keep-source`, `--resume`, `--permission-mode`,
+`--max-budget-usd`, `--max-rounds`, `--dry-run`, `--quiet`, `--self-test`) and `skill/skill-chain.sh`
+(the prompts as positionals or repeated `--step`, `--resume`, `--permission-mode`, `--max-budget-usd`,
+`--dry-run`, `--quiet`, `--self-test`). `-SelfTest` runs the chain checks (stdin delivery, refused
+arguments, the kept and shown stream, session replies, absorb refused without a proof, a dry run) and
+the wrapper seam checks.
+
+## `implement-finding.ps1`
+
+**Drain the findings inbox one finding at a time: one session per finding, closed before the next
+starts.** The multi-finding form of `/implement-finding`. Per finding, in name order, one fresh headless
+`/implement-finding` session (via `datrix_scripts.skill.chain`, started with `--model`/`--effort`)
+checks the finding against the code and, when it still holds, fixes it (code, tagged test, targeted
+runs, docs, pointers from other findings). It ends `Finding fix: ALREADY RESOLVED`, `DONE` or
+`BLOCKED B<n>` and never deletes the finding itself. The script then runs `finding-close`: never while
+another findings file names the finding, and after `DONE` only when the session's last foreground
+`test.ps1` or `*-gate.ps1` run passed (a gate proves code no `test.ps1` reaches, such as the scripts
+tree), read from the step's `.stream.jsonl` — not a model's word.
+
+With no argument it takes the first 10 findings, one session each, on Opus, from the first inbox
+subfolder (area order: `python`, `typescript`, … `docs`, then other subfolders by name), going on to the
+next subfolder once the one before holds no more, and last the files lying directly in `reports\finding`.
+A folder argument (or `-Dir azure`, or a full path such as `D:\datrix\reports\finding\python`) names one
+subfolder (absolute, or relative to `reports\finding`). `-Finding` files are worked as given, wherever
+they are, instead of the first `-Count`. A session ending `Finding fix: BLOCKED B<n>` stops that finding
+and the chain moves to the next. Step logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit code 2:
+no failure, but a session stopped for a decision only Jon can make.
+
+The selection and the close run in-process through `datrix_scripts.skill.finding_inbox`, the code behind
+the `skill-assist.ps1` commands `finding-select` and `finding-close` (below); `/implement-finding` typed
+by hand calls `finding-close` itself.
+
+Module: `datrix_scripts.skill.implement_finding`; POSIX twin `skill/implement-finding.sh` (`--count`,
+`--finding`, `--dir`, `--model`, `--effort`, `--permission-mode`, `--max-budget-usd`, `--dry-run`,
+`--quiet`, `--self-test`).
+
+## `organize-findings.ps1`
+
+**Sort the findings files lying directly in the findings folder into one level of area subfolders, by
+file name alone.** A name in the merged scheme (`NNNN-<area>-<slug>.md`) carries its area; any other name
+is read by the first word of its slug (an area name or alias such as `azure-`, `ts-`, `gate-`). A name
+that states no area is sent, by name only, to a local model that picks one of the areas of
+`/merge-findings` (`python`, `typescript`, `clients`, `language`, `migration`, `seed`, `kernel`,
+`docker`, `aws`, `azure`, `component`, `tests`, `tooling`, `docs`; each the subject the finding is about,
+not the package its fix lands in, so the folders can be worked in priority order); its answer is checked
+against the asked names and the area set, and a name carrying a registered customer term is not sent.
+File content is never read. Only `*.md` directly in the folder move; nothing inside a subfolder is
+touched, so there is exactly one level, and a move never overwrites. `finding-select`, `finding-close`
+and `implement-finding.ps1` work the area subfolders in turn, or one with `-Dir`; the merge and
+consolidate commands (`findings-*`) still read the one folder they are given.
+
+Module: `datrix_scripts.skill.organize_findings`; POSIX twin `skill/organize-findings.sh` (`--dir`,
+`--dry-run`, `--no-model`, `--local-machines`, `--llm-model`, `--llm-timeout`, `--self-test`).
+
+## `skill-assist.ps1`
+
+**The mechanical phases of agent skills, done by a script or a local model instead of a Claude model.**
+Each command writes its output to `d:\datrix\.tmp\assist\` and prints the path with a one-line summary.
+Exact checks are exact; whatever a local model writes is checked against its inputs (citations and
+quotes against what it was sent, set comparisons against the source) and is marked as a lead. The skill
+keeps every verdict.
+
+Module: `datrix_scripts.skill.skill_assist`, with the commands in the modules of
+`common/lib/datrix_scripts/skill/`; POSIX twin `skill/skill-assist.sh` (the command, its arguments,
+`--local-machines`, `--llm-model`, `--llm-timeout`, `--self-test`).
+
+The quick-reference lists each command with the skill phase it serves. What each produces:
+
+| Command | What it produces |
+|---------|------------------|
+| `context-digest --phase N` | Per package of the phase: the directories its tasks touch, each module with its first docstring line (or the index's summary), files a task names marked, files not yet created marked. From the code index; no model. Fits 400 lines |
+| `readiness --phase N [--no-model]` | Exact: dependency edges the graph lacks (a not-yet-existing file read or co-created without an order) and `## Codebase Context` dotted names the index cannot resolve. Lead: for each task whose edit sites all exist, a local model's SATISFIED / NOT SATISFIED / UNCLEAR on its acceptance property, citations checked. `validate-task.ps1` stays the citation and orientation check (dimensions 3, 4, 6 of the audit) |
+| `findings-index [--dir D]` | Every findings file split into atomic findings (seam, packages, defect, citations) in one table sorted by seam; per file, citations no finding carries and citations the model invented |
+| `findings-plan [--dir D] [--no-model]` | `findings-plan.json` (every theme: kept file, slug, title, scope, sections of unit ids — a raw file is one unit named by its stem, a consolidated `## N.` section is `CNNN.N`) and `findings-plan.md` (only the themes that changed, with a REVIEW line per model decision). A local model places each raw unit into an existing theme, onto a duplicate section, or into a new theme, then proposes folds; every id it answers is checked and an unplaced unit becomes its own flagged theme. `--no-model`: every raw unit its own theme |
+| `findings-assemble [--plan P] [--dir D] [--apply]` | Exact: every theme file written from the plan by carrying each unit's text verbatim (raw headings nested, mojibake restored, `consolidated-NNN` references repointed to the file now holding them, LF). Refuses a plan that drops, repeats or invents a unit, an output that loses any non-blank source line, or one that carries a registered customer term. Without `--apply` it writes a preview to `d:\datrix\.tmp\assist\findings-preview\`; with it, it writes the inbox, runs `findings-check`, and deletes the superseded sources only on PASS |
+| `findings-check --delete F... [--dir D] [--keep-raw]` | Exact: every `path:line` and backticked path of the files to delete appears in a remaining file; every `**Related:**` pointer resolves; no mojibake; no raw file left un-superseded (waived by `--keep-raw`, since a duplicate merge keeps every distinct raw file) |
+| `findings-redundant [--dir D] [--no-model]` | `findings-redundant.json` (the plan: per proposal the doomed file, its survivor file and section, the model's verdict and reason, the doomed file's hash, `delete`, notes, files that still name it) and `findings-redundant.md` (the review view). Exact: each subfolder of the inbox (the area folders `organize-findings.ps1` fills), then the inbox's loose files, is compared on its own, so a file is judged against the `*.md` directly in its own folder only, never another folder's; `--dir D` (absolute, or relative to the inbox, e.g. `python`) narrows the run to that one folder; files are named by their path under the inbox (`azure/<name>.md`); files are split into units (a raw file, or one `## N.` section of a theme file); a unit of a higher-ranked file (citations, then length, then earlier name) is a candidate survivor when it holds at least 90% of the file's keywords (the backticked names on its `- **Keywords:**` line; for a file without that line, the backticked spans and code-shaped names such as `snake_case`, `camelCase`, `XSV010` its text names); a file with fewer than 3 keywords is matched by shared words (a quarter) instead; only single-unit files can be doomed. A local model reads each pair and answers SAME / PARTIAL / DIFFERENT; SAME stands only with nothing unique to the doomed file and one quote of each file that occurs in it, and never when a line was withheld for a customer term. A proposal is `delete: true` only when the survivor cites everything the file cites. `--no-model` lists the candidate pairs unjudged |
+| `findings-redundant-delete [--plan P] [--dir D]` | Exact: deletes the plan's proposals still marked `delete: true`, and nothing at all unless each one's file is unchanged since it was judged (hash), its survivor exists and is not itself deleted and still cites everything the file cites, no other findings file anywhere under the folder names it, and `findings-check --keep-raw` passes for the whole set (its citations are looked up in every file under the folder); a plan path outside the folder is refused. Exit 0 deleted (or nothing marked); 2 a proof failed, each listed |
+| `finding-select [--count N] [--dir D]` | Exact: the first N (default 10) `*.md` findings files, one path per line. With `--dir` (absolute, or relative to `reports\finding`) only that folder's files by name; without it the inbox's subfolders in turn (area order, then other names), the next only once the one before has no more, and last the inbox's own files |
+| `finding-close --finding F [--session-log L]` | Exact: deletes F unless another findings file still names it (in F's folder, or anywhere in the inbox when F lies there); with `L` (a step's `.stream.jsonl`), also unless the session ran no foreground `test.ps1` or `*-gate.ps1` (`-ListTags`, `-SelfTest` and `-HarnessSelfTest` runs do not count) or its last one did not pass (a non-zero exit; for `test.ps1`, a result reporting failed/erroring tests, or output piped through a filter, which hides the exit code, that kept no all-passed `Total: N \| Passed: N \| Failed: 0` summary line for each `test.ps1` call; for a gate, a `[GATE] <name> FAILED` verdict line, or no `[GATE] <name> PASSED exit=0` line for each gate call). Exit 0 deleted; 2 kept (the reasons are listed); 1 F does not exist |
+| `checklist --design PATH` | The design's requirements (id, sentence, surfaces, cited lines) drafted by a local model; an item whose quote is not at its lines is flagged; every requirement-bearing line (a decision id or must/never/always/shall/required/forbidden/fail closed/fail loud) that no item covers is listed |
+| `absorb-transfer --design PATH --target T...` | Per design section: PRESENT / PARTIAL / MISSING in the target docs (framework repos), with checked citations. A section copied line for line into a target is PRESENT by exact match with no model; every other section is sent only the target parts sharing the most terms with it. Each section also lists its numbers and words that appear nowhere in the targets (plain search); when the model says PRESENT, it is asked for other words for those terms (sent the design section only), the targets are searched for them, and PRESENT becomes PARTIAL while any term stays unfound (a term the model sets aside as filler, never a number, does not count). The report `.tmp/assist/transfer-<design>.md` is rewritten (marked IN PROGRESS) as each section is answered, and progress lines go to stderr |
+| `absorb-references --design PATH [--also P...]` | Exact: every line in the framework repos (and the extra paths) naming the design's file name, stem, title or number in a design-reference form, and every line of another design in the design folder naming it, by those forms or by its bare number as its file name spells it (`090 D1`, `090's gate`). `.tasks` is not searched |
+| `absorb-delete --design PATH [--verified V \| --knowledge-only] [--also P...]` | Exact: deletes the design only when it is a `.md` file under `<workspace>\design\`, its deletion licence holds (with `--verified`: V's last `Design conformance:` line reads `PROVEN` and V is `verify-proven-<design stem>.md` or names the design; with neither flag: the design's first `Status:` line reads `Implemented`; `--knowledge-only`: the skill's statement that it has no implementation scope) and `absorb-references` finds no line. The workspace `.claude/settings.json` allows this command (Bash and PowerShell forms), so a licensed delete does not depend on a permission prompt. Exit 0 deleted; 2 kept (the reasons are listed); 1 not a design document |
+| `bug-resolution --report R --repo P... [--file F...] ...` | The Resolution section: the Changes Made table from `git diff HEAD` plus untracked files (a framework file's row is a model's one-line summary of its diff; any other repo's row is the diff's shape and hunk functions, and nothing of it is sent to a model) and the facts passed (`--status`, `--fix-type`, `--exhibiting`, `--reached`, `--verification "profile\|regenerated\|artifact\|result"`, or `--reason` + `--notes` when unresolved). A draft by default; `--append` appends it, refusing a report that already has one |
+| `design-inventory [--dir D] [--design-dir DD]` | Exact: the registered targets (a `datrix-codegen-*` repository registering an entry point in `datrix.languages`, `datrix.platforms` or `datrix.generators`), every numbered design (status, lines, `Depends on`, extendable = not implemented and no `.tmp\implement-direct-<stem>.md` ledger), the number an appended design takes and the free numbers in each gap, and every `## N.` section of every consolidated file with its cited files and repositories |
+| `design-verify [--dir D] [--no-model]` | Exact: cited files that no longer exist. Lead: per consolidated section whose cited files exist, a local model's STILL HOLDS / FIXED / UNCLEAR with citations and quotes checked against the files it was sent. `--no-model`: only the sections with no usable cited file |
+| `design-plan [--dir D] [--design-dir DD] [--no-model]` | `design-plan.md`: fix shapes (the sections one design carries) with size, cited repositories, registered targets reached, a split flag over 8 sections or 25 cited files, the existing extendable design a shape belongs to, and a REVIEW line per model decision. A local model groups each consolidated file's sections, then merges shapes and places them in existing designs; every id it answers is checked and an unplaced section becomes its own flagged shape. `--no-model`: one shape per file |
+| `design-xref [--design-dir DD]` | Exact: `design-xref.md`. Every decision reference (`NNN Dk`, `NNN §k`) checked: an error for a design that does not exist or has no `### Dk` heading; each reference to a later design listed. Every name a `## N. Size` section allocates (a diagnostic code such as `DBO008`, a backticked upper-snake name): an error for a name two designs allocate, or one a design uses before the design that allocates it. Then an index of every allocated name with every design naming it. Exit 2 on an error |
+| `rule-names --site PATH:LINE... [--sites-file F] [--apply]` | `rule-names.md`: for each rule site (an unnamed `validate` rule's first line; the file of `--sites-file` holds one `path:line` per line), a local model's camelCase name, asked once per file. Every proposal is checked: 3..40 characters, unique among its entity's rules, no clash with an identifier the entity uses. A rule carrying a registered customer term is withheld, not sent. `--apply` writes only the passing names, each only while its line is unchanged (CRLF kept). Exit 2 when any proposal failed or was withheld |
+| `design-check [--design-dir DD]` | Exact: unique numbers from 010, at most 100 lines, `Status:`/`Depends on:` lines (plain or bold labels, a `Depends on:` list wrapped over several lines) with existing lower-numbered dependencies, no mention of an equal or higher design, every guideline G1..Gn answered (read from design-principles.md), no placeholder/deferral/effort figure/consolidated-file reference, and target consistency as a set comparison (a design naming a `datrix-codegen-<key>` repository of a kind names every registered target of that kind in its `## Target consistency` section). Exit 2 lists the problems |
+| `design-close --finding F... [--fixed ID...] [--dir D] [--design-dir DD] [--apply]` | Exact: deletes the consolidated files F only when the design check has no error and every file path cited by each section (except the `--fixed` ids, e.g. `C013.2`) appears in a design; sections citing no file are listed for the skill to confirm. Without `--apply` it only reports. Exit 2: nothing deleted |
+
+**What is sent to a model.** `findings-redundant` sends both files of each candidate pair whole (a theme
+file's one section), with the same customer-term filtering. `design-verify` and `design-plan` send each
+section's title and opening lines (and `design-verify` the cited framework-repo files); like
+`checklist`, `absorb-transfer`, `findings-index` and `findings-plan` (each unit's title and opening
+lines) they send design docs and findings files, which the MCP tools refuse; `readiness` and
+`absorb-transfer` read framework-repo files through the MCP tools' own scope. Every line is checked
+against the customer-term corpus first and withheld when it carries a registered term; without the
+corpus nothing is sent. `bug-resolution` sends a diff only for a framework repository, and never one
+that carries a term.
+
+**Model choice.** With no `-LlmModel`, `readiness`, `findings-redundant`, `findings-plan`,
+`absorb-transfer`, `bug-resolution` and `design-plan` use `nemotron-3-super:120b`, then
+`qwen3-coder:30b-ctx32k` (`QUALITY_MODEL_PREFERENCE`): quality outranks speed there, so they wait for
+the most capable machine. Measured: `absorb-transfer` on sections known to be absent from the target
+said PRESENT on `qwen3-coder` for 7 of 7 and MISSING on nemotron for 7 of 7, so it must use nemotron;
+the other four are in the set by the capability rule and have not been compared. The other model
+commands (`checklist`, `design-verify`, `findings-index`, `rule-names`) take any resident model:
+`checklist` (6 designs) and `design-verify` (22 sections) ran 4.7 to 5x slower on nemotron with no
+better result (`checklist`: 15 unverifiable citations against 6; `design-verify`: 20 of 22 verdicts
+identical, and nemotron's other two were empty UNCLEARs).
+
+Exit code 3 means no local model answered — do that phase yourself, as the skill did before the assist.
+
+## `skill-assist-gate.ps1`
+
+**The gate for the skill assists:** every assist module of `common/lib/datrix_scripts/skill/` and the
+`skill-assist.ps1` command line, checked against real files and a stand-in local model server, with no
+network model. Run it after changing an assist module.
+
+Module: `datrix_scripts.skill.skill_assist_gate`; POSIX twin `skill/skill-assist-gate.sh` (`--only`,
+`--harness-self-test`, `--self-test`, `--dbg`).

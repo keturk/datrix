@@ -52,10 +52,11 @@ In `datrix/scripts/<subfolder>/`:
 
 ## Step 5: Document it
 
-- `datrix/scripts/<subfolder>/quick-reference.md`: a `###` section `` `<subfolder>\<name>.ps1` `` in the folder's format: one-paragraph purpose, a Mode/Command/Description table, `**Parameters:**` listing exactly the declared ones, `**Module:**` naming `datrix_scripts.<subfolder>.<name>` and the `.sh` twin. `script-catalogue-gate` refuses an undocumented script or a documented flag the `param()` block does not declare.
+- `datrix/scripts/<subfolder>/quick-reference.md` is **how to run it, and nothing else**, in the folder's format: a `##`/`###` section `` `<subfolder>\<name>.ps1` ``, a one-line purpose, a Form/Command table, one `Parameters:` line listing exactly the declared ones with defaults, and one `Exit:` line. Agents read this file to learn the invocation, so keep it lean. `script-catalogue-gate` refuses an undocumented script or a documented flag the `param()` block does not declare.
+- `datrix/scripts/<subfolder>/README.md` is **what it does**: the same script's section with the prose (why it exists, how it decides, what it records or proves, its self-test, troubleshooting), the `**Module:**` naming `datrix_scripts.<subfolder>.<name>` and the `.sh` twin. The quick-reference links the README from its header; flags written in the README are checked against `param()` like those in the quick-reference.
 - `datrix/scripts/quick-reference.md`: add the script name to the folder's row of the Category table.
 - `datrix/scripts/common/README.md`: add the module to the folder's row of the `lib/datrix_scripts` table.
-- **New subfolder** (Jon named one that does not exist): also create the package `__init__.py`, the `<SUBFOLDER>_SCRIPTS_DIR` constant in `test/wrappers.py`, the folder's `quick-reference.md` (not a `README.md` beside it), and a new row in the Category table.
+- **New subfolder** (Jon named one that does not exist): also create the package `__init__.py`, the `<SUBFOLDER>_SCRIPTS_DIR` constant in `test/wrappers.py`, the folder's `quick-reference.md` and `README.md`, and a new row in the Category table.
 - No design or task numbers in any comment or doc (`design-task-reference-gate`).
 
 ## Step 6: Verify (static first; these are targeted, not suites)
@@ -82,5 +83,5 @@ Name the files created (`file:line` links), the self-test and gate results as pr
 - A parameter in the wrapper with no matching parser option, or the reverse.
 - Copying a helper's body instead of importing it.
 - Writing the files through a shell (heredoc, `Set-Content`): use Write/Edit.
-- Documenting a flag the script does not declare, or leaving the script out of `quick-reference.md`.
+- Documenting a flag the script does not declare, leaving the script out of `quick-reference.md`, or putting design prose in `quick-reference.md` instead of the folder's `README.md`.
 - Adding a gate module for a parity fact (it is a row in `gates/parity/cases/`).
