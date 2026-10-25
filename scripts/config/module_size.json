@@ -1,0 +1,14 @@
+{
+  "_comment": "Module-size ceiling read by .claude/hooks/guard-code-standards.py. A Python file under a framework repo's src/ or tests/ that an edit leaves above `ceiling` lines, and longer than it was, is refused: new code goes in a new sibling module. A file already above the ceiling may shrink, never grow. `exempt` lists files that cannot be split because their source is inlined verbatim into generated projects; adding to it needs Jon's approval.",
+  "ceiling": 1500,
+  "exempt": [
+    {
+      "path": "datrix-codegen-python/src/datrix_codegen_python/runtime/agents_loop.py",
+      "reason": "Inlined verbatim into generated projects by generators/agents/inlined_runtime.py; a split would change the emitted source."
+    },
+    {
+      "path": "datrix-codegen-docker/src/datrix_codegen_docker/zitadel_applier.py",
+      "reason": "Inlined verbatim into scripts/zitadel/apply_provisioning.py by generators/compose/_zitadel_wiring.py; a split would change the emitted source."
+    }
+  ]
+}

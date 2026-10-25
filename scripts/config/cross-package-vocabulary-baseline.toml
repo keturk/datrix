@@ -235,7 +235,7 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generators/entity/_entit
 count = 2
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pubsub_emit_helper.py"
+file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pubsub_emit_support.py"
 count = 3
 
 [[baseline]]
