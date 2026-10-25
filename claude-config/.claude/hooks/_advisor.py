@@ -120,6 +120,14 @@ def advisor_verdict(transcript_path: str) -> Verdict:
     return Verdict.ASK_JON if asked_jon else Verdict.NOT_ASK_JON
 
 
+def advisor_consulted(transcript_path: str) -> bool | None:
+    """Whether a `decision-advisor` was dispatched anywhere in the session; None when unreadable."""
+    entries = _entries(transcript_path)
+    if entries is None:
+        return None
+    return any(_is_advisor_dispatch(block) for entry in entries for block in _blocks(entry))
+
+
 ADVISOR_REMEDY: Final = (
     f'Put the question to the decision advisor first (Agent tool, subagent_type "{ADVISOR_AGENT}") '
     "with the question, your evidence, the options and your recommendation. On `VERDICT: RECOMMEND` "

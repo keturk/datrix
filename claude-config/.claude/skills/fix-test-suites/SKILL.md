@@ -54,6 +54,8 @@ Spend your own tokens on judgment and edits; let scripts and the local model do 
 
 For each index.json, follow playbook Step 1 unchanged: read `digest.txt` and `failure-data.json` from its run directory when present, run `collect-failure-data.ps1` only when `failure-data.json` is absent, and run `extract-warnings.ps1` when `warnings_section_present` is true. Do not read `failures/` or `errors/` files for triage.
 
+Then store the job's finish line: `test/failure-ledger.ps1 -Runs <the index.json paths, comma-separated>`. It lists the failing test ids by package; `-Status` at any point shows which are still open. The job is not a pin count or a green file: it is finished only when `-Status` prints `LEDGER: 0 open id(s)`.
+
 ### Step 2: Correlate across runs, then order the work
 
 Build one table of families across all runs: `run (package) | family label | normalized pattern | source_location | cluster IDs`. Then group:
@@ -68,6 +70,10 @@ Build one table of families across all runs: `run (package) | family label | nor
 
 Per root cause, in the Step 2 order, run playbook Steps 3–7: read the test, trace to the source module, decide source bug vs outdated expectation vs wrong setup, apply the correct fix, and verify with `test-single.ps1` on the originally failing tests (`-Project` set to the package each test lives in).
 
+- **Read before you write.** A fixture project's `.dcfg` keys, flavors and DSL shapes come from the schema and a sibling fixture that already analyzes, not from memory. After writing or editing a fixture project, run `dev/probe-fixture.ps1 -Path <project>` (it prints the real error in seconds); `guard-test-run-discipline.py` refuses the suite run until you have.
+- **One command per test run.** Do not chain an edit or a check onto a test run; the hook refuses it.
+- **Rewriting existing tests is sized first.** Past 25 test files in a session the edit is refused until the decision advisor has been consulted; converting more tests than the failures need is scope growth.
+
 ### Step 4: Warnings
 
 After the errors and failures of all runs, playbook Step 8 per run.
@@ -76,7 +82,7 @@ After the errors and failures of all runs, playbook Step 8 per run.
 
 Playbook Step 9, once, after every fix: for each package in `{SCOPE}`, re-run its originally failing tests plus the test files you added or edited (`-Specific`), then the feature tags of the behaviours you changed in that package (`-Tag`, at most 3 per run). A changed behaviour no tagged test covers gets a new tagged test in the package that owns it.
 
-A failed run writes a new `.test_results/` directory: return to Step 1 with its `index.json`, add it to `{RUNS}` for that package, and work every cluster it reports. The turn ends when every originally failing test and every changed behaviour's tags pass in every package of `{SCOPE}`, or at a valid B1–B4 blocker with its four-part proof.
+Then `test/failure-ledger.ps1 -Status`: every open id is work (`FAILING` = still red, `NOT-RERUN` = not yet proven, `NEW` = a failure the starting runs never had, so a regression or an unreached test). A failed run writes a new `.test_results/` directory: work every cluster it reports. The turn ends when `-Status` prints `0 open id(s)` and every changed behaviour's tags pass in every package of `{SCOPE}`, or at a valid B1–B4 blocker with its four-part proof.
 
 ### Step 6: Report
 

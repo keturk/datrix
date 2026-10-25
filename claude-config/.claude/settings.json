@@ -70,6 +70,10 @@
           },
           {
             "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-test-run-discipline.py\""
+          },
+          {
+            "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/guard-untargeted-scans.py\""
           },
           {
@@ -108,6 +112,11 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/guard-committed-content.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/guard-rewrite-size.py\"",
+            "timeout": 30
           },
           {
             "type": "command",
@@ -179,6 +188,15 @@
           {
             "type": "command",
             "command": "python \"d:/datrix/.claude/hooks/track-mandatory-reads.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit|mcp__datrix-edit__edit_lines",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"d:/datrix/.claude/hooks/record-fixture-edits.py\""
           }
         ]
       },
