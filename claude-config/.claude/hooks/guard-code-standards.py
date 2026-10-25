@@ -77,6 +77,13 @@ and ignored under pressure; a block is paid only when it fires. These are enforc
     quote found verbatim in the added comment. No model, a timeout
     or an unreadable answer: allowed. `DATRIX_LOCAL_JUDGE=off` disables it.
 
+  * MODULE SIZE. "A module stays under the ceiling in `scripts/config/module_size.json`." A Python
+    file under a framework repo's `src/` or `tests/` that the edit leaves above the ceiling AND longer
+    than it was (a new file, or a growing one) is refused: the new code goes in a new sibling module.
+    A file already above the ceiling may shrink or stay, never grow. The config's `exempt` list names
+    the files whose source is inlined verbatim into generated projects. Independent of whether the
+    file parses; skipped, and said so, when the config cannot be read.
+
 SKIPPED CHECKS ARE REPORTED, NEVER SILENT. Five checks lean on something outside this interpreter:
 cognitive complexity, table rows and schema-shaped tests on the shared venv (no interpreter, a module
 missing from it, a failed or timed-out run), literal facts, migrated shapes and schema-shaped tests on
@@ -176,6 +183,9 @@ _SKIPPED_NOTE: Final = (
 # A generator package's source tree, whose functions read recorded facts instead of walking bodies.
 _CODEGEN_SOURCE_RE: Final = re.compile(r"^d:/datrix/(datrix-codegen-[^/]+/src/.+)$", re.IGNORECASE)
 _SITE_SEPARATOR: Final = "::"
+# The module-size rule: its config, and the framework source and test trees it covers.
+_MODULE_SIZE_CONFIG: Final = "d:/datrix/datrix/scripts/config/module_size.json"
+_MODULE_SIZE_SCOPE_RE: Final = re.compile(r"^d:/datrix/(datrix[^/]*/(?:src|tests)/.+)$")
 
 Violation = tuple[str, str]
 FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
@@ -699,6 +709,35 @@ def _history_comment_violations(before: str | None, after: str) -> list[Violatio
     return [("history-comment", f"{where}: \"{judgement.quote.strip()}\"")]
 
 
+def _module_size_rule(skipped: Skipped) -> tuple[int, frozenset[str]] | None:
+    """The ceiling and the exempt files (lowercased, relative to the workspace), or None when the
+    config cannot be read (the check is then skipped, and said so)."""
+    try:
+        with open(_MODULE_SIZE_CONFIG, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return int(data["ceiling"]), frozenset(str(entry["path"]).lower() for entry in data["exempt"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        skipped["module-size"] = f"{_MODULE_SIZE_CONFIG} cannot be read ({exc}); restore it from the datrix checkout."
+        return None
+
+
+def _module_size_violations(path: str, before: str | None, after: str, skipped: Skipped) -> collections.Counter[Violation]:
+    """One violation when the edit leaves a module above the ceiling and longer than it was."""
+    scope = _MODULE_SIZE_SCOPE_RE.match(path)
+    if scope is None:
+        return collections.Counter()
+    after_lines = len(after.splitlines())
+    if before is not None and after_lines <= len(before.splitlines()):
+        return collections.Counter()
+    rule = _module_size_rule(skipped)
+    if rule is None:
+        return collections.Counter()
+    ceiling, exempt = rule
+    if after_lines <= ceiling or scope.group(1) in exempt:
+        return collections.Counter()
+    return collections.Counter({("module-size", f"{scope.group(1)} would be {after_lines} lines; the ceiling is {ceiling}"): 1})
+
+
 def _violations(
     text: str, scores: Scores, is_test: bool, skipped: Skipped, is_generator: bool = False, cases: bool = False
 ) -> collections.Counter[Violation] | None:
@@ -754,6 +793,14 @@ _REMEDY: Final = {
     "get-none": (
         "No silent fallbacks (CLAUDE.md): index `d[key]` when it must exist, or check `key not in d` and "
         "raise an error saying what was expected."
+    ),
+    "module-size": (
+        "Modules stay under the ceiling in `scripts/config/module_size.json`: put the new code in a new "
+        "sibling module named for its concern and import it where it is used (a test goes in a new test "
+        "file for its feature). A file already above the ceiling may shrink, never grow: when the change "
+        "belongs inside it, first move one cohesive group of definitions out, then make the change. Only a "
+        "module whose source is inlined verbatim into generated projects is exempt, and the `exempt` list "
+        "takes Jon's approval."
     ),
     "flattened-entities": (
         "Entities are block-scoped (architecture cheat sheet): iterate `app.services` -> "
@@ -849,10 +896,14 @@ def main() -> None:
     after_found = _violations(after, scores[0], is_test, skipped, is_generator, cases)
     before_found = (collections.Counter() if before is None
                     else _violations(before, scores[1], is_test, skipped, is_generator, cases))
+    size_found = _module_size_violations(path, before, after, skipped)
     if after_found is None or before_found is None:
-        _allow(skipped)
+        if not size_found:
+            _allow(skipped)
+        _refuse(raw_path, size_found, skipped)
 
     added = after_found - before_found
+    added.update(size_found)
     added.update(_body_walk_violations(raw_path, before, after))
     if is_test and carries_model_contracts(path):
         added.update(_schema_shaped_violations(path, before, after, skipped))
@@ -861,7 +912,11 @@ def main() -> None:
     added.update(_history_comment_violations(before, after))
     if not added:
         _allow(skipped)
+    _refuse(raw_path, added, skipped)
 
+
+def _refuse(raw_path: str, added: collections.Counter[Violation], skipped: Skipped) -> NoReturn:
+    """Block the edit, naming what it adds and the remedy of each kind."""
     kinds = sorted({kind for kind, _ in added})
     lines = [f"  - [{kind}] {text}" for (kind, text), count in sorted(added.items())
              for _ in range(count)][:_MAX_SHOWN]

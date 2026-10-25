@@ -261,7 +261,7 @@ an unproven BLOCKED is the second worst.**
 **You can invoke these:** `/fix-issue`, `/fix-bug-report`, `/fix-tests`, `/checkpoint-debug`,
 `/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/verify-design`, `/verify-implementation`,
 `/absorb-design`, `/commit-and-push`, `/add-script` (a new tool script: wrapper + `.sh` twin + `datrix_scripts` module),
-`/evaluate-generated`, `/evaluate-generated-service`, `/consolidate-findings`, `/merge-findings`, `/delete-redundant-findings`,
+`/evaluate-generated`, `/evaluate-generated-service`, `/consolidate-findings`, `/merge-findings`, `/delete-redundant-findings`, `/organize-findings`,
 `/consolidate-to-design`, `/implement-finding`, `/fix-cli`, `/fix-common`,
 `/fix-extensions`, `/fix-language`, `/fix-migration`, `/fix-semantic`, `/fix-testing`,
 `/fix-vscode`, `/fix-test-suites` (several packages' index.json at once),

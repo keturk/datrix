@@ -493,6 +493,35 @@ with history, LoopbackOllama(reply, ("judge-model",)) as server:
         check(f"{label}: an added history comment is allowed", add(HISTORY, env)[0], ALLOW)
         check(f"{label}: an added current-behaviour comment is allowed", add(CURRENT, env)[0], ALLOW)
 
+print("== module size ==")
+
+
+def lines_of(count, prefix="V"):
+    return "".join(f"{prefix}{i} = {i}\n" for i in range(count))
+
+
+with Repo() as repo:
+    check("a new src module of 1500 lines", write(os.path.join(repo.root, "src", "pkg", "ok.py"), lines_of(1500)), ALLOW)
+    check("a new src module of 1501 lines", write(os.path.join(repo.root, "src", "pkg", "big.py"), lines_of(1501)), BLOCK)
+    check("a new test module of 1501 lines", write(os.path.join(repo.root, "tests", "unit", "test_big.py"), lines_of(1501)), BLOCK)
+    check("a 1501-line file outside src and tests", write(os.path.join(repo.root, "tools", "big.py"), lines_of(1501)), ALLOW)
+    check("a big module that does not parse is still judged",
+          write(os.path.join(repo.root, "src", "pkg", "broken.py"), "def (\n" * 1501), BLOCK)
+    near = repo.file("src/pkg/near.py", lines_of(1400))
+    check("growth that stays under the ceiling", edit(near, "V1399 = 1399\n", "V1399 = 1399\nTAIL = 0\n"), ALLOW)
+    check("growth that crosses the ceiling", edit(near, "V1399 = 1399\n", "V1399 = 1399\n" + lines_of(101, "T")), BLOCK)
+    over = repo.file("src/pkg/over.py", lines_of(1600))
+    check("an over-ceiling file may not grow", edit(over, "V1599 = 1599\n", "V1599 = 1599\nTAIL = 0\n"), BLOCK)
+    check("an over-ceiling file may keep its length", edit(over, "V5 = 5\n", "W5 = 5\n"), ALLOW)
+    check("an over-ceiling file may shrink", edit(over, "V5 = 5\nV6 = 6\n", "V5 = 5\n"), ALLOW)
+    check("an over-ceiling file may be rewritten shorter", write(over, lines_of(1550)), ALLOW)
+    check("an over-ceiling file may not be rewritten longer", write(over, lines_of(1601)), BLOCK)
+    # The inlined runtime sources are named in the config as exempt; the payload is judged, never written.
+    check("an exempt inlined runtime source may grow",
+          edit(r"d:\datrix\datrix-codegen-python\src\datrix_codegen_python\runtime\agents_loop.py",
+               '"""The model-driven tool loop a generated service runs for every ``agent``.\n',
+               '"""The model-driven tool loop a generated service runs for every ``agent``.\nExtra line.\n'), ALLOW)
+
 if os.path.isfile(USAGE_LOG):
     os.remove(USAGE_LOG)
 
