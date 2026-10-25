@@ -128,7 +128,9 @@ One row per unit of work; each row carries:
 | requires | the units that must be done first |
 | acceptance | the design's invariant/requirement this unit satisfies, plus its **negative** check (the old/forbidden state is gone on the whole affected surface) and **positive** check (the new path is exercised) |
 | tests | the test files to add and the feature tag each carries |
-| state | `[ ]` / `[x]` with the proof command and its output pasted when done |
+| state | `[ ]`, or when done `[x]` and one line: the proof command, its result in a few words (`pass 98`, `0 flagged files`), and the unit's proof file |
+
+**The ledger stays small.** Every unit session re-reads the whole ledger before it does anything, so what a row carries is paid again by every later unit. The full proof of a unit — each command, the output that matters, the census counts, the reasoning behind a "nothing here" verdict — goes to its proof file, `D:\datrix\.tmp\implement-direct-{slug}-proof\<id>.md`, written with `Write`; the row's state cell holds one line and that path, never pasted output. A `## Decisions` line is one sentence plus its rule or `file:line`. `/verify-implementation` and Jon open a proof file when they need it.
 
 Ordering rules, the ones the task path enforced for you:
 
@@ -137,6 +139,12 @@ Ordering rules, the ones the task path enforced for you:
 - **Every surface in a set gets a row.** An invariant over a set of surfaces has a unit or an explicit acceptance line for **each** member. A guard shipped on the obvious surface with the rest silently dropped is a failed run even under green tests.
 - **Every migration step gets a row**, and every old-path fixture/example/config from the census is converted in the same run. "Convert X to Y" is work here, not future work, unless the design explicitly defers it.
 - **Tests and docs ride inside each unit.** No separate test, verify, or docs unit.
+- **Sites a run must find are planned after that run, not before it.** When the DOCUMENT says its sites are found by a run — a census, a corpus or fixture run, a gate's report — rather than listing them, do not write a fix unit per package ahead of it: nobody knows yet which packages have work, and a unit with nothing to change still costs a whole session to prove it. Plan the enforcement and harness units, then **one census unit**, then the closing unit that reruns the end-to-end check. The census unit:
+  1. runs the census once over the whole surface set — every registered target in one script or test, never one probe per package — keeping the script under `D:\datrix\.tmp\` so any later unit can rerun it unchanged;
+  2. writes the result to the **census file**, `D:\datrix\.tmp\implement-direct-{slug}-census.md`: the command, the time, per surface member whether its run completed and how many files it reached (the non-vacuity count), and each site (package, generated file, `path:line` of the producer, what it writes);
+  3. **re-plans**: adds one fix unit per package holding at least one site, requiring the census unit, and gives every package with zero sites an acceptance line in the census unit's row citing the census file and its counts. That line is the package's row for "Every surface in a set gets a row"; no session is spent re-proving it.
+  
+  A census that cannot complete (a run stops early, the workspace does not load) is not a census: the census unit stays unchecked and says why, rather than guessing the site list. A later fix unit reads the census file instead of re-running discovery, and after its own fix reruns the same census command to prove its sites are gone, updating the file.
 
 Keep units bite-sized: one package, one behaviour, roughly 80–250 production lines. A bigger unit is split. There is no ceiling on the number of units.
 
@@ -153,7 +161,7 @@ For each unit, in order:
 3. **Land every seam comparison as code.** Wherever the unit adds a producer or a consumer of a set of names or values, compute `consumed − produced`, require it empty or explained, and land the comparison as a generation-time validator or a test, not a one-off diff. Parse structure; prove the matcher finds an instance you know exists.
 4. **Write the tests of the new behaviour** in the owning package: real objects, no mocks, each test carrying a feature tag, with the negative case alongside the positive. Update the docs the change touches in the owning repo's `docs/`, as content, with no pointer to the design.
 5. **Run only the tests of what you changed**, naming first the failure the run could show that your evidence cannot: `test.ps1 <pkg> -Specific "a.py,b.py"` for the files, and `-Tag <tag>[,<tag>]` for the behaviour, **in every package it reaches** (at most 3 tags per run). Never a whole suite, never a sweep assembled from targeting flags.
-6. **Prove the unit.** Run the unit's negative and positive acceptance check and paste command + output into its ledger row, then tick it. An unproven unit is not done, whatever the suite colour.
+6. **Prove the unit.** Run the unit's negative and positive acceptance check, write each command and its output to the unit's proof file, and tick the row with its one-line state (Step 2). An unproven unit is not done, whatever the suite colour.
 7. **Cross-surface check.** If the unit touched a shared layer, run the tagged tests of the changed behaviour in each package the change reaches before moving on. "datrix-codegen-python is green" is not done for a shared-layer change.
 
 Generation checks follow the one-example, one-language rule: regenerate only the affected project, only for the language it failed under, and prefer a test over a generation run. Never `-All` / `-Domains` / `-TestSet`.
@@ -162,11 +170,19 @@ Generation checks follow the one-example, one-language rule: regenerate only the
 
 **A defect you find on a surface you touched is yours:** fix it. A design-sized one gets a findings file under `d:\datrix\reports\finding\` (brief: what, `file:line`, evidence, impact) and the run carries on; a small one is fixed in place.
 
-After the last unit (in a `UNIT: sweep` session when the script drives the run), run the ledger's **negative sweep**: for every "X replaces Y" in the design, prove Y is gone everywhere on the surface (structured search, with a matcher proven non-vacuous), pasted as command + output. Then write the files changed into the ledger under a `## Files changed` heading, one path per line, keeping the paths already listed there by earlier runs.
+After the last unit (in a `UNIT: sweep` session when the script drives the run), run the ledger's **negative sweep**: for every "X replaces Y" in the design, prove Y is gone everywhere on the surface (structured search, with a matcher proven non-vacuous), the command and output written to the proof file `…-proof\sweep.md`. Number the checks (`S1`, `S2`, …) and give each one, in `sweep.md`, its result (PASS / FAIL), the command, and the paths it covers (files, directories or globs); head the file with the time the sweep started.
+
+**A repeat sweep starts from the last one, never from scratch.** When `sweep.md` already exists (an earlier sweep failed and added units, or verify sent the run back), read it first, then:
+1. List what changed since that sweep started: `find <the covered paths> -newermt "<its start time>"` per check, plus the files the units ticked since then added under `## Files changed`.
+2. Rerun only the checks that FAILED and the checks whose covered paths changed; a unit added by the failed sweep has that check as its acceptance, so it is always rerun. Add a check only for a "replaces" the design gained or a surface the change list shows the earlier sweep never covered.
+3. Carry every other check forward unrun, as `S<n>: PASS, carried from <start time>, no covered path changed`.
+4. Rewrite `sweep.md` with the new start time, the rerun checks' fresh output and the carried lines.
+
+A check rerun because its paths changed is run in full over its whole surface, not only over the changed files. Then write the files changed into the ledger under a `## Files changed` heading, one path per line, keeping the paths already listed there by earlier runs.
 
 With `STOP AFTER: implement`, end here with the reply `IMPLEMENTED: <ledger path>`.
 
-With `UNIT: <id>`, run items 1-7 for that one unit only, add its changed files under `## Files changed`, tick its row with the proof, and end with `UNIT DONE: <id>`. Read only what the unit needs: the ledger, the DOCUMENT, the unit's files and their neighbours. With `UNIT: sweep`, run the negative sweep above for the whole design, complete `## Files changed`, and end with `UNIT DONE: sweep`; a failed sweep adds a ledger unit for what it found instead of fixing it in this session.
+With `UNIT: <id>`, run items 1-7 for that one unit only, add its changed files under `## Files changed`, tick its row with its one-line state, and end with `UNIT DONE: <id>`. Read only what the unit needs: the ledger, the DOCUMENT, the census file when the ledger has one, the unit's files and their neighbours. A census unit also adds the fix units its census found (Step 2), inserted right after its own row and ahead of the closing unit; the script runs unchecked rows in ledger order, so they run next. With `UNIT: sweep`, run the negative sweep above for the whole design (a repeat sweep: only what the last `sweep.md` failed or what changed since, as above), complete `## Files changed`, and end with `UNIT DONE: sweep`; a failed sweep adds a ledger unit for what it found instead of fixing it in this session.
 
 ---
 
