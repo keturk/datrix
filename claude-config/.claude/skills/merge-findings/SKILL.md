@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5-5
 effort: medium
-description: Merge the findings inbox at d:\datrix\reports\finding in place — group every set of findings one fix session would tackle together (the same or SIMILAR issues — same defect, seam, fix site or defect class, or one shared remedy) into one file per theme, leaving no two similar files behind, carry every source's evidence and citations as numbered sections, delete the originals, and name every file NNNN-<area>-<slug>.md numbered contiguously in area order (python, typescript, backends, clients, language, migration, seed, kernel, docker, aws, azure, component, tests, tooling, docs). Use when Jon asks to "merge findings", "dedupe the findings", "merge similar findings", or runs /merge-findings.
+description: Merge the findings inbox at d:\datrix\reports\finding in place — group every set of findings one fix session would tackle together (the same or SIMILAR issues — same defect, seam, fix site or defect class, or one shared remedy) into one file per theme, leaving no two similar files behind, carry every source's evidence and citations as numbered sections, delete the originals, and name every file NNNN-<area>-<slug>.md numbered contiguously in area order (python, typescript, clients, language, migration, seed, kernel, docker, aws, azure, component, tests, tooling, docs). Use when Jon asks to "merge findings", "dedupe the findings", "merge similar findings", or runs /merge-findings.
 ---
 
 # Merge Findings
@@ -94,12 +94,22 @@ with has not merged — go back to the index, walk each area's singles, and find
 belongs to. A single should be the exception, and every single that shares an area with a group
 needs a one-clause reason why one session would not take it with that group.
 
-**Areas, in this order** (the order sets the numbering): `python`, `typescript`, `backends` (both
-languages or the shared language layer), `clients` (Angular, Flutter), `language` (parser,
-semantic analysis, DSL), `migration`, `seed`, `kernel` (shared generation, secrets, hosting,
-pooling, observability export), `docker`, `aws`, `azure`, `component`, `tests` (red or weak test
-suites), `tooling` (scripts, gates, skills), `docs`. A finding goes to the most specific area
-that owns its fix; a defect seen on several targets with one shared remedy goes to the shared area.
+**Areas, in this order** (the order sets the numbering): `python` (what is specific to the Python
+generator), `typescript` (what is specific to the TypeScript generator and its core), `clients`
+(Angular, Flutter), `language` (parser, semantic analysis, DSL), `migration`, `seed`, `kernel`
+(shared generation: the framework, the shared language layer, secrets, hosting, pooling,
+observability export), `docker`, `aws`, `azure`, `component`, `tests` (red or weak test suites),
+`tooling` (scripts, gates, skills), `docs`.
+
+**An area is the subject the finding is about, never the package its fix lands in and never a group
+of subjects.** Jon works the area folders in the order of the project's priorities, so each folder
+must name something he can choose to do or defer. A finding about DynamoDB whose fix sits in the
+Python and TypeScript generators is `aws`; one about Service Bus or Azure Search is `azure`. A
+finding about both languages' emission with no platform or construct as its subject goes to the
+subject its behaviour belongs to (`language` for a language-semantics rule, `kernel` for shared
+generation machinery); `python` and `typescript` hold only what is specific to that one language.
+**There is no catch-all area, and none is ever added**: a finding that fits none names its subject
+first, and a new area is a subject Jon can prioritise, never a bucket for "several of X".
 
 ## Phase 3 — Write each merged file
 

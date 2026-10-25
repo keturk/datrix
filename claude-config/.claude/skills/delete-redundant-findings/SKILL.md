@@ -51,13 +51,14 @@ powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-redu
 ```
 
 **The inbox has area subfolders** (`organize-findings.ps1` sorts the loose files into
-`d:\datrix\reports\finding\<area>\`). The command reads the `*.md` directly in the inbox and in every
-one of its subfolders and compares them all with each other, so a duplicate in another area is found.
-Every file is named by its path under the inbox (`azure/0167-….md`) in the plan, the view and the
-delete step; a pointer in prose or in **Related:** names the file stem, as before. `--dir <folder>` narrows the
-run to that folder and its subfolders. On a full inbox the model has
-hundreds of pairs to read and the run takes tens of minutes: start it with `run_in_background`
-and wait for the notification.
+`d:\datrix\reports\finding\<area>\`). The command goes through the subfolders one at a time (then the
+inbox's own loose files) and compares the `*.md` of a folder with each other only, never with another
+folder's files: a duplicate is found inside `python`, not between `python` and `azure`. You pass no
+folder. Every file is named by its path under the inbox (`azure/0167-….md`) in the plan, the view and the
+delete step; a pointer in prose or in **Related:** names the file stem, as before. `--dir <folder>` (an
+area name such as `python`) narrows the run to that one folder. A full inbox has hundreds of pairs for the
+model to read and the run takes tens of minutes: start it with `run_in_background` and wait for the
+notification.
 
 It writes `d:\datrix\.tmp\assist\findings-redundant.json` (the plan) and `findings-redundant.md` (the
 review view) and prints their paths with a one-line summary. Per file it works in three steps:
