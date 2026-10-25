@@ -8,7 +8,7 @@ call -- in every ``.py`` file under each discovered ``datrix-*`` package's
 
   - Everything under a package's ``tests/`` directory (this scanner only
     walks ``src/``, never ``tests/``).
-  - ``datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/executor.py``
+  - ``datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/executor_files.py``
     (the declared-file render path's own internals -- constructing
     ``GeneratedFile`` there IS the render mechanism, not a hand-coded
     duplicate of a DAL generator declaration).
@@ -75,12 +75,12 @@ WRAPPER: Final = "check-generated-file-ratchet"
 BASELINE_TABLE = "baseline"
 
 # The declared-file render path's own internals: constructing GeneratedFile
-# here IS the render mechanism (executor.py implements declared rendering),
+# here IS the render mechanism (executor_files.py implements declared rendering),
 # not a hand-coded duplicate of a declaration. Path is relative to the
 # monorepo root, forward slashes.
 EXCLUDED_FILES: frozenset[str] = frozenset(
     {
-        "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/executor.py",
+        "datrix-codegen-kernel/src/datrix_codegen_kernel/dgen/executor_files.py",
     }
 )
 
@@ -206,7 +206,7 @@ _BASELINE_COMMENT = (
     "(Invariant I5). Frozen per-package counts of direct "
     "GeneratedFile(...) constructor calls in each package's src/ "
     "tree (tests/ excluded; datrix-codegen-kernel/.../dgen/"
-    "executor.py excluded as the declared-render path's own "
+    "executor_files.py excluded as the declared-render path's own "
     "internals). Any INCREASE fails "
     "datrix/scripts/gates/ratchet/check-generated-file-ratchet.ps1. Decreases "
     "are always allowed and should be captured by re-running with "
@@ -342,7 +342,7 @@ def _check_excluded_executor_file_never_counted() -> None:
         pkg_dir = root / "datrix-codegen-kernel"
         executor_dir = pkg_dir / "src" / "datrix_codegen_kernel" / "dgen"
         executor_dir.mkdir(parents=True)
-        (executor_dir / "executor.py").write_text(
+        (executor_dir / "executor_files.py").write_text(
             "from datrix_codegen_kernel.generation.generator import GeneratedFile\n"
             "GeneratedFile(path=None, content='', language='python')\n",
             encoding="utf-8",
@@ -350,7 +350,7 @@ def _check_excluded_executor_file_never_counted() -> None:
         # Non-vacuity: the planted file must be the one EXCLUDED_FILES names,
         # so this check cannot pass merely because it planted a path nothing
         # scans or excludes.
-        planted = (executor_dir / "executor.py").relative_to(root).as_posix()
+        planted = (executor_dir / "executor_files.py").relative_to(root).as_posix()
         assert planted in EXCLUDED_FILES, (
             f"self-test planted {planted}, which EXCLUDED_FILES does not name: "
             f"{sorted(EXCLUDED_FILES)}"
@@ -358,7 +358,7 @@ def _check_excluded_executor_file_never_counted() -> None:
 
         package = PackageInfo(name="datrix-codegen-kernel", src_dir=pkg_dir / "src")
         total = scan_package(package, root, verbose=False)
-        assert total == 0, f"dgen/executor.py must be excluded, got total={total}"
+        assert total == 0, f"dgen/executor_files.py must be excluded, got total={total}"
 
 
 def _check_ratchet_no_regression_when_equal_to_baseline() -> None:
