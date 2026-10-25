@@ -1391,7 +1391,18 @@ Three shipped facts shape the whole realization. Semantic analysis mutates the a
   `datrix-codegen-sql`'s dialect Protocol — `DialectBase.quote_literal` is pure delegation to
   `sql_string_literal`, passing `escape_backslashes=self.escapes_backslashes_in_literals()`, with
   a PostgreSQL-correct default (`False`, matching `standard_conforming_strings` on) that a
-  dialect reading backslash as an escape overrides (`True`). Ad-hoc `.replace(...)` literal escaping at call sites is prohibited; every
+  dialect reading backslash as an escape overrides (`True`). A value holding a code point
+  `hidden_in_source` flags never stands raw in a SQL literal: the concrete dialect overrides
+  `quote_literal` with its engine's escape form for it (PostgreSQL: `U&'…'`, the hidden code
+  points as `\hhhh` / `\+hhhhhh`), while a value holding none keeps the standard literal, so no
+  existing project's DDL changes. The same form serves a literal position (`DEFAULT`,
+  `SET DEFAULT`) and an expression position (a `CHECK` regex). `U&` needs
+  `standard_conforming_strings = on`, which the dialect already assumes
+  (`escapes_backslashes_in_literals()` is `False`). Every site keeps `quote_literal`; the enum-label
+  and catalog-lookup sites write no escape of their own, because an enum value holds no hidden code
+  point (`ENUM012`) and a DSL identifier is `[a-zA-Z_][a-zA-Z0-9_]*`. No SQL file, migration or
+  deploy statement therefore carries a character that reads differently from what the engine
+  stores. A lone surrogate is refused as NUL is. Ad-hoc `.replace(...)` literal escaping at call sites is prohibited; every
   downstream literal-emitting site routes through the dialect method or the canonical
   `datrix-common` encoder instead of hand-escaping. The seed writer emits no literals at all:
   seed values reach the database only as bound parameters. Shell-argument quoting
