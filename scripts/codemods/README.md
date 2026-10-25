@@ -95,8 +95,11 @@ The split **refuses and writes nothing** when it would be wrong or incomplete:
 - an import cycle among the new modules and the original. Moved code imports what stays from the original, and the original imports the moved names it still uses, so moved code may use what stays only when nothing that stays uses it back. The refusal names the cycle and the names on each edge: claim those into the same module;
 - an `__all__` naming a moved name;
 - a module-object read `alias.<moved name>`;
-- an import sharing its line with other code;
-- the dotted path `<original>.<moved name>` (or `<original>:<moved name>`) written as text in a source file or `pyproject.toml`.
+- an import sharing its line with other code.
+
+A dotted path `<original>.<moved name>` (or `<original>:<moved name>`) written as text in any `src/` file or
+`pyproject.toml` (a docstring cross-reference, a `.dal` adapter path) is rewritten to the new module, byte for
+byte so line endings stay.
 
 | Mode | Command | Description |
 |------|---------|-------------|
