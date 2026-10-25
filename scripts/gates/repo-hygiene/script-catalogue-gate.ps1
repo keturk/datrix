@@ -6,11 +6,11 @@
 .DESCRIPTION
  Runs datrix_scripts.gates.repo_hygiene.script_catalogue_gate in the shared venv.
 
- Checks datrix\scripts against four rules, read from Markdown's token stream
+ Checks datrix\scripts against three rules, read from Markdown's token stream
  and from PowerShell's own parser: every .ps1 in a folder with a quick-reference.md is a ##/###
- heading of it; every -Flag written after a script's name in a code span or code line is a
- parameter (or alias) the script declares; no folder holds both a quick-reference.md and a
- README.md; every relative link in a quick-reference.md or README.md resolves.
+ heading of it; every -Flag written after a script's name in a code span or code line (of a
+ quick-reference.md or the README.md beside it) is a parameter (or alias) the script declares;
+ every relative link in a quick-reference.md or README.md resolves.
 
  Prints one verdict line last: [GATE] script-catalogue PASSED|FAILED exit=<n> log=<path>.
 

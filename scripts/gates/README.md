@@ -5,12 +5,12 @@ as scripts here rather than as a pytest suite (the datrix showcase repo hosts no
 Every gate derives its targets from what is installed or on disk, never from a hardcoded list,
 and runs a non-vacuity self-test before it trusts a real result.
 
-| Family | Holds | Reference |
+| Family | Holds | Reference (run it · understand it) |
 |--------|-------|-----------|
-| `parity/` | Every registered language or platform realizes the same thing the same way: domains, behaviour, headers, problem types, wire contracts, artifact roles, manifests and dependencies. A fact read off generated artifacts through a conformance probe is a row of `parity/cases/*.parity.yaml`, read on every target by `parity-cases-gate.ps1`; a new gate module here is a source census | [parity/quick-reference.md](parity/quick-reference.md) |
-| `realization/` | A declared capability is actually realized: whole-system generation, determinism, shared-builder reachability, cache and RDBMS consumption, documentation, the standing conformance-spec corpus | [realization/quick-reference.md](realization/quick-reference.md) |
-| `ratchet/` | Counts that may only move one way (or only with their pin): generated-file construction, out-of-table dependency decisions, capability gaps, slow tests | [ratchet/quick-reference.md](ratchet/quick-reference.md) |
-| `repo-hygiene/` | What may be committed and what the repos and examples must satisfy: customer terms, design/task references, ignored sources, docs conformance, instruction surfaces, example registry and configs, hard-zero code shapes, the scripts tree's own catalogue | [repo-hygiene/quick-reference.md](repo-hygiene/quick-reference.md) |
+| `parity/` | Every registered language or platform realizes the same thing the same way: domains, behaviour, headers, problem types, wire contracts, artifact roles, manifests and dependencies. A fact read off generated artifacts through a conformance probe is a row of `parity/cases/*.parity.yaml`, read on every target by `parity-cases-gate.ps1`; a new gate module here is a source census | [parity/quick-reference.md](parity/quick-reference.md) · [parity/README.md](parity/README.md) |
+| `realization/` | A declared capability is actually realized: whole-system generation, determinism, shared-builder reachability, cache and RDBMS consumption, documentation, the standing conformance-spec corpus | [realization/quick-reference.md](realization/quick-reference.md) · [realization/README.md](realization/README.md) |
+| `ratchet/` | Counts that may only move one way (or only with their pin): generated-file construction, out-of-table dependency decisions, capability gaps, slow tests | [ratchet/quick-reference.md](ratchet/quick-reference.md) · [ratchet/README.md](ratchet/README.md) |
+| `repo-hygiene/` | What may be committed and what the repos and examples must satisfy: customer terms, design/task references, ignored sources, docs conformance, instruction surfaces, example registry and configs, hard-zero code shapes, the scripts tree's own catalogue | [repo-hygiene/quick-reference.md](repo-hygiene/quick-reference.md) · [repo-hygiene/README.md](repo-hygiene/README.md) |
 
 Each family keeps its Python beside its wrappers, in `<family>/lib/`, except a family whose wrappers
 are rendered from `common/templates/entrypoint.ps1` (`realization/`, `ratchet/`, `parity/`): its modules are
