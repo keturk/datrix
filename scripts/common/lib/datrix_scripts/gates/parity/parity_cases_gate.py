@@ -70,6 +70,7 @@ from datrix_common.plugin.capability_resolution import declaration_for_language,
 from datrix_common.plugin.code_idiom import CodeIdiom
 from datrix_common.plugin.registry import plugin_registry
 from datrix_common.testing.tag_vocabulary import documented_tags
+from datrix_common.utils.hidden_text import hidden_in_source
 from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
 from datrix_language.registration import register_all
 from datrix_testing.cases.compare import Observation, flow_text, verdict
@@ -88,8 +89,13 @@ from datrix_testing.cases.parity import (
     select_rows,
 )
 
+from datrix_scripts.dev.arguments import comma_values
+from datrix_scripts.gate_log import gate_child, run_as_gate
+from datrix_scripts.gates.parity.gate_entry import ParityGate, gate_parser, problems_self_test
 from datrix_scripts.gates.parity.parity_observers import (
+    DOCUMENTATION_SURFACES,
     ENUM_KEY,
+    MARKER_KEY,
     PROBE_READINGS,
     ROUTE_URL_BUILDERS,
     ROUTE_WIRE_CONTRACTS,
@@ -99,9 +105,6 @@ from datrix_scripts.gates.parity.parity_observers import (
     header_set_fixture,
     observer_specs,
 )
-from datrix_scripts.dev.arguments import comma_values
-from datrix_scripts.gate_log import gate_child, run_as_gate
-from datrix_scripts.gates.parity.gate_entry import ParityGate, gate_parser, problems_self_test
 from datrix_scripts.generated_example import generate_example
 from datrix_scripts.hook_modules import HookModuleError, load_suite_invocation
 from datrix_scripts.paths import SCRIPTS_DIR, SHOWCASE_DIR, WORKSPACE_DIR
@@ -446,8 +449,9 @@ class LiveTargets:
         return frozenset(gap.surface for gap in gaps)
 
     def probe_arguments(self, target: str, readings: ProbeReadings, row: Case) -> tuple[object, ...]:
-        """The generated tree, the example's enum with its service paths, the header set, or
-        nothing (a probe rendering the target's own system gateway)."""
+        """The generated tree (with every file of it, for a probe reading files), the example's enum
+        with its service paths, the header set, or nothing (a probe rendering the target's own
+        system gateway)."""
         if readings.argument is ProbeArgument.HEADER_SET:
             return (header_set_fixture(row.input),)
         if readings.argument is ProbeArgument.SYSTEM_GATEWAY:
@@ -458,7 +462,10 @@ class LiveTargets:
             return (self._generated_tree(_client_tree_language(), row.input),)
         if probe_axis(readings.probe) != AXIS_LANGUAGES:
             raise CannotCompare(f"{readings.probe!r} reads a generated tree, which is generated per language only")
-        return (self._generated_tree(target, row.input),)
+        tree = self._generated_tree(target, row.input)
+        if readings.argument is ProbeArgument.GENERATED_FILES:
+            return (tree, tuple(sorted(path for path in tree.rglob("*") if path.is_file())))
+        return (tree,)
 
     def wrap(self, target: str, readings: ProbeReadings, result: object) -> object:
         """An enum render carries the target's declared idioms and unrecognized-value exception."""
@@ -525,9 +532,12 @@ _PLANTED_GAP: Final[str] = "domain:rest_api"
 class _PlantedProbes:
     """A fixture language whose route probe returns a fixed route list, or raises."""
 
-    def __init__(self, contracts: Sequence[RouteWireContract], *, fails: bool = False) -> None:
+    def __init__(
+        self, contracts: Sequence[RouteWireContract], *, fails: bool = False, published: Sequence[str] = ()
+    ) -> None:
         self._contracts = tuple(contracts)
         self._fails = fails
+        self._published = frozenset(published)
 
     def response_body_wire_fields(self, generated_root: Path) -> tuple[ResponseBodyWireField, ...]:
         return ()
@@ -538,7 +548,9 @@ class _PlantedProbes:
         return self._contracts
 
     def documentation_surfaces(self, generated_root: Path, files: Sequence[Path]) -> DocumentationSurfaces:
-        return DocumentationSurfaces(frozenset(), frozenset())
+        if not files or any(generated_root not in file_path.parents for file_path in files):
+            raise RuntimeError(f"{generated_root}/{_CANARY}: the files are not every file of the generated root")
+        return DocumentationSurfaces(self._published, frozenset())
 
     def render_enum_classifier(self, enum: object, paths: object) -> EnumClassifierRender:
         return EnumClassifierRender(())
@@ -602,7 +614,10 @@ class _PlantedTargets:
         return self.gaps[target] if target in self.gaps else frozenset()
 
     def probe_arguments(self, target: str, readings: ProbeReadings, row: Case) -> tuple[object, ...]:
-        return (FIXTURE_OUTPUT_ROOT / _CANARY / target,)
+        root = FIXTURE_OUTPUT_ROOT / _CANARY / target
+        if readings.argument is ProbeArgument.GENERATED_FILES:
+            return (root, (root / "doc.src",))
+        return (root,)
 
     def wrap(self, target: str, readings: ProbeReadings, result: object) -> object:
         return result
@@ -782,6 +797,61 @@ def _self_test_client_axis() -> list[str]:
     return problems
 
 
+#: The sentence the planted languages publish, once as the author wrote it (a raw zero width
+#: joiner) and once as a doc block spells it.
+_PLANTED_DOC_MARKER: Final[str] = "Finds terms"
+_PLANTED_DOC_EXACT: Final[str] = "Finds terms x\N{ZERO WIDTH JOINER}y."
+_PLANTED_DOC_SPELLED: Final[str] = "Finds terms x[U+200D]y."
+
+
+def _planted_doc_row(marker: str = _PLANTED_DOC_MARKER) -> Case:
+    return Case.model_validate(
+        {
+            "id": "self-test.doc-marker-lines",
+            "tags": ["parity", "documentation"],
+            "input": "self-test-example",
+            "stage": PARITY_STAGE,
+            "observer": DOCUMENTATION_SURFACES,
+            "selector": {"facet": "marker-lines", MARKER_KEY: marker},
+            "expectation": ["Finds terms x<U+200D>y.", _PLANTED_DOC_SPELLED],
+            "reason": "The self-test's planted description and doc block.",
+        }
+    )
+
+
+def _planted_docs(published_a: Sequence[str], published_b: Sequence[str]) -> _PlantedTargets:
+    return _PlantedTargets(
+        {
+            _PLANTED_A: _PlantedPlugin(_PlantedProbes([], published=published_a)),
+            _PLANTED_B: _PlantedPlugin(_PlantedProbes([], published=published_b)),
+        }
+    )
+
+
+def _self_test_documentation() -> list[str]:
+    """A marker-lines row reads every file of the tree from the marker on, never raw, and is judged like any row."""
+    problems: list[str] = []
+    agreed = run_rows(
+        [_planted_doc_row()],
+        _planted_docs(
+            (f" * {_PLANTED_DOC_SPELLED}", _PLANTED_DOC_EXACT),
+            (f"joined: {_PLANTED_DOC_SPELLED}\nanother line", _PLANTED_DOC_EXACT),
+        ),
+    )
+    if agreed.exit_code != EXIT_OK or _kinds(agreed):
+        problems.append(f"two targets publishing the sentence behind different line prefixes did not agree: {agreed.lines}")
+    raw = run_rows([_planted_doc_row()], _planted_docs((_PLANTED_DOC_SPELLED, _PLANTED_DOC_EXACT), (_PLANTED_DOC_EXACT,)))
+    failures = [line for line in raw.lines if line.startswith("DIVERGENCE")]
+    if raw.exit_code != EXIT_DIVERGENCE or len(failures) != 1 or _PLANTED_B not in failures[0]:
+        problems.append(f"a target whose doc block kept the code point raw was not one divergence naming it: {raw.lines}")
+    if any(hidden_in_source(char) for line in raw.lines for char in line):
+        problems.append("a report carried a hidden code point raw")
+    absent = run_rows([_planted_doc_row("No such sentence")], _planted_docs((_PLANTED_DOC_EXACT,), (_PLANTED_DOC_EXACT,)))
+    if absent.exit_code != EXIT_DIVERGENCE or _kinds(absent) != ["UNREADABLE", "UNREADABLE"]:
+        problems.append(f"a marker no published line holds was not unreadable on both targets: {absent.lines}")
+    return problems
+
+
 def _self_test_tag_selection() -> list[str]:
     """The tag selection obeys test.ps1 -Tag's ceiling and its must-exist rule."""
     rows = [_planted_row(), _planted_row("self-test.other").model_copy(update={"tags": ["parity", "pubsub"]})]
@@ -807,7 +877,14 @@ def run_self_test() -> list[str]:
     problems = [problem for module in _GATE_MODULES for problem in self_test_gate_names_no_target(str(lib / module))]
     if problems:
         return problems
-    checks = (_self_test_verdicts, _self_test_refusals, _self_test_no_disclosure, _self_test_client_axis, _self_test_tag_selection)
+    checks = (
+        _self_test_verdicts,
+        _self_test_refusals,
+        _self_test_no_disclosure,
+        _self_test_client_axis,
+        _self_test_documentation,
+        _self_test_tag_selection,
+    )
     for check in checks:
         problems.extend(f"self-test: {problem}" for problem in check())
     return problems

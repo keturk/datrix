@@ -3,8 +3,9 @@ and the reading of each.
 
 A parity row (``datrix_testing.cases.parity``) names a probe and a facet. This module is the
 table the gate and its authoring tool share: for every probe a row may name, the fixture its
-argument is built from (a generated example tree, the client trees of one example generated
-for the run, an enum the example declares, or a web-security header-set fixture), and per facet the selector keys, the shape of the reading,
+fixture its argument is built from (a generated example tree, every file of one, the client
+trees of one example generated for the run, an enum the example declares, or a web-security
+header-set fixture), and per facet the selector keys, the shape of the reading,
 and the function that narrows the probe's return to that one value. A probe with no entry
 here is refused by ``check`` -- a new reading is added as a facet here, and a new kind of
 value as a Protocol method first.
@@ -29,9 +30,8 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, TypeVar
 
-from datrix_common.datrix_model.wire_naming import body_wire_name
-from datrix_common.utils.text import to_camel_case
 from datrix_codegen_kernel.parity.conformance_probes import (
+    DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
     PublishedEventEnvelope,
@@ -42,7 +42,10 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     route_key,
 )
 from datrix_codegen_kernel.platform.web_security_headers import WebSecurityHeaderSet, build_web_security_headers
+from datrix_common.datrix_model.wire_naming import body_wire_name
 from datrix_common.plugin.language_capability import EnumClassifierIdioms
+from datrix_common.utils.hidden_text import hidden_in_source, visible_text
+from datrix_common.utils.text import to_camel_case
 from datrix_testing.cases.compare import Observation, Shape, stringify
 from datrix_testing.cases.errors import SelectorError
 from datrix_testing.cases.model import SelectorValue
@@ -65,6 +68,9 @@ class ProbeArgument(enum.Enum):
     SYSTEM_GATEWAY = "system-gateway"
     #: The example generated once for the run; each client target reads its own client tree in it.
     CLIENT_TREE = "client-tree"
+    #: The example generated for the target, read as every file of its tree: the probe takes
+    #: the generated root and those files.
+    GENERATED_FILES = "generated-files"
 
 
 @dataclass(frozen=True)
@@ -474,6 +480,46 @@ def _offer_route_urls(result: object) -> Iterable[dict[str, SelectorValue]]:
 
 
 # ---------------------------------------------------------------------------
+# Documentation text: documentation_surfaces
+# ---------------------------------------------------------------------------
+
+DOCUMENTATION_SURFACES: Final[str] = "documentation_surfaces"
+MARKER_KEY: Final[str] = "marker"
+
+
+def _marked(char: str) -> str:
+    """*char* as a reading writes it: a hidden code point as ``<U+HHHH>``, never raw.
+
+    The digits are ``visible_text``'s; the angle brackets keep a raw code point apart from
+    text a generator already spelled ``[U+HHHH]``.
+    """
+    if not hidden_in_source(char):
+        return char
+    return f"<{visible_text(char)[1:-1]}>"
+
+
+def _read_marker_lines(result: object, selector: Selector) -> Observation:
+    """Every published line holding the marker, read from the marker to the end of the line.
+
+    Reading from the marker drops what a target writes ahead of the text on its line (a doc
+    block's ``*``, the member name an enum docstring lists the value under), so one authored
+    sentence reads the same on every target; each hidden code point the line holds raw is
+    written ``<U+HHHH>``, so a reading and a row carry none.
+    """
+    surfaces = _typed(result, DocumentationSurfaces, DOCUMENTATION_SURFACES)
+    marker = _text(selector, MARKER_KEY)
+    lines = {
+        "".join(map(_marked, line[line.index(marker) :].rstrip()))
+        for text in surfaces.published
+        for line in text.split("\n")
+        if marker in line
+    }
+    if not lines:
+        raise SelectorError(f"no published line holds the marker {marker!r}")
+    return _set(lines)
+
+
+# ---------------------------------------------------------------------------
 # The table
 # ---------------------------------------------------------------------------
 
@@ -621,6 +667,24 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
                 ),
             ),
         ),
+        ProbeReadings(
+            DOCUMENTATION_SURFACES,
+            ProbeArgument.GENERATED_FILES,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "marker-lines",
+                        Shape.SET,
+                        (MARKER_KEY,),
+                        summary=(
+                            "every published line holding the marker, from the marker on, each raw hidden code "
+                            "point written <U+HHHH>"
+                        ),
+                    ),
+                    _read_marker_lines,
+                ),
+            ),
+        ),
     )
 }
 
@@ -648,10 +712,12 @@ def observer_specs(example_names: Sequence[str]) -> dict[str, ParityObserver]:
 
 __all__ = [
     "DECLARED_EXCEPTION",
+    "DOCUMENTATION_SURFACES",
     "ENUM_KEY",
     "EVENT_ENVELOPES",
     "HEADER_SET_FIXTURES",
     "PROBE_READINGS",
+    "MARKER_KEY",
     "REALIZED_GATEWAY_PROBLEMS",
     "REALIZED_WEB_SECURITY_HEADERS",
     "SYSTEM_GATEWAY_FIXTURE",
