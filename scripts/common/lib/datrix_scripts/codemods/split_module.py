@@ -185,10 +185,16 @@ def _header_end(body: list[ast.stmt]) -> int:
     return max(_end_line(node) for node in header_nodes)
 
 
+def source_lines(path: Path) -> list[str]:
+    """The lines of *path* as Python numbers them. ``str.splitlines`` also breaks at form feeds and
+    other separators the parser does not count, which shifts every later line number."""
+    return io.StringIO(path.read_text(encoding=SOURCE_ENCODING), newline="").readlines()
+
+
 def read_module(path: Path) -> SourceModule:
     """Cut *path* into its header and one block per top-level definition. Each block owns the
     lines above it (its leading comments) through its own last line."""
-    lines = path.read_text(encoding=SOURCE_ENCODING).splitlines(keepends=True)
+    lines = source_lines(path)
     tree = ast.parse("".join(lines), filename=str(path))
     body = list(tree.body)
     first = body[0] if body else None
@@ -435,7 +441,7 @@ def _importer_edits(
     path: Path, original: str, moved: Mapping[str, str], workspace: Path
 ) -> tuple[list[ImporterEdit], list[str]]:
     tree = parse_source(path)
-    lines = path.read_text(encoding=SOURCE_ENCODING).splitlines(keepends=True)
+    lines = source_lines(path)
     bindings = ModuleBindings(path, tree, frozenset({original}))
     relative = display_path(path, workspace)
     blockers = [
@@ -496,7 +502,7 @@ def apply_edits(edits: Sequence[ImporterEdit]) -> None:
     for edit in edits:
         by_path.setdefault(edit.path, []).append(edit)
     for path, file_edits in by_path.items():
-        lines = path.read_text(encoding=SOURCE_ENCODING).splitlines(keepends=True)
+        lines = source_lines(path)
         for edit in sorted(file_edits, key=lambda item: item.first_line, reverse=True):
             lines[edit.first_line - 1 : edit.last_line] = [edit.replacement]
         path.write_text("".join(lines), encoding=WRITE_ENCODING)
@@ -707,6 +713,16 @@ def _check_moved_code_imports_what_stays_from_the_original() -> None:
         assert module.read_text(encoding=WRITE_ENCODING) == _PLANTED_MUTUAL and not (module.parent / "_beta.py").exists()
 
 
+def _check_an_importer_with_a_form_feed_is_rewritten() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        module, plan, importer = _planted_workspace(root, {"_alpha": {PLAN_DOC_KEY: "Alpha.", PLAN_NAMES_KEY: ["alpha"]}})
+        importer.write_text('"""Page one.\x0cPage two."""\n\n' + _PLANTED_IMPORTER, encoding=WRITE_ENCODING)
+        code, text = _quiet_split([f"--module={module}", f"--plan={plan}"], root)
+        assert code == EXIT_OK, text
+        assert "from planted_pkg._alpha import alpha" in importer.read_text(encoding=WRITE_ENCODING), text
+
+
 def _check_a_bad_plan_is_refused_and_nothing_written() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -721,6 +737,7 @@ def _run(args: argparse.Namespace) -> int:
     if args.self_test:
         checks = [_check_a_planted_module_is_split_and_its_importer_rewritten,
                   _check_moved_code_imports_what_stays_from_the_original,
+                  _check_an_importer_with_a_form_feed_is_rewritten,
                   _check_a_bad_plan_is_refused_and_nothing_written]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
                              folder=CODEMODS_SCRIPTS_DIR)

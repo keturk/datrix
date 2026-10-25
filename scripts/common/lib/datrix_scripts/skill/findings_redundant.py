@@ -11,8 +11,9 @@ FILES
 REDUNDANT (a lead, checked)
     A file is a candidate for deletion when it holds one finding (a raw file, or a theme file with at most
     one section) and another file's unit -- a raw file, or one ``## N.`` section of a theme file -- of higher
-    rank could state the same defect. A unit is a candidate survivor when it cites every ``path:line`` and
-    backticked path the file cites, or when the two share enough of their words. A local model then reads both
+    rank could state the same defect. A unit is a candidate survivor when it holds at least ``KEY_CONTAINMENT``
+    of the file's keywords (its citations, backticked spans and code-shaped names); a file with fewer than
+    ``MIN_KEYS`` keywords is matched by shared words instead. A local model then reads both
     texts and answers SAME, PARTIAL or DIFFERENT; SAME stands only when the model lists nothing the doomed file
     has that the survivor lacks, and quotes one line of each file that really occurs in that file. Everything
     else stays. A proposal is marked for deletion only when the survivor also cites everything the doomed file
@@ -63,10 +64,15 @@ _VERDICTS = (VERDICT_SAME, VERDICT_PARTIAL, VERDICT_DIFFERENT)
 
 SURVIVORS_PER_FILE = 3
 LEXICAL_THRESHOLD = 0.25
+KEY_CONTAINMENT = 0.9
+MIN_KEYS = 3
 MIN_WORD_CHARS = 4
 SECTION_LEVEL = 2
 
 _WORD = re.compile(rf"\w{{{MIN_WORD_CHARS},}}")
+_BACKTICKED = re.compile(r"`([^`\n]+)`")
+_CODE_TOKEN = re.compile(
+    r"\b(?:[A-Za-z]+_[A-Za-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*|[A-Z]{2,}\d+[A-Za-z0-9]*)\b")
 _LINE_NUMBER = re.compile(r"^\d+\|\s*")
 _BLANKS = re.compile(r"\s+")
 # A theme file's sections are "## 3. Title"; a raw file's "## Issue" / "## Impact" are parts of one finding.
@@ -104,6 +110,7 @@ class Unit:
     text: str
     refs: frozenset[str]
     words: frozenset[str]
+    keys: frozenset[str]
 
     @property
     def label(self) -> str:
@@ -180,8 +187,23 @@ def _similarity(left: frozenset[str], right: frozenset[str]) -> float:
     return len(left & right) / len(left | right) if left | right else 0.0
 
 
+def _keywords(text: str, refs: frozenset[str]) -> frozenset[str]:
+    """What a finding names: its citations, every backticked span and every code-shaped token (snake_case,
+    camelCase, PascalCase, diagnostic codes such as ``XSV010``), lower-cased."""
+    keys = {ref.lower() for ref in refs}
+    keys.update(span.strip().lower() for span in _BACKTICKED.findall(text) if span.strip())
+    keys.update(token.lower() for token in _CODE_TOKEN.findall(text))
+    return frozenset(keys)
+
+
+def _containment(inner: frozenset[str], outer: frozenset[str]) -> float:
+    """The share of ``inner`` that ``outer`` also has."""
+    return len(inner & outer) / len(inner) if inner else 0.0
+
+
 def _unit(name: str, heading: str, text: str) -> Unit:
-    return Unit(name, heading, text, frozenset(references(text)), _words(text))
+    refs = frozenset(references(text))
+    return Unit(name, heading, text, refs, _words(text), _keywords(text, refs))
 
 
 def _relative_name(directory: Path, path: Path) -> str:
@@ -215,11 +237,16 @@ def _ranked(files: list[FileUnits]) -> list[FileUnits]:
 
 
 def _candidates(doomed: Unit, higher: list[FileUnits]) -> list[Unit]:
-    """The units of higher-ranked files that could say everything ``doomed`` says, nearest first."""
-    scored = [(_similarity(doomed.words, u.words), u) for f in higher for u in f.units]
-    near = [(score, u) for score, u in scored if score >= LEXICAL_THRESHOLD or (doomed.refs and doomed.refs <= u.refs)]
-    near.sort(key=lambda pair: pair[0], reverse=True)
-    return [u for _score, u in near[:SURVIVORS_PER_FILE]]
+    """The units of higher-ranked files that could say everything ``doomed`` says, nearest first. A file that
+    names at least ``MIN_KEYS`` keywords is matched by keyword containment: the survivor must hold
+    ``KEY_CONTAINMENT`` of them. A file with fewer keywords is matched by shared words."""
+    keyed = len(doomed.keys) >= MIN_KEYS
+    scored = [(_containment(doomed.keys, u.keys) if keyed else _similarity(doomed.words, u.words),
+               _similarity(doomed.words, u.words), u) for f in higher for u in f.units]
+    floor = KEY_CONTAINMENT if keyed else LEXICAL_THRESHOLD
+    near = [(score, words, u) for score, words, u in scored if score >= floor]
+    near.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return [u for _score, _words_score, u in near[:SURVIVORS_PER_FILE]]
 
 
 def _quote_in(quote: str, text: str) -> bool:

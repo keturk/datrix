@@ -462,6 +462,21 @@ def check_findings_redundant_compares_one_folder_only_and_names_files_by_relativ
         assert done.deleted == ["azure/20261001-000001-dup.md"] and not dup.exists() and keep.exists(), done
 
 
+def check_findings_redundant_candidates_need_the_survivor_to_hold_the_keywords_of_the_file() -> None:
+    with _workspace() as root:
+        folder = root / "reports/finding"
+        write_file(folder / "20261001-000000-keep.md",
+                   "# Keep\n\nThe emitter drops `alpha_table`, `BetaThing` and `gamma_idx` at "
+                   "`datrix-alpha/src/a.py:1`, and also `delta_x` shows the same.\n")
+        write_file(folder / "20261001-000001-inside.md",
+                   "# Inside\n\nThe emitter drops `alpha_table`, `BetaThing` and `gamma_idx`.\n")
+        write_file(folder / "20261001-000002-outside.md",
+                   "# Outside\n\nThe emitter drops `alpha_table`, `BetaThing` and `zeta_q`.\n")
+        result = find_redundant(folder, [folder], None, None)
+        pairs = sorted((k.file, k.other) for k in result.unjudged)
+        assert pairs == [("20261001-000001-inside.md", "20261001-000000-keep.md")], pairs
+
+
 def check_findings_redundant_commands_exit_with_the_assist_codes() -> None:
     with _workspace() as root:
         folder = _redundancy_folder(root)
@@ -1206,6 +1221,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_redundant_proposes_only_what_a_checked_same_verdict_and_the_citations_prove,
     check_findings_redundant_delete_proves_every_condition_before_it_removes_a_file,
     check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_does_not_cite,
+    check_findings_redundant_candidates_need_the_survivor_to_hold_the_keywords_of_the_file,
     check_findings_redundant_compares_one_folder_only_and_names_files_by_relative_path,
     check_findings_redundant_commands_exit_with_the_assist_codes,
     check_implement_finding_selects_the_first_files_by_name,
