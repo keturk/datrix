@@ -104,6 +104,8 @@ A dotted path `<original>.<moved name>` (or `<original>:<moved name>`) written a
 `pyproject.toml` (a docstring cross-reference, a `.dal` adapter path) is rewritten to the new module, byte for
 byte so line endings stay.
 
+A quoted spelling of the original (`"pkg.big"`, `"big.py"`, `"dir/big.py"`) in any Python file or `scripts/config` baseline is **not** rewritten: a test that reads a module's source by name, or an allowlist or baseline keyed by file, names the module in a string. Each is printed as `check <file>:<line>` (dry run included) for you to point at the module the name now lives in.
+
 | Mode | Command | Description |
 |------|---------|-------------|
 | **Preview** | `.\codemods\split-module.ps1 -Module <file.py> -Plan D:\datrix\.tmp\split-plan.json -DryRun` | New modules, remainder, every importer rewrite, every blocker; writes nothing |
