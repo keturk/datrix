@@ -50,6 +50,17 @@ Every import statement naming given modules (the worklist before a move or renam
 
 Parameters: `-Module <dotted,...>` (required), `-Name <name,...>`, `-Dbg`, `-SelfTest`
 
+### `dev\probe-fixture.ps1`
+
+Analyze a fixture project (`tests\fixtures\[projects\]<name>\`) the way a test does and print the error text or each service's blocks, in seconds. Run it after every edit of a fixture project and before the first suite run that uses it: it writes the stamp `guard-test-run-discipline.py` checks. Exit: 0 every profile analyzed, 1 a profile failed.
+
+| Form | Command |
+|------|---------|
+| A project, profile `test` | `.\dev\probe-fixture.ps1 -Path d:\datrix\datrix-codegen-azure\tests\fixtures\projects\data-plane` |
+| Several profiles | `.\dev\probe-fixture.ps1 -Path <project dir or system.dtrx> -ConfigProfile production,ungrouped` |
+
+Parameters: `-Path` (required; the `.dtrx` or its directory), `-ConfigProfile <name,...>` (default `test`), `-Dbg`, `-SelfTest`
+
 ### `dev\who-imports.ps1`
 
 Which runtime import chain first loads a module.

@@ -87,6 +87,20 @@ With `-Module` and `-Name` it prints `[from-import]` sites, plus `[attribute]` r
 Module: `datrix_scripts.dev.find_imports`; POSIX twin `dev\find-imports.sh` (`--module`, `--name`,
 `--dbg`, `--self-test`): `bash dev/find-imports.sh --module datrix_common.errors.plugin --name PluginError`.
 
+### `probe-fixture.ps1`
+
+Shows what the production front half makes of a fixture project before a test run depends on it. For each
+`-ConfigProfile` (default `test`) it runs `datrix_testing.project.analyzed_project` on the project (parse,
+`.dcfg` resolution, semantic analysis) and prints the error text of a failure, or each service with its
+datasource, queue, serverless and integration blocks. It then writes a stamp,
+`<workspace>\.tmp\fixture-probes\<sha1 of the project directory>.json`. The Claude Code hook
+`guard-test-run-discipline.py` refuses a test run after an edit of a `tests\fixtures\[projects\]<name>\`
+file when no stamp is newer than the edit, so a wrong `.dcfg` key or DSL shape is met here in seconds,
+not in a suite run. Exit 0 every profile analyzed, 1 a profile failed, 2 usage error.
+
+Module: `datrix_scripts.dev.probe_fixture`; POSIX twin `dev\probe-fixture.sh` (`--path`, `--config-profile`,
+`--dbg`, `--self-test`): `bash dev/probe-fixture.sh --path <project dir>`.
+
 ### `who-imports.ps1`
 
 Which runtime import chain first loads a module. It imports each `-Root` in a fresh interpreter with an
