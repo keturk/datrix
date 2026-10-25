@@ -571,6 +571,33 @@ def plan_importers(
     return edits, text_files, blockers
 
 
+MAX_RESIDUAL_LINES: Final[int] = 60
+CONFIG_DIR_PARTS: Final[tuple[str, ...]] = ("datrix", "scripts", "config")
+
+
+def residual_references(original: str, stem: str, workspace: Path, skip: frozenset[Path]) -> list[str]:
+    """Every quoted spelling of the original module (``"pkg.big"``, ``"big.py"``, ``"dir/big.py"``) in a Python
+    file or a ``scripts/config`` baseline. A test that reads a module's source by name, an allowlist keyed by file
+    and a baseline keyed by file all name the module in a string no import rewrite can reach: each hit is for the
+    person running the split to check against the module the name now lives in."""
+    pattern = re.compile(rf"""["']{re.escape(original)}["']|[/"']{re.escape(stem)}\.py["':]""")
+    config_files = sorted(workspace.joinpath(*CONFIG_DIR_PARTS).glob("*.*"))
+    hits: list[str] = []
+    for path in [*scanned_files(workspace), *config_files]:
+        if path.resolve() in skip or not path.resolve().is_relative_to(workspace.resolve()):
+            continue
+        try:
+            lines = path.read_bytes().decode(SOURCE_ENCODING).splitlines()
+        except UnicodeDecodeError:
+            continue
+        hits.extend(
+            f"{display_path(path, workspace)}:{number}: {line.strip()[:120]}"
+            for number, line in enumerate(lines, 1)
+            if pattern.search(line)
+        )
+    return hits
+
+
 def apply_text_rewrites(paths: Sequence[Path], original: str, moved: Mapping[str, str]) -> None:
     """Rewrite the dotted paths in *paths* byte for byte, so line endings stay as they were."""
     for path in paths:
@@ -716,6 +743,12 @@ def split(args: argparse.Namespace, workspace: Path) -> int:
             print(f"BLOCKED {blocker}")
         print(f"Refused: {len(plan.blockers)} reference(s) the rewrite cannot reach. Nothing was written.")
         return EXIT_REFUSED
+    skip = frozenset({plan.target, *plan.outputs})
+    residual = residual_references(plan.original, plan.target.stem, workspace, skip)
+    for hit in residual[:MAX_RESIDUAL_LINES]:
+        print(f"check {hit}")
+    if residual:
+        print(f"{len(residual)} quoted reference(s) to {plan.target.name} stay as written: check each names the module its target now lives in.")
     if args.dry_run:
         print("Dry run: nothing was written.")
         return EXIT_OK
@@ -849,6 +882,18 @@ def _check_dotted_paths_in_text_are_rewritten_and_line_endings_kept() -> None:
         ), notes.read_bytes()
 
 
+def _check_quoted_references_to_the_original_are_reported() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        module, plan, importer = _planted_workspace(root, {"_alpha": {PLAN_DOC_KEY: "Alpha.", PLAN_NAMES_KEY: ["alpha"]}})
+        checker = importer.parent / "checker.py"
+        checker.write_text('MODULE = "planted_pkg.big"\nSOURCE = "pkg/big.py"\nOTHER = "planted_pkg.bigger"\n', encoding=WRITE_ENCODING)
+        code, text = _quiet_split([f"--module={module}", f"--plan={plan}", "--dry-run"], root)
+        assert code == EXIT_OK, text
+        assert "checker.py:1:" in text and "checker.py:2:" in text and "checker.py:3:" not in text, text
+        assert "2 quoted reference(s)" in text, text
+
+
 def _check_a_bad_plan_is_refused_and_nothing_written() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -882,6 +927,7 @@ def _run(args: argparse.Namespace) -> int:
                   _check_an_importer_with_a_form_feed_is_rewritten,
                   _check_dotted_paths_in_text_are_rewritten_and_line_endings_kept,
                   _check_module_object_reads_follow_the_moved_name,
+                  _check_quoted_references_to_the_original_are_reported,
                   _check_a_bad_plan_is_refused_and_nothing_written]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
                              folder=CODEMODS_SCRIPTS_DIR)

@@ -67,7 +67,7 @@ from datrix_common.datrix_model.problem_types import (  # noqa: E402
     FieldErrorLocation,
 )
 from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError
-from datrix_common.plugin.capability_resolution import declaration_for_language  # noqa: E402
+from datrix_common.plugin._capability_declarations import declaration_for_language  # noqa: E402
 from datrix_common.plugin.code_idiom import (
     CallIdiom,
     CodeIdiom,

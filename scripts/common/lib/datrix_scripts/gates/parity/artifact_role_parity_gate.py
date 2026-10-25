@@ -585,7 +585,7 @@ def language_domain_declarations(language: str) -> DomainDeclarations:
     from datrix_codegen_kernel.parity.derived_declarations import (
         derive_domain_declarations,
     )
-    from datrix_common.plugin.capability_resolution import declaration_for_language
+    from datrix_common.plugin._capability_declarations import declaration_for_language
     from datrix_testing.conformance.domain_self_consistency import (
         DomainDeclaringPlugin,
     )
@@ -919,7 +919,7 @@ def platform_withheld_domains_by_provider(providers: Iterable[str]) -> dict[str,
         ValueError: If a provider segment resolves to no registered platform.
     """
     from datrix_common.errors.plugin import PluginError
-    from datrix_common.plugin.capability_resolution import declaration_for_provider
+    from datrix_common.plugin._capability_declarations import declaration_for_provider
 
     withheld: dict[str, dict[str, str]] = {}
     for provider in sorted(set(providers)):
@@ -1962,7 +1962,7 @@ def _expect_platform_gate(
 def _self_test_platform_resolution(ledger: _SelfTestLedger) -> None:
     """The production resolver answers for every registered platform and
     refuses a provider directory no platform registers (fail closed)."""
-    from datrix_common.plugin.capability_resolution import installed_platform_names
+    from datrix_common.plugin._capability_cells import installed_platform_names
 
     installed = installed_platform_names()
     resolved = platform_withheld_domains_by_provider(installed)

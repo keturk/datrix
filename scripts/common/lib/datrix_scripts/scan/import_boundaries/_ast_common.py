@@ -13,9 +13,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
-from datrix_common.plugin.capability_resolution import (
-    declaration_for_language,
-)
+from datrix_common.plugin._capability_declarations import declaration_for_language
 
 from datrix_scripts.count_ratchet import RatchetMode, compare
 from datrix_scripts.gate_harness import NamedCheck, report_condition

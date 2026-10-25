@@ -78,7 +78,7 @@ from datrix_common.plugin.capability_cells import (
     CustomDomainSurfaceName,
     StaticWebHostingOrigin,
 )
-from datrix_common.plugin.capability_resolution import declaration_for_provider
+from datrix_common.plugin._capability_declarations import declaration_for_provider
 
 from datrix_scripts.gate_log import gate_child, run_as_gate
 from datrix_scripts.gates.parity.gate_entry import ParityGate, gate_parser, problems_self_test

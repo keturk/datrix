@@ -14,9 +14,7 @@ from pathlib import Path
 # installed datrix.platforms entry points, never a hardcoded
 # "aws"/"azure"/"docker"/"local" literal: registered_platform_names() comes
 # from the shared scripts package (datrix_scripts, on PYTHONPATH).
-from datrix_common.plugin.capability_resolution import (
-    declaration_for_language,
-)
+from datrix_common.plugin._capability_declarations import declaration_for_language
 
 from datrix_scripts.gate_harness import NamedCheck, report_step
 from datrix_scripts.registered_targets import (

@@ -66,7 +66,10 @@ from datrix_codegen_kernel.parity.conformance_probes import (
 from datrix_common.datrix_model.containers import Application
 from datrix_common.errors.plugin import PluginValidationError
 from datrix_common.paths import ServicePaths
-from datrix_common.plugin.capability_resolution import declaration_for_language, declaration_for_provider
+from datrix_common.plugin._capability_declarations import (
+    declaration_for_language,
+    declaration_for_provider,
+)
 from datrix_common.plugin.code_idiom import CodeIdiom
 from datrix_common.plugin.registry import plugin_registry
 from datrix_common.testing.tag_vocabulary import documented_tags

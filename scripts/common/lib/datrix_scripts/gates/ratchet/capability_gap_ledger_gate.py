@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Final
 
 from datrix_common.plugin.capability_gap import CapabilityGap  # noqa: E402
-from datrix_common.plugin.capability_resolution import (  # noqa: E402
+from datrix_common.plugin._capability_declarations import (
     declaration_for_language,
     declaration_for_provider,
 )

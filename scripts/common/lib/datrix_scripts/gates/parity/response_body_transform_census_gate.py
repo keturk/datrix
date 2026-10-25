@@ -42,7 +42,7 @@ from typing import Final
 
 from datrix_codegen_kernel.parity.conformance_probes import IdiomOccurrence, language_conformance_probes
 from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError
-from datrix_common.plugin.capability_resolution import declaration_for_language
+from datrix_common.plugin._capability_declarations import declaration_for_language
 from datrix_common.plugin.code_idiom import CallIdiom, CodeIdiom
 
 from datrix_scripts.gate_log import gate_child, run_as_gate

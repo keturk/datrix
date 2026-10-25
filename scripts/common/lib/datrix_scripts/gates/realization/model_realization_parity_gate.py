@@ -42,7 +42,7 @@ from typing import Final, get_args
 from datrix_common.plugin.capability import (  # noqa: E402
     PlatformCapabilityDeclaration,
 )
-from datrix_common.plugin.capability_resolution import declaration_for_provider  # noqa: E402
+from datrix_common.plugin._capability_declarations import declaration_for_provider  # noqa: E402
 from datrix_common.plugin.model_realization import (  # noqa: E402
     ModelFlavorCell,
     ModelRealization,

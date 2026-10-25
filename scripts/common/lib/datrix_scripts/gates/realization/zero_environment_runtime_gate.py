@@ -89,7 +89,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     language_conformance_probes,
 )
 from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError
-from datrix_common.plugin.capability_resolution import declaration_for_language
+from datrix_common.plugin._capability_declarations import declaration_for_language
 from datrix_common.plugin.code_idiom import CodeIdiom, MemberAccessIdiom
 from datrix_common.plugin.language_capability import (
     ZeroEnvironmentRuntimeDeclaration,

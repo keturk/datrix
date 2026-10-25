@@ -64,7 +64,7 @@ from datrix_common.config.observability.models import (
 )
 from datrix_common.errors.generation import GenerationError
 from datrix_common.plugin.capability_policy import validate_language_provider_realization
-from datrix_common.plugin.capability_resolution import (
+from datrix_common.plugin._capability_declarations import (
     declaration_for_language,
     declaration_for_provider,
 )

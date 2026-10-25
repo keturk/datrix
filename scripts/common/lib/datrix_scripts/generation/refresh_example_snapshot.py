@@ -93,9 +93,9 @@ def derive_platform(
         RefreshError: The deployment resolves to no registered platform or to several.
     """
     from datrix_common.config.unified_loader import load_system_config
-    from datrix_common.plugin.capability_resolution import (
+    from datrix_common.plugin._capability_declarations import declaration_for_provider
+    from datrix_common.plugin._capability_scaffold_ports import (
         container_scaffold_generator_names_for,
-        declaration_for_provider,
     )
     from datrix_language.parser.dcfg_documents import disk_config_documents
 

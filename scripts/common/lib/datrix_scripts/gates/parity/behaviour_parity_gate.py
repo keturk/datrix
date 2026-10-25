@@ -221,7 +221,7 @@ from datrix_codegen_common.testkit.fixtures.fixtureclient import (
     FIXTURECLIENT_CAPABILITY_DECLARATION,
     fixture_client_target_descriptor,
 )
-from datrix_codegen_common.transpiler.emit_table import emit_adapter
+from datrix_codegen_common.transpiler._emit_adapters import emit_adapter
 from datrix_codegen_kernel.platform.realization_table import (
     ArtifactEmitter,
     RealizationCell,
@@ -230,10 +230,8 @@ from datrix_codegen_kernel.platform.realization_table import (
     parse_realization_tables,
 )
 from datrix_common.errors.plugin import PluginNotFoundError
-from datrix_common.plugin.capability_resolution import (
-    container_scaffold_generator_names_for,
-    declaration_for_language,
-)
+from datrix_common.plugin._capability_declarations import declaration_for_language
+from datrix_common.plugin._capability_scaffold_ports import container_scaffold_generator_names_for
 from datrix_common.plugin.identity import RuntimeId
 from datrix_common.plugin.client_capability import ClientTargetCapabilityDeclaration
 from datrix_common.plugin.descriptor import PluginDescriptor
