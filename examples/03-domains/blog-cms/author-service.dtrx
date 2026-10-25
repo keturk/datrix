@@ -38,7 +38,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), des
             Password passwordHash;
             String(100) firstName : trim;
             // 'regex(...)' enforces a pattern constraint on the field
-            String(100) lastName : trim, regex("^[A-Za-z][A-Za-z0-9\\s'-]{0,99}$");
+            String(100) lastName : trim, regex("^[A-Za-z][A-Za-z0-9\\s'\\-]{0,99}$");
             // '?' suffix makes the field nullable
             String(200)? bio;
             URL? avatarUrl;
