@@ -2,9 +2,11 @@
 another file, and the deletion of the ones the skill confirms.
 
 FILES
-    The findings are the ``*.md`` directly in the folder given (the inbox) and in its subfolders (the area
-    folders ``organize-findings.ps1`` fills), compared across all of them. A file is named by its path under
-    the folder, ``azure/<name>.md``; pointers to it elsewhere name its stem.
+    The findings compared are the ``*.md`` directly in one folder at a time -- each area subfolder of the
+    inbox (the folders ``organize-findings.ps1`` fills), then the inbox's own loose files -- never across
+    folders: a file in ``python`` is judged against the other files of ``python`` only. A file is named by its path under the inbox,
+    ``azure/<name>.md``; pointers to it elsewhere name its stem. The deletion proofs (a pointer that would
+    dangle, a citation that would be lost) still read the whole inbox.
 
 REDUNDANT (a lead, checked)
     A file is a candidate for deletion when it holds one finding (a raw file, or a theme file with at most
@@ -275,9 +277,30 @@ def _proposal(directory: Path, doomed: FileUnits, survivor: Unit, judgement: Jud
                     referrers(directory / doomed.name, directory))
 
 
-def find_redundant(directory: Path, pool: LocalLlmPool | None, content: ContentFilter | None) -> Redundancy:
-    """Every file another file already covers. ``pool`` None lists the candidates without a model."""
-    files = [file_units(_relative_name(directory, path), read_text(path)) for path in inbox_markdown(directory)]
+def find_redundant(directory: Path, folders: list[Path], pool: LocalLlmPool | None,
+                   content: ContentFilter | None) -> Redundancy:
+    """Every file that another file of the SAME folder already covers, folder by folder (``folders`` lie in
+    the inbox ``directory``); a file is never compared with a file of another folder. ``pool`` None lists
+    the candidates without a model."""
+    total = Redundancy()
+    for folder in folders:
+        part = _find_in_folder(directory, folder, pool, content)
+        total.proposals += part.proposals
+        total.kept += part.kept
+        total.multi_section += part.multi_section
+        total.unjudged += part.unjudged
+        total.candidates += part.candidates
+        total.files += part.files
+    total.proposals.sort(key=lambda p: p.doomed)
+    return total
+
+
+def _find_in_folder(directory: Path, folder: Path, pool: LocalLlmPool | None,
+                    content: ContentFilter | None) -> Redundancy:
+    if not folder.resolve().is_relative_to(directory.resolve()):
+        raise AssistError(f"Folder '{folder}' is not inside the findings inbox '{directory}'.")
+    files = [file_units(_relative_name(directory, path), read_text(path)) for path in sorted(folder.glob("*.md"))
+             if path.is_file()]
     ranked = _ranked(files)
     result = Redundancy(files=len(files))
     jobs: list[tuple[int, FileUnits, Unit]] = []

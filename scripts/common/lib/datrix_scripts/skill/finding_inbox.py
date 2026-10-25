@@ -42,20 +42,21 @@ EXIT_KEPT = EXIT_CHECK_FAILED
 
 DEFAULT_COUNT = 10
 FINDINGS_DIR_PARTS = ("reports", "finding")
-# The areas of /merge-findings in its order, each with what it holds. The inbox's area subfolders are named by
-# them (``organize-findings.ps1``) and worked in this order.
+# The areas of /merge-findings in its order, each with what it holds. An area is the subject a finding is about
+# (a language, a platform and its services, a construct), never the package where the fix lands and never a
+# group of subjects: a DynamoDB finding fixed in the Python and TypeScript generators is ``aws``. The inbox's
+# area subfolders are named by them (``organize-findings.ps1``) and worked in this order.
 AREAS: dict[str, str] = {
-    "python": "the Python backend generator (FastAPI)",
-    "typescript": "the TypeScript backend generator (NestJS / Express) and the shared TypeScript core",
-    "backends": "both backend languages, or the shared language layer (transpiler, profiles, context builders)",
+    "python": "what is specific to the Python backend generator (FastAPI)",
+    "typescript": "what is specific to the TypeScript backend generator (NestJS / Express) and its shared TypeScript core",
     "clients": "the Angular and Flutter client targets",
     "language": "the parser, semantic analysis and the DSL",
     "migration": "schema snapshots, the migration ledger and migration adapters",
     "seed": "seed data",
-    "kernel": "shared generation, secrets, hosting, pooling, observability export",
-    "docker": "the Docker Compose platform generator",
-    "aws": "the AWS CloudFormation platform generator",
-    "azure": "the Azure Bicep / ARM platform generator",
+    "kernel": "shared generation: the framework, the shared language layer (transpiler, profiles, context builders), secrets, hosting, pooling, observability export",
+    "docker": "the Docker Compose platform and the services it runs",
+    "aws": "the AWS platform and its services (CloudFormation, DynamoDB, ...), whatever generator the fix sits in",
+    "azure": "the Azure platform and its services (Bicep / ARM, Service Bus, Search, ...), whatever generator the fix sits in",
     "component": "the platform-agnostic component generator (docs, config, scripts)",
     "tests": "red or weak test suites",
     "tooling": "scripts, gates, skills and the harness",

@@ -118,7 +118,7 @@ from datrix_scripts.skill.design_plan import (
 )
 from datrix_scripts.skill.design_xref import build_xref, render_xref
 from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
-from datrix_scripts.skill.finding_inbox import close_finding, inbox_dir, select_findings
+from datrix_scripts.skill.finding_inbox import close_finding, inbox_dir, inbox_folders, select_findings
 from datrix_scripts.skill.findings import build_index, check_consolidation, render_check, render_index
 from datrix_scripts.skill.findings_assemble import (
     apply_assembly,
@@ -242,13 +242,27 @@ def cmd_findings_check(args: argparse.Namespace) -> int:
 REDUNDANT_PLAN = "findings-redundant.json"
 
 
+def _redundancy_folders(workspace: Path, spec: str | None) -> tuple[Path, list[Path]]:
+    """The inbox and the folders to compare in, each on its own. Without ``spec`` that is every subfolder of
+    the inbox, then the inbox's loose files; ``spec`` narrows it to that one folder, absolute or relative to
+    the inbox (a folder outside the inbox is its own inbox)."""
+    inbox = workspace.joinpath(*FINDINGS_DIR_PARTS)
+    if not spec:
+        return inbox, inbox_folders(inbox)
+    given = Path(spec)
+    folder = given if given.is_absolute() else inbox / given
+    if not folder.is_dir():
+        raise AssistError(f"Findings folder {folder} does not exist. Pass --dir with the folder to read.")
+    return (inbox if folder.resolve().is_relative_to(inbox.resolve()) else folder), [folder]
+
+
 def cmd_findings_redundant(args: argparse.Namespace) -> int:
     workspace = _workspace(args)
-    directory = _findings_dir(workspace, args.dir)
+    directory, folders = _redundancy_folders(workspace, args.dir)
     if args.no_model:
-        result = findings_redundant.find_redundant(directory, None, None)
+        result = findings_redundant.find_redundant(directory, folders, None, None)
     else:
-        result = findings_redundant.find_redundant(directory, _pool(args), ContentFilter(workspace))
+        result = findings_redundant.find_redundant(directory, folders, _pool(args), ContentFilter(workspace))
     plan = write_output(workspace, REDUNDANT_PLAN, findings_redundant.plan_json(result))
     view = write_output(workspace, "findings-redundant.md", findings_redundant.render(result, plan))
     print(f"Plan JSON: {plan}")
@@ -261,7 +275,7 @@ def cmd_findings_redundant(args: argparse.Namespace) -> int:
 
 def cmd_findings_redundant_delete(args: argparse.Namespace) -> int:
     workspace = _workspace(args)
-    directory = _findings_dir(workspace, args.dir)
+    directory, _folder = _redundancy_folders(workspace, args.dir)
     plan = Path(args.plan) if args.plan else output_dir(workspace) / REDUNDANT_PLAN
     result = findings_redundant.delete_redundant(directory, findings_redundant.load_plan(plan))
     print(result.check_report, end="")
@@ -513,10 +527,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--keep-raw", action="store_true",
                      help="Raw files may remain (/merge-findings keeps every distinct finding in place)")
     sub = command("findings-redundant", cmd_findings_redundant, model=True)
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--dir", help="Compare in this one folder only, absolute or relative to "
+                     "<workspace>/reports/finding (e.g. python). Default: each subfolder in turn, never across "
+                     "folders")
     sub.add_argument("--no-model", action="store_true", help="Find the candidate pairs only; propose nothing")
     sub = command("findings-redundant-delete", cmd_findings_redundant_delete, model=False)
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--dir", help="The folder findings-redundant compared (default: the inbox, which holds "
+                     "every folder's file names)")
     sub.add_argument("--plan", help="Plan JSON (default: <workspace>/.tmp/assist/findings-redundant.json)")
     sub = command("findings-plan", cmd_findings_plan, model=True)
     sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")

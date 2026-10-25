@@ -20,7 +20,8 @@ MOVE
     another, so there is exactly one level. A move never overwrites: when the target name exists, the file
     stays and the run fails.
 
-The areas are those of /merge-findings, in its order. A finding that names the sorted folder's files keeps
+The areas are those of /merge-findings, in its order: each the subject a finding is about, so that the
+subfolders can be worked in the order of the project's priorities. A finding that names the sorted folder's files keeps
 its pointers (they name the file stem, not a path). ``finding-select``, ``finding-close`` and
 ``implement-finding.ps1`` work the area subfolders in turn, or one given with ``--dir``.
 
@@ -90,9 +91,10 @@ _MERGED: Final = re.compile(r"^\d{4}-([a-z]+)-.+$")
 PLACE_SYSTEM: Final = (
     "You file findings about Datrix, a multi-language code generator, into folders by area. You see only "
     "file names, each ending in a slug that describes the defect. For each file name, answer the one area "
-    "whose code owns the fix. Areas: " + "; ".join(f"{area} ({what})" for area, what in AREAS.items())
-    + ". Use the most specific area; a defect seen on several targets with one shared remedy goes to the "
-    "shared area. Answer every file name exactly as given, once.")
+    "that names the subject the defect is about, not the package where the fix lands. Areas: "
+    + "; ".join(f"{area} ({what})" for area, what in AREAS.items())
+    + ". Use the most specific subject: a defect about a platform's service goes to that platform even when "
+    "the fix sits in a language generator. Answer every file name exactly as given, once.")
 PLACE_SCHEMA: Final[dict[str, object]] = {
     "type": "object",
     "properties": {"files": {"type": "array", "items": {

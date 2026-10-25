@@ -374,7 +374,7 @@ def check_findings_redundant_proposes_only_what_a_checked_same_verdict_and_the_c
     with _workspace() as root:
         folder = _redundancy_folder(root)
         with LoopbackOllama(_redundancy_reply) as server:
-            result = find_redundant(folder, _pool(server), ContentFilter(root))
+            result = find_redundant(folder, [folder], _pool(server), ContentFilter(root))
         proposed = {p.doomed: p for p in result.proposals}
         assert list(proposed) == ["20261001-000001-dup.md"], list(proposed)
         dup = proposed["20261001-000001-dup.md"]
@@ -393,7 +393,7 @@ def check_findings_redundant_delete_proves_every_condition_before_it_removes_a_f
     with _workspace() as root:
         folder = _redundancy_folder(root)
         with LoopbackOllama(_redundancy_reply) as server:
-            proposals = find_redundant(folder, _pool(server), ContentFilter(root)).proposals
+            proposals = find_redundant(folder, [folder], _pool(server), ContentFilter(root)).proposals
         dup = folder / "20261001-000001-dup.md"
         original = dup.read_text(encoding="utf-8")
         write_file(dup, original + "\nA detail added after the judgement.\n")
@@ -420,7 +420,7 @@ def check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_d
         near = write_file(folder / "20261001-000001-near.md",
                           f"# Near\n\n{_HEADER_QUOTE} at `datrix-alpha/src/c.py:7`.\n")
         with LoopbackOllama(_redundancy_reply) as server:
-            proposals = find_redundant(folder, _pool(server), ContentFilter(root)).proposals
+            proposals = find_redundant(folder, [folder], _pool(server), ContentFilter(root)).proposals
         assert [p.doomed for p in proposals] == [near.name], proposals
         assert not proposals[0].delete and "c.py:7" in proposals[0].exact, proposals[0]
         proposals[0].delete = True
@@ -432,18 +432,24 @@ def check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_d
         assert delete_redundant(folder, proposals).deleted == [near.name] and not near.exists()
 
 
-def check_findings_redundant_compares_across_the_inbox_subfolders_by_relative_path() -> None:
+def check_findings_redundant_compares_one_folder_only_and_names_files_by_relative_path() -> None:
     with _workspace() as root:
         inbox = root / "reports/finding"
         keep = write_file(inbox / "azure/20261001-000000-keep.md",
                           f"# Keep\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/b.py:2`.\n")
-        dup = write_file(inbox / "docker/20261001-000001-dup.md",
+        write_file(inbox / "docker/20261001-000001-dup.md",
+                   f"# Dup\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1`.\n")
+        folders = [inbox / "azure", inbox / "docker", inbox / "tooling"]
+        with LoopbackOllama(_redundancy_reply) as server:
+            other = find_redundant(inbox, [inbox / "azure", inbox / "docker"], _pool(server), ContentFilter(root))
+        assert other.files == 2 and not other.proposals and not other.candidates, other
+        dup = write_file(inbox / "azure/20261001-000001-dup.md",
                          f"# Dup\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1`.\n")
         pointer = write_file(inbox / "tooling/20261001-000002-ref.md", f"# Ref\n\nSee {dup.stem}.\n")
         with LoopbackOllama(_redundancy_reply) as server:
-            proposals = find_redundant(inbox, _pool(server), ContentFilter(root)).proposals
+            proposals = find_redundant(inbox, folders, _pool(server), ContentFilter(root)).proposals
         assert [(p.doomed, p.survivor) for p in proposals] == [
-            ("docker/20261001-000001-dup.md", "azure/20261001-000000-keep.md")], proposals
+            ("azure/20261001-000001-dup.md", "azure/20261001-000000-keep.md")], proposals
         assert proposals[0].referrers == ["tooling/20261001-000002-ref.md"], proposals[0].referrers
         blocked = delete_redundant(inbox, proposals)
         assert not blocked.passed and "named by tooling/" in blocked.problems[0] and dup.exists(), blocked
@@ -453,7 +459,7 @@ def check_findings_redundant_compares_across_the_inbox_subfolders_by_relative_pa
         assert not escaped.passed and "outside the findings folder" in escaped.problems[0] and outside.exists()
         pointer.unlink()
         done = delete_redundant(inbox, proposals)
-        assert done.deleted == ["docker/20261001-000001-dup.md"] and not dup.exists() and keep.exists(), done
+        assert done.deleted == ["azure/20261001-000001-dup.md"] and not dup.exists() and keep.exists(), done
 
 
 def check_findings_redundant_commands_exit_with_the_assist_codes() -> None:
@@ -1200,7 +1206,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_redundant_proposes_only_what_a_checked_same_verdict_and_the_citations_prove,
     check_findings_redundant_delete_proves_every_condition_before_it_removes_a_file,
     check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_does_not_cite,
-    check_findings_redundant_compares_across_the_inbox_subfolders_by_relative_path,
+    check_findings_redundant_compares_one_folder_only_and_names_files_by_relative_path,
     check_findings_redundant_commands_exit_with_the_assist_codes,
     check_implement_finding_selects_the_first_files_by_name,
     check_finding_select_and_close_work_the_inbox_subfolders,
