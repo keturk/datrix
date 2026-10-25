@@ -22,6 +22,9 @@
         session (up to -MaxRounds sessions per unit); every response re-reads the whole context, so
         short sessions cost far less than one long one. Implement is done only when the sweep session
         leaves a ledger with no unchecked unit and a "## Files changed" section.
+      * before each unit and sweep session, a fresh interpreter loads every registered plugin. A failure
+        (another session's half-finished edit, say) stops the chain with 1 and prints the end of the
+        error; rerun once it loads, and the run resumes at the first unchecked unit.
       * absorb runs only after verify replies "Design conformance: PROVEN". That reply is kept at
         <workspace>\.tmp\verify-proven-<design file name>.md and passed to absorb as VERIFIED, its
         licence to delete the design; -StartAt absorb needs that file from an earlier run. On
