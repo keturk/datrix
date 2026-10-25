@@ -237,6 +237,17 @@ Compare two runs of one package: `SUCCESS`, `PARTIAL`, `NO_CHANGE` or `REGRESSIO
 
 Parameters: `-Previous`, `-Current` (run dirs or `index.json` paths, same project), `-Dbg`, `-SelfTest`. Exit: 0 SUCCESS, 1 PARTIAL / NO_CHANGE / REGRESSION, 2 usage error.
 
+## `test\failure-ledger.ps1`
+
+Whether a multi-suite fix job is finished, by test id: store the starting `index.json` runs, then replay every later run of each package and list the ids still open. Open = the last run covering the id's file failed it (`FAILING`), no run since covered its file (`NOT-RERUN`), or it failed in a later run and in no starting run (`NEW`). A full run, or a `-Specific` run naming the file or its directory, covers it; a `-Tag` / `-Keyword` run covers nothing. Finished at zero open ids.
+
+| Form | Command |
+|------|---------|
+| Store the starting runs | `.\test\failure-ledger.ps1 -Runs <index.json>,<index.json>` |
+| Open ids now | `.\test\failure-ledger.ps1 -Status` |
+
+Parameters: `-Runs <index.json,...>`, `-Status`, `-Dbg`, `-SelfTest`. Exit: 0 no open id (or runs stored), 1 open ids, 2 usage error.
+
 ## `test\gate-verdict.ps1`
 
 GREEN/RED verdict for the newest run of each requested package; no results, in-progress or any failure is RED.
