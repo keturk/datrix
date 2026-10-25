@@ -1,0 +1,32 @@
+- id: documentation.doc-comments.function-doc-block
+  tags: [parity, documentation, hidden-text]
+  input: doc-comments
+  stage: parity
+  observer: documentation_surfaces
+  selector: {facet: marker-lines, marker: Returns the written form unchanged}
+  expectation: ['Returns the written form unchanged, joiners included: क्[U+200C]ष, 👩[U+200D]💻, ❤[U+FE0F].']
+  reason: A service function's doc block (a docstring, a JSDoc block) has no escape grammar, so every language writes each text-shaping code point of the author's text as [U+HHHH], the same way, and keeps none raw.
+- id: documentation.doc-comments.enum-value-doc-block
+  tags: [parity, documentation, hidden-text]
+  input: doc-comments
+  stage: parity
+  observer: documentation_surfaces
+  selector: {facet: marker-lines, marker: Devanagari or emoji script}
+  expectation: ['Devanagari or emoji script, joiners included: क्[U+200C]ष, 👩[U+200D]💻, ❤[U+FE0F].']
+  reason: An enum value's doc text lands in a doc block on every language (the enum's docstring, the value's JSDoc block), spelled [U+HHHH] the same way.
+- id: documentation.doc-comments.endpoint-description
+  tags: [parity, documentation, hidden-text]
+  input: doc-comments
+  stage: parity
+  observer: documentation_surfaces
+  selector: {facet: marker-lines, marker: Finds terms by their written form}
+  expectation: ['Finds terms by their written form, joiners included: क्<U+200C>ष, 👩<U+200D>💻, ❤<U+FE0F>.']
+  reason: An endpoint's published API description is a string literal, so its escaper writes the text-shaping code points as escapes and the description decodes to the author's exact text on every language; no language spells it [U+HHHH] or drops a code point.
+- id: documentation.doc-comments.field-description
+  tags: [parity, documentation, hidden-text]
+  input: doc-comments
+  stage: parity
+  observer: documentation_surfaces
+  selector: {facet: marker-lines, marker: The written form of the term}
+  expectation: ['The written form of the term, joiners included: क्<U+200C>ष, 👩<U+200D>💻, ❤<U+FE0F>.']
+  reason: A field's published schema description decodes to the author's exact text on every language, joiners and the emoji selector included.
