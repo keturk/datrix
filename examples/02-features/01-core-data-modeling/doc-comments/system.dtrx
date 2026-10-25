@@ -1,0 +1,4 @@
+include 'term-service.dtrx';
+
+system glossary.System('config/system.dcfg') : version('1.0.0') {
+}

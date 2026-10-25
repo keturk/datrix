@@ -1,0 +1,61 @@
+
+// A glossary service whose documentation quotes terms in their written form.
+// '///' (and '/** ... */') comments are published: they become the OpenAPI
+// description, the schema field description, the docstring or JSDoc, and the
+// database COMMENT. Plain '//' comments are source notes, carried into the
+// generated code as comments only.
+//
+// The quoted terms hold the three text-shaping code points a comment may keep:
+// U+200C ZERO WIDTH NON-JOINER (the Devanagari half form in क्‌ष), U+200D ZERO
+// WIDTH JOINER (the emoji sequence 👩‍💻) and U+FE0F VARIATION SELECTOR-16 (the
+// emoji form of ❤️). Published API descriptions carry them exactly; every
+// generated comment, docstring and database comment writes each one as
+// [U+HHHH] so a reader sees it.
+service glossary.TermService('config/term-service.dcfg') : version('1.0.0'), description('Glossary term service') {
+
+    discovery { }
+
+    enum TermScript {
+        /// Devanagari or emoji script, joiners included: क्‌ष, 👩‍💻, ❤️.
+        Joined,
+        Latin
+    }
+
+    /// Returns the written form unchanged, joiners included: क्‌ष, 👩‍💻, ❤️.
+    fn keepWrittenForm(String writtenForm) -> String {
+        return writtenForm;
+    }
+
+    rdbms glossaryDb {
+
+        /// A glossary term kept exactly as written, joiners included: क्‌ष, 👩‍💻, ❤️.
+        entity Term {
+            UUID id : primaryKey, server = uuid();
+            DateTime createdAt : server = DateTime.now();
+            /// The written form of the term, joiners included: क्‌ष, 👩‍💻, ❤️.
+            String(200) writtenForm : trim, sortable, filterable;
+            // Import note: keep the joiners in क्‌ष, 👩‍💻 and ❤️ when loading terms.
+            String(200) importedForm : trim;
+            String(500) meaning;
+            TermScript script = TermScript.Latin;
+        }
+
+    }
+
+    rest_api TermServiceAPI : basePath("/api/v1"), rdbms(glossaryDb) {
+        resource glossaryDb.Term : auth(public);
+
+        /// Finds terms by their written form, joiners included: क्‌ष, 👩‍💻, ❤️.
+        @path('/terms/by-written-form')
+        get termsByWrittenForm(String writtenForm, PageRequest page) : auth(public) -> Page<glossaryDb.Term> {
+            return glossaryDb.Term.where(writtenForm: keepWrittenForm(writtenForm)).orderBy(createdAt: desc).page(page);
+        }
+
+        // Search note: matching compares the joiners in क्‌ष, 👩‍💻 and ❤️ exactly.
+        @path('/terms/by-imported-form')
+        get termsByImportedForm(String importedForm, PageRequest page) : auth(public) -> Page<glossaryDb.Term> {
+            return glossaryDb.Term.where(importedForm: importedForm).orderBy(createdAt: desc).page(page);
+        }
+    }
+
+}
