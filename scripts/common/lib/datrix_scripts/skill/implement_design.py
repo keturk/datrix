@@ -22,6 +22,11 @@ session leaves the ledger with no unchecked unit and a ``## Files changed`` sect
 after verify replies ``Design conformance: PROVEN`` (``Chain.verify_design``); on INCOMPLETE, a plan
 session with ``GAPS:`` naming verify's saved reply adds the units, and the unit sessions run again.
 
+Before each unit and sweep session the workspace must load every registered plugin, in a fresh interpreter
+(``plugin_load_error``). A session that starts on a workspace another session has left half-edited can
+neither run its tests nor generate, and spends itself on workarounds; so a load failure stops the chain
+with 1, naming the error, and a rerun resumes at the first unchecked unit.
+
 Without ``--design`` it takes the first ``--count`` (default 10) ``*.md`` files of ``<workspace>/design``, by
 name, and runs the chain on each in turn. Later designs build on earlier ones, so the first design that does
 not finish stops the run.
@@ -38,8 +43,9 @@ import contextlib
 import io
 import os
 import re
+import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final, NoReturn
@@ -75,6 +81,36 @@ SWEEP: Final = "sweep"
 FILES_CHANGED: Final = re.compile(r"^##\s+Files changed\s*$", re.MULTILINE | re.IGNORECASE)
 NO_LEDGER: Final = "no ledger"
 DESIGN_DIR_PARTS: Final = ("design",)
+# Loads every registered language, platform, generator and client-target plugin, as a generation run does.
+PLUGIN_LOAD_SCRIPT: Final = (
+    "from datrix_codegen_kernel.generation.discovery import (get_all_generator_classes,\n"
+    "    get_registered_client_targets, get_registered_languages, get_registered_platforms)\n"
+    "for load in (get_registered_languages, get_registered_platforms, get_all_generator_classes,\n"
+    "             get_registered_client_targets):\n"
+    "    load()\n"
+)
+PLUGIN_LOAD_TIMEOUT_SECONDS: Final = 300
+PLUGIN_LOAD_TAIL_LINES: Final = 8
+
+PluginCheck = Callable[[], str]
+
+
+def plugin_load_error(script: str = PLUGIN_LOAD_SCRIPT) -> str:
+    """Why the workspace cannot load its registered plugins (*script*), as the last lines of the failure; empty
+    when every plugin loads. Runs in a fresh interpreter, so it sees the code on disk now, not what this process
+    imported."""
+    try:
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", cwd=WORKSPACE_DIR,
+                                timeout=PLUGIN_LOAD_TIMEOUT_SECONDS, check=False)
+    except subprocess.TimeoutExpired:
+        return f"loading the plugins took over {PLUGIN_LOAD_TIMEOUT_SECONDS} s"
+    except OSError as error:
+        return f"{type(error).__name__}: {error}"
+    if result.returncode == 0:
+        return ""
+    output = (result.stderr or result.stdout).strip() or f"exit {result.returncode}, no output"
+    return "\n".join(output.splitlines()[-PLUGIN_LOAD_TAIL_LINES:])
 
 
 def ledger_path(workspace: Path, design: Path) -> Path:
@@ -170,10 +206,23 @@ def plan(chain: Chain, design: Path, ledger: Path, gaps: str) -> StepRow:
     return row
 
 
-def run_unit(chain: Chain, design: Path, ledger: Path, unit: str, max_rounds: int) -> None:
-    """Run one fresh session on *unit* until its ledger row is ticked (up to *max_rounds* sessions)."""
+def require_plugins_load(chain: Chain, session: str, check: PluginCheck) -> None:
+    """Stop the chain with 1 when *check* finds the workspace cannot load its plugins, before *session* starts."""
+    error = check()
+    if error:
+        chain.stop(EXIT_FAILED, f"The workspace cannot load its registered plugins, so {session} would start on a "
+                                f"broken test bed. Fix the failure (or let the session editing it finish), then "
+                                f"rerun this script; it resumes at the first unchecked unit. The failure ends:\n"
+                                f"{error}")
+
+
+def run_unit(chain: Chain, design: Path, ledger: Path, unit: str, max_rounds: int,
+             check: PluginCheck = plugin_load_error) -> None:
+    """Run one fresh session on *unit* until its ledger row is ticked (up to *max_rounds* sessions), each after
+    *check* finds every plugin loading."""
     row: StepRow | None = None
     for round_number in range(1, max_rounds + 1):
+        require_plugins_load(chain, f"unit {unit}", check)
         row = implement_step(chain, f"unit-{unit}", implement_prompt(design, ledger, f"UNIT: {unit}"))
         stop_on_error(chain, row, f"unit {unit}")
         if unit not in unchecked_units(ledger):
@@ -183,9 +232,11 @@ def run_unit(chain: Chain, design: Path, ledger: Path, unit: str, max_rounds: in
     chain.stop(EXIT_FAILED, f"Unit {unit} is still unchecked after {max_rounds} session(s): {ledger}", row)
 
 
-def implement(chain: Chain, design: Path, ledger: Path, max_rounds: int, gaps: str = "") -> None:
+def implement(chain: Chain, design: Path, ledger: Path, max_rounds: int, gaps: str = "",
+              check: PluginCheck = plugin_load_error) -> None:
     """Implement the design as one session per step: plan (when there is no ledger, or *gaps* need units), one
-    session per unchecked unit, then the sweep, which must leave a complete ledger (up to *max_rounds* sweeps)."""
+    session per unchecked unit, then the sweep, which must leave a complete ledger (up to *max_rounds* sweeps).
+    Each unit and sweep session starts only after *check* finds every plugin loading."""
     if gaps or not ledger.is_file():
         if plan(chain, design, ledger, gaps).dry_run:
             return
@@ -198,7 +249,8 @@ def implement(chain: Chain, design: Path, ledger: Path, max_rounds: int, gaps: s
     row: StepRow | None = None
     for round_number in range(1, max_rounds + 1):
         while units := unchecked_units(ledger):
-            run_unit(chain, design, ledger, units[0], max_rounds)
+            run_unit(chain, design, ledger, units[0], max_rounds, check)
+        require_plugins_load(chain, SWEEP, check)
         row = implement_step(chain, SWEEP, sweep_prompt)
         stop_on_error(chain, row, SWEEP)
         gap = ledger_gap(ledger)
@@ -326,6 +378,36 @@ def _dry_run_lines(workspace: Path, design: Path) -> list[str]:
     return printed.getvalue().splitlines()
 
 
+def _check_a_plugin_load_failure_stops_before_the_unit_session() -> None:
+    with TemporaryDirectory() as raw:
+        workspace = Path(raw)
+        ledger = workspace / "ledger.md"
+        write_files(workspace, {ledger.name: "| U01 | a | [ ] |\n"})
+        chain = Chain(ChainOptions(workspace=workspace, dry_run=False, auto_compact_window=0), CLAUDE)
+        failure = "PluginError: Failed to load 'python' from datrix.languages\nKeyError: 'email_local_part'"
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            code = chain_exit_code(lambda: run_unit(chain, workspace / "d.md", ledger, "U01", 1, lambda: failure))
+            assert code == EXIT_FAILED, code
+            # The sweep is checked too: a ledger with every unit ticked goes straight to it.
+            write_files(workspace, {ledger.name: "| U01 | a | [x] |\n"})
+            code = chain_exit_code(lambda: implement(chain, workspace / "d.md", ledger, 1, check=lambda: failure))
+            assert code == EXIT_FAILED, code
+    text = printed.getvalue()
+    assert "so unit U01 would start on a broken test bed" in text, text
+    assert "so sweep would start on a broken test bed" in text, text
+    assert text.count("KeyError: 'email_local_part'") == 2, text
+    assert "=== step" not in text, text
+
+
+def _check_the_plugin_load_error_is_the_tail_of_a_fresh_interpreter_failure() -> None:
+    assert plugin_load_error("pass\n") == ""
+    error = plugin_load_error("import sys\nprint('noise')\nraise KeyError('email_local_part')\n")
+    assert error.splitlines()[-1] == "KeyError: 'email_local_part'", error
+    assert len(error.splitlines()) <= PLUGIN_LOAD_TAIL_LINES, error
+    assert compile(PLUGIN_LOAD_SCRIPT, "<plugin-load>", "exec") is not None
+
+
 def _check_a_dry_run_prints_the_implement_sessions_verify_and_absorb() -> None:
     with TemporaryDirectory() as raw:
         workspace = Path(raw)
@@ -359,6 +441,8 @@ def _run(args: argparse.Namespace) -> int:
         checks = [*CHAIN_CHECKS, _check_designs_are_selected_by_name_and_count,
                   _check_the_ledger_gap_is_read_from_the_ledger,
                   _check_a_missing_design_or_ledger_stops_before_any_step,
+                  _check_a_plugin_load_failure_stops_before_the_unit_session,
+                  _check_the_plugin_load_error_is_the_tail_of_a_fresh_interpreter_failure,
                   _check_a_dry_run_prints_the_implement_sessions_verify_and_absorb]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SKILL_SCRIPTS_DIR)
 

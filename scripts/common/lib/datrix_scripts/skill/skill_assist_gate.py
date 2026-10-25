@@ -683,7 +683,8 @@ def check_absorb_references_find_name_number_and_title_but_not_task_folders() ->
                                                 "Enough Title.\n")
         write_file(root / "datrix-alpha/.tasks/phase-07/task-07-01-x.md", "Design reference: design 042\n")
         write_file(root / "design/050-later-design.md", "Port 1042, version 042.5, v042x.\nBuilds on 042 D1.\n"
-                                                        "Keeps 042's gate.\n")
+                                                        "Keeps 042's gate.\nSee `builder.py:042-109`, "
+                                                        "`b.py:042`, `c.py:30-042`.\n")
         found = {(r.file, r.line) for r in find_references(root, design, [])}
         assert found == {("datrix-alpha/docs/a.md", 1), ("datrix-alpha/docs/b.md", 1),
                          ("design/050-later-design.md", 2), ("design/050-later-design.md", 3)}, found
