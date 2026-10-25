@@ -11,7 +11,8 @@ commits each set separately, and pushes each repo once.
 Themes are areas, not top-level folders: container directories (src\<package>,
 tests\<tier>, scripts, examples) are stepped through, so a generator and its tests
 land in one commit while an unrelated docs edit gets its own. Each message
-describes one coherent change, which is what keeps subjects within 72 characters.
+describes one coherent change, which keeps subjects short; one over 72 characters is
+cropped to 72.
 
 Message source is chosen automatically:
  * The local machines (-LocalMachines) are searched for an Ollama server on port
