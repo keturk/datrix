@@ -30,11 +30,14 @@ refuses -- writing nothing -- when it would be wrong or incomplete:
   behind from the original, and the original imports the moved names it still uses, so moved code
   may use what stays only when nothing that stays uses it back;
 - an ``__all__`` in the original naming a moved name;
-- an importer the rewrite cannot reach: ``alias.<moved name>`` on the module object, or an import
-  statement sharing its line with other code.
+- an importer the rewrite cannot reach: an import statement sharing its line with other code.
+
+A module-object read ``alias.<moved name>`` is pointed at the module the name moved to: ``alias``
+becomes that module's stem and ``from <package> import <stem>`` is added below the statement that
+bound ``alias``.
 
 ``ruff check --select F401,I001 --fix`` then prunes and sorts the imports of the new modules and
-the original. ``--dry-run`` prints everything the split would do and writes nothing.
+the original, and of every importer that got an added import and had no such finding before. ``--dry-run`` prints everything the split would do and writes nothing.
 
 The module behind ``codemods/split-module.ps1`` (and its ``.sh`` twin).
 
@@ -86,6 +89,7 @@ PLAN_DOC_KEY: Final[str] = "doc"
 PLAN_RANGE_KEY: Final[str] = "range"
 PLAN_NAMES_KEY: Final[str] = "names"
 MAX_SINGLE_LINE_IMPORT: Final[int] = 100
+MAX_COLUMN: Final[int] = 1 << 30
 RUFF_RULES: Final[str] = "F401,I001"
 WRITE_ENCODING: Final[str] = "utf-8"
 BLANK_LINES_BEFORE_DEFINITIONS: Final[str] = "\n\n"
@@ -128,6 +132,42 @@ class ImporterEdit:
     first_line: int
     last_line: int
     replacement: str
+
+    @property
+    def sort_key(self) -> tuple[int, int]:
+        return (self.first_line, 0)
+
+
+@dataclass(frozen=True)
+class AttributeEdit:
+    """One module-object read ``alias.<moved name>`` whose ``alias`` now names the module the name moved to."""
+
+    path: Path
+    first_line: int
+    column: int
+    end_column: int
+    replacement: str
+
+    @property
+    def sort_key(self) -> tuple[int, int]:
+        return (self.first_line, self.column)
+
+
+@dataclass(frozen=True)
+class ImportInsert:
+    """One import line added below the statement that bound the old module alias."""
+
+    path: Path
+    first_line: int
+    after_line: int
+    text: str
+
+    @property
+    def sort_key(self) -> tuple[int, int]:
+        return (self.after_line, MAX_COLUMN)
+
+
+SourceEdit = ImporterEdit | AttributeEdit | ImportInsert
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +433,7 @@ def render_remainder(module: SourceModule, homes: Mapping[str, str], package: st
 # ---------------------------------------------------------------------------
 
 
-def _statement_owns_its_lines(lines: Sequence[str], node: ast.ImportFrom) -> bool:
+def _statement_owns_its_lines(lines: Sequence[str], node: ast.Import | ast.ImportFrom) -> bool:
     end_line = _end_line(node)
     before = lines[node.lineno - 1][: node.col_offset]
     after = lines[end_line - 1][node.end_col_offset or 0 :].strip()
@@ -448,18 +488,39 @@ def _has_text_reference(path: Path, original: str, moved: Mapping[str, str]) -> 
     return _text_reference_pattern(original, moved).search(text) is not None
 
 
+def _attribute_edits(
+    path: Path, lines: Sequence[str], tree: ast.Module, bindings: ModuleBindings, package: str,
+    moved: Mapping[str, str], relative: str,
+) -> tuple[list[SourceEdit], list[str]]:
+    """Point every ``alias.<moved name>`` read at the module the name moved to, importing that module
+    next to the statement that bound the old alias."""
+    edits: list[SourceEdit] = []
+    blockers: list[str] = []
+    inserted: set[tuple[int, str]] = set()
+    for node in bindings.attribute_reads(tree, frozenset(moved)):
+        if not isinstance(node.value, ast.Name) or node.value.end_col_offset is None:
+            continue
+        binding = bindings.module_aliases[node.value.id]
+        if not _statement_owns_its_lines(lines, binding):
+            blockers.append(f"{relative}:{binding.lineno}: the import binding {node.value.id!r} shares its line with other code")
+            continue
+        stem = moved[node.attr]
+        edits.append(AttributeEdit(path, node.value.lineno, node.value.col_offset, node.value.end_col_offset, stem))
+        if (id(binding), stem) not in inserted:
+            inserted.add((id(binding), stem))
+            text = " " * binding.col_offset + f"from {package} import {stem}\n"
+            edits.append(ImportInsert(path, binding.lineno, _end_line(binding), text))
+    return edits, blockers
+
+
 def _importer_edits(
     path: Path, original: str, moved: Mapping[str, str], workspace: Path
-) -> tuple[list[ImporterEdit], list[str]]:
+) -> tuple[list[SourceEdit], list[str]]:
     tree = parse_source(path)
     lines = source_lines(path)
     bindings = ModuleBindings(path, tree, frozenset({original}))
     relative = display_path(path, workspace)
-    blockers = [
-        f"{relative}:{node.lineno}: {ast.unparse(node)} reads a moved name off the module object"
-        for node in bindings.attribute_reads(tree, frozenset(moved))
-    ]
-    edits: list[ImporterEdit] = []
+    edits, blockers = _attribute_edits(path, lines, tree, bindings, original.rpartition(".")[0], moved, relative)
     for node, _ in bindings.from_imports:
         if not any(alias.name in moved for alias in node.names):
             continue
@@ -488,10 +549,10 @@ def _text_reference_files(workspace: Path) -> list[Path]:
 
 def plan_importers(
     original: str, moved: Mapping[str, str], skip: frozenset[Path], workspace: Path
-) -> tuple[list[ImporterEdit], list[Path], list[str]]:
+) -> tuple[list[SourceEdit], list[Path], list[str]]:
     """Every importer edit the split needs, every file spelling a dotted path to a moved name, and every
     reason the split cannot be completed."""
-    edits: list[ImporterEdit] = []
+    edits: list[SourceEdit] = []
     text_files: list[Path] = []
     blockers: list[str] = []
     for path in scanned_files(workspace):
@@ -517,14 +578,21 @@ def apply_text_rewrites(paths: Sequence[Path], original: str, moved: Mapping[str
         path.write_bytes(rewrite_text_references(text, original, moved).encode(WRITE_ENCODING))
 
 
-def apply_edits(edits: Sequence[ImporterEdit]) -> None:
-    by_path: dict[Path, list[ImporterEdit]] = {}
+def apply_edits(edits: Sequence[SourceEdit]) -> None:
+    """Apply every edit bottom-up, so an earlier edit never shifts the lines of a later one."""
+    by_path: dict[Path, list[SourceEdit]] = {}
     for edit in edits:
         by_path.setdefault(edit.path, []).append(edit)
     for path, file_edits in by_path.items():
         lines = source_lines(path)
-        for edit in sorted(file_edits, key=lambda item: item.first_line, reverse=True):
-            lines[edit.first_line - 1 : edit.last_line] = [edit.replacement]
+        for edit in sorted(file_edits, key=lambda item: item.sort_key, reverse=True):
+            if isinstance(edit, ImporterEdit):
+                lines[edit.first_line - 1 : edit.last_line] = [edit.replacement]
+            elif isinstance(edit, AttributeEdit):
+                line = lines[edit.first_line - 1]
+                lines[edit.first_line - 1] = line[: edit.column] + edit.replacement + line[edit.end_column :]
+            else:
+                lines.insert(edit.after_line, edit.text)
         path.write_text("".join(lines), encoding=WRITE_ENCODING)
 
 
@@ -559,6 +627,16 @@ def find_ruff() -> str:
     return ruff
 
 
+def clean_files(ruff: str, paths: Sequence[Path]) -> list[Path]:
+    """The files among *paths* with no unused or unsorted import, so a fix there changes only the split's edits."""
+    if not paths:
+        return []
+    command = [ruff, "check", "--select", RUFF_RULES, "--output-format", "concise", *map(str, paths)]
+    output = subprocess.run(command, capture_output=True, text=True, check=False).stdout
+    dirty = {Path(match.group(1)).resolve() for match in re.finditer(r"^(.+?):\d+:\d+: ", output, re.MULTILINE)}
+    return [path for path in paths if path.resolve() not in dirty]
+
+
 def run_ruff(ruff: str, paths: Sequence[Path]) -> None:
     command = [ruff, "check", "--select", RUFF_RULES, "--fix", "--quiet", *map(str, paths)]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -575,7 +653,7 @@ class SplitPlan:
     outputs: dict[Path, str]
     remainder: str
     kept_count: int
-    edits: list[ImporterEdit]
+    edits: list[SourceEdit]
     text_files: list[Path]
     original: str
     moved: dict[str, str]
@@ -641,15 +719,17 @@ def split(args: argparse.Namespace, workspace: Path) -> int:
     if args.dry_run:
         print("Dry run: nothing was written.")
         return EXIT_OK
+    module_readers = sorted({edit.path for edit in plan.edits if not isinstance(edit, ImporterEdit)})
+    tidy = clean_files(ruff, module_readers)
     for path, content in plan.outputs.items():
         path.write_text(content, encoding=WRITE_ENCODING)
     plan.target.write_text(plan.remainder, encoding=WRITE_ENCODING)
     apply_edits(plan.edits)
     apply_text_rewrites(plan.text_files, plan.original, plan.moved)
-    run_ruff(ruff, [plan.target, *plan.outputs])
+    run_ruff(ruff, [plan.target, *plan.outputs, *tidy])
     print(
-        f"Split {plan.target.name} into {len(plan.outputs)} new module(s); rewrote {len(plan.edits)} import "
-        f"statement(s) and the dotted paths in {len(plan.text_files)} file(s)."
+        f"Split {plan.target.name} into {len(plan.outputs)} new module(s); made {len(plan.edits)} importer "
+        f"edit(s) and rewrote the dotted paths in {len(plan.text_files)} file(s)."
     )
     return EXIT_OK
 
@@ -779,12 +859,29 @@ def _check_a_bad_plan_is_refused_and_nothing_written() -> None:
     expect_usage_error(lambda: run_split(build_parser().parse_args([]), WORKSPACE_DIR), "-Module")
 
 
+def _check_module_object_reads_follow_the_moved_name() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        module, plan, importer = _planted_workspace(root, {"_alpha": {PLAN_DOC_KEY: "Alpha.", PLAN_NAMES_KEY: ["alpha"]}})
+        importer.write_text(
+            "from planted_pkg import big\n\n\ndef both() -> int:\n    return big.alpha() + big.beta()\n",
+            encoding=WRITE_ENCODING,
+        )
+        code, text = _quiet_split([f"--module={module}", f"--plan={plan}"], root)
+        assert code == EXIT_OK, text
+        assert importer.read_text(encoding=WRITE_ENCODING) == (
+            "from planted_pkg import _alpha, big\n\n\n"
+            "def both() -> int:\n    return _alpha.alpha() + big.beta()\n"
+        ), importer.read_text(encoding=WRITE_ENCODING)
+
+
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
         checks = [_check_a_planted_module_is_split_and_its_importer_rewritten,
                   _check_moved_code_imports_what_stays_from_the_original,
                   _check_an_importer_with_a_form_feed_is_rewritten,
                   _check_dotted_paths_in_text_are_rewritten_and_line_endings_kept,
+                  _check_module_object_reads_follow_the_moved_name,
                   _check_a_bad_plan_is_refused_and_nothing_written]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
                              folder=CODEMODS_SCRIPTS_DIR)
