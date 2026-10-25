@@ -491,6 +491,20 @@ none new), `PARTIAL`, `NO_CHANGE`, or `REGRESSION` (new failures). Writes `run-d
 
 Module: `datrix_scripts.classify_run_delta`.
 
+### `failure-ledger.ps1`
+
+The finish line of a multi-suite fix job, kept by test id. `-Runs` stores the job's starting `index.json`
+files; `-Status` loads, per package, every `.test_results/test-results-*/index.json` at or after its earliest
+starting run and replays them in time order. A test id's verdict is that of the last run that mentioned it:
+failed (`FAILING`), or passed by a later run that covers its test file (a full run, or a `-Specific` run naming
+the file or a directory holding it). An id no later run has covered is `NOT-RERUN`; an id that failed in a
+later run and in no starting run is `NEW`. `index.json` lists failures only, so a `-Tag` or `-Keyword` run
+covers nothing here. The job is finished at zero open ids. Warnings are not in `index.json`
+(`extract-warnings.ps1`).
+
+Module: `datrix_scripts.test.failure_ledger`; POSIX twin `test\failure-ledger.sh` (`--runs`, `--status`,
+`--dbg`, `--self-test`).
+
 ### `gate-verdict.ps1`
 
 Aggregates the newest run of each requested package into a GREEN/RED gate verdict — one console line per
