@@ -37,7 +37,7 @@ Parameters: `-Count` (default 10), `-Finding`, `-Dir` (absolute, or relative to 
 
 ## `skill\organize-findings.ps1`
 
-Sort findings files lying directly in the findings folder into one level of area subfolders, by file name.
+Sort findings files lying directly in the findings folder into one level of area subfolders, by file name. Run by `/organize-findings`.
 
 | Form | Command |
 |------|---------|
