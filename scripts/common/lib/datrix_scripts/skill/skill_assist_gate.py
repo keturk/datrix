@@ -475,6 +475,17 @@ def check_findings_redundant_candidates_need_the_survivor_to_hold_the_keywords_o
         result = find_redundant(folder, [folder], None, None)
         pairs = sorted((k.file, k.other) for k in result.unjudged)
         assert pairs == [("20261001-000001-inside.md", "20261001-000000-keep.md")], pairs
+        # A Keywords line is the file's keywords; the prose around it adds none.
+        other = root / "reports/finding/second"
+        write_file(other / "20261001-000000-keep.md",
+                   "# Keep\n\nThe emitter drops `alpha_table`, `BetaThing` and `gamma_idx`, and also `delta_x`, "
+                   "`epsilon_y` and `zeta_q` at `datrix-alpha/src/a.py:1`.\n")
+        write_file(other / "20261001-000001-authored.md",
+                   "# Authored\n\n- **Keywords:** `alpha_table`, `BetaThing`, `gamma_idx`\n\n"
+                   "The emitter drops them; also see `omega_q`, `sigma_z` and `tau_w`.\n")
+        listed = find_redundant(folder, [other], None, None).unjudged
+        assert [(k.file, k.other) for k in listed] == [
+            ("second/20261001-000001-authored.md", "second/20261001-000000-keep.md")], listed
 
 
 def check_findings_redundant_commands_exit_with_the_assist_codes() -> None:

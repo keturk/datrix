@@ -20,17 +20,18 @@ its header, the unclaimed definitions and imports of the moved names it still us
 
 The original module does NOT re-export what moved: every symbol keeps one import path. Every
 ``from <original> import <moved name>`` in the workspace (``datrix_scripts.import_sites``) is
-rewritten to the new home instead. The split refuses -- writing nothing -- when it would be
-wrong or incomplete:
+rewritten to the new home instead, and so is the dotted path ``<original>.<moved name>`` (or
+``<original>:<moved name>``) written as text in any ``src/`` file or ``pyproject.toml`` (a
+docstring cross-reference, a ``.dal`` adapter path), byte for byte so line endings stay. The split
+refuses -- writing nothing -- when it would be wrong or incomplete:
 
 - a definition claimed twice, an unknown name, a reversed range, a claimed ``pytestmark``;
 - an import cycle among the new modules and the original: moved code imports the names left
   behind from the original, and the original imports the moved names it still uses, so moved code
   may use what stays only when nothing that stays uses it back;
 - an ``__all__`` in the original naming a moved name;
-- an importer the rewrite cannot reach: ``alias.<moved name>`` on the module object, an import
-  statement sharing its line with other code, or the dotted path ``<original>.<moved name>``
-  (or ``<original>:<moved name>``) written as text in a source or ``pyproject.toml`` file.
+- an importer the rewrite cannot reach: ``alias.<moved name>`` on the module object, or an import
+  statement sharing its line with other code.
 
 ``ruff check --select F401,I001 --fix`` then prunes and sorts the imports of the new modules and
 the original. ``--dry-run`` prints everything the split would do and writes nothing.
@@ -50,6 +51,7 @@ import ast
 import contextlib
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -423,18 +425,27 @@ def display_path(path: Path, workspace: Path) -> str:
     return resolved.relative_to(workspace).as_posix() if resolved.is_relative_to(workspace) else resolved.as_posix()
 
 
-def _text_references(path: Path, original: str, moved: Mapping[str, str], workspace: Path) -> list[str]:
+def _text_reference_pattern(original: str, moved: Mapping[str, str]) -> re.Pattern[str]:
+    """``<original>.<moved name>`` and ``<original>:<moved name>`` as they are written in text."""
+    names = "|".join(re.escape(name) for name in sorted(moved, key=len, reverse=True))
+    return re.compile(rf"(?<![\w.]){re.escape(original)}([.:])({names})(?!\w)")
+
+
+def rewrite_text_references(text: str, original: str, moved: Mapping[str, str]) -> str:
+    """*text* with every dotted path to a moved name pointing at the name's new module."""
+    package = original.rpartition(".")[0]
+    return _text_reference_pattern(original, moved).sub(
+        lambda match: f"{package}.{moved[match.group(2)]}{match.group(1)}{match.group(2)}", text
+    )
+
+
+def _has_text_reference(path: Path, original: str, moved: Mapping[str, str]) -> bool:
     try:
-        text = path.read_text(encoding=SOURCE_ENCODING)
+        text = path.read_bytes().decode(SOURCE_ENCODING)
     except UnicodeDecodeError:
         # A binary asset (image, font, compiled grammar) cannot spell a dotted Python path.
-        return []
-    return [
-        f"{display_path(path, workspace)}: text reference {needle!r}"
-        for name in sorted(moved)
-        for needle in (f"{original}.{name}", f"{original}:{name}")
-        if needle in text
-    ]
+        return False
+    return _text_reference_pattern(original, moved).search(text) is not None
 
 
 def _importer_edits(
@@ -477,9 +488,11 @@ def _text_reference_files(workspace: Path) -> list[Path]:
 
 def plan_importers(
     original: str, moved: Mapping[str, str], skip: frozenset[Path], workspace: Path
-) -> tuple[list[ImporterEdit], list[str]]:
-    """Every importer edit the split needs, and every reason it cannot be completed."""
+) -> tuple[list[ImporterEdit], list[Path], list[str]]:
+    """Every importer edit the split needs, every file spelling a dotted path to a moved name, and every
+    reason the split cannot be completed."""
     edits: list[ImporterEdit] = []
+    text_files: list[Path] = []
     blockers: list[str] = []
     for path in scanned_files(workspace):
         if path.resolve() in skip:
@@ -492,9 +505,16 @@ def plan_importers(
         edits.extend(file_edits)
         blockers.extend(file_blockers)
     for path in _text_reference_files(workspace):
-        if path.resolve() not in skip:
-            blockers.extend(_text_references(path, original, moved, workspace))
-    return edits, blockers
+        if path.resolve() not in skip and _has_text_reference(path, original, moved):
+            text_files.append(path)
+    return edits, text_files, blockers
+
+
+def apply_text_rewrites(paths: Sequence[Path], original: str, moved: Mapping[str, str]) -> None:
+    """Rewrite the dotted paths in *paths* byte for byte, so line endings stay as they were."""
+    for path in paths:
+        text = path.read_bytes().decode(SOURCE_ENCODING)
+        path.write_bytes(rewrite_text_references(text, original, moved).encode(WRITE_ENCODING))
 
 
 def apply_edits(edits: Sequence[ImporterEdit]) -> None:
@@ -556,6 +576,9 @@ class SplitPlan:
     remainder: str
     kept_count: int
     edits: list[ImporterEdit]
+    text_files: list[Path]
+    original: str
+    moved: dict[str, str]
     blockers: list[str]
 
 
@@ -583,13 +606,17 @@ def prepare(args: argparse.Namespace, workspace: Path) -> SplitPlan:
         raise SplitRefused(f"Module file(s) already exist: {clashes}. Pick new stems.")
     outputs = {target.parent / f"{entry.stem}.py": render_new_module(module, entry, homes, package) for entry in entries}
     skip = frozenset({target, *(path.resolve() for path in outputs)})
-    edits, blockers = plan_importers(f"{package}.{target.stem}", provides, skip, workspace.resolve())
+    original = f"{package}.{target.stem}"
+    edits, text_files, blockers = plan_importers(original, provides, skip, workspace.resolve())
     return SplitPlan(
         target=target,
         outputs=outputs,
         remainder=render_remainder(module, homes, package, target.stem),
         kept_count=len(module.order) - len(assignment),
         edits=edits,
+        text_files=text_files,
+        original=original,
+        moved=provides,
         blockers=blockers,
     )
 
@@ -604,6 +631,8 @@ def split(args: argparse.Namespace, workspace: Path) -> int:
     print(f"remainder {plan.target.name}: {plan.kept_count} definition(s) kept")
     for edit in plan.edits:
         print(f"rewrite {display_path(edit.path, workspace)}:{edit.first_line}")
+    for path in plan.text_files:
+        print(f"rewrite text {display_path(path, workspace)}")
     if plan.blockers:
         for blocker in plan.blockers:
             print(f"BLOCKED {blocker}")
@@ -616,8 +645,12 @@ def split(args: argparse.Namespace, workspace: Path) -> int:
         path.write_text(content, encoding=WRITE_ENCODING)
     plan.target.write_text(plan.remainder, encoding=WRITE_ENCODING)
     apply_edits(plan.edits)
+    apply_text_rewrites(plan.text_files, plan.original, plan.moved)
     run_ruff(ruff, [plan.target, *plan.outputs])
-    print(f"Split {plan.target.name} into {len(plan.outputs)} new module(s); rewrote {len(plan.edits)} import statement(s).")
+    print(
+        f"Split {plan.target.name} into {len(plan.outputs)} new module(s); rewrote {len(plan.edits)} import "
+        f"statement(s) and the dotted paths in {len(plan.text_files)} file(s)."
+    )
     return EXIT_OK
 
 
@@ -723,6 +756,19 @@ def _check_an_importer_with_a_form_feed_is_rewritten() -> None:
         assert "from planted_pkg._alpha import alpha" in importer.read_text(encoding=WRITE_ENCODING), text
 
 
+def _check_dotted_paths_in_text_are_rewritten_and_line_endings_kept() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        module, plan, importer = _planted_workspace(root, {"_alpha": {PLAN_DOC_KEY: "Alpha.", PLAN_NAMES_KEY: ["alpha"]}})
+        notes = importer.parent / "notes.py"
+        notes.write_bytes(b'"""See planted_pkg.big.alpha, planted_pkg.big:alpha and planted_pkg.big.alphabet."""\r\nVALUE = 1\r\n')
+        code, text = _quiet_split([f"--module={module}", f"--plan={plan}"], root)
+        assert code == EXIT_OK, text
+        assert notes.read_bytes() == (
+            b'"""See planted_pkg._alpha.alpha, planted_pkg._alpha:alpha and planted_pkg.big.alphabet."""\r\nVALUE = 1\r\n'
+        ), notes.read_bytes()
+
+
 def _check_a_bad_plan_is_refused_and_nothing_written() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -738,6 +784,7 @@ def _run(args: argparse.Namespace) -> int:
         checks = [_check_a_planted_module_is_split_and_its_importer_rewritten,
                   _check_moved_code_imports_what_stays_from_the_original,
                   _check_an_importer_with_a_form_feed_is_rewritten,
+                  _check_dotted_paths_in_text_are_rewritten_and_line_endings_kept,
                   _check_a_bad_plan_is_refused_and_nothing_written]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
                              folder=CODEMODS_SCRIPTS_DIR)

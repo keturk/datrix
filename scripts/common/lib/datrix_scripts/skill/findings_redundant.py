@@ -37,6 +37,7 @@ import hashlib
 import json
 import logging
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -70,7 +71,15 @@ MIN_WORD_CHARS = 4
 SECTION_LEVEL = 2
 
 _WORD = re.compile(rf"\w{{{MIN_WORD_CHARS},}}")
+MIN_KEY_CHARS = 3
+MAX_KEY_CHARS = 80
+
 _BACKTICKED = re.compile(r"`([^`\n]+)`")
+_KEY_START = re.compile(r"[A-Za-z_][\w.\-<>{}]*$")
+# A workspace package name (``datrix_codegen_aws``, ``datrix-common``) names where a finding lives, not what it is.
+_PACKAGE_NAME = re.compile(r"datrix[_-][a-z_-]+$")
+_LINE_SUFFIX = re.compile(r":\d+(?:[-,]\d+)*$")
+_KEYWORDS_LINE = re.compile(r"^- \*\*Keywords:\*\*(.*)$", re.MULTILINE)
 _CODE_TOKEN = re.compile(
     r"\b(?:[A-Za-z]+_[A-Za-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*|[A-Z]{2,}\d+[A-Za-z0-9]*)\b")
 _LINE_NUMBER = re.compile(r"^\d+\|\s*")
@@ -187,13 +196,30 @@ def _similarity(left: frozenset[str], right: frozenset[str]) -> float:
     return len(left & right) / len(left | right) if left | right else 0.0
 
 
-def _keywords(text: str, refs: frozenset[str]) -> frozenset[str]:
-    """What a finding names: its citations, every backticked span and every code-shaped token (snake_case,
-    camelCase, PascalCase, diagnostic codes such as ``XSV010``), lower-cased."""
-    keys = {ref.lower() for ref in refs}
-    keys.update(span.strip().lower() for span in _BACKTICKED.findall(text) if span.strip())
-    keys.update(token.lower() for token in _CODE_TOKEN.findall(text))
-    return frozenset(keys)
+def _key(span: str) -> str:
+    """A backticked span as a keyword: no line number, a path as its file name, and nothing that is a phrase
+    or a command line."""
+    name = _LINE_SUFFIX.sub("", span.strip()).rsplit("/", 1)[-1]
+    return name if MIN_KEY_CHARS <= len(name) <= MAX_KEY_CHARS and " " not in name else ""
+
+
+def keyword_list(text: str) -> list[str]:
+    """What a finding names, most-mentioned first: its backticked names (a ``path:line`` as the path) and its
+    code-shaped tokens (snake_case, camelCase, PascalCase, diagnostic codes such as ``XSV010``)."""
+    found = [_key(span) for span in _BACKTICKED.findall(text)] + _CODE_TOKEN.findall(text)
+    counts = Counter(name for name in found if name and _KEY_START.match(name) and not _PACKAGE_NAME.match(name))
+    stems = {name.rsplit(".", 1)[0] for name in counts if "." in name}
+    return [name for name, _count in counts.most_common() if name not in stems]
+
+
+def _keywords(text: str) -> frozenset[str]:
+    """The keywords of one finding, lower-cased: the ones its ``**Keywords:**`` line lists, or, for a finding
+    without that line, the ones its text names."""
+    line = _KEYWORDS_LINE.search(text)
+    if line is None:
+        return frozenset(name.lower() for name in keyword_list(text))
+    listed = _BACKTICKED.findall(line.group(1)) or line.group(1).split(",")
+    return frozenset(key.lower() for key in map(_key, listed) if key)
 
 
 def _containment(inner: frozenset[str], outer: frozenset[str]) -> float:
@@ -202,8 +228,7 @@ def _containment(inner: frozenset[str], outer: frozenset[str]) -> float:
 
 
 def _unit(name: str, heading: str, text: str) -> Unit:
-    refs = frozenset(references(text))
-    return Unit(name, heading, text, refs, _words(text), _keywords(text, refs))
+    return Unit(name, heading, text, frozenset(references(text)), _words(text), _keywords(text))
 
 
 def _relative_name(directory: Path, path: Path) -> str:
