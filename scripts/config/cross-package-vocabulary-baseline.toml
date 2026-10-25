@@ -55,7 +55,7 @@ file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/cloudwatch_alarms.p
 count = 2
 
 [[baseline]]
-file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/cloudwatch_dashboards.py"
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/_cw_widget_base.py"
 count = 1
 
 [[baseline]]

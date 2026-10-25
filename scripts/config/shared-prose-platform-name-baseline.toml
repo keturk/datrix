@@ -1222,15 +1222,15 @@ entry = "datrix-common/src/datrix_common/plugin/capability_policy.py::docker"
 count = 1
 
 [[baseline]]
-entry = "datrix-common/src/datrix_common/plugin/capability_resolution.py::aws"
+entry = "datrix-common/src/datrix_common/plugin/_capability_declarations.py::aws"
 count = 3
 
 [[baseline]]
-entry = "datrix-common/src/datrix_common/plugin/capability_resolution.py::azure"
+entry = "datrix-common/src/datrix_common/plugin/_capability_declarations.py::azure"
 count = 3
 
 [[baseline]]
-entry = "datrix-common/src/datrix_common/plugin/capability_resolution.py::docker"
+entry = "datrix-common/src/datrix_common/plugin/_capability_declarations.py::docker"
 count = 2
 
 [[baseline]]
