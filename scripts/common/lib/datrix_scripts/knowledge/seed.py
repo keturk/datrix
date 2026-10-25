@@ -35,6 +35,8 @@ CURATED_PATTERNS: tuple[str, ...] = (
     "datrix/claude-config/.claude/skills/_shared/*.md",
     "datrix/scripts/quick-reference.md",
     "datrix/scripts/*/quick-reference.md",
+    "datrix/scripts/README.md",
+    "datrix/scripts/*/README.md",
     "datrix-*/docs/architecture.md",
     "datrix-language/docs/reference/*.md",
 )

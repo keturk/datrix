@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from typing import Final
 
 from datrix_scripts.entrypoint import wrapper_flag
+from datrix_scripts.gates.parity.parity_doc_sections import ToolError, without_section
 from datrix_scripts.test.wrappers import (
     PARITY_GATES_DIR,
     CommandUsageError,
@@ -158,10 +159,33 @@ def _check_usage_refusals() -> None:
     assert migrate.startswith(f"migrate needs {wrapper_flag('Area')} "), f"migrate without an area: {migrate!r}"
 
 
+_PLANTED_DOCUMENT: Final = "# Title\n\n## `a.ps1`\n\nA.\n\n## `b.ps1`\n\nB.\n\n## `c.ps1`\n\nC.\n"
+_PLANTED_RULED_DOCUMENT: Final = "# Title\n\n## `a.ps1`\n\nA.\n\n---\n\n## `b.ps1`\n\nB.\n\n---\n\n## `c.ps1`\n\nC.\n"
+
+
+def _check_a_replaced_gates_section_is_cut_alone() -> None:
+    cases = (
+        (_PLANTED_DOCUMENT, "## `b.ps1`", "# Title\n\n## `a.ps1`\n\nA.\n\n## `c.ps1`\n\nC.\n"),
+        (_PLANTED_DOCUMENT, "## `c.ps1`", "# Title\n\n## `a.ps1`\n\nA.\n\n## `b.ps1`\n\nB.\n"),
+        (_PLANTED_RULED_DOCUMENT, "## `b.ps1`", "# Title\n\n## `a.ps1`\n\nA.\n\n---\n\n## `c.ps1`\n\nC.\n"),
+        (_PLANTED_RULED_DOCUMENT, "## `c.ps1`", "# Title\n\n## `a.ps1`\n\nA.\n\n---\n\n## `b.ps1`\n\nB.\n"),
+    )
+    for text, heading, expected in cases:
+        cut = without_section(text, heading, "README.md")
+        assert cut == expected, f"{heading} cut from {text!r} left {cut!r}, expected {expected!r}"
+    try:
+        without_section(_PLANTED_DOCUMENT, "## `d.ps1`", "README.md")
+    except ToolError as error:
+        assert "holds 0 section(s)" in str(error), str(error)
+    else:
+        raise AssertionError("a heading the document does not hold was cut")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     return run_command_wrapper(
         build_parser(), argv, commands=COMMANDS, wrapper=WRAPPER, module=MODULE, cli_module=CLI_MODULE,
-        cli_argv=parity_cases_cli_argv, checks=(_check_cli_lines, _check_usage_refusals), folder=PARITY_GATES_DIR,
+        cli_argv=parity_cases_cli_argv, folder=PARITY_GATES_DIR,
+        checks=(_check_cli_lines, _check_usage_refusals, _check_a_replaced_gates_section_is_cut_alone),
     )
 
 

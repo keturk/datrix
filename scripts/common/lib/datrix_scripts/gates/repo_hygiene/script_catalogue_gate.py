@@ -1,6 +1,6 @@
 """Script catalogue gate: every scripts folder's quick-reference documents what the folder holds.
 
-Four rules over ``datrix/scripts``, read from Markdown's token stream (``markdown-it-py``) and
+Three rules over ``datrix/scripts``, read from Markdown's token stream (``markdown-it-py``) and
 from PowerShell's own parser (``datrix_scripts.powershell_ast``), never from regex over prose:
 
 1. ``undocumented-script`` -- every ``.ps1`` directly in a folder that has a ``quick-reference.md``
@@ -8,14 +8,14 @@ from PowerShell's own parser (``datrix_scripts.powershell_ast``), never from reg
 2. ``undeclared-flag`` -- every ``-Flag`` that follows a script's name inside one inline code span
    or one line of a fenced block resolves to a parameter or alias the script's ``param()`` block
    declares (documented flags − declared). A flag after ``|``, ``;`` or ``&&`` belongs to the
-   next command, not the script.
-3. ``readme-beside-quick-reference`` -- no folder under ``scripts/`` other than ``scripts/``
-   itself holds both a ``quick-reference.md`` and a ``README.md``.
-4. ``dangling-link`` -- every relative link in a ``quick-reference.md`` or ``README.md`` under
+   next command, not the script. The ``README.md`` beside a quick-reference is held to this as well.
+3. ``dangling-link`` -- every relative link in a ``quick-reference.md`` or ``README.md`` under
    ``scripts/`` resolves to an existing file (anchors are not checked).
 
-The root ``scripts/quick-reference.md`` is the index of the folders, so rule 1 does not apply to
-it. A script named that is not under ``scripts/`` (a generated project's runner) is not checked.
+A quick-reference says how to run a script; what a script does and why belongs in the ``README.md``
+beside it, which the quick-reference links. The root ``scripts/quick-reference.md`` is the index of
+the folders, so rule 1 does not apply to it. A script named that is not under ``scripts/`` (a
+generated project's runner) is not checked.
 
 Run it through ``gates/repo-hygiene/script-catalogue-gate.ps1`` or its ``.sh`` twin; it runs in gate
 mode (``datrix_scripts.gate_log.run_as_gate``) and prints the
@@ -67,7 +67,6 @@ _COMMON_PARAMETERS: Final = frozenset({
 class Rule(StrEnum):
     UNDOCUMENTED_SCRIPT = "undocumented-script"
     UNDECLARED_FLAG = "undeclared-flag"
-    README_BESIDE_QUICK_REFERENCE = "readme-beside-quick-reference"
     DANGLING_LINK = "dangling-link"
 
 
@@ -220,14 +219,6 @@ def undeclared_flags(scripts_dir: Path) -> list[Hit]:
     return hits
 
 
-def readmes_beside_quick_references(scripts_dir: Path) -> list[Hit]:
-    return [
-        Hit(Rule.README_BESIDE_QUICK_REFERENCE, _relative(folder / README, scripts_dir),
-            "move what the quick-reference lacks into it under its own heading, then delete the README")
-        for folder in _catalogue_folders(scripts_dir) if (folder / README).is_file()
-    ]
-
-
 def dangling_links(scripts_dir: Path) -> list[Hit]:
     hits: list[Hit] = []
     for document in _documents(scripts_dir):
@@ -243,8 +234,7 @@ def dangling_links(scripts_dir: Path) -> list[Hit]:
 
 def catalogue_hits(scripts_dir: Path) -> list[Hit]:
     """Every rule's hits over ``scripts_dir``."""
-    return [*undocumented_scripts(scripts_dir), *undeclared_flags(scripts_dir),
-            *readmes_beside_quick_references(scripts_dir), *dangling_links(scripts_dir)]
+    return [*undocumented_scripts(scripts_dir), *undeclared_flags(scripts_dir), *dangling_links(scripts_dir)]
 
 
 # ---------------------------------------------------------------------------
@@ -267,12 +257,14 @@ See [the index](../quick-reference.md#planted) and [here](missing.md).
 
 
 def _planted_tree(root: Path, *, defects: bool) -> Path:
-    """A scripts tree with one folder; ``defects`` adds one hit of every rule."""
+    """A scripts tree with one folder holding a quick-reference and a README; ``defects`` adds one hit of every
+    rule."""
     reference = _PLANTED_REFERENCE if defects else _PLANTED_REFERENCE.replace(" and [here](missing.md)", "")
     files = {"quick-reference.md": "# Index\n", "x/a.ps1": _DOCUMENTED_SCRIPT,
-             "x/quick-reference.md": reference.replace("-L python |", "-Nope python |") if defects else reference}
+             "x/quick-reference.md": reference.replace("-L python |", "-Nope python |") if defects else reference,
+             "x/README.md": "# Planted\n\nSee [the quick reference](quick-reference.md).\n"}
     if defects:
-        files |= {"x/b.ps1": _DOCUMENTED_SCRIPT, "x/README.md": "# Stale\n"}
+        files |= {"x/b.ps1": _DOCUMENTED_SCRIPT}
     write_files(root, files)
     return root
 
@@ -290,7 +282,6 @@ def _check_every_rule_reports_its_planted_defect() -> None:
     expected = {
         (Rule.UNDOCUMENTED_SCRIPT, "x/b.ps1"),
         (Rule.UNDECLARED_FLAG, "x/quick-reference.md"),
-        (Rule.README_BESIDE_QUICK_REFERENCE, "x/README.md"),
         (Rule.DANGLING_LINK, "x/quick-reference.md"),
     }
     assert found == expected, [hit.render() for hit in hits]

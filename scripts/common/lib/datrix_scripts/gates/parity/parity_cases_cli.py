@@ -19,8 +19,8 @@ wrapper's parameters.
 ``accept <proposal>``
     Move an approved proposal's rows into ``cases/<area>.parity.yaml``; refuses a proposal no
     approval covers and any row without an expectation. A proposal that ``replaces`` a gate
-    also deletes the gate's wrapper, its ``.sh`` twin, the module it runs and its
-    quick-reference section.
+    also deletes the gate's wrapper, its ``.sh`` twin, the module it runs and its section of the
+    family's quick-reference and README.
 ``check``
     Every committed row parses, names a probe with readings, a fixture the probe accepts, a
     facet with its keys, an expectation of the facet's shape and documented tags; no id or fact
@@ -66,6 +66,7 @@ from datrix_scripts.gates.parity.parity_cases_gate import (
     committed_rows,
     read_row,
 )
+from datrix_scripts.gates.parity.parity_doc_sections import ToolError, without_section
 from datrix_scripts.gates.parity.parity_observers import PROBE_READINGS, observer_specs
 from datrix_scripts.paths import LIB_DIR_NAME, PYTHONPATH_ROOT, SCRIPTS_DIR
 from datrix_scripts.test_projects import list_projects
@@ -82,14 +83,10 @@ _GATE_SUFFIX: Final[str] = PS1_SUFFIX
 _LIB_MODULE_RE: Final[re.Pattern[str]] = re.compile(r'"lib\\([A-Za-z0-9_]+\.py)"')
 _PY_SUFFIX: Final[str] = ".py"
 _QUICK_REFERENCE: Final[str] = "quick-reference.md"
-_SECTION_RULE: Final[str] = "---"
+_README: Final[str] = "README.md"
 _PROPOSAL_KIND: Final[str] = "parity"
 _CASE_DISPOSITION: Final[str] = "case"
 _OBSERVE_REASON: Final[str] = "Observed with parity-cases observe."
-
-
-class ToolError(ValueError):
-    """A command is refused; nothing has been written."""
 
 
 def _out(*lines: str) -> None:
@@ -276,30 +273,6 @@ def _gate_files(gate: str) -> tuple[list[Path], Path]:
     return [wrapper, wrapper.parent / LIB_DIR_NAME / modules[0]], quick_reference
 
 
-def without_section(text: str, wrapper: Path) -> str:
-    """*text* (a family quick-reference) without the section headed by *wrapper*'s entry.
-
-    Raises:
-        ToolError: The quick-reference has no section for the wrapper.
-    """
-    heading = f"## `gates\\{wrapper.parent.name}\\{wrapper.name}`"
-    lines = text.splitlines(keepends=True)
-    starts = [index for index, line in enumerate(lines) if line.rstrip() == heading]
-    if len(starts) != 1:
-        raise ToolError(f"the quick-reference holds {len(starts)} section(s) headed {heading}; exactly one is removed")
-    start = starts[0]
-    end = next((index for index in range(start + 1, len(lines)) if lines[index].startswith("## ")), len(lines))
-    if end < len(lines):
-        # A later section follows: cut through the rule that separates this section from it.
-        rule = next((index for index in range(end - 1, start, -1) if lines[index].strip() == _SECTION_RULE), end - 1)
-        kept = lines[:start] + lines[rule + 1 :]
-    else:
-        # The last section: cut from the rule that separates it from the one before.
-        rule = next((index for index in range(start - 1, -1, -1) if lines[index].strip() == _SECTION_RULE), start)
-        kept = lines[:rule]
-    return re.sub(r"\n{3,}", "\n\n", "".join(kept)).rstrip("\n") + "\n"
-
-
 def _proposal_rows(document: Mapping[str, object]) -> list[Case]:
     records = document["records"] if "records" in document else None
     if not isinstance(records, list) or not records:
@@ -341,11 +314,10 @@ def accept(proposal: Path, cases_dir: Path = CASES_DIR) -> list[str]:
 
 @dataclass(frozen=True)
 class _GateRemoval:
-    """A replaced gate's files and its quick-reference text without the gate's section."""
+    """A replaced gate's files and the text of its family's quick-reference and README without the gate's section."""
 
     files: list[Path]
-    quick_reference: Path
-    trimmed: str
+    documents: dict[Path, str]
 
     @classmethod
     def of(cls, gate: str) -> _GateRemoval:
@@ -353,14 +325,24 @@ class _GateRemoval:
         missing = [str(path) for path in files if not path.is_file()]
         if missing:
             raise ToolError(f"the replaced gate's files are not all present: {', '.join(missing)}")
-        trimmed = without_section(quick_reference.read_text(encoding="utf-8"), files[0])
-        return cls(files, quick_reference, trimmed)
+        wrapper = files[0]
+        headings = {
+            quick_reference: f"## `gates\\{wrapper.parent.name}\\{wrapper.name}`",
+            quick_reference.with_name(_README): f"## `{wrapper.name}`",
+        }
+        documents = {
+            path: without_section(path.read_text(encoding="utf-8"), heading, path.name)
+            for path, heading in headings.items()
+        }
+        return cls(files, documents)
 
     def apply(self) -> str:
-        self.quick_reference.write_text(self.trimmed, encoding="utf-8")
+        for path, trimmed in self.documents.items():
+            path.write_text(trimmed, encoding="utf-8")
         for path in self.files:
             path.unlink()
-        return f"Deleted {', '.join(path.name for path in self.files)} and its {_QUICK_REFERENCE} section"
+        names = f"{_QUICK_REFERENCE} and {_README}"
+        return f"Deleted {', '.join(path.name for path in self.files)} and its section of {names}"
 
 
 def check() -> list[str]:
