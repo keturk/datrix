@@ -87,15 +87,18 @@ definitions stay in the original.
 `from <original> import <moved name>` in the workspace (`datrix_scripts.import_sites`: every repo's
 `src/`, `tests/` and root `*.py`, the scripts tree, the hooks) is rewritten to the new home,
 relative imports included, and an inline comment is kept. Then `ruff` (F401, I001) tidies the
-imports of the new modules and the original.
+imports of the new modules and the original, and of every importer that got an added import and had no
+unused or unsorted import before.
 
 The split **refuses and writes nothing** when it would be wrong or incomplete:
 
 - a double claim, an unknown name, a reversed range, or a claimed `pytestmark`;
 - an import cycle among the new modules and the original. Moved code imports what stays from the original, and the original imports the moved names it still uses, so moved code may use what stays only when nothing that stays uses it back. The refusal names the cycle and the names on each edge: claim those into the same module;
 - an `__all__` naming a moved name;
-- a module-object read `alias.<moved name>`;
 - an import sharing its line with other code.
+
+A module-object read `alias.<moved name>` is pointed at the module the name moved to: `alias` becomes that
+module's stem, and `from <package> import <stem>` is added below the statement that bound `alias`.
 
 A dotted path `<original>.<moved name>` (or `<original>:<moved name>`) written as text in any `src/` file or
 `pyproject.toml` (a docstring cross-reference, a `.dal` adapter path) is rewritten to the new module, byte for
