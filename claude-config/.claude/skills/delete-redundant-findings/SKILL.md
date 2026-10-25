@@ -64,8 +64,10 @@ It writes `d:\datrix\.tmp\assist\findings-redundant.json` (the plan) and `findin
 review view) and prints their paths with a one-line summary. Per file it works in three steps:
 
 1. **Units.** A raw file is one unit; a theme file (`## 1.`, `## 2.`, …) is one unit per section.
-2. **Candidates, exact.** A unit of a higher-ranked file is a candidate survivor when it cites every
-   `path:line` and backticked path the file cites, or shares enough of its words. Rank is citations,
+2. **Candidates, exact.** A unit of a higher-ranked file is a candidate survivor when it holds at least
+   90% of the file's keywords, the backticked names on the file's `- **Keywords:**` line (a file without
+   that line is read for the names its text mentions; one with fewer than 3 names is matched by shared
+   words). Rank is citations,
    then length, then name (the earlier name survives a tie).
 3. **Verdict, model.** A local model reads both texts and answers SAME, PARTIAL or DIFFERENT. SAME
    stands only when the model lists nothing the doomed file has that the survivor lacks and quotes a

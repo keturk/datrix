@@ -118,6 +118,7 @@ One file per multi-source group, written with `Write` under a temporary number:
 ```markdown
 # <one-line statement of the theme — the root cause or defect class, not a symptom>
 
+- **Keywords:** <the union of the sources' keywords, each in backticks, most specific first>
 - **Area:** <area> (<packages / surfaces>)
 - **Found:** <earliest Found of the group> (also reported <date>, <date>, ...)
 - **Kind:** <the sources' kinds>
@@ -126,6 +127,7 @@ One file per multi-source group, written with `Write` under a temporary number:
 
 ## 1. <source title>
 
+- **Keywords:** <the source's Keywords line, verbatim>
 - **Found:** <source's Found; from its filename timestamp when the body has none>
 - **Where:** ...
 - **Kind:** ...

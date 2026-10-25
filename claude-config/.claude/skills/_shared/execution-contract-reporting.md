@@ -34,6 +34,7 @@ more. Aim for under 30 lines.
 ```markdown
 # <one-line statement of the issue>
 
+- **Keywords:** `<name>`, `<name>`, ... (5-12 backticked names)
 - **Found:** <YYYY-MM-DD HH:MM> while <the task you were doing, one line>
 - **Where:** <repo/path/file.py:123> (every location you saw)
 - **Kind:** bug | design flaw | security | test gap | doc drift | tooling | other
@@ -47,6 +48,11 @@ more. Aim for under 30 lines.
 ## Suggested direction
 <Optional, 1-3 lines. Omit it if you do not know.>
 ```
+
+**Keywords** are the 5-12 names that identify the defect: the functions, classes, config keys,
+diagnostic codes, file names and emitted artifacts it is about, each in backticks, the most specific
+first. Two files describing the same defect list the same names, so `/delete-redundant-findings`
+compares the keyword lines instead of the whole files. Always the first bullet, directly under the title.
 
 State only what you saw. A guess is labelled as a guess. The file sits outside every repo, but
 treat it as shareable anyway: no secrets, credentials, or customer data.
