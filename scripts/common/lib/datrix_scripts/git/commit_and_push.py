@@ -95,6 +95,7 @@ from datrix_scripts.git.gate_repair import (
 from datrix_scripts.local_llm import (
     DEFAULT_GENERATE_TIMEOUT_MS,
     DEFAULT_LOAD_TIMEOUT_MS,
+    OLLAMA_LOAD_PREFERENCE,
     ChatRequest,
     LocalLlmPool,
     LocalLlmSettings,
@@ -161,8 +162,7 @@ MESSAGE_SOURCE_LOCAL = "local"
 MESSAGE_SOURCE_CLAUDE = "claude"
 
 # Hard cap on a commit subject. The model is told the limit up front; an overrun is
-# regenerated once with the actual length shown, which works where restating the rule
-# does not.
+# cropped to the limit and the message accepted.
 SUBJECT_LIMIT = 72
 
 # Themed change sets. A dirty repo is split into one commit per theme so an unrelated
@@ -947,7 +947,7 @@ def request_commit_message(dr: DirtyRepo, generate: Generator) -> str:
         message = normalize_message(raw)
         problem = message_quality_problem(message, dr.name)
         if problem is None:
-            return enforce_subject_limit(dr, message, generate)
+            return enforce_subject_limit(dr, message)
         last_problem = problem
 
     print(
@@ -958,35 +958,21 @@ def request_commit_message(dr: DirtyRepo, generate: Generator) -> str:
     return fallback_commit_message(dr)
 
 
-def enforce_subject_limit(dr: DirtyRepo, message: str, generate: Generator) -> str:
-    """Ask once for a shorter subject when it overruns, showing the model the overrun.
+def enforce_subject_limit(dr: DirtyRepo, message: str) -> str:
+    """Crop an overlong subject to SUBJECT_LIMIT characters and accept the message.
 
-    Stating the limit is in the prompt already; showing the actual length is what gets a
-    model to cut. This is a targeted rewrite of an otherwise good message, not a trip back
-    down the retry ladder, whose later rungs throw away diff context. A rewrite that is
-    still over the limit but shorter is kept; the overrun is reported either way.
+    The body is kept as written. The crop is reported so a cut subject is never silent.
     """
     subject = first_line(message)
     if len(subject) <= SUBJECT_LIMIT:
         return message
-    print(f"  subject is {len(subject)} chars (limit {SUBJECT_LIMIT}) -- asking for a shorter one")
-    prompt = (
-        f"You wrote this commit message:\n\n{message}\n\n"
-        f"Its subject line is {len(subject)} characters; the hard limit is {SUBJECT_LIMIT}. "
-        "Rewrite the WHOLE commit message with a shorter subject. Cut detail out of the subject "
-        "and move it into the body -- do not abbreviate words or drop vowels. Output only the "
-        "commit message."
+    cropped = subject[:SUBJECT_LIMIT].rstrip()
+    print(
+        f"  {dr.name} [{dr.scope or 'all'}] subject is {len(subject)} chars "
+        f"(limit {SUBJECT_LIMIT}); cropped to {len(cropped)}"
     )
-    shorter = normalize_message(generate(prompt, SYSTEM_PROMPT))
-    if message_quality_problem(shorter, dr.name) is None and len(first_line(shorter)) < len(subject):
-        message, subject = shorter, first_line(shorter)
-    if len(subject) > SUBJECT_LIMIT:
-        print(
-            f"Warning: {dr.name} [{dr.scope or 'all'}] subject is still {len(subject)} chars "
-            f"(limit {SUBJECT_LIMIT}); committing it as written.",
-            file=sys.stderr,
-        )
-    return message
+    _, separator, body = message.partition("\n")
+    return cropped + separator + body
 
 
 def make_local_generator(args: argparse.Namespace, pool: LocalLlmPool) -> Generator:
@@ -1450,10 +1436,16 @@ def enforce_python_lint_correctness(dirty_repos: list[Path]) -> None:
 
 def commit_message_llm_settings(args: argparse.Namespace) -> LocalLlmSettings:
     """The local-model settings of ``--local-machines``, ``--local-timeout-ms`` and
-    ``--local-load-timeout-ms``; any model in memory (else the load preference), and the shared
-    reachability and keep-alive windows."""
+    ``--local-load-timeout-ms``; only the fast models of ``OLLAMA_LOAD_PREFERENCE``, and the shared
+    reachability and keep-alive windows.
+
+    A subject and a short body need no large model. Naming no model would take any model already
+    in memory, and the GX10's 120B model, resident from its boot, would then answer every message
+    while the RTX 3090 machines sat idle.
+    """
     return LocalLlmSettings(
         machines=wrapper_machines(args),
+        models=OLLAMA_LOAD_PREFERENCE,
         load_timeout_ms=args.local_load_timeout_ms,
         generate_timeout_ms=args.local_timeout_ms,
     )
@@ -1772,7 +1764,7 @@ def _check_wrapper_options_reach_the_model_settings() -> None:
                                       "--local-timeout-ms=5000", "--local-load-timeout-ms=7000"])
     settings = commit_message_llm_settings(args)
     assert (settings.machines, settings.models, settings.generate_timeout_ms, settings.load_timeout_ms) == (
-        ("alpha", "beta"), (), 5000, 7000), settings
+        ("alpha", "beta"), OLLAMA_LOAD_PREFERENCE, 5000, 7000), settings
     defaults = commit_message_llm_settings(build_parser().parse_args([]))
     assert (defaults.generate_timeout_ms, defaults.load_timeout_ms) == (
         DEFAULT_GENERATE_TIMEOUT_MS, DEFAULT_LOAD_TIMEOUT_MS), defaults
