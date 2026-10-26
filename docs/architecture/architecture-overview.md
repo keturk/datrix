@@ -69,6 +69,7 @@ graph TD
  A[datrix-common]
  M[datrix-migration] --> A
  S[datrix-semantic] --> A
+ S --> M
  B[datrix-language] --> A
  B --> S
  L[datrix-extensions] --> A
@@ -121,7 +122,7 @@ graph TD
 **Legend:**
 - **datrix-common** (no dependencies) — Foundation (AST model, type system, standard library loader + parser protocols (the stdlib `.dtrx` modules ship with datrix-language), config resolution, plugin protocols, deployment declarations). Does **not** import `datrix-language` — parser and stdlib-loader implementations are injected via protocols — nor the generation framework, which it names only through structural Protocols.
 - **datrix-codegen-kernel** (depends on datrix-common and datrix-migration) — The target-neutral generation framework every generator shares: `Generator`/`GeneratedFile`, the template engine, discovery, the sub-generator registry, the type-mapping registry, the shared route and runtime-configuration derivations, the deploy-script machinery, the DAL generator engine and shared domain definitions, the service-feature vocabulary every feature gate reads, and the Seed reference datasets — plus the language-agnostic services platforms, SQL and component build on: the shared provider library (`platform/`), pooling, the Grafana `DashboardBuilder`, logical-secret manifests, config-store seed planning, shared enums, parity declarations, serverless and replayable-ingestion plans, and RDBMS migration orchestration. It loads no language-layer, generator, parser, semantic or CLI module (its own import-linter contract, `TYPE_CHECKING` included, and a fresh-subprocess test). Every generator, `datrix-codegen-common`, `datrix-cli` and `datrix-testing` declare it; `datrix-common` must never import it. See [datrix-codegen-kernel architecture](../../../datrix-codegen-kernel/docs/architecture.md)
-- **datrix-semantic** (depends on datrix-common) — Semantic analysis: `SemanticAnalyzer` and its declared phase pipeline, every domain validator, synthesis, auth-contract lowering, push device-registry injection. `datrix-language`, `datrix-cli` and `datrix-testing` declare it; `datrix-common` must never import it. See [datrix-semantic architecture](../../../datrix-semantic/docs/architecture.md)
+- **datrix-semantic** (depends on datrix-common and datrix-migration) — Semantic analysis: `SemanticAnalyzer` and its declared phase pipeline, every domain validator, synthesis, auth-contract lowering, push device-registry injection. Of datrix-migration it reaches only the SQL lowering (`datrix_migration.sql_lowering`), which it runs over every column default for every registered DDL dialect so an inexpressible default is refused at analysis. `datrix-language`, `datrix-cli` and `datrix-testing` declare it; `datrix-common` must never import it. See [datrix-semantic architecture](../../../datrix-semantic/docs/architecture.md)
 - **datrix-language** (depends on datrix-common and datrix-semantic) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common; its language server runs semantic analysis
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
 - **datrix-testing** (depends on datrix-common, datrix-semantic and datrix-codegen-kernel) — The shared test harness (factories, fixtures, assertions, `.dtrx` parsing helpers). Every package lists it in its `dev` extra only, so no runtime edge points at it and none is drawn; the `pytest11` feature-tag plugin stays in datrix-common. See [datrix-testing architecture](../../../datrix-testing/docs/architecture.md)
@@ -1385,20 +1386,18 @@ Three shipped facts shape the whole realization. Semantic analysis mutates the a
   in `datrix-common` — carrying an `@canonical(sql/string-literal)` marker and already consumed
   by four packages before this design landed. It returns the literal INCLUDING its surrounding
   quotes. No `datrix_codegen_common.escaping` module is created: a second encoder would have been
-  a duplicate canonical differing only in whether the return value carries its own quotes, and
-  the dialect mode-switch this design needs (`escapes_backslashes_in_literals()`) was already on
-  the `SQLDialect` Protocol. SQL literal quoting is `SQLDialect.quote_literal` on
-  `datrix-codegen-sql`'s dialect Protocol — `DialectBase.quote_literal` is pure delegation to
-  `sql_string_literal`, passing `escape_backslashes=self.escapes_backslashes_in_literals()`, with
-  a PostgreSQL-correct default (`False`, matching `standard_conforming_strings` on) that a
-  dialect reading backslash as an escape overrides (`True`). A value holding a code point
-  `hidden_in_source` flags never stands raw in a SQL literal: the concrete dialect overrides
-  `quote_literal` with its engine's escape form for it (PostgreSQL: `U&'…'`, the hidden code
+  a duplicate canonical differing only in whether the return value carries its own quotes.
+  SQL literal quoting is `SQLDialect.quote_literal` on the kernel's dialect Protocol, and
+  `DialectBase.quote_literal` returns the dialect's string row
+  (`datrix_migration.sql_lowering.dialect_rows`, the one home of a dialect's quoting, which the
+  renderer of lowered expressions reads too). The PostgreSQL row writes a standard-conforming
+  literal (`standard_conforming_strings` on: a backslash is data). A value holding a code point
+  `hidden_in_source` flags never stands raw in a SQL literal: the dialect's row writes it in its
+  engine's escape form (PostgreSQL: `U&'…'`, the hidden code
   points as `\hhhh` / `\+hhhhhh`), while a value holding none keeps the standard literal, so no
   existing project's DDL changes. The same form serves a literal position (`DEFAULT`,
   `SET DEFAULT`) and an expression position (a `CHECK` regex). `U&` needs
-  `standard_conforming_strings = on`, which the dialect already assumes
-  (`escapes_backslashes_in_literals()` is `False`). Every site keeps `quote_literal`; the enum-label
+  `standard_conforming_strings = on`, which the dialect already assumes. Every site keeps `quote_literal`; the enum-label
   and catalog-lookup sites write no escape of their own, because an enum value holds no hidden code
   point (`ENUM012`) and a DSL identifier is `[a-zA-Z_][a-zA-Z0-9_]*`. No SQL file, migration or
   deploy statement therefore carries a character that reads differently from what the engine

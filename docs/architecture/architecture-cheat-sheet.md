@@ -31,7 +31,7 @@ The core packages plus optional **datrix-extensions**; `.claude/docs/repo-bounda
 | Package | Role |
 |---------|------|
 | datrix-common | Foundation: AST model, types, config resolution, plugin and deployment declarations. ZERO deps on other Datrix packages |
-| datrix-semantic | `SemanticAnalyzer`, phase pipeline, validators, synthesis, auth-contract lowering. Depends on common only |
+| datrix-semantic | `SemanticAnalyzer`, phase pipeline, validators, synthesis, auth-contract lowering. Depends on common, and on migration's SQL lowering only (column defaults are lowered at analysis) |
 | datrix-migration | RDBMS migration machinery (snapshot, diff, policy, ledger, state store). Depends on common only |
 | datrix-language | Tree-sitter parser, CST→AST transformers, stdlib `.dtrx` modules, language server. Depends on common, semantic |
 | datrix-codegen-kernel | Target-neutral generation framework (`Generator`, template engine, discovery, type-mapping registry, shared route/runtime derivations, deploy-script machinery, DAL generator model, Seed, `sql_facts`). Depends on common, migration; loads no language-layer module |
