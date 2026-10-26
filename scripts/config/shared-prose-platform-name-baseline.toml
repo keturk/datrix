@@ -1434,10 +1434,6 @@ entry = "datrix-testing/src/datrix_testing/conformance/fixture_platform.py::dock
 count = 5
 
 [[baseline]]
-entry = "datrix-testing/src/datrix_testing/conformance/generated_text_assertions.py::docker"
-count = 1
-
-[[baseline]]
 entry = "datrix-testing/src/datrix_testing/conformance/realization_conformance.py::aws"
 count = 1
 
