@@ -30,3 +30,17 @@
   selector: {facet: marker-lines, marker: The written form of the term}
   expectation: ['The written form of the term, joiners included: क्<U+200C>ष, 👩<U+200D>💻, ❤<U+FE0F>.']
   reason: A field's published schema description decodes to the author's exact text on every language, joiners and the emoji selector included.
+- id: documentation.doc-comments.entity-schema-description
+  tags:
+  - parity
+  - documentation
+  - hidden-text
+  input: doc-comments
+  stage: parity
+  observer: documentation_surfaces
+  selector:
+    facet: marker-lines
+    marker: A glossary term kept exactly
+  expectation:
+  - 'A glossary term kept exactly as written, joiners included: क्<U+200C>ष, 👩<U+200D>💻, ❤<U+FE0F>.'
+  reason: An entity's published doc is its create schema's API description, a string literal on every language, so it decodes to the author's exact text and carries none of the generator's own sentences; no language spells it [U+HHHH] in a published schema description.
