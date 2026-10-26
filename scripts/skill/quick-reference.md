@@ -30,10 +30,10 @@ Drain the findings inbox one finding at a time: one fresh headless `/implement-f
 | First 10 findings | `.\skill\implement-finding.ps1` |
 | Fewer | `.\skill\implement-finding.ps1 -Count 3` |
 | One folder | `.\skill\implement-finding.ps1 azure` |
-| Given files | `.\skill\implement-finding.ps1 -Finding "D:\datrix\reports\finding\<file>.md"` |
+| Given files | `.\skill\implement-finding.ps1 -Finding "D:\datrix\findings\<file>.md"` |
 | Preview | add `-DryRun` |
 
-Parameters: `-Count` (default 10), `-Finding`, `-Dir` (absolute, or relative to `reports\finding`; default the subfolders in turn), `-Model` (default `claude-opus-5-5`), `-Effort` (default `high`), `-PermissionMode`, `-MaxBudgetUsd`, `-DryRun`, `-Quiet`. Exit: 0 every finding deleted, 1 a session erred or a finding was left in place, 2 a session stopped for a decision only Jon can make.
+Parameters: `-Count` (default 10), `-Finding`, `-Dir` (absolute, or relative to `findings`; default the subfolders in turn), `-Model` (default `claude-opus-5-5`), `-Effort` (default `high`), `-PermissionMode`, `-MaxBudgetUsd`, `-DryRun`, `-Quiet`. Exit: 0 every finding deleted, 1 a session erred or a finding was left in place, 2 a session stopped for a decision only Jon can make.
 
 ## `skill\organize-findings.ps1`
 
@@ -46,7 +46,7 @@ Sort findings files lying directly in the findings folder into one level of area
 | Names only (no model) | `.\skill\organize-findings.ps1 -NoModel` |
 | Another folder | `.\skill\organize-findings.ps1 -Dir "<folder>"` |
 
-Parameters: `-Dir` (default `<workspace>\reports\finding`), `-DryRun`, `-NoModel`, `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 300), `-SelfTest`. Exit: 0 all sorted, 1 folder unreadable or a move failed, 2 some files stayed, 3 a model was needed and none answered.
+Parameters: `-Dir` (default `<workspace>\findings`), `-DryRun`, `-NoModel`, `-LocalMachines`, `-LlmModel`, `-LlmTimeout` (seconds, default 300), `-SelfTest`. Exit: 0 all sorted, 1 folder unreadable or a move failed, 2 some files stayed, 3 a model was needed and none answered.
 
 ## `skill\skill-assist.ps1`
 

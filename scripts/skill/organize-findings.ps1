@@ -20,7 +20,7 @@
     answered.
 
 .PARAMETER Dir
-    The findings folder. Default: <workspace>\reports\finding.
+    The findings folder. Default: <workspace>\findings.
 
 .PARAMETER DryRun
     Print the moves; make none.

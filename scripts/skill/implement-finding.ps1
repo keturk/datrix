@@ -32,8 +32,8 @@
     Work these findings files in place of the first -Count of the inbox.
 
 .PARAMETER Dir
-    Work only this folder: absolute, or relative to <workspace>\reports\finding (-Dir azure). Default: the
-    subfolders of <workspace>\reports\finding in turn (the next only once the one before holds no more),
+    Work only this folder: absolute, or relative to <workspace>\findings (-Dir azure). Default: the
+    subfolders of <workspace>\findings in turn (the next only once the one before holds no more),
     then the files lying in it directly. -Finding is unchanged: those files are worked as given.
 
 .PARAMETER Model
@@ -65,10 +65,10 @@
     .\implement-finding.ps1 -Count 3 -DryRun
 
 .EXAMPLE
-    .\implement-finding.ps1 D:\datrix\reports\finding\python
+    .\implement-finding.ps1 D:\datrix\findings\python
 
 .EXAMPLE
-    .\implement-finding.ps1 -Finding "D:\datrix\reports\finding\<the finding>.md"
+    .\implement-finding.ps1 -Finding "D:\datrix\findings\<the finding>.md"
 #>
 [CmdletBinding()]
 param(
