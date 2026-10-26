@@ -21,9 +21,6 @@
                                                  review view (model verdict on exact candidates, checked)
    findings-redundant-delete [--plan P] [--dir D] delete the plan's proposals still marked delete, when every
                                                  proof holds
-   findings-plan      [--dir D] [--no-model]     theme plan for the findings inbox: plan JSON + review view
-   findings-assemble  [--plan P] [--apply]       write the theme files from the plan, carrying every unit
-                                                 verbatim; --apply writes, checks, deletes the sources
    finding-select     [--count N] [--dir D]      the first N findings files by name (/implement-finding)
    finding-close      --finding F                delete F unless another findings file names it;
                       [--session-log L]          with L (a step's .stream.jsonl), also unless its
@@ -71,7 +68,7 @@
  common/lib/datrix_scripts/local_llm.py.
 
 .PARAMETER LlmModel
- Models to use, best first. Omit and readiness, findings-redundant, findings-plan, absorb-transfer,
+ Models to use, best first. Omit and readiness, findings-redundant, absorb-transfer,
  bug-resolution and design-plan use nemotron-3-super:120b, then
  qwen3-coder:30b-ctx32k (QUALITY_MODEL_PREFERENCE in local_llm.py): they wait for the most
  capable machine. The other model commands use any model already in memory.
@@ -96,7 +93,7 @@
 param(
  [Parameter(Position=0, Mandatory=$true, ParameterSetName="Run")]
  [ValidateSet("context-digest", "readiness", "findings-index", "findings-check", "findings-redundant",
-  "findings-redundant-delete", "findings-plan", "findings-assemble", "finding-select", "finding-close",
+  "findings-redundant-delete", "finding-select", "finding-close",
   "checklist", "absorb-transfer", "absorb-references", "absorb-delete", "bug-resolution", "design-inventory",
   "design-verify", "design-plan", "design-check", "design-xref", "design-close", "rule-names")]
  [string]$Command,

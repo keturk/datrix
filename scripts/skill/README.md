@@ -97,8 +97,8 @@ not the package its fix lands in, so the folders can be worked in priority order
 against the asked names and the area set, and a name carrying a registered customer term is not sent.
 File content is never read. Only `*.md` directly in the folder move; nothing inside a subfolder is
 touched, so there is exactly one level, and a move never overwrites. `finding-select`, `finding-close`
-and `implement-finding.ps1` work the area subfolders in turn, or one with `-Dir`; the merge and
-consolidate commands (`findings-*`) still read the one folder they are given.
+and `implement-finding.ps1` work the area subfolders in turn, or one with `-Dir`; the merge
+commands (`findings-*`) still read the one folder they are given.
 
 Module: `datrix_scripts.skill.organize_findings`; POSIX twin `skill/organize-findings.sh` (`--dir`,
 `--dry-run`, `--no-model`, `--local-machines`, `--llm-model`, `--llm-timeout`, `--self-test`).
@@ -122,8 +122,6 @@ The quick-reference lists each command with the skill phase it serves. What each
 | `context-digest --phase N` | Per package of the phase: the directories its tasks touch, each module with its first docstring line (or the index's summary), files a task names marked, files not yet created marked. From the code index; no model. Fits 400 lines |
 | `readiness --phase N [--no-model]` | Exact: dependency edges the graph lacks (a not-yet-existing file read or co-created without an order) and `## Codebase Context` dotted names the index cannot resolve. Lead: for each task whose edit sites all exist, a local model's SATISFIED / NOT SATISFIED / UNCLEAR on its acceptance property, citations checked. `validate-task.ps1` stays the citation and orientation check (dimensions 3, 4, 6 of the audit) |
 | `findings-index [--dir D]` | Every findings file split into atomic findings (seam, packages, defect, citations) in one table sorted by seam; per file, citations no finding carries and citations the model invented |
-| `findings-plan [--dir D] [--no-model]` | `findings-plan.json` (every theme: kept file, slug, title, scope, sections of unit ids — a raw file is one unit named by its stem, a consolidated `## N.` section is `CNNN.N`) and `findings-plan.md` (only the themes that changed, with a REVIEW line per model decision). A local model places each raw unit into an existing theme, onto a duplicate section, or into a new theme, then proposes folds; every id it answers is checked and an unplaced unit becomes its own flagged theme. `--no-model`: every raw unit its own theme |
-| `findings-assemble [--plan P] [--dir D] [--apply]` | Exact: every theme file written from the plan by carrying each unit's text verbatim (raw headings nested, mojibake restored, `consolidated-NNN` references repointed to the file now holding them, LF). Refuses a plan that drops, repeats or invents a unit, an output that loses any non-blank source line, or one that carries a registered customer term. Without `--apply` it writes a preview to `d:\datrix\.tmp\assist\findings-preview\`; with it, it writes the inbox, runs `findings-check`, and deletes the superseded sources only on PASS |
 | `findings-check --delete F... [--dir D] [--keep-raw]` | Exact: every `path:line` and backticked path of the files to delete appears in a remaining file; every `**Related:**` pointer resolves; no mojibake; no raw file left un-superseded (waived by `--keep-raw`, since a duplicate merge keeps every distinct raw file) |
 | `findings-redundant [--dir D] [--no-model]` | `findings-redundant.json` (the plan: per proposal the doomed file, its survivor file and section, the model's verdict and reason, the doomed file's hash, `delete`, notes, files that still name it) and `findings-redundant.md` (the review view). Exact: each subfolder of the inbox (the area folders `organize-findings.ps1` fills), then the inbox's loose files, is compared on its own, so a file is judged against the `*.md` directly in its own folder only, never another folder's; `--dir D` (absolute, or relative to the inbox, e.g. `python`) narrows the run to that one folder; files are named by their path under the inbox (`azure/<name>.md`); files are split into units (a raw file, or one `## N.` section of a theme file); a unit of a higher-ranked file (citations, then length, then earlier name) is a candidate survivor when it holds at least 90% of the file's keywords (the backticked names on its `- **Keywords:**` line; for a file without that line, the backticked spans and code-shaped names such as `snake_case`, `camelCase`, `XSV010` its text names); a file with fewer than 3 keywords is matched by shared words (a quarter) instead; only single-unit files can be doomed. A local model reads each pair and answers SAME / PARTIAL / DIFFERENT; SAME stands only with nothing unique to the doomed file and one quote of each file that occurs in it, and never when a line was withheld for a customer term. A proposal is `delete: true` only when the survivor cites everything the file cites. `--no-model` lists the candidate pairs unjudged |
 | `findings-redundant-delete [--plan P] [--dir D]` | Exact: deletes the plan's proposals still marked `delete: true`, and nothing at all unless each one's file is unchanged since it was judged (hash), its survivor exists and is not itself deleted and still cites everything the file cites, no other findings file anywhere under the folder names it, and `findings-check --keep-raw` passes for the whole set (its citations are looked up in every file under the folder); a plan path outside the folder is refused. Exit 0 deleted (or nothing marked); 2 a proof failed, each listed |
@@ -145,14 +143,14 @@ The quick-reference lists each command with the skill phase it serves. What each
 **What is sent to a model.** `findings-redundant` sends both files of each candidate pair whole (a theme
 file's one section), with the same customer-term filtering. `design-verify` and `design-plan` send each
 section's title and opening lines (and `design-verify` the cited framework-repo files); like
-`checklist`, `absorb-transfer`, `findings-index` and `findings-plan` (each unit's title and opening
+`checklist`, `absorb-transfer`, `findings-index` (each unit's title and opening
 lines) they send design docs and findings files, which the MCP tools refuse; `readiness` and
 `absorb-transfer` read framework-repo files through the MCP tools' own scope. Every line is checked
 against the customer-term corpus first and withheld when it carries a registered term; without the
 corpus nothing is sent. `bug-resolution` sends a diff only for a framework repository, and never one
 that carries a term.
 
-**Model choice.** With no `-LlmModel`, `readiness`, `findings-redundant`, `findings-plan`,
+**Model choice.** With no `-LlmModel`, `readiness`, `findings-redundant`,
 `absorb-transfer`, `bug-resolution` and `design-plan` use `nemotron-3-super:120b`, then
 `qwen3-coder:30b-ctx32k` (`QUALITY_MODEL_PREFERENCE`): quality outranks speed there, so they wait for
 the most capable machine. Measured: `absorb-transfer` on sections known to be absent from the target

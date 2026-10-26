@@ -57,9 +57,7 @@ The mechanical phases of agent skills, done by a script or a local model. Each c
 | `context-digest --phase N` | `/task-orchestrator` shared-context pre-read |
 | `readiness --phase N [--no-model]` | `/task-orchestrator` 1e readiness audit |
 | `findings-index [--dir D]` | `/merge-findings` Phase 1; `/delete-redundant-findings` Phase 1 |
-| `findings-plan [--dir D] [--no-model]` | `/consolidate-findings` Phase 1 |
-| `findings-assemble [--plan P] [--dir D] [--apply]` | `/consolidate-findings` Phases 3–4 |
-| `findings-check --delete F... [--dir D] [--keep-raw]` | `/consolidate-findings` Phase 4; `/merge-findings` and `/delete-redundant-findings` Phase 4 (with `--keep-raw`) |
+| `findings-check --delete F... [--dir D] [--keep-raw]` | `/merge-findings` and `/delete-redundant-findings` Phase 4 (with `--keep-raw`) |
 | `findings-redundant [--dir D] [--no-model]` | `/delete-redundant-findings` Phase 1 |
 | `findings-redundant-delete [--plan P] [--dir D]` | `/delete-redundant-findings` Phase 4 |
 | `finding-select [--count N] [--dir D]` | `/implement-finding` selection |
