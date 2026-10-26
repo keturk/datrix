@@ -23,7 +23,7 @@
       flavor = "container";
       host = "localhost";
       port = 5432;
-      database = "library_books";
+      database = "payment_db";
       poolSize = 20;
       maxOverflow = 20;
       ssl = false;
@@ -170,7 +170,7 @@
       engine = "postgres";
       flavor = "rds";
       host = "postgres.internal";
-      database = "library_books";
+      database = "payment_db";
       poolSize = 40;
       maxOverflow = 20;
       ssl = true;
@@ -205,7 +205,7 @@
       engine = "postgres";
       flavor = "rds";
       port = 5432;
-      database = "library_books";
+      database = "payment_db";
       poolSize = 40;
       maxOverflow = 20;
       ssl = true;
@@ -247,7 +247,7 @@
       engine = "postgres";
       flavor = "flexible-server";
       port = 5432;
-      database = "library_books";
+      database = "payment_db";
       poolSize = 40;
       maxOverflow = 20;
       ssl = true;
@@ -281,7 +281,7 @@
       engine = "postgres";
       flavor = "flexible-server";
       port = 5432;
-      database = "library_books";
+      database = "payment_db";
       poolSize = 20;
       maxOverflow = 20;
       ssl = true;

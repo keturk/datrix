@@ -23,7 +23,7 @@
       flavor = "container";
       host = "localhost";
       port = 5432;
-      database = "library_books";
+      database = "recruitment_db";
       poolSize = 20;
       maxOverflow = 20;
       ssl = false;
@@ -161,7 +161,7 @@
       engine = "postgres";
       flavor = "rds";
       host = "postgres.internal";
-      database = "library_books";
+      database = "recruit_db";
       poolSize = 40;
       maxOverflow = 20;
       ssl = true;
