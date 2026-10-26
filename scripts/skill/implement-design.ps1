@@ -10,7 +10,7 @@
     that skill runs verify and absorb on its own model, because a skill invoked from another skill
     runs on the caller's; here each step is typed into its own `claude -p` run (on its stdin):
       implement  /implement-design-direct on its model, one fresh session per piece: STOP AFTER: plan
-                 (its Steps 1-2), UNIT: <id> for each ledger unit, then UNIT: sweep
+                 (its Steps 1-2), UNIT: <id> for each ledger unit
       verify     /verify-implementation, TASKS: none, FILES from the ledger, on its model
       absorb     /absorb-design, on its model
 
@@ -20,9 +20,9 @@
       * the plan session runs only when there is no ledger (or verify left gaps). No ledger after it
         means it stopped at its gate for a decision (exit 2). Each unchecked unit then gets its own
         session (up to -MaxRounds sessions per unit); every response re-reads the whole context, so
-        short sessions cost far less than one long one. Implement is done only when the sweep session
-        leaves a ledger with no unchecked unit and a "## Files changed" section.
-      * before each unit and sweep session, a fresh interpreter loads every registered plugin. A failure
+        short sessions cost far less than one long one. Implement is done only when the ledger
+        has no unchecked unit and a "## Files changed" section.
+      * before each unit session, a fresh interpreter loads every registered plugin. A failure
         (another session's half-finished edit, say) stops the chain with 1 and prints the end of the
         error; rerun once it loads, and the run resumes at the first unchecked unit.
       * absorb runs only after verify replies "Design conformance: PROVEN". That reply is kept at
@@ -61,7 +61,7 @@
     Stop a step that passes this list-price cost. Default: no cap.
 
 .PARAMETER MaxRounds
-    How many sessions one unit (or the sweep), and how many verify runs, may take before the chain
+    How many sessions one unit, and how many verify runs, may take before the chain
     gives up. Default: 3.
 
 .PARAMETER Quiet

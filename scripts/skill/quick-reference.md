@@ -6,7 +6,7 @@ Scripts for the agent skills under `.claude/skills/`. Each has a POSIX twin `.sh
 
 ## `skill\implement-design.ps1` and `skill\skill-chain.ps1`
 
-Run skills one after another as headless `claude -p` steps, each on its own skill's model and effort. `implement-design.ps1` runs plan → implement units → sweep → verify → absorb for one design; `skill-chain.ps1` runs any prompts in order and stops at the first error.
+Run skills one after another as headless `claude -p` steps, each on its own skill's model and effort. `implement-design.ps1` runs plan → implement units → verify → absorb for one design; `skill-chain.ps1` runs any prompts in order and stops at the first error.
 
 | Form | Command |
 |------|---------|
@@ -17,7 +17,7 @@ Run skills one after another as headless `claude -p` steps, each on its own skil
 | Preview the steps | add `-DryRun` |
 | Summary lines only | add `-Quiet` |
 
-Parameters: `-Design` (or first positional), `-StartAt` (`implement`, `verify`, `absorb`), `-KeepSource`, `-MaxRounds` (default 3) for `implement-design.ps1`; the prompts as positionals for `skill-chain.ps1`. Both: `-Resume`, `-PermissionMode auto|acceptEdits|dontAsk|bypassPermissions` (default `auto`), `-MaxBudgetUsd` (per step), `-DryRun`, `-Quiet`. Before each unit and sweep session `implement-design.ps1` loads every registered plugin in a fresh interpreter and stops with 1 when one fails to load, printing the error's end; rerun once it loads. Logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit: 0 done, 1 a step errored or a check failed, 2 a step stopped for a decision only Jon can make (its reply and session id are printed).
+Parameters: `-Design` (or first positional), `-StartAt` (`implement`, `verify`, `absorb`), `-KeepSource`, `-MaxRounds` (default 3) for `implement-design.ps1`; the prompts as positionals for `skill-chain.ps1`. Both: `-Resume`, `-PermissionMode auto|acceptEdits|dontAsk|bypassPermissions` (default `auto`), `-MaxBudgetUsd` (per step), `-DryRun`, `-Quiet`. Before each unit session `implement-design.ps1` loads every registered plugin in a fresh interpreter and stops with 1 when one fails to load, printing the error's end; rerun once it loads. Logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit: 0 done, 1 a step errored or a check failed, 2 a step stopped for a decision only Jon can make (its reply and session id are printed).
 
 From Git Bash set `MSYS_NO_PATHCONV=1` for `skill-chain.ps1`, or a leading `/` in a prompt becomes a Windows path.
 
