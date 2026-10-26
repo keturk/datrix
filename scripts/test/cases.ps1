@@ -16,15 +16,15 @@
             field comes from you; the tool validates the row, refuses a known
             id or fact, resolves the selector, and appends it. Refused while
             the approval gate is armed for the package.
-   migrate  Inventory the package's counted substring assertions (or every
-            assertion of the named modules) and write a proposal under
-            D:\datrix\.tmp\case-proposals\ -- never into the repository.
+   migrate  Inventory every assertion of the named modules and write a
+            proposal under D:\datrix\.tmp\case-proposals\ -- never into the
+            repository.
             With -Annotations, propose moving the named modules' diagnostic,
             transpiled and language-server tests onto fixture annotations and
             per-code diagnostic fixtures instead.
    accept   Move an approved proposal's rows into case files (an annotation
             proposal's annotations and per-code fixtures into the fixtures),
-            remove the code they replace, and lower the package's pins.
+            and remove the code they replace.
    check    Check everything the package commits about its cases: case files,
             fixture annotations, per-code fixtures and docs fences.
 
@@ -36,7 +36,7 @@
    observe <input> <stage> <observer> <selector>      (with -Package)
    observe                                            (with -Package and -At <file>:<line>)
    new     <package> <area>                           (with the named fields)
-   migrate <package> [<module> ...]
+   migrate <package> <module> ...
    migrate <package> <module> ...                     (with -Annotations)
    accept  <proposal> [<case id> ...]
    check   <package>
@@ -93,13 +93,13 @@
  .\cases.ps1 new datrix-codegen-docker compose -Id compose.basic.api.port -Tags compose -Input basic -Stage generate -Observer surface -Selector "{path: docker-compose.yml, unit: value, key: [services, api, ports, '0']}" -Expectation "'8000:8000'" -Reason "The API is published on its service port."
 
 .EXAMPLE
- .\cases.ps1 migrate datrix-codegen-typescript
+ .\cases.ps1 migrate datrix-codegen-typescript unit/auth/test_guard.py
 
 .EXAMPLE
  .\cases.ps1 migrate datrix-semantic unit/validators/test_service_semver.py -Annotations
 
 .EXAMPLE
- .\cases.ps1 accept D:\datrix\.tmp\case-proposals\datrix-codegen-typescript-substring.proposal.json
+ .\cases.ps1 accept D:\datrix\.tmp\case-proposals\datrix-codegen-typescript-modules-<hash>.proposal.json
 #>
 [CmdletBinding(DefaultParameterSetName = "Run")]
 param(
