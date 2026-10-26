@@ -35,14 +35,15 @@ a `dev` extra, never as a runtime dependency. The `pytest11` feature-tag plugin
 (`datrix_common.testing.feature_tags`) stays in `datrix-common`.
 
 `datrix-migration` holds the RDBMS migration machinery (`datrix_migration`: schema
-snapshot, schema diff, change policy, revision ledger, state store) and depends on
-`datrix-common` alone. The CLI, the generation kernel, the codegen layer and every
-RDBMS-emitting generator declare it as a runtime dependency.
+snapshot, schema diff, change policy, revision ledger, state store, SQL lowering) and depends
+on `datrix-common` alone. The CLI, the generation kernel, the codegen layer, every
+RDBMS-emitting generator and `datrix-semantic` declare it as a runtime dependency.
 
 `datrix-semantic` holds semantic analysis (`datrix_semantic`: the analyzer, its phase
 pipeline, every domain validator, synthesis, and auth-contract lowering) and depends on
-`datrix-common` alone. `datrix-language`, `datrix-cli` and `datrix-testing` declare it as a
-runtime dependency.
+`datrix-common` and, for the SQL lowering alone (`datrix_migration.sql_lowering`, which the
+analyzer runs over every column default), `datrix-migration`. `datrix-language`, `datrix-cli`
+and `datrix-testing` declare it as a runtime dependency.
 
 **The count is not a constant.** This list grows as targets are added — a new language, a
 new platform, or a new frontend target is a new repo. Update the list and the heading in
