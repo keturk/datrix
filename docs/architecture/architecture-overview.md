@@ -1286,8 +1286,8 @@ target with **zero unexempted holes and zero exemptions**: every construct kind
 (endpoint, entity, field, enum value, struct field, function) reaches both its published
 and its source surface on every target. Entity-level published documentation, which
 earlier carried three exemptions claiming no target defined a landing site for it, is
-realized on every target — a Pydantic model docstring (python), `@ApiSchema` (typescript) — each of which that
-target's own OpenAPI stack publishes as the component's description. The same gate's
+realized on every target — the Create schema's `json_schema_extra` description (python), `@ApiSchema` (typescript) — each of which that
+target's own OpenAPI stack publishes as the Create component's description, the author's exact text. The same gate's
 coverage census reports zero attached-but-unemitted runs on every target.
 
 ---
