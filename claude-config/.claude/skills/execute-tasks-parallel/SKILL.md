@@ -211,7 +211,7 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
    - Anything you find that the task does not need (a defect on a file you touched, a
      pre-existing failure, another instance of the defect class, a violation you
      happened to see) → write a findings file
-     (d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md, template:
+     (d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md, template:
      .claude/skills/_shared/execution-contract-reporting.md §5A; do not look for an
      existing one) and move on. It is not a fix and not a task.
    Ask: does the task need this to be correct? If no, it is a findings file.

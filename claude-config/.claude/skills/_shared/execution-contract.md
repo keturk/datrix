@@ -192,7 +192,7 @@ run with work nobody scheduled, and it moves what `latest-phase.ps1` reports.
 
 *Held in [execution-contract-reporting.md](./execution-contract-reporting.md).* Summary: anything
 you find that the task does not need (§5) — a defect, a design flaw, an issue on any surface — gets
-a findings file at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md` (brief; no search first;
+a findings file at `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md` (brief; no search first;
 duplicates are fine), and you cite its path in your reply. A findings file is never a reason to stop.
 
 ## 6. Escalate before you stop — never instead of fixing

@@ -19,7 +19,7 @@ outcome. Write the file, then carry on with your own task. A findings file is ne
 stop, and it never replaces fixing a small defect on a surface you touched. That is still §5
 outcome 1.
 
-**Where.** `d:\datrix\reports\finding\`, one file per issue, named
+**Where.** `d:\datrix\findings\`, one file per issue, named
 `YYYYMMDD-HHMMSS-<short-kebab-slug>.md` from the current local time (e.g.
 `20260927-141503-compose-env-key-never-supplied.md`). Get the time from the shell
 (`Get-Date -Format yyyyMMdd-HHmmss`). Create the folder if it is missing. Write it with the
@@ -58,7 +58,7 @@ State only what you saw. A guess is labelled as a guess. The file sits outside e
 treat it as shareable anyway: no secrets, credentials, or customer data.
 
 **Report it.** Cite the file path in your reply or report, e.g.
-`Finding: d:\datrix\reports\finding\20260927-141503-compose-env-key-never-supplied.md`. The stop
+`Finding: d:\datrix\findings\20260927-141503-compose-env-key-never-supplied.md`. The stop
 gates accept that path as a disposition, the same as a filed task path.
 
 ---

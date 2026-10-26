@@ -179,7 +179,7 @@ See `d:\datrix\.claude\skills\_shared\fix-conventions.md` (also applies per-issu
 - **NO ignoring Recommended Fix section** — that's the designed solution, use it
 - **NO fixing generated code directly** — always fix the generator/template
 - **NO debug scatter** — zero temporary logging statements
-- **NO modifying unrelated code** — stay focused on the issue; an unrelated defect you notice gets a findings file under `d:\datrix\reports\finding\` (execution-contract §5A), not a fix and not silence
+- **NO modifying unrelated code** — stay focused on the issue; an unrelated defect you notice gets a findings file under `d:\datrix\findings\` (execution-contract §5A), not a fix and not silence
 - **NO whole test suites, ever** — verify only the tests of what you changed (files and tags)
 - **NO committing changes** — user decides when to commit
 - **NO fabricating file locations** — if Root Cause Analysis says "exact file TBD", search for it first

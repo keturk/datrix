@@ -33,7 +33,7 @@ The playbook's single-repo scope is a standing order for `/fix-{suffix}` skills.
 - **Tests:** `-Specific` and `-Tag` runs only, at most 3 tags per run, `-Keyword` in one package only. Never a whole suite, a tier switch, `-All`, `-Rerun`, or `affected-gate.ps1`. A package outside `{SCOPE}` is never named in a `test.ps1` call.
 - **Root cause in another package of `{SCOPE}`** → fix it there, in the same job. This replaces the playbook's "Cross-Project Root Cause" stop for in-scope packages.
 - **Root cause outside `{SCOPE}`** → do not fix it and do not write a findings file for it. Stop work on the clusters traced there and state, under `Unresolved`, the package, `file:line`, the evidence and the cluster IDs. Jon decides whether to add that package's run.
-- **Findings** for a defect inside `{SCOPE}` that the fixes do not need still go to `d:\datrix\reports\finding\` per the CLAUDE.md rule.
+- **Findings** for a defect inside `{SCOPE}` that the fixes do not need still go to `d:\datrix\findings\` per the CLAUDE.md rule.
 
 ## Scripts and local models first
 

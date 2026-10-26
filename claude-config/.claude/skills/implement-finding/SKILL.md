@@ -1,5 +1,5 @@
 ---
-description: Work ONE findings file from d:\datrix\reports\finding end to end in this session — check it against the current code, and when it still holds fix it, prove it with a tagged test and targeted runs, update the docs that describe it, and delete it through finding-close. Use when Jon asks to "implement a finding", "fix the next finding", or runs /implement-finding. To work through several findings, one fresh session each, Jon runs scripts/skill/implement-finding.ps1.
+description: Work ONE findings file from d:\datrix\findings end to end in this session — check it against the current code, and when it still holds fix it, prove it with a tagged test and targeted runs, update the docs that describe it, and delete it through finding-close. Use when Jon asks to "implement a finding", "fix the next finding", or runs /implement-finding. To work through several findings, one fresh session each, Jon runs scripts/skill/implement-finding.ps1.
 ---
 
 # Implement Finding
@@ -23,7 +23,7 @@ it reaches; only a B1–B4 blocker with its four-part proof stops it.
 
 | Field | Meaning | Default |
 |---|---|---|
-| `FINDING` | The findings file to work | the first file of the first inbox subfolder that holds one (area order), else the inbox's own files: `skill-assist.ps1 finding-select --count 1`; `--dir <subfolder>` (absolute, or relative to `reports\finding`) limits it to that folder |
+| `FINDING` | The findings file to work | the first file of the first inbox subfolder that holds one (area order), else the inbox's own files: `skill-assist.ps1 finding-select --count 1`; `--dir <subfolder>` (absolute, or relative to `findings`) limits it to that folder |
 | `CLOSE` | `script` when `implement-finding.ps1` started the session: it deletes the finding itself | you delete it (step 6) |
 
 ## Steps

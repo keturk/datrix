@@ -261,7 +261,7 @@ _PROOF_RE: Final = re.compile(
     r"|\bAPPROVAL_REQUIRED\b"  # growth beyond the asked scope waits on Jon (execution-contract §4)
     r"|\bMISSING_ACCESS\b|\bUNDECIDABLE\b|\bUSER_FORBADE\b|\bFENCED_SURFACE\b"
     r"|\.tasks[/\\][\w\-./\\]+\.md"  # a real filed task file path
-    r"|reports[/\\]finding[/\\][\w\-.]+\.md"  # a findings file (execution-contract §5A)
+    r"|\bfindings[/\\][\w\-.]+\.md"  # a findings file (execution-contract §5A)
     r"|\bdisposition\b\s*[\"':]*\s*\"?FILED\"?"
     r")",
     re.IGNORECASE,
@@ -495,7 +495,7 @@ DODGE_REMEDY: Final = (
     "That is not a blocker (execution-contract.md §3: only B1 MISSING_ACCESS, B2 UNDECIDABLE, "
     "B3 USER_FORBADE, B4 FENCED_SURFACE). A skipped check: run it now. Then do one of: "
     "1. DO IT if the task needs it; 2. APPROVAL_REQUIRED: one line (what, why, size; §4) if it grows the task; "
-    "3. WRITE A FINDING under d:\\datrix\\reports\\finding\\ (§5A) if the task does not need it; "
+    "3. WRITE A FINDING under d:\\datrix\\findings\\ (§5A) if the task does not need it; "
     "4. PROVE A BLOCKER: verbatim error, the fix you wrote and ran (file:line), why it failed, the B1-B4 code. "
     "Do not rephrase around this check."
 )

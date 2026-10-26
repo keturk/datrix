@@ -173,7 +173,7 @@ def _check_new_phase(path: str, session_id: str) -> None:
     _block(
         f"BLOCKED: writing `{path}` would create the phase directory `{phase_dir}`; agents never open "
         "a phase (.claude/docs/task-orchestration.md). A defect your task does not need is a findings "
-        "file under `d:\\datrix\\reports\\finding\\`; a follow-up task goes in the existing phase you are "
+        "file under `d:\\datrix\\findings\\`; a follow-up task goes in the existing phase you are "
         "executing (`validate-dependencies.ps1 -Phase {NN} -NextTaskNumber`)."
     )
 

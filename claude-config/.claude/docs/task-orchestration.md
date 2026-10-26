@@ -51,7 +51,7 @@ silently seeds the next orchestration run with work nobody scheduled, and it is 
 
 **Findings are not phase tasks.** When an agent reports a defect its task does not need, the
 orchestrator does not add it to the phase and does not dispatch it. It makes sure the finding
-has a findings file under `d:\datrix\reports\finding\` (execution-contract §5–§5A), writing one
+has a findings file under `d:\datrix\findings\` (execution-contract §5–§5A), writing one
 itself if the agent did not, and names it to Jon. If an agent filed such a task, remove it from
 the phase and move its text into a findings file.
 

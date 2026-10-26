@@ -1,7 +1,7 @@
 ---
 model: claude-opus-5-5
 effort: high
-description: Turn the consolidated-NNN-*.md findings files in d:\datrix\reports\finding into implementation-ready design documents in d:\datrix\design — numbered from 010 in steps of 10, each at most 100 lines, never referencing a later design, and consistent across every platform and every language the change reaches. Scripts and local models do the reading, grouping and checking; this skill writes the designs. Writes no findings files: whatever the work turns up goes into an existing design or a new one. Deletes each consolidated file once its content is in designs. Use when Jon asks to "turn the findings into designs", "consolidate to design", or runs /consolidate-to-design.
+description: Turn the consolidated-NNN-*.md findings files in d:\datrix\findings into implementation-ready design documents in d:\datrix\design — numbered from 010 in steps of 10, each at most 100 lines, never referencing a later design, and consistent across every platform and every language the change reaches. Scripts and local models do the reading, grouping and checking; this skill writes the designs. Writes no findings files: whatever the work turns up goes into an existing design or a new one. Deletes each consolidated file once its content is in designs. Use when Jon asks to "turn the findings into designs", "consolidate to design", or runs /consolidate-to-design.
 ---
 
 # Consolidate to Design

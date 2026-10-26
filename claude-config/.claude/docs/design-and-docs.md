@@ -26,7 +26,7 @@ not reviewed again until it, or a design it depends on, changes.
 ## Design work files no findings
 
 While writing, reviewing or editing a design, or changing code a design's work turns up, nothing
-goes to `reports/finding/`. What the work turns up — a defect, another instance of one, a gap —
+goes to `findings/`. What the work turns up — a defect, another instance of one, a gap —
 goes into the design it belongs to, or into a new design numbered for it, with its census and
 conformance section like any other.
 

@@ -89,7 +89,7 @@ asked for (or the design doc / task file you were given). Do that, completely.
   fix are both wrong. Approved work then follows every rule here.
 
 **Nothing you notice is dropped.** A defect the task does not need, a design flaw, or anything
-unrelated to your task gets a **findings file** at `d:\datrix\reports\finding\YYYYMMDD-HHMMSS-<slug>.md`.
+unrelated to your task gets a **findings file** at `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md`.
 Just write it: **do not look for an existing one** (duplicates are fine; `/merge-findings`
 merges them), do not fix it, do not file a task. Cite its path in your reply and carry on.
 Format: execution-contract-reporting.md §5A. **Exception — design work:** while working on

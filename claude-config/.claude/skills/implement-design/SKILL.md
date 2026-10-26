@@ -130,7 +130,7 @@ It reviews the code on disk against the design, fixes what is wrong or missing, 
 
 - **PROVEN** → Step 4.
 - **INCOMPLETE** → the design is not implemented. Go to the cause: fix what verify could not (tasks path: re-invoke `/task-orchestrator` on the same phase for any in-phase task verify filed; direct path: fix it yourself), then run `/verify-implementation` again. Repeat until PROVEN. A second INCOMPLETE on the same finding means the diagnosis was wrong, so re-diagnose rather than patch. Stop only on a valid B1–B4 blocker with the four-part proof, and then **do not absorb**: report the blocker.
-- A design-sized defect verify surfaces (needs its own design) gets a findings file under `d:\datrix\reports\finding\` and is named in the final report; it does not block absorbing a design that is otherwise PROVEN.
+- A design-sized defect verify surfaces (needs its own design) gets a findings file under `d:\datrix\findings\` and is named in the final report; it does not block absorbing a design that is otherwise PROVEN.
 - With `FIX: false`, verify is report-only: print its report and stop here without absorbing.
 
 ## Step 4: Absorb

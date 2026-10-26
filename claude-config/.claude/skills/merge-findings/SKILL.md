@@ -1,12 +1,12 @@
 ---
 model: claude-sonnet-5-5
 effort: medium
-description: Merge the findings inbox at d:\datrix\reports\finding in place — group every set of findings one fix session would tackle together (the same or SIMILAR issues — same defect, seam, fix site or defect class, or one shared remedy) into one file per theme, leaving no two similar files behind, carry every source's evidence and citations as numbered sections, delete the originals, and name every file NNNN-<area>-<slug>.md numbered contiguously in area order (python, typescript, clients, language, migration, seed, kernel, docker, aws, azure, component, tests, tooling, docs). Use when Jon asks to "merge findings", "dedupe the findings", "merge similar findings", or runs /merge-findings.
+description: Merge the findings inbox at d:\datrix\findings in place — group every set of findings one fix session would tackle together (the same or SIMILAR issues — same defect, seam, fix site or defect class, or one shared remedy) into one file per theme, leaving no two similar files behind, carry every source's evidence and citations as numbered sections, delete the originals, and name every file NNNN-<area>-<slug>.md numbered contiguously in area order (python, typescript, clients, language, migration, seed, kernel, docker, aws, azure, component, tests, tooling, docs). Use when Jon asks to "merge findings", "dedupe the findings", "merge similar findings", or runs /merge-findings.
 ---
 
 # Merge Findings
 
-Agents write one findings file per issue into `d:\datrix\reports\finding\` and are told not to
+Agents write one findings file per issue into `d:\datrix\findings\` and are told not to
 search the folder first (execution-contract §5A), so the same or a closely related defect gets
 reported several times — by different agents, from different targets, on different days. This
 skill collapses them: **each issue, and each family of similar issues, ends up in one file**, and
@@ -60,8 +60,8 @@ dispatches no subagents.
 
 ## Inputs
 
-Every `*.md` file directly in `d:\datrix\reports\finding\`:
-`Get-ChildItem d:\datrix\reports\finding -File -Filter *.md | Sort-Object Name`.
+Every `*.md` file directly in `d:\datrix\findings\`:
+`Get-ChildItem d:\datrix\findings -File -Filter *.md | Sort-Object Name`.
 
 - **Raw files** — `YYYYMMDD-HHMMSS-<slug>.md`, written by agents since the last run (§5A format).
 - **Merged files** — `NNNN-<area>-<slug>.md`, written by earlier runs: one theme, one numbered

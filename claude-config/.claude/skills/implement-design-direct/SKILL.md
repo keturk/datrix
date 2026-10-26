@@ -168,7 +168,7 @@ Generation checks follow the one-example, one-language rule: regenerate only the
 
 **When a unit fails against a security control, the control is the requirement.** Never loosen, exempt, or widen it to turn the check green.
 
-**A defect you find on a surface you touched is yours:** fix it. A design-sized one gets a findings file under `d:\datrix\reports\finding\` (brief: what, `file:line`, evidence, impact) and the run carries on; a small one is fixed in place.
+**A defect you find on a surface you touched is yours:** fix it. A design-sized one gets a findings file under `d:\datrix\findings\` (brief: what, `file:line`, evidence, impact) and the run carries on; a small one is fixed in place.
 
 After the last unit, write the files changed into the ledger under a `## Files changed` heading, one path per line, keeping the paths already listed there by earlier runs. Each unit's own negative acceptance check covers the "X replaces Y" it carries; `/verify-implementation` (Step 4) proves the whole design's negatives again.
 

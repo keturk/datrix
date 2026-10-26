@@ -107,7 +107,7 @@ subagent_cases = [
     ("blocker proof", "B1 MISSING_ACCESS — no subscription credential. Tried fix at a.py:12.", ALLOW),
     ("filed task", "Filed .tasks/phase-40/03-fix-seam.md for the independent root cause.", ALLOW),
     ("findings file", "The auth bug is out of scope; wrote "
-                      "d:/datrix/reports/finding/20260927-141503-auth-bug.md.", ALLOW),
+                      "d:/datrix/findings/20260927-141503-auth-bug.md.", ALLOW),
     ("findings folder alone is not a finding", "The auth bug is out of scope; see the reports "
                                                 "folder.", BLOCK),
     ("approval request", "The fix would require broader changes. APPROVAL_REQUIRED: a new "

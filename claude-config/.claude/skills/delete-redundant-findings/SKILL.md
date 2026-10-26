@@ -1,12 +1,12 @@
 ---
 model: claude-sonnet-5-5
 effort: medium
-description: Delete the redundant files from the findings inbox at d:\datrix\reports\finding — a file is redundant when another file in the inbox already states the same defect with all of its evidence and citations, so deleting it loses nothing. A script finds the candidate pairs, a local model judges each pair, and a script proves the deletion loses no citation before it removes anything. Merges nothing, renames nothing, writes no new file; a file that carries anything the survivor lacks is kept and left for /merge-findings. Use when Jon asks to "delete redundant findings", "remove duplicate findings", "drop the findings that are already covered", or runs /delete-redundant-findings.
+description: Delete the redundant files from the findings inbox at d:\datrix\findings — a file is redundant when another file in the inbox already states the same defect with all of its evidence and citations, so deleting it loses nothing. A script finds the candidate pairs, a local model judges each pair, and a script proves the deletion loses no citation before it removes anything. Merges nothing, renames nothing, writes no new file; a file that carries anything the survivor lacks is kept and left for /merge-findings. Use when Jon asks to "delete redundant findings", "remove duplicate findings", "drop the findings that are already covered", or runs /delete-redundant-findings.
 ---
 
 # Delete Redundant Findings
 
-Agents write one findings file per issue into `d:\datrix\reports\finding\` and are told not to
+Agents write one findings file per issue into `d:\datrix\findings\` and are told not to
 search the folder first (execution-contract §5A), so the same defect is reported again and again.
 This skill removes the copies that add nothing. It is the narrow cousin of `/merge-findings`:
 that skill *combines* related findings into themes; this one only *deletes* a file whose whole
@@ -51,7 +51,7 @@ powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-redu
 ```
 
 **The inbox has area subfolders** (`organize-findings.ps1` sorts the loose files into
-`d:\datrix\reports\finding\<area>\`). The command goes through the subfolders one at a time (then the
+`d:\datrix\findings\<area>\`). The command goes through the subfolders one at a time (then the
 inbox's own loose files) and compares the `*.md` of a folder with each other only, never with another
 folder's files: a duplicate is found inside `python`, not between `python` and `azure`. You pass no
 folder. Every file is named by its path under the inbox (`azure/0167-….md`) in the plan, the view and the
@@ -106,7 +106,7 @@ PARTIAL names what the survivor lacks, which is exactly why the file stays.
 The delete step refuses while another findings file names a file it will delete. Find the mentions:
 
 ```powershell
-Select-String -Path d:\datrix\reports\finding\*.md,d:\datrix\reports\finding\*\*.md -Pattern '<doomed file name without .md>' -SimpleMatch
+Select-String -Path d:\datrix\findings\*.md,d:\datrix\findings\*\*.md -Pattern '<doomed file name without .md>' -SimpleMatch
 ```
 
 Edit each mention (in **Related:**, **Where:** or prose) to name the survivor instead. The plan view
@@ -135,7 +135,7 @@ Do not rename or renumber anything, do not move a deleted file anywhere, and do 
 
 ## Report to Jon
 
-Short: files in, files deleted, files out (`Get-ChildItem d:\datrix\reports\finding -Recurse -File -Filter *.md`
+Short: files in, files deleted, files out (`Get-ChildItem d:\datrix\findings -Recurse -File -Filter *.md`
 count). One line per deletion (`deleted → survivor §section`). Then the proposals you rejected with a
 one-clause reason, any pair that needs `/merge-findings`, any sentence or citation added to a survivor,
 and the Phase 4 exit code.

@@ -782,7 +782,7 @@ _REMEDY: Final = {
     ),
     "todo": (
         "No placeholders/TODOs (CLAUDE.md). Do the work now, or write a findings file under "
-        "`d:\\datrix\\reports\\finding\\` and leave the comment out."
+        "`d:\\datrix\\findings\\` and leave the comment out."
     ),
     "type-hints": "Type hints on all fns (CLAUDE.md): every parameter but `self`/`cls`, and the return, `-> None` included.",
     "any": (
