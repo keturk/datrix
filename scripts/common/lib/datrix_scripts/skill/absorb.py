@@ -182,11 +182,12 @@ def _matches(line: str, literals: list[str], number: re.Pattern[str] | None) -> 
 def sibling_number(design: Path) -> re.Pattern[str] | None:
     """How another design of the folder names *design*: its number as the file name spells it (``090 D1``,
     ``090 §4``, ``090's gate``), the form the design series uses for each other. A source line citation
-    (``builder.py:090``, ``:85-090``, ``:090-109``) is a line number, not the design."""
+    (``builder.py:090``, ``:85-090``, ``:090-109``) is a line number, not the design, and neither is a size
+    limit (``under 090 lines``, or ``under 090`` at the end of a wrapped line)."""
     match = _DESIGN_NUMBER.match(design.name)
     if not match:
         return None
-    return re.compile(rf"(?<![\w.:])(?<!\d-){re.escape(match.group(1))}(?![\w.]|-\d)")
+    return re.compile(rf"(?<![\w.:])(?<!\d-)(?<!under ){re.escape(match.group(1))}(?![\w.]|-\d)(?!\s+lines\b)")
 
 
 def _references_in(workspace: Path, path: Path, literals: list[str], number: re.Pattern[str] | None) -> list[Reference]:

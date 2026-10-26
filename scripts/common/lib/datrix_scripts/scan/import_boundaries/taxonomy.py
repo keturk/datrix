@@ -38,7 +38,7 @@ class BoundaryRule:
     An import that matches a forbidden prefix is still permitted when it
     starts with one of ``allowed_subtrees`` -- used where a package may reach
     a narrow, reviewed part of an otherwise-forbidden package (the test
-    harness's kernel import).
+    harness's kernel import, the semantic layer's migration SQL lowering).
     """
 
     forbidden_prefixes: tuple[str, ...]
@@ -579,11 +579,15 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
             ),
         ),
         # The semantic-analysis package (the analyzer, every domain validator,
-        # auth-contract lowering) sits on the core alone. The parser, the CLI
-        # and the test harness depend on it, and every generator and the
-        # migration package sit beside it on the core, so an import of any of
-        # them would close a cycle or couple two siblings. Its tests reach the
-        # parser only through the datrix.parsers entry point.
+        # auth-contract lowering) sits on the core and on the migration
+        # package's SQL lowering, which it runs to refuse at analysis a column
+        # default no registered dialect can express. The parser, the CLI and
+        # the test harness depend on it, and every generator sits beside it on
+        # the core, so an import of any of them would close a cycle or couple
+        # two siblings. The rest of the migration package (snapshot, diff,
+        # policy, ledger, state store) stays fenced: the analyzer lowers
+        # expressions, it never reads schema state. Its tests reach the parser
+        # only through the datrix.parsers entry point.
         "datrix_semantic": BoundaryRule(
             forbidden_prefixes=(
                 "datrix_language",
@@ -592,6 +596,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 "datrix_extensions",
                 "datrix_migration",
             ),
+            allowed_subtrees=frozenset({"datrix_migration.sql_lowering"}),
         ),
         # The CLI is the composition root: it may import any installed package
         # (generator and platform packages are still reached through entry
@@ -1180,10 +1185,11 @@ def _self_test_platform_test_tree_testkit_forbidden() -> bool:
 
 
 def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> bool:
-    """Subtree matching is exact-or-child (not raw prefix), and the one
-    surviving carve-out (datrix_testing's kernel allowed_subtrees) never
-    leaks to a package that did not opt in."""
-    report_step("Self-test 2/24: dotted-boundary precision and kernel-carve-out non-leakage")
+    """Subtree matching is exact-or-child (not raw prefix), and each
+    carve-out (datrix_testing's kernel, datrix_semantic's migration SQL
+    lowering) admits only its own subtree and never leaks to a package that
+    did not opt in."""
+    report_step("Self-test 2/24: dotted-boundary precision and carve-out non-leakage")
     ok = True
     platform_source = "datrix_codegen_aws"
     ok &= _check(
@@ -1245,6 +1251,25 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
     ok &= _check(
         "datrix_testing still forbids datrix_codegen_common",
         _rule_forbids(rules, "datrix_testing", "datrix_codegen_common.generation.orchestrator"),
+    )
+
+    # The semantic layer reaches the migration package's SQL lowering and
+    # nothing else of it; the migration package never reaches back.
+    ok &= _check(
+        "datrix_semantic may import datrix_migration.sql_lowering.lower",
+        not _rule_forbids(rules, "datrix_semantic", "datrix_migration.sql_lowering.lower"),
+    )
+    ok &= _check(
+        "datrix_semantic still forbids datrix_migration.snapshot_diff",
+        _rule_forbids(rules, "datrix_semantic", "datrix_migration.snapshot_diff"),
+    )
+    ok &= _check(
+        "datrix_semantic's lowering carve-out does not leak to datrix_migration.sql_lowering_other",
+        _rule_forbids(rules, "datrix_semantic", "datrix_migration.sql_lowering_other"),
+    )
+    ok &= _check(
+        "datrix_migration still forbids datrix_semantic",
+        _rule_forbids(rules, "datrix_migration", "datrix_semantic.analyzer"),
     )
 
     return ok
