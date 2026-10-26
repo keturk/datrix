@@ -26,8 +26,9 @@ the session (any HUMAN prompt in the transcript), these become allowed:
   git reset [-q] [HEAD] [-- <paths>] unstage (mixed, index only -- the tree is kept)
   git restore --staged <paths>      unstage, never touching the working tree
 
-  scripts/git/resolve-pull.ps1      the same sequence, run by a script (blocked
-                                    outside the window like the git calls it makes)
+  scripts/git/resolve-pull.ps1      the same sequence, run by a script, its .sh twin
+                                    or its module (blocked outside the window like
+                                    the git calls it makes)
 
 Everything that destroys work stays blocked even then: `reset --hard/--keep/--soft`
 or to another commit, `restore` of the working tree, `checkout -- <path>`, a bare
@@ -240,9 +241,13 @@ _RESOLVABLE: Final = {
 }
 
 
-#: The script that runs the skill's stash/pull/apply sequence itself (scripts/git/resolve-pull.ps1 and
-#: the lib/resolve_pull.py it wraps): it shelves work exactly as `git stash push -- <paths>` does.
-_RESOLVE_PULL_RE: Final = re.compile(r"(?<![\w.-])(?:resolve-pull\.ps1|resolve_pull\.py)\b", re.IGNORECASE)
+#: The script that runs the skill's stash/pull/apply sequence itself (scripts/git/resolve-pull.ps1, its
+#: resolve-pull.sh twin, and the datrix_scripts.git.resolve_pull module both run, by file or with -m): it
+#: shelves work exactly as `git stash push -- <paths>` does. Its gate (resolve-pull-gate, resolve_pull_gate)
+#: works on scratch clones and is not matched.
+_RESOLVE_PULL_RE: Final = re.compile(
+    r"(?<![\w.-])(?:resolve-pull\.(?:ps1|sh)|resolve_pull\.py|datrix_scripts\.git\.resolve_pull)\b", re.IGNORECASE
+)
 
 
 def _check_resolve_pull(command: str, transcript_path: str) -> None:

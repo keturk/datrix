@@ -6,7 +6,7 @@ description: Turn the consolidated-NNN-*.md findings files in d:\datrix\reports\
 
 # Consolidate to Design
 
-`consolidated-NNN-<slug>.md` files (output of `/consolidate-findings`) hold defects grouped by
+`consolidated-NNN-<slug>.md` files in the findings folder hold defects grouped by
 theme. This skill turns them into **designs** that `/implement-design-direct` can implement
 without a question: one design per fix shape, in the order they must be built.
 

@@ -67,7 +67,7 @@ Every `*.md` file directly in `d:\datrix\reports\finding\`:
 - **Merged files** — `NNNN-<area>-<slug>.md`, written by earlier runs: one theme, one numbered
   section per source defect. They take part as merge targets; a raw file that belongs to an
   existing theme becomes a new section of it.
-- **Consolidated files** — `consolidated-NNN-<slug>.md` from `/consolidate-findings`: treat as
+- **Consolidated files** — `consolidated-NNN-<slug>.md` already in the folder: treat as
   merged files and rename them into the `NNNN-<area>-<slug>.md` scheme.
 
 If the folder holds fewer than two files, say so in one line and stop.
