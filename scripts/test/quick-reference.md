@@ -85,7 +85,7 @@ Authoring tool for declarative test cases (`tests/cases/<area>.cases.yaml`). Com
 | Observe a value | `.\test\cases.ps1 observe basic generate surface "{path: docker-compose.yml, unit: keys, key: [services]}" -Package datrix-codegen-docker` |
 | Observe a fixture line | `.\test\cases.ps1 observe -Package datrix-language -At tests/fixtures/cases/lsp-shop/system.dtrx:14` |
 | Add one case | `.\test\cases.ps1 new datrix-codegen-docker compose -Id compose.basic.services -Tags compose -Input basic -Stage generate -Observer surface -Selector "{path: docker-compose.yml, unit: keys, key: [services]}" -Expectation "[api, postgres]" -Reason "..."` |
-| Propose a migration | `.\test\cases.ps1 migrate datrix-codegen-typescript` (named modules: `... unit/auth/test_x.py`) |
+| Propose a migration | `.\test\cases.ps1 migrate datrix-codegen-typescript unit/auth/test_x.py` |
 | Propose fixture annotations | `.\test\cases.ps1 migrate datrix-semantic unit/validators/test_x.py -Annotations` |
 | Accept an approved proposal (needs Jon's `<name>.cases.approved`) | `.\test\cases.ps1 accept D:\datrix\.tmp\case-proposals\<name>.proposal.json` |
 | Accept some rows | `.\test\cases.ps1 accept <proposal> <case id> <case id>` |
