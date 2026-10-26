@@ -170,8 +170,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--finding", action="append", default=[],
                         help="A findings file to work, in place of the first --count of the inbox (repeat for each).")
     parser.add_argument("--dir", default="",
-                        help="Work only this folder: absolute, or relative to <workspace>/reports/finding. "
-                             "Default: the subfolders of <workspace>/reports/finding in turn, then its own files.")
+                        help="Work only this folder: absolute, or relative to <workspace>/findings. "
+                             "Default: the subfolders of <workspace>/findings in turn, then its own files.")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="The model of each session. Default: claude-opus-5-5.")
     parser.add_argument("--effort", choices=EFFORTS, default=DEFAULT_EFFORT,
                         help="The effort of each session. Default: high.")
@@ -197,7 +197,7 @@ def _check_the_outcome_is_the_last_finding_fix_line() -> None:
 def _check_findings_are_selected_and_closed_in_process() -> None:
     with TemporaryDirectory() as raw:
         workspace = Path(raw)
-        inbox = workspace / "reports" / "finding"
+        inbox = workspace / "findings"
         write_files(inbox, {"b.md": "b\n", "a.md": "a\n", "c.md": "names a\n", "notes.txt": "x\n"})
         assert select_findings(workspace, [], 2, "") == [inbox / "a.md", inbox / "b.md"]
         assert select_findings(workspace, [str(inbox / "c.md")], 2, "") == [(inbox / "c.md").resolve()]
@@ -223,7 +223,7 @@ def _check_findings_are_selected_and_closed_in_process() -> None:
 def _check_the_subfolders_are_worked_in_turn_or_only_the_one_given() -> None:
     with TemporaryDirectory() as raw:
         workspace = Path(raw)
-        inbox = workspace / "reports" / "finding"
+        inbox = workspace / "findings"
         write_files(inbox, {"z-loose.md": "z\n", "docs/d1.md": "d1\n", "azure/a2.md": "a2 names d1\n",
                             "azure/a1.md": "a1\n", "python/p1.md": "p1\n", "extra/e1.md": "e1\n"})
         names = [path.relative_to(inbox).as_posix() for path in select_findings(workspace, [], 10, "")]

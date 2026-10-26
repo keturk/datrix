@@ -189,7 +189,7 @@ def check_readiness_satisfied_lead_reads_the_verdict_and_checks_citations() -> N
 
 def check_findings_extraction_maps_tails_reports_invented_and_unassigned_citations() -> None:
     with _workspace() as root:
-        source = write_file(root / "reports/finding/20261001-000000-x.md",
+        source = write_file(root / "findings/20261001-000000-x.md",
                         "# X\n\nSee `datrix-alpha/src/x.py:3` and `datrix-alpha/src/y.py:9`.\n")
         reply = json.dumps({"findings": [{"title": "T", "seam": "s", "packages": ["datrix-alpha"], "defect": "d",
                                           "citations": ["x.py:3", "made/up.py:1"]}]})
@@ -202,7 +202,7 @@ def check_findings_extraction_maps_tails_reports_invented_and_unassigned_citatio
 
 def check_findings_index_reads_every_file_before_the_first_model_call() -> None:
     with _workspace() as root:
-        folder = root / "reports/finding"
+        folder = root / "findings"
         # One file more than the worker threads: a lazy reader reaches the last one only after a chat.
         files = [write_file(folder / f"consolidated-{n:03d}-f.md", f"# F{n}\n\nAt `datrix-alpha/src/f{n}.py:{n}`.\n")
                  for n in range(1, MAP_WORKERS + 2)]
@@ -223,7 +223,7 @@ def check_findings_index_reads_every_file_before_the_first_model_call() -> None:
 
 def check_findings_never_send_a_registered_customer_term() -> None:
     with _workspace() as root:
-        source = write_file(root / "reports/finding/20261001-000000-t.md",
+        source = write_file(root / "findings/20261001-000000-t.md",
                         f"# T\n\nThe {_GATE_TERM} service breaks.\nPlain line.\n")
         reply = json.dumps({"findings": []})
         with LoopbackOllama(answering(reply)) as server:
@@ -235,7 +235,7 @@ def check_findings_never_send_a_registered_customer_term() -> None:
 
 def check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer() -> None:
     with _workspace() as root:
-        folder = root / "reports/finding"
+        folder = root / "findings"
         raw = write_file(folder / "20261001-000000-r.md", "# R\n\nAt `a/b.py:1`.\n")
         kept = write_file(folder / "consolidated-001-theme.md", "# Theme\n\n**Related:** consolidated-002-gone\n")
         failed = check_consolidation(folder, [raw])
@@ -248,7 +248,7 @@ def check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer(
 
 def check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_citation() -> None:
     with _workspace() as root:
-        folder = root / "reports/finding"
+        folder = root / "findings"
         survivor = write_file(folder / "20261001-000000-same.md", "# Same\n\nAt `a/b.py:1`.\n")
         duplicate = write_file(folder / "20261001-000001-same-again.md", "# Same\n\nAt `a/b.py:1` and `a/c.py:2`.\n")
         strict = check_consolidation(folder, [duplicate])
@@ -262,7 +262,7 @@ def check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_cit
 
 def check_findings_parse_repairs_mojibake_and_nests_raw_headings() -> None:
     with _workspace() as root:
-        raw = write_file(root / "reports/finding/20261001-000000-m.md",
+        raw = write_file(root / "findings/20261001-000000-m.md",
                          "# Mojibake\n\n## Detail\n\nA â€” B\n")
         unit = parse_source(raw).units[0]
         assert unit.title == "Mojibake" and unit.body == ("### Detail", "", "A — B"), unit.body
@@ -281,7 +281,7 @@ def _redundancy_reply(chat: Chat) -> str:
 
 
 def _redundancy_folder(root: Path) -> Path:
-    folder = root / "reports/finding"
+    folder = root / "findings"
     write_file(folder / "20261001-000000-keep.md",
                f"# Keep\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/b.py:2`.\n")
     write_file(folder / "20261001-000001-dup.md", f"# Dup\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1`.\n")
@@ -337,7 +337,7 @@ def check_findings_redundant_delete_proves_every_condition_before_it_removes_a_f
 
 def check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_does_not_cite() -> None:
     with _workspace() as root:
-        folder = root / "reports/finding"
+        folder = root / "findings"
         write_file(folder / "20261001-000000-orig.md",
                    f"# Orig\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/b.py:2`.\n")
         near = write_file(folder / "20261001-000001-near.md",
@@ -357,7 +357,7 @@ def check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_d
 
 def check_findings_redundant_compares_one_folder_only_and_names_files_by_relative_path() -> None:
     with _workspace() as root:
-        inbox = root / "reports/finding"
+        inbox = root / "findings"
         keep = write_file(inbox / "azure/20261001-000000-keep.md",
                           f"# Keep\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/b.py:2`.\n")
         write_file(inbox / "docker/20261001-000001-dup.md",
@@ -387,7 +387,7 @@ def check_findings_redundant_compares_one_folder_only_and_names_files_by_relativ
 
 def check_findings_redundant_candidates_need_the_survivor_to_hold_the_keywords_of_the_file() -> None:
     with _workspace() as root:
-        folder = root / "reports/finding"
+        folder = root / "findings"
         write_file(folder / "20261001-000000-keep.md",
                    "# Keep\n\nThe emitter drops `alpha_table`, `BetaThing` and `gamma_idx` at "
                    "`datrix-alpha/src/a.py:1`, and also `delta_x` shows the same.\n")
@@ -399,7 +399,7 @@ def check_findings_redundant_candidates_need_the_survivor_to_hold_the_keywords_o
         pairs = sorted((k.file, k.other) for k in result.unjudged)
         assert pairs == [("20261001-000001-inside.md", "20261001-000000-keep.md")], pairs
         # A Keywords line is the file's keywords; the prose around it adds none.
-        other = root / "reports/finding/second"
+        other = root / "findings/second"
         write_file(other / "20261001-000000-keep.md",
                    "# Keep\n\nThe emitter drops `alpha_table`, `BetaThing` and `gamma_idx`, and also `delta_x`, "
                    "`epsilon_y` and `zeta_q` at `datrix-alpha/src/a.py:1`.\n")
@@ -461,7 +461,7 @@ def _close(root: Path, finding: Path, session_log: Path | None = None) -> subpro
 
 def check_implement_finding_selects_the_first_files_by_name() -> None:
     with _workspace() as root:
-        folder = root / "reports/finding"
+        folder = root / "findings"
         for name in ("20261002-000000-b.md", "consolidated-001-c.md", "20261001-000000-a.md", "notes.txt"):
             write_file(folder / name, "# X\n")
         assert [p.name for p in finding_files(folder, 2)] == ["20261001-000000-a.md", "20261002-000000-b.md"]
@@ -471,12 +471,12 @@ def check_implement_finding_selects_the_first_files_by_name() -> None:
 def _select(root: Path, *args: str) -> list[str]:
     done = subprocess.run([sys.executable, *_CLI, "--workspace", str(root), "finding-select", *args],
                           capture_output=True, text=True, check=True, env=script_env())
-    return [Path(line).relative_to(root / "reports/finding").as_posix() for line in done.stdout.splitlines()]
+    return [Path(line).relative_to(root / "findings").as_posix() for line in done.stdout.splitlines()]
 
 
 def check_finding_select_and_close_work_the_inbox_subfolders() -> None:
     with _workspace() as root:
-        folder = root / "reports/finding"
+        folder = root / "findings"
         for name in ("docs/d1.md", "azure/a2.md", "azure/a1.md", "python/p1.md", "loose.md"):
             write_file(folder / name, "# X\n")
         write_file(folder / "azure/a2.md", "# X\nnames d1\n")
@@ -538,7 +538,7 @@ def check_implement_finding_test_runs_judges_a_gate_run_by_its_verdict_line() ->
         assert [run.passed for run in runs] == [True, False, False, False, False, True], runs
         assert "reports FAILED" in runs[1].failure and "verdict line for each gate call" in runs[2].failure, runs
         assert "verdict line for each gate call" in runs[3].failure and "exited non-zero" in runs[4].failure, runs
-        folder = root / "reports/finding"
+        folder = root / "findings"
         finding = write_file(folder / "20261001-000000-a.md", "# A\n")
         write_file(log, "\n".join([_shell_call("p", _GATE_PS1), _shell_result("p", passed)]) + "\n")
         result = _close(root, finding, log)
@@ -547,7 +547,7 @@ def check_implement_finding_test_runs_judges_a_gate_run_by_its_verdict_line() ->
 
 def check_implement_finding_close_deletes_only_an_unreferenced_finding_with_a_passing_last_test_run() -> None:
     with _workspace() as root:
-        folder = root / "reports/finding"
+        folder = root / "findings"
         finding = write_file(folder / "20261001-000000-a.md", "# A\n")
         referrer = write_file(folder / "consolidated-001-x.md", "# X\n\n**Related:** 20261001-000000-a\n")
         log = write_file(root / ".tmp/step.stream.jsonl", _shell_call("a", "git status") + "\n")
@@ -1036,7 +1036,7 @@ def check_rule_names_checks_every_proposal_and_applies_only_unchanged_lines() ->
 
 
 def _consolidated(root: Path) -> Path:
-    return write_file(root / "reports/finding/consolidated-001-alpha.md",
+    return write_file(root / "findings/consolidated-001-alpha.md",
                       "# Alpha seam\n\n**Scope:** alpha\n\n## 1. First\n\nAt `datrix-alpha/src/a.py:1`.\n\n"
                       "## 2. Second\n\nAt `datrix-alpha/src/b.py:2`.\n\n## 3. Third\n\nCites nothing.\n")
 
@@ -1083,12 +1083,12 @@ def _design_reply(chat: Chat) -> str:
 def check_design_verify_and_plan_check_every_answer_and_never_send_a_customer_term() -> None:
     with _workspace() as root:
         _write_design(root, "010-base", _design_text("Base"))
-        write_file(root / "reports/finding/consolidated-001-alpha.md", (
+        write_file(root / "findings/consolidated-001-alpha.md", (
             "# Alpha seam\n\n**Scope:** alpha\n\n"
             "## 1. First\n\nAt `datrix-alpha/src/datrix_alpha/core.py:3` and `datrix-alpha/src/gone.py:1`.\n\n"
             "## 2. Second\n\nOnly `datrix-alpha/src/gone.py:2`.\n\n"
             f"## 3. Third\n\nThe {_GATE_TERM} line at `datrix-alpha/src/datrix_alpha/core.py:1`.\n"))
-        sources = load_sources(root / "reports/finding")
+        sources = load_sources(root / "findings")
         with LoopbackOllama(_design_reply) as server:
             results = {r.unit_id: r for r in verify_units(root, _pool(server), sources)}
             shapes = draft_shapes(root, _pool(server), sources, load_designs(root, root / "design"))
@@ -1121,7 +1121,7 @@ def check_design_commands_exit_with_the_assist_codes() -> None:
         check = run("design-check")
         assert check.returncode == 2 and "lacks answers for G2" in check.stdout, (check.returncode, check.stdout)
         close = run("design-close", "--finding", "consolidated-001-alpha.md", "--apply")
-        assert close.returncode == 2 and (root / "reports/finding/consolidated-001-alpha.md").is_file(), close.stdout
+        assert close.returncode == 2 and (root / "findings/consolidated-001-alpha.md").is_file(), close.stdout
 
 
 def check_cli_exits_3_when_no_local_model_answers() -> None:

@@ -7,7 +7,7 @@ code. It does the parts that must not rest on a model's word:
 
 SELECT
     The first N findings files. Given a folder (``--dir``: absolute, or relative to the inbox
-    ``reports/finding``), the ``*.md`` directly in it, by name. Given none, the inbox's area subfolders in
+    ``findings``), the ``*.md`` directly in it, by name. Given none, the inbox's area subfolders in
     turn (the areas of ``AREAS`` in order, then other subfolders by name, then the inbox's own loose files):
     a folder is left for the next only once it holds no more.
 
@@ -41,7 +41,7 @@ EXIT_UNUSABLE = EXIT_FAILED
 EXIT_KEPT = EXIT_CHECK_FAILED
 
 DEFAULT_COUNT = 10
-FINDINGS_DIR_PARTS = ("reports", "finding")
+FINDINGS_DIR_PARTS = ("findings",)
 # The areas of /merge-findings in its order, each with what it holds. An area is the subject a finding is about
 # (a language, a platform and its services, a construct), never the package where the fix lands and never a
 # group of subjects: a DynamoDB finding fixed in the Python and TypeScript generators is ``aws``. The inbox's
@@ -102,7 +102,7 @@ def finding_files(directory: Path, count: int) -> list[Path]:
 
 
 def inbox_dir(workspace: Path) -> Path:
-    """The findings inbox: ``<workspace>/reports/finding``."""
+    """The findings inbox: ``<workspace>/findings``."""
     return workspace.joinpath(*FINDINGS_DIR_PARTS)
 
 

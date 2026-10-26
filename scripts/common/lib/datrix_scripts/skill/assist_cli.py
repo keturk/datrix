@@ -134,7 +134,6 @@ from datrix_scripts.test.wrappers import ensure_utf8_stdio
 
 LOG = logging.getLogger(__name__)
 
-FINDINGS_DIR_PARTS = ("reports", "finding")
 CALLER_PREFIX = "skill-assist"
 
 
@@ -196,7 +195,7 @@ def cmd_readiness(args: argparse.Namespace) -> int:
 
 
 def _findings_dir(workspace: Path, spec: str | None) -> Path:
-    directory = Path(spec) if spec else workspace.joinpath(*FINDINGS_DIR_PARTS)
+    directory = Path(spec) if spec else inbox_dir(workspace)
     if not directory.is_dir():
         raise AssistError(f"Findings folder {directory} does not exist. Pass --dir with the folder to read.")
     return directory
@@ -234,7 +233,7 @@ def _redundancy_folders(workspace: Path, spec: str | None) -> tuple[Path, list[P
     """The inbox and the folders to compare in, each on its own. Without ``spec`` that is every subfolder of
     the inbox, then the inbox's loose files; ``spec`` narrows it to that one folder, absolute or relative to
     the inbox (a folder outside the inbox is its own inbox)."""
-    inbox = workspace.joinpath(*FINDINGS_DIR_PARTS)
+    inbox = inbox_dir(workspace)
     if not spec:
         return inbox, inbox_folders(inbox)
     given = Path(spec)
@@ -443,7 +442,7 @@ def cmd_finding_close(args: argparse.Namespace) -> int:
 
 
 def _design_folders(sub: argparse.ArgumentParser) -> None:
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/findings)")
     sub.add_argument("--design-dir", help="Design folder (default: <workspace>/design)")
 
 
@@ -467,15 +466,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--phase", type=int, required=True)
     sub.add_argument("--no-model", action="store_true", help="Exact checks only; no already-satisfied leads")
     sub = command("findings-index", cmd_findings_index, model=True)
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/findings)")
     sub = command("findings-check", cmd_findings_check, model=False)
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/findings)")
     sub.add_argument("--delete", nargs="+", action="extend", required=True, help="The files you are about to delete")
     sub.add_argument("--keep-raw", action="store_true",
                      help="Raw files may remain (/merge-findings keeps every distinct finding in place)")
     sub = command("findings-redundant", cmd_findings_redundant, model=True)
     sub.add_argument("--dir", help="Compare in this one folder only, absolute or relative to "
-                     "<workspace>/reports/finding (e.g. python). Default: each subfolder in turn, never across "
+                     "<workspace>/findings (e.g. python). Default: each subfolder in turn, never across "
                      "folders")
     sub.add_argument("--no-model", action="store_true", help="Find the candidate pairs only; propose nothing")
     sub = command("findings-redundant-delete", cmd_findings_redundant_delete, model=False)
@@ -483,7 +482,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "every folder's file names)")
     sub.add_argument("--plan", help="Plan JSON (default: <workspace>/.tmp/assist/findings-redundant.json)")
     sub = command("finding-select", cmd_finding_select, model=False)
-    sub.add_argument("--dir", help="One findings folder, absolute or relative to <workspace>/reports/finding "
+    sub.add_argument("--dir", help="One findings folder, absolute or relative to <workspace>/findings "
                      "(default: the inbox's subfolders in turn, then its own files)")
     sub.add_argument("--count", type=int, default=DEFAULT_FINDING_COUNT)
     sub = command("finding-close", cmd_finding_close, model=False)
@@ -509,7 +508,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = command("design-inventory", cmd_design_inventory, model=False)
     _design_folders(sub)
     sub = command("design-verify", cmd_design_verify, model=True)
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
+    sub.add_argument("--dir", help="Findings folder (default: <workspace>/findings)")
     sub.add_argument("--no-model", action="store_true", help="List only the sections with no usable cited file")
     sub = command("design-plan", cmd_design_plan, model=True)
     _design_folders(sub)

@@ -259,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Sort the findings files directly in the findings folder into one level of area subfolders.",
         allow_abbrev=False,
     )
-    parser.add_argument("--dir", default="", help="The findings folder. Default: <workspace>/reports/finding.")
+    parser.add_argument("--dir", default="", help="The findings folder. Default: <workspace>/findings.")
     parser.add_argument("--dry-run", action="store_true", help="Print the moves; make none.")
     parser.add_argument("--no-model", action="store_true",
                         help="Never ask a local model: a name that states no area stays where it is.")
@@ -285,7 +285,7 @@ def _workspace() -> Iterator[Path]:
         write_file(root / "datrix/scripts/config/customer-term-hashes.json", json.dumps({
             "algorithm": "sha256", "min_token_length": 5,
             "terms": [{"hash": hash_term(_TERM), "hint": "self-test"}]}))
-        (root / "reports" / "finding").mkdir(parents=True)
+        (root / "findings").mkdir(parents=True)
         yield root
 
 
@@ -322,7 +322,7 @@ def _check_only_valid_model_answers_are_kept() -> None:
 
 def _check_files_move_one_level_and_nothing_else_is_touched() -> None:
     with _workspace() as root:
-        inbox = root / "reports" / "finding"
+        inbox = root / "findings"
         write_files(inbox, {"20261024-100000-azure-a.md": "a", "20261024-110447-azure-a.md": "a",
                             "0002-python-b.md": "b", "stray-slug.md": "s", "notes.txt": "t",
                             "docs/kept.md": "k", "python/old.md": "o"})
@@ -339,7 +339,7 @@ def _check_files_move_one_level_and_nothing_else_is_touched() -> None:
 
 def _check_a_move_never_overwrites() -> None:
     with _workspace() as root:
-        inbox = root / "reports" / "finding"
+        inbox = root / "findings"
         write_files(inbox, {"0001-azure-x.md": "new", "azure/0001-azure-x.md": "old"})
         assert organize(inbox, root, None, dry_run=False) == EXIT_FAILED
         assert (inbox / "azure" / "0001-azure-x.md").read_text() == "old"
@@ -355,7 +355,7 @@ def _check_the_model_places_only_what_the_name_leaves_open() -> None:
 
     reply = json.dumps({"files": [{"file": names[0], "area": "tooling"}, {"file": names[1], "area": "bogus"}]})
     with _workspace() as root:
-        inbox = root / "reports" / "finding"
+        inbox = root / "findings"
         write_files(inbox, {name: "x" for name in names})
         with LoopbackOllama(answering(reply)) as server:
             code = organize(inbox, root, _model_settings(server), dry_run=False)
@@ -369,7 +369,7 @@ def _check_the_model_places_only_what_the_name_leaves_open() -> None:
 
 def _check_no_model_leaves_the_open_names_and_says_so() -> None:
     with _workspace() as root:
-        inbox = root / "reports" / "finding"
+        inbox = root / "findings"
         write_files(inbox, {"20261024-100005-pdf-overlay.md": "x", "20261024-100006-azure-a.md": "y"})
         with LoopbackOllama(answering("{}"), models=()) as server:
             code = organize(inbox, root, _model_settings(server), dry_run=False)
@@ -385,7 +385,7 @@ def _check_a_missing_folder_is_refused() -> None:
             assert "does not exist" in str(exc), exc
         else:
             raise AssertionError("a missing folder must be refused")
-        assert findings_dir(root, "") == root / "reports" / "finding"
+        assert findings_dir(root, "") == root / "findings"
 
 
 def _run(args: argparse.Namespace) -> int:

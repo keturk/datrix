@@ -52,7 +52,7 @@ _ANSWER: Final = re.compile(r"^[ \t]*[-*][ \t]+\**G(\d+)\**[ \t]*:\**[ \t]*\S", 
 _PLACEHOLDER: Final = re.compile(
     r"\bTBD\b|\bTODO\b|verify during implementation|\bfor now\b|\blater phase\b|\bdecide later\b", re.IGNORECASE)
 _FINDING_REFERENCE: Final = re.compile(
-    r"consolidated-\d{3}|reports[/\\]finding|\bfindings? (?:file|report|inbox)\b", re.IGNORECASE)
+    r"consolidated-\d{3}|\bfindings[/\\]|\bfindings? (?:file|report|inbox)\b", re.IGNORECASE)
 _EFFORT_FIGURE: Final = re.compile(
     r"\b\d+(?:[-–]\d+)?[ \t]*(?:person-)?(?:hours?|days?|weeks?|sprints?)\b", re.IGNORECASE)
 
