@@ -31,7 +31,7 @@ An entity whose rows record a unit of work declares a `work { }` block (entity *
 
 - No generator branches on a user enum's member values: `check-enum-value-literals.ps1` — AST scan of every `datrix-codegen-*`/`datrix-common`/`datrix-language` `src/`, hard zero, no exemption file, self-testing.
 - A destructive statement is emitted only where declared; the emitter names only columns the resolved contract proves exist (`WRK002`/`WRK006`/`WRK007`); work performed elsewhere is never recovered locally (`WRK008` rejects `owner: external` with `onOrphan: failAtStartup`).
-- The contract is language-neutral (`datrix_model/work.py` in `datrix-common`); python realizes `onOrphan: failAtStartup`; any other target realizes it or carries a counted `capability_gaps` row. The stored value is `enum_member_stored_literal`.
+- The contract is language-neutral (`datrix_model/work.py` in `datrix-common`); python realizes `onOrphan: failAtStartup` with the statements the block's SQL dialect renders (`work_recovery_for` in the kernel, never SQL of its own); any other target realizes it or carries a counted `capability_gaps` row. The stored value is `enum_member_stored_literal`.
 
 Syntax and diagnostics: [datrix-syntax-reference.md — Work Contracts](../../../../datrix-language/docs/reference/datrix-syntax-reference.md#work-contracts-work--).
 
