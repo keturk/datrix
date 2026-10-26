@@ -5,7 +5,7 @@ The module behind ``scripts/skill/implement-design.ps1`` (and its ``.sh`` twin),
 ``datrix_scripts.skill.chain``:
 
   implement  /implement-design-direct, on its model, as several sessions: STOP AFTER: plan (the gate and
-             the ledger), then UNIT: <id> for each unchecked ledger unit, then UNIT: sweep
+             the ledger), then UNIT: <id> for each unchecked ledger unit
   verify     /verify-implementation, TASKS: none, FILES from the ledger, on its model
   absorb     /absorb-design, on its model
 
@@ -17,12 +17,12 @@ The implement step keeps its work plan in a ledger this module names,
 ``<workspace>/.tmp/implement-direct-<design file name>.md``, and the checks between sessions are done here,
 not by a model: the plan session is run only when there is no ledger (or verify left gaps), and no ledger
 after it means it stopped at its gate for a decision (exit 2). A unit whose row is still unchecked after
-its session runs again (up to ``--max-rounds`` sessions per unit). Implement is done only when a sweep
-session leaves the ledger with no unchecked unit and a ``## Files changed`` section. Absorb runs only
+its session runs again (up to ``--max-rounds`` sessions per unit). Implement is done only when the ledger
+has no unchecked unit and a ``## Files changed`` section. Absorb runs only
 after verify replies ``Design conformance: PROVEN`` (``Chain.verify_design``); on INCOMPLETE, a plan
 session with ``GAPS:`` naming verify's saved reply adds the units, and the unit sessions run again.
 
-Before each unit and sweep session the workspace must load every registered plugin, in a fresh interpreter
+Before each unit session the workspace must load every registered plugin, in a fresh interpreter
 (``plugin_load_error``). A session that starts on a workspace another session has left half-edited can
 neither run its tests nor generate, and spends itself on workarounds; so a load failure stops the chain
 with 1, naming the error, and a rerun resumes at the first unchecked unit.
@@ -77,7 +77,6 @@ WRAPPER: Final = "implement-design"
 STEPS: Final = ("implement", "verify", "absorb")
 # A ledger row whose last cell (the state) is an unticked box; group 1 is the unit's id (the first cell).
 UNCHECKED_UNIT: Final = re.compile(r"^\s*\|\s*([^|\s]+)\s*\|.*\|\s*\[ \]\s*\|?\s*$", re.MULTILINE)
-SWEEP: Final = "sweep"
 FILES_CHANGED: Final = re.compile(r"^##\s+Files changed\s*$", re.MULTILINE | re.IGNORECASE)
 NO_LEDGER: Final = "no ledger"
 DESIGN_DIR_PARTS: Final = ("design",)
@@ -234,31 +233,22 @@ def run_unit(chain: Chain, design: Path, ledger: Path, unit: str, max_rounds: in
 
 def implement(chain: Chain, design: Path, ledger: Path, max_rounds: int, gaps: str = "",
               check: PluginCheck = plugin_load_error) -> None:
-    """Implement the design as one session per step: plan (when there is no ledger, or *gaps* need units), one
-    session per unchecked unit, then the sweep, which must leave a complete ledger (up to *max_rounds* sweeps).
-    Each unit and sweep session starts only after *check* finds every plugin loading."""
+    """Implement the design as one session per step: plan (when there is no ledger, or *gaps* need units), then
+    one session per unchecked unit. Every unit adds its changed files to the ledger, so the ledger must be
+    complete once the last unit is ticked; stops with 1 when it is not. Each unit session starts only after
+    *check* finds every plugin loading."""
     if gaps or not ledger.is_file():
         if plan(chain, design, ledger, gaps).dry_run:
             return
-    sweep_prompt = implement_prompt(design, ledger, f"UNIT: {SWEEP}")
     if chain.options.dry_run:
         for unit in unchecked_units(ledger):
             implement_step(chain, f"unit-{unit}", implement_prompt(design, ledger, f"UNIT: {unit}"))
-        implement_step(chain, SWEEP, sweep_prompt)
         return
-    row: StepRow | None = None
-    for round_number in range(1, max_rounds + 1):
-        while units := unchecked_units(ledger):
-            run_unit(chain, design, ledger, units[0], max_rounds, check)
-        require_plugins_load(chain, SWEEP, check)
-        row = implement_step(chain, SWEEP, sweep_prompt)
-        stop_on_error(chain, row, SWEEP)
-        gap = ledger_gap(ledger)
-        if not gap:
-            return
-        say(f"Sweep round {round_number} of {max_rounds} left the ledger with {gap}; running it again.",
-            ColorCodes.YELLOW)
-    chain.stop(EXIT_FAILED, f"The ledger still has {ledger_gap(ledger)} after {max_rounds} sweep(s): {ledger}", row)
+    while units := unchecked_units(ledger):
+        run_unit(chain, design, ledger, units[0], max_rounds, check)
+    gap = ledger_gap(ledger)
+    if gap:
+        chain.stop(EXIT_FAILED, f"Every unit is ticked, but the ledger still has {gap}: {ledger}")
 
 
 def run_direct(chain: Chain, design: Path, ledger: Path, *, start_at: str, keep_source: bool,
@@ -303,7 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep-source", action="store_true", help="Pass KEEP SOURCE: true to /absorb-design.")
     add_chain_arguments(parser, resume=True)
     parser.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS,
-                        help="How many sessions one unit (or the sweep), and how many verify runs, may take before the "
+                        help="How many sessions one unit, and how many verify runs, may take before the "
                              "chain gives up. Default: 3.")
     parser.add_argument("--self-test", action="store_true",
                         help="Run only the chain checks, the ledger and dry-run checks and the wrapper seam checks.")
@@ -389,13 +379,16 @@ def _check_a_plugin_load_failure_stops_before_the_unit_session() -> None:
         with contextlib.redirect_stdout(printed):
             code = chain_exit_code(lambda: run_unit(chain, workspace / "d.md", ledger, "U01", 1, lambda: failure))
             assert code == EXIT_FAILED, code
-            # The sweep is checked too: a ledger with every unit ticked goes straight to it.
+            # implement runs the same check before the unit it starts with.
+            code = chain_exit_code(lambda: implement(chain, workspace / "d.md", ledger, 1, check=lambda: failure))
+            assert code == EXIT_FAILED, code
+            # A ledger with every unit ticked but no files listed is not done: no session is left to complete it.
             write_files(workspace, {ledger.name: "| U01 | a | [x] |\n"})
             code = chain_exit_code(lambda: implement(chain, workspace / "d.md", ledger, 1, check=lambda: failure))
             assert code == EXIT_FAILED, code
     text = printed.getvalue()
     assert "so unit U01 would start on a broken test bed" in text, text
-    assert "so sweep would start on a broken test bed" in text, text
+    assert "Every unit is ticked, but the ledger still has no '## Files changed' section" in text, text
     assert text.count("KeyError: 'email_local_part'") == 2, text
     assert "=== step" not in text, text
 
@@ -428,12 +421,11 @@ def _check_a_dry_run_prints_the_implement_sessions_verify_and_absorb() -> None:
         no_ledger = _dry_run_lines(workspace, design)
         assert no_ledger == [*head, *session(1, "plan", "STOP AFTER: plan"),
                              *(line.format(n="02", m="03") for line in tail)], no_ledger
-        # A ledger with units: one session per unchecked unit, then the sweep.
+        # A ledger with units: one session per unchecked unit.
         write_files(ledger.parent, {ledger.name: "| U01 | a | [x] |\n| U02 | b | [ ] |\n| U03 | c | [ ] |\n"})
         with_ledger = _dry_run_lines(workspace, design)
         assert with_ledger == [*head, *session(1, "unit-U02", "UNIT: U02"), *session(2, "unit-U03", "UNIT: U03"),
-                               *session(3, "sweep", "UNIT: sweep"),
-                               *(line.format(n="04", m="05") for line in tail)], with_ledger
+                               *(line.format(n="03", m="04") for line in tail)], with_ledger
 
 
 def _run(args: argparse.Namespace) -> int:
