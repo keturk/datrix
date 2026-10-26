@@ -53,12 +53,12 @@ FIX: false             # verify-implementation reports only, changes no code
 | FIX | No | Passed to `/verify-implementation` (default: fix what is wrong) |
 | LEDGER | No | The ledger path to use in Step 2 (default: `D:\datrix\.tmp\implement-direct-{slug}.md`). If it already exists, it is the work so far: read it and the DOCUMENT, and continue at the first unchecked unit |
 | STOP AFTER | No | `plan`: end the run after Step 2 with the reply `PLANNED: <ledger path>`, and implement no unit. `implement`: end the run after Step 3 with the reply `IMPLEMENTED: <ledger path>`, and do not verify or absorb |
-| UNIT | No | A ledger unit id (`U03`) or `sweep`; needs an existing ledger. Skip Steps 1-2, read the ledger and the DOCUMENT, and do only that unit's Step 3 items 1-7 (`sweep`: only the closing negative sweep and the `## Files changed` heading). Add the unit's changed files under `## Files changed` (create the heading if absent) and tick its row. End with the reply `UNIT DONE: <id>`, and do not verify or absorb |
+| UNIT | No | A ledger unit id (`U03`); needs an existing ledger. Skip Steps 1-2, read the ledger and the DOCUMENT, and do only that unit's Step 3 items 1-7. Add the unit's changed files under `## Files changed` (create the heading if absent) and tick its row. End with the reply `UNIT DONE: <id>`, and do not verify or absorb |
 | GAPS | No | A file holding a `/verify-implementation` report that ended INCOMPLETE. Add a ledger unit for each finding it did not fix, with its acceptance check, and implement those units (with `STOP AFTER: plan`, only add the units) |
 
 ## Run it from the CLI
 
-Typed here, the whole run is on this skill's model: `/verify-implementation` and `/absorb-design` invoked through the Skill tool run on the caller's model, not their own. `datrix/scripts/skill/implement-design.ps1 -Design <path>` runs the same chain with each step in its own headless session on its own skill's model: this skill with `STOP AFTER: implement`, then verify, then absorb, with the checks between them done by the script. Every response re-reads the whole context, so one session over all units costs far more than the sum of its units: the script runs the implement step as a `STOP AFTER: plan` session (Steps 1-2, the ledger), then one fresh `UNIT: <id>` session per unchecked unit, then a `UNIT: sweep` session. What carries from one session to the next is the code on disk and the ledger, so a unit's row must say everything its session needs: files, requires, acceptance, tests.
+Typed here, the whole run is on this skill's model: `/verify-implementation` and `/absorb-design` invoked through the Skill tool run on the caller's model, not their own. `datrix/scripts/skill/implement-design.ps1 -Design <path>` runs the same chain with each step in its own headless session on its own skill's model: this skill with `STOP AFTER: implement`, then verify, then absorb, with the checks between them done by the script. Every response re-reads the whole context, so one session over all units costs far more than the sum of its units: the script runs the implement step as a `STOP AFTER: plan` session (Steps 1-2, the ledger), then one fresh `UNIT: <id>` session per unchecked unit. What carries from one session to the next is the code on disk and the ledger, so a unit's row must say everything its session needs: files, requires, acceptance, tests.
 
 ## Prereqs — read first
 
@@ -170,20 +170,11 @@ Generation checks follow the one-example, one-language rule: regenerate only the
 
 **A defect you find on a surface you touched is yours:** fix it. A design-sized one gets a findings file under `d:\datrix\reports\finding\` (brief: what, `file:line`, evidence, impact) and the run carries on; a small one is fixed in place.
 
-After the last unit (in a `UNIT: sweep` session when the script drives the run), run the ledger's **negative sweep**: for every "X replaces Y" in the design, prove Y is gone everywhere on the surface (structured search, with a matcher proven non-vacuous), the command and output written to the proof file `…-proof\sweep.md`. Number the checks (`S1`, `S2`, …) and give each one, in `sweep.md`, its result (PASS / FAIL), the command, and the paths it covers (files, directories or globs); head the file with the time the sweep started.
-
-**A repeat sweep starts from the last one, never from scratch.** When `sweep.md` already exists (an earlier sweep failed and added units, or verify sent the run back), read it first, then:
-1. List what changed since that sweep started: `find <the covered paths> -newermt "<its start time>"` per check, plus the files the units ticked since then added under `## Files changed`.
-2. Rerun only the checks that FAILED and the checks whose covered paths changed; a unit added by the failed sweep has that check as its acceptance, so it is always rerun. Add a check only for a "replaces" the design gained or a surface the change list shows the earlier sweep never covered.
-3. Carry every other check forward unrun, as `S<n>: PASS, carried from <start time>, no covered path changed`.
-4. Rewrite `sweep.md` with the new start time, the rerun checks' fresh output and the carried lines.
-
-A check rerun because its paths changed is run in full over its whole surface, not only over the changed files. Then write the files changed into the ledger under a `## Files changed` heading, one path per line, keeping the paths already listed there by earlier runs.
+After the last unit, write the files changed into the ledger under a `## Files changed` heading, one path per line, keeping the paths already listed there by earlier runs. Each unit's own negative acceptance check covers the "X replaces Y" it carries; `/verify-implementation` (Step 4) proves the whole design's negatives again.
 
 With `STOP AFTER: implement`, end here with the reply `IMPLEMENTED: <ledger path>`.
 
-With `UNIT: <id>`, run items 1-7 for that one unit only, add its changed files under `## Files changed`, tick its row with its one-line state, and end with `UNIT DONE: <id>`. Read only what the unit needs: the ledger, the DOCUMENT, the census file when the ledger has one, the unit's files and their neighbours. A census unit also adds the fix units its census found (Step 2), inserted right after its own row and ahead of the closing unit; the script runs unchecked rows in ledger order, so they run next. With `UNIT: sweep`, run the negative sweep above for the whole design (a repeat sweep: only what the last `sweep.md` failed or what changed since, as above), complete `## Files changed`, and end with `UNIT DONE: sweep`; a failed sweep adds a ledger unit for what it found instead of fixing it in this session.
-
+With `UNIT: <id>`, run items 1-7 for that one unit only, add its changed files under `## Files changed`, tick its row with its one-line state, and end with `UNIT DONE: <id>`. Read only what the unit needs: the ledger, the DOCUMENT, the census file when the ledger has one, the unit's files and their neighbours. A census unit also adds the fix units its census found (Step 2), inserted right after its own row and ahead of the closing unit; the script runs unchecked rows in ledger order, so they run next.
 ---
 
 ## Step 4: Verify
