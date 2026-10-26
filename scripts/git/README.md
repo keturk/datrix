@@ -126,7 +126,7 @@ Module: `datrix_scripts.git.pre_review_gate`; POSIX twin `git/pre-review-gate.sh
 
 ## `resolve-pull-gate.ps1`
 
-Behaviour checks for `git\resolve-pull.ps1` (`git/lib/resolve_pull.py`), over an origin repository and a
+Behaviour checks for `git\resolve-pull.ps1` (`datrix_scripts.git.resolve_pull`), over an origin repository and a
 clone of it in a temporary directory; no real checkout is touched. It covers:
 
 - a clean reapply shelving only the overlap and dropping the stash entry
@@ -137,7 +137,11 @@ clone of it in a temporary directory; no real checkout is touched. It covers:
 - the diff3 hunk parser (two- and three-sided)
 - the merge draft checked against both sides, never sent for a non-framework repo or a hunk carrying a registered customer term, against a real loopback model server
 
-`-SelfTest` runs the harness self-test (the form gate runners call).
+`-SelfTest` runs the harness self-test and the wrapper seam checks (the form gate runners call). The run ends
+on the `[GATE] resolve-pull PASSED|FAILED exit=<n> log=<path>` verdict line.
+
+Module: `datrix_scripts.git.resolve_pull_gate`; POSIX twin `git/resolve-pull-gate.sh` (`--only`,
+`--harness-self-test`, `--self-test`, `--dbg`).
 
 ## `commit-and-push.ps1`
 
