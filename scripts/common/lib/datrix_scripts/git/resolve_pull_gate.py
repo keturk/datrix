@@ -1,36 +1,37 @@
-#!/usr/bin/env python3
-"""Repo-level gate for the pull-over-local-work script (``scripts/git/lib/resolve_pull.py``).
+"""Repo-level gate for the pull-over-local-work script (``datrix_scripts.git.resolve_pull``).
 
-Run through ``git/resolve-pull-gate.ps1``. Each check builds an origin repository and a clone of it in a
-fresh temporary directory, commits upstream, edits the clone, and runs the real resolution over the clone:
-the clean reapply, a conflict left for a hand merge with its packet, the finish refusing markers and
-dropped local lines, a set-aside untracked file, a line-ending-only overlap, and the merge draft checked
-against both sides (against a real loopback model server). No mocks; no real checkout is touched.
+The module behind ``git/resolve-pull-gate.ps1`` (and its ``.sh`` twin), in gate mode: its run ends on the
+``[GATE] resolve-pull PASSED|FAILED exit=<n> log=<path>`` verdict line. Each check builds an origin
+repository and a clone of it in a fresh temporary directory, commits upstream, edits the clone, and runs the
+real resolution over the clone: the clean reapply, a conflict left for a hand merge with its packet, the
+finish refusing markers and dropped local lines, a set-aside untracked file, a line-ending-only overlap, and
+the merge draft checked against both sides (against a real loopback model server). No mocks; no real
+checkout is touched.
 
 ``--only PREFIX`` runs the checks whose name starts with PREFIX. ``--harness-self-test`` proves the
-harness reports a deliberately failing check as failed.
+harness reports a deliberately failing check as failed. ``--self-test`` runs that and the wrapper seam
+checks.
 
 Exit codes: 0 = every check passed, 1 = at least one check failed, 2 = usage error.
 """
 
 from __future__ import annotations
 
+import argparse
 import itertools
 import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Final
 
 from datrix_scripts.customer_domain_isolation import TermCorpus, hash_term
-from datrix_scripts.gate_harness import CheckFunc, check_list_main
-from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
-from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
-from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
-from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, CheckFunc, check_list_main, check_list_parser
+from datrix_scripts.gate_log import run_as_gate
 from datrix_scripts.git.resolve_pull import (
     OUTCOME_FINISHED,
     OUTCOME_NEEDS_MERGE,
@@ -41,6 +42,15 @@ from datrix_scripts.git.resolve_pull import (
     parse_diff3,
     resolve_repo,
 )
+from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
+from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
+from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
+from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.test.wrappers import GIT_SCRIPTS_DIR, seam_checks
+
+MODULE: Final = "datrix_scripts.git.resolve_pull_gate"
+WRAPPER: Final = "resolve-pull-gate"
+GATE: Final = "resolve-pull"
 
 _IDENTITY = {"user.name": "resolve-pull-gate", "user.email": "gate@example.invalid", "commit.gpgsign": "false",
              "core.autocrlf": "false"}
@@ -138,7 +148,7 @@ def check_conflict_keeps_markers_writes_a_packet_and_finish_refuses_until_merged
                 f"the packet must carry local, base and incoming:\n{body}")
         _expect(len(_stashes(clone)) == 1, "the stash entry is the safety copy until finish")
         refused = finish_repo(clone, merged=set())
-        _expect(refused.outcome == OUTCOME_NEEDS_MERGE and any("conflict marker" in l for l in refused.lines),
+        _expect(refused.outcome == OUTCOME_NEEDS_MERGE and any("conflict marker" in line for line in refused.lines),
                 f"finish must refuse markers: {refused.lines}")
         _plant(clone, {"a.txt": _with_line(5, "upstream 5\nlocal 5")})
         done = finish_repo(clone, merged=set())
@@ -154,11 +164,11 @@ def check_finish_refuses_a_dropped_local_line_unless_named_merged() -> None:
         resolve_repo(clone, None)
         _plant(clone, {"a.txt": _with_line(5, "upstream 5")})
         refused = finish_repo(clone, merged=set())
-        _expect(any("local line not in the working tree: local 5" in l for l in refused.lines),
+        _expect(any("local line not in the working tree: local 5" in line for line in refused.lines),
                 f"a dropped local line must refuse the drop: {refused.lines}")
         _expect(len(_stashes(clone)) == 1, "a refused finish keeps the entry")
         done = finish_repo(clone, merged={"a.txt"})
-        _expect(done.outcome == OUTCOME_FINISHED and any("local 5" in l for l in done.lines),
+        _expect(done.outcome == OUTCOME_FINISHED and any("local 5" in line for line in done.lines),
                 f"a path named merged finishes and reports the line: {done.lines}")
 
 
@@ -167,11 +177,12 @@ def check_untracked_collision_is_set_aside_and_must_be_merged_back() -> None:
         _commit_upstream(origin, {"notes.txt": "upstream note\n"})
         _plant(clone, {"notes.txt": "my local note\n"})
         report = resolve_repo(clone, None)
-        _expect(report.outcome == OUTCOME_NEEDS_MERGE and any("notes.txt" in l for l in report.lines),
+        _expect(report.outcome == OUTCOME_NEEDS_MERGE and any("notes.txt" in line for line in report.lines),
                 f"a differing untracked collision needs a merge: {report.lines}")
         _expect((clone / "notes.txt").read_text(encoding="utf-8") == "upstream note\n", "the pull brings its copy")
         refused = finish_repo(clone, merged=set())
-        _expect(any("my local note" in l for l in refused.lines), f"the set-aside line must be merged: {refused.lines}")
+        _expect(any("my local note" in line for line in refused.lines),
+                f"the set-aside line must be merged: {refused.lines}")
         _plant(clone, {"notes.txt": "upstream note\nmy local note\n"})
         _expect(finish_repo(clone, merged=set()).outcome == OUTCOME_FINISHED, "merged back, finish completes")
 
@@ -230,14 +241,31 @@ _ALL_CHECKS: list[CheckFunc] = [
 ]
 
 
-def main() -> int:
-    # The checks' own loopback model servers must never count as real use of the machines.
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``git/resolve-pull-gate.ps1``: one per wrapper parameter, spelled exactly."""
+    return check_list_parser("Behaviour checks for the pull-over-local-work script.", debug_flag=WRAPPER_DEBUG_FLAG,
+                             allow_abbrev=False)
+
+
+def _gate(argv: Sequence[str] | None) -> int:
+    # --self-test: the harness reports a deliberate failure, and the wrapper is the template rendered
+    # with this parser's options. The checks' own loopback model servers must never count as real use
+    # of the machines.
+    parser = build_parser()
     return check_list_main(
-        "Behaviour checks for the pull-over-local-work script.",
+        parser.description or "",
         "resolve-pull behaviour",
         _ALL_CHECKS,
+        self_test=seam_checks(wrapper=WRAPPER, module=MODULE, parser=parser, folder=GIT_SCRIPTS_DIR),
+        argv=argv,
+        parser=parser,
         temp_file_variable=GATE_USAGE_LOG,
     )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point: the verdict, in gate mode."""
+    return run_as_gate(GATE, MODULE, _gate, argv)
 
 
 if __name__ == "__main__":

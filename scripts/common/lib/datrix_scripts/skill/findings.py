@@ -1,4 +1,4 @@
-"""The mechanical half of /consolidate-findings and /merge-findings: the atomic-finding index, and the
+"""The mechanical half of /merge-findings and /delete-redundant-findings: the atomic-finding index, and the
 no-loss check.
 
 INDEX (a lead, checked)

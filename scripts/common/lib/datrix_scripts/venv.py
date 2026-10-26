@@ -55,7 +55,7 @@ from typing import Final
 
 from datrix_scripts.entrypoint import wrapper_command, wrapper_flag
 from datrix_scripts.package_imports import FAILURE_PREFIX, SUMMARY_PREFIX
-from datrix_scripts.paths import PYTHONPATH_ROOT, SCRIPTS_DIR, WORKSPACE_DIR
+from datrix_scripts.paths import SCRIPTS_DIR, WORKSPACE_DIR, script_env
 
 #: Where the shared venv's third-party tools are declared, for ``missing_declared_tool``.
 SCRIPTS_DEPENDENCY_GROUP = "the `scripts` dependency group of datrix/pyproject.toml"
@@ -368,15 +368,6 @@ def _run(
         errors="replace",
         check=False,
     )
-
-
-def _scripts_environment() -> dict[str, str]:
-    """This process's environment with the shared scripts package first on PYTHONPATH."""
-    env = dict(os.environ)
-    lib = str(PYTHONPATH_ROOT)
-    inherited = [entry for entry in env.get("PYTHONPATH", "").split(os.pathsep) if entry and entry != lib]
-    env["PYTHONPATH"] = os.pathsep.join([lib, *inherited])
-    return env
 
 
 # ---------------------------------------------------------------------------
@@ -985,7 +976,7 @@ def unimportable_packages(layout: VenvLayout, packages: Sequence[str]) -> list[s
             f"Run {venv_command('Ensure')} first, then retry."
         )
     modules = [module_name(package) for package in packages]
-    result = _run([layout.python, "-m", "datrix_scripts.package_imports", *modules], env=_scripts_environment())
+    result = _run([layout.python, "-m", "datrix_scripts.package_imports", *modules], env=script_env())
     return import_verdict(result.stdout.splitlines(), result.returncode, packages)
 
 

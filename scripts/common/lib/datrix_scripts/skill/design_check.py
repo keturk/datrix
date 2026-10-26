@@ -40,7 +40,7 @@ from datrix_scripts.skill.design_inventory import (
     registered_targets,
     unit_paths,
 )
-from datrix_scripts.skill.findings_assemble import SourceFile, parse_source
+from datrix_scripts.skill.findings_source import SourceFile, parse_source
 
 GUIDELINES_PARTS: Final = ("datrix", "docs", "architecture", "design-principles.md")
 CONFORMANCE_HEADING: Final = "Design guidelines conformance"

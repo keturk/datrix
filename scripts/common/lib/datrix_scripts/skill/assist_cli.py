@@ -15,8 +15,6 @@ Commands:
                                                  review view (exact candidates, model verdict, checked)
     findings-redundant-delete [--plan P] [--dir D]
                                                  delete the plan's proposals still marked delete (exact)
-    findings-plan      [--dir D] [--no-model]    theme plan for the findings inbox (model, checked)
-    findings-assemble  [--plan P] [--apply]      write the theme files from a plan, verbatim (exact)
     finding-select     [--count N] [--dir D]     the first N findings files: --dir only, else subfolder by subfolder (exact)
     finding-close      --finding F [--session-log L]
                                                  delete F unless a findings file names it or L shows
@@ -120,17 +118,7 @@ from datrix_scripts.skill.design_xref import build_xref, render_xref
 from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT as DEFAULT_FINDING_COUNT
 from datrix_scripts.skill.finding_inbox import close_finding, inbox_dir, inbox_folders, select_findings
 from datrix_scripts.skill.findings import build_index, check_consolidation, render_check, render_index
-from datrix_scripts.skill.findings_assemble import (
-    apply_assembly,
-    assemble,
-    draft_plan,
-    load_plan,
-    load_sources,
-    plan_json,
-    render_assembly,
-    render_plan,
-    write_assembly,
-)
+from datrix_scripts.skill.findings_source import load_sources
 from datrix_scripts.skill.phase_tasks import phase_tasks
 from datrix_scripts.skill.readiness import (
     VERDICT_SATISFIED,
@@ -286,47 +274,6 @@ def cmd_findings_redundant_delete(args: argparse.Namespace) -> int:
         return EXIT_CHECK_FAILED
     print(f"Deleted {len(result.deleted)} redundant file(s): {', '.join(result.deleted) or 'none'}.")
     return EXIT_OK
-
-
-def cmd_findings_plan(args: argparse.Namespace) -> int:
-    workspace = _workspace(args)
-    directory = _findings_dir(workspace, args.dir)
-    themes = draft_plan(directory, workspace, None if args.no_model else _pool(args))
-    if not themes:
-        print("The findings folder holds no *.md file.")
-        return EXIT_OK
-    plan = write_output(workspace, "findings-plan.json", plan_json(themes))
-    units = {u.unit_id: u for source in load_sources(directory) for u in source.units}
-    view = write_output(workspace, "findings-plan.md", render_plan(themes, units, plan))
-    flagged = sum(1 for theme in themes if theme.review)
-    print(f"Plan JSON: {plan}")
-    return _done(view, f"{len(units)} unit(s) into {len(themes)} theme(s); {flagged} theme(s) flagged for review.")
-
-
-def cmd_findings_assemble(args: argparse.Namespace) -> int:
-    workspace = _workspace(args)
-    directory = _findings_dir(workspace, args.dir)
-    plan = Path(args.plan) if args.plan else output_dir(workspace) / "findings-plan.json"
-    assembly = assemble(load_plan(plan), load_sources(directory), ContentFilter(workspace))
-    if not assembly.safe:
-        print(render_assembly(assembly, directory), end="")
-        print("Nothing written: fix the plan or the sources named above, then run again.")
-        return EXIT_CHECK_FAILED
-    if not args.apply:
-        preview = output_dir(workspace) / "findings-preview"
-        preview.mkdir(exist_ok=True)
-        for stale in preview.glob("*.md"):
-            stale.unlink()
-        write_assembly(preview, assembly)
-        print(render_assembly(assembly, preview), end="")
-        print("Preview only. Run again with --apply to write the files and delete the superseded sources.")
-        return EXIT_OK
-    result = apply_assembly(directory, assembly)
-    print(render_assembly(assembly, directory), end="")
-    print(render_check(result), end="")
-    if result.passed:
-        print(f"Deleted {len(assembly.delete)} superseded source(s).")
-    return EXIT_OK if result.passed else EXIT_CHECK_FAILED
 
 
 def cmd_checklist(args: argparse.Namespace) -> int:
@@ -535,14 +482,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--dir", help="The folder findings-redundant compared (default: the inbox, which holds "
                      "every folder's file names)")
     sub.add_argument("--plan", help="Plan JSON (default: <workspace>/.tmp/assist/findings-redundant.json)")
-    sub = command("findings-plan", cmd_findings_plan, model=True)
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
-    sub.add_argument("--no-model", action="store_true", help="Every raw finding becomes its own new theme")
-    sub = command("findings-assemble", cmd_findings_assemble, model=False)
-    sub.add_argument("--dir", help="Findings folder (default: <workspace>/reports/finding)")
-    sub.add_argument("--plan", help="Plan JSON (default: <workspace>/.tmp/assist/findings-plan.json)")
-    sub.add_argument("--apply", action="store_true",
-                     help="Write the theme files and delete the superseded sources (default: a preview)")
     sub = command("finding-select", cmd_finding_select, model=False)
     sub.add_argument("--dir", help="One findings folder, absolute or relative to <workspace>/reports/finding "
                      "(default: the inbox's subfolders in turn, then its own files)")

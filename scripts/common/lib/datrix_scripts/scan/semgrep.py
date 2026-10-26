@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import platform
 import subprocess
@@ -48,6 +49,7 @@ from datrix_scripts.logic_map import resolve_scan_paths
 from datrix_scripts.paths import CONFIG_DIR, WORKSPACE_DIR
 from datrix_scripts.scan.selection import SelectionRefused, expect_refusal, require_selection, wrapper_usage
 from datrix_scripts.test.wrappers import SCAN_SCRIPTS_DIR, module_main, run_self_test
+from datrix_scripts.venv import SCRIPTS_DEPENDENCY_GROUP, missing_declared_tool
 
 MODULE: Final = "datrix_scripts.scan.semgrep"
 WRAPPER: Final = "semgrep"
@@ -58,7 +60,10 @@ _USAGE: Final = wrapper_usage(
 
 _RULES_DIR = CONFIG_DIR / "semgrep-rules"
 
-#: Exit code the run functions return when no ``semgrep`` executable is on PATH.
+#: The module semgrep runs as (``python -m semgrep``), so the shared venv's copy runs, never one PATH finds.
+_SEMGREP_MODULE: Final = "semgrep"
+
+#: Exit code the run functions return when this interpreter cannot import semgrep.
 SEMGREP_MISSING_EXIT = 127
 
 #: ``platform.machine()`` of Windows on ARM: the one platform the ``scripts`` dependency group of
@@ -68,18 +73,14 @@ _WINDOWS_ARM64_MACHINE = "ARM64"
 
 
 def semgrep_missing_message() -> str:
-    """Why no semgrep executable is present, and the fix, for this interpreter's platform."""
+    """Why this interpreter cannot import semgrep, and the fix, for this interpreter's platform."""
     if sys.platform == "win32" and platform.machine() == _WINDOWS_ARM64_MACHINE:
         return (
             "ERROR: semgrep not found. semgrep publishes no Windows ARM64 wheel, so the 'scripts' "
             "dependency group of datrix/pyproject.toml leaves it out of a native Windows ARM64 venv. "
             "Run this scan on a platform semgrep ships for (Windows x64, macOS, Linux)."
         )
-    return (
-        "ERROR: semgrep not found in the shared venv. It is declared in the 'scripts' dependency "
-        "group of datrix/pyproject.toml; run scripts/common/venv.ps1 -EnsurePackages (which test.ps1 "
-        "runs) to install the group."
-    )
+    return f"ERROR: {missing_declared_tool('semgrep', SCRIPTS_DEPENDENCY_GROUP)}"
 
 
 SKIP_DIRS = frozenset({
@@ -215,7 +216,7 @@ def _run_semgrep_batch(
 ) -> tuple[str, int]:
     """Run semgrep on a single batch of files."""
     cmd = [
-        "semgrep", "scan",
+        sys.executable, "-m", _SEMGREP_MODULE, "scan",
         "--config", str(rules_path),
         "--no-git-ignore",
     ]
@@ -242,7 +243,7 @@ def _run_semgrep_batch_multi_configs(
     json_output: bool,
 ) -> tuple[str, int]:
     """Run semgrep once per batch with multiple rule files (one filesystem pass)."""
-    cmd: list[str] = ["semgrep", "scan", "--no-git-ignore"]
+    cmd: list[str] = [sys.executable, "-m", _SEMGREP_MODULE, "scan", "--no-git-ignore"]
     for rules_path in rules_paths:
         cmd.extend(["--config", str(rules_path)])
     if json_output:
@@ -271,28 +272,25 @@ def run_semgrep(
 
     Expands directory targets into individual ``.py`` files so that semgrep
     works correctly even in non-git workspaces.  Large file lists are batched
-    to stay within Windows command-line length limits.
+    to stay within Windows command-line length limits. Refused up front, with
+    ``SEMGREP_MISSING_EXIT``, when this interpreter cannot import semgrep.
     """
+    if importlib.util.find_spec(_SEMGREP_MODULE) is None:
+        return semgrep_missing_message(), SEMGREP_MISSING_EXIT
     files = _expand_to_files(targets)
     if not files:
         return '{"results":[],"errors":[]}' if json_output else "No files to scan.", 0
 
     batches = _batch_files(files)
     if len(batches) == 1:
-        try:
-            return _run_semgrep_batch(rules_path, batches[0], json_output)
-        except FileNotFoundError:
-            return semgrep_missing_message(), SEMGREP_MISSING_EXIT
+        return _run_semgrep_batch(rules_path, batches[0], json_output)
 
     all_findings: list[dict] = []
     all_errors: list[dict] = []
     last_exit = 0
 
     for batch in batches:
-        try:
-            output, code = _run_semgrep_batch(rules_path, batch, json_output=True)
-        except FileNotFoundError:
-            return semgrep_missing_message(), SEMGREP_MISSING_EXIT
+        output, code = _run_semgrep_batch(rules_path, batch, json_output=True)
         if code != 0:
             last_exit = code
         findings, errors = parse_json_output(output)
@@ -315,10 +313,13 @@ def run_semgrep_multi_configs(
     """Run semgrep with multiple rule YAMLs in one invocation per file batch.
 
     Faster than calling :func:`run_semgrep` once per rule when several rules
-    apply to the same files (one parse pass per batch instead of N).
+    apply to the same files (one parse pass per batch instead of N). Refused up
+    front, with ``SEMGREP_MISSING_EXIT``, when this interpreter cannot import semgrep.
     """
     if not rules_paths:
         return '{"results":[],"errors":[]}' if json_output else "No rules.", 0
+    if importlib.util.find_spec(_SEMGREP_MODULE) is None:
+        return semgrep_missing_message(), SEMGREP_MISSING_EXIT
 
     files = _expand_to_files(targets)
     if not files:
@@ -326,22 +327,14 @@ def run_semgrep_multi_configs(
 
     batches = _batch_files(files)
     if len(batches) == 1:
-        try:
-            return _run_semgrep_batch_multi_configs(rules_paths, batches[0], json_output)
-        except FileNotFoundError:
-            return semgrep_missing_message(), SEMGREP_MISSING_EXIT
+        return _run_semgrep_batch_multi_configs(rules_paths, batches[0], json_output)
 
     all_findings: list[dict] = []
     all_errors: list[dict] = []
     last_exit = 0
 
     for batch in batches:
-        try:
-            output, code = _run_semgrep_batch_multi_configs(
-                rules_paths, batch, json_output=True
-            )
-        except FileNotFoundError:
-            return semgrep_missing_message(), SEMGREP_MISSING_EXIT
+        output, code = _run_semgrep_batch_multi_configs(rules_paths, batch, json_output=True)
         if code != 0:
             last_exit = code
         findings, errors = parse_json_output(output)

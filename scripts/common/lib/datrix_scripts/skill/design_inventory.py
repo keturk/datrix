@@ -31,7 +31,7 @@ from typing import Final
 
 from datrix_scripts.skill.common import read_text
 from datrix_scripts.skill.findings import references
-from datrix_scripts.skill.findings_assemble import SourceFile, Unit
+from datrix_scripts.skill.findings_source import SourceFile, Unit
 
 DESIGN_DIR_PARTS: Final = ("design",)
 FIRST_NUMBER: Final = 10

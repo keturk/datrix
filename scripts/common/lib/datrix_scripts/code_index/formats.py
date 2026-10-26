@@ -6,7 +6,7 @@ recorded as definitions only (no imports, references or logic-map markers):
 - Markdown: each heading is a ``section`` spanning to the next heading of its level or above,
   read with markdown-it, so headings inside code fences are not sections.
 - PowerShell: script and function parameters and functions, read with PowerShell's own parser
-  through ``powershell_outline.ps1``, many files per process.
+  through ``datrix_scripts.code_index.powershell_outline``, many files per process.
 - ``.dtrx``: the language server's outline (``datrix_language.lsp.symbols``) over a tolerant,
   buffer-only parse, so a definition carries the kind the editor shows for it.
 - ``.dcfg``: config documents, blocks, profiles, templates, keys and settings, read from the
@@ -20,9 +20,6 @@ A non-Python file's module name is its workspace-relative path (``sources.module
 from __future__ import annotations
 
 import functools
-import json
-import shutil
-import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -45,6 +42,7 @@ from datrix_scripts.code_index.extract import (
     extract_file,
     first_paragraph,
 )
+from datrix_scripts.code_index.powershell_outline import FILES_PER_PROCESS, PROGRAM_NAME, run_outline
 from datrix_scripts.code_index.sources import (
     DATRIX_CONFIG_SUFFIX,
     DATRIX_SUFFIX,
@@ -83,12 +81,6 @@ FORMAT_SYMBOL_KINDS = tuple(dict.fromkeys((
     SYMBOL_CONFIG, SYMBOL_BLOCK, SYMBOL_PROFILE, SYMBOL_TEMPLATE, SYMBOL_KEY, SYMBOL_SETTING,
     *DATRIX_OUTLINE_KINDS,
 )))
-
-# PowerShell 7, which reads the files; Windows PowerShell 5.1 lacks the parser APIs' JSON shape.
-POWERSHELL_EXECUTABLE = "pwsh"
-POWERSHELL_OUTLINE_SCRIPT = Path(__file__).with_name("powershell_outline.ps1")
-POWERSHELL_FILES_PER_PROCESS = 200
-POWERSHELL_TIMEOUT_SECONDS = 300
 
 _MARKDOWN_HEADING_OPEN = "heading_open"
 _MARKDOWN_INLINE = "inline"
@@ -305,11 +297,7 @@ def _dcfg_symbols(node: Node, prefix: str, source: _Source) -> Iterator[SymbolFa
 
 def extract_dcfg(data: bytes) -> FileFacts:
     source = _Source.decode(data)
-    try:
-        parser = _datrix_parser()
-    except ImportError as exc:
-        return source.facts([], parse_error=f"ImportError: the Datrix grammar is not importable: {exc}")
-    tree = parser.parse(data)
+    tree = _datrix_parser().parse(data)
     error = _first_syntax_error(tree.root_node)
     return source.facts(list(_dcfg_symbols(tree.root_node, "", source)), parse_error=error)
 
@@ -330,12 +318,12 @@ def _first_syntax_error(root: Node) -> str:
 
 
 def extract_datrix(data: bytes, rel_path: str) -> FileFacts:
+    # datrix-language is installed with the shared venv, so it is imported unconditionally (here, so only a
+    # run that reads a .dtrx pays for it): a venv without it fails the index loudly, never a quiet empty file.
+    from datrix_language.lsp.symbols import build_symbol_index
+    from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
+
     source = _Source.decode(data)
-    try:
-        from datrix_language.lsp.symbols import build_symbol_index
-        from datrix_language.parser.tree_sitter_datrix.parser import TreeSitterParser
-    except ImportError as exc:
-        return source.facts([], parse_error=f"ImportError: datrix-language is not importable: {exc}")
     path = Path(rel_path)
     result = TreeSitterParser().parse_partial(source.text, file_path=path, require_system=False,
                                               inject_builtins=False)
@@ -372,39 +360,17 @@ def _powershell_symbol(entry: dict[str, object], source: _Source) -> SymbolFact:
 def _powershell_facts(source: _Source, outline: dict[str, object]) -> FileFacts:
     entries = outline["symbols"]
     if not isinstance(entries, list):
-        raise ValueError(f"{POWERSHELL_OUTLINE_SCRIPT.name} returned symbols that are not a list: {entries!r}")
+        raise ValueError(f"{PROGRAM_NAME} returned symbols that are not a list: {entries!r}")
     symbols = [_powershell_symbol(entry, source) for entry in entries]
     return source.facts(symbols, str(outline["synopsis"] or ""), str(outline["error"] or ""))
-
-
-def _run_powershell_outline(files: list[tuple[str, _Source]]) -> list[dict[str, object]] | str:
-    """The outline of each file, or the reason none could be read."""
-    executable = shutil.which(POWERSHELL_EXECUTABLE)
-    if executable is None:
-        return (f"ToolError: PowerShell 7 ('{POWERSHELL_EXECUTABLE}') is not on PATH; install it to index "
-                f"PowerShell files.")
-    payload = json.dumps([{"path": path, "text": source.text} for path, source in files])
-    command = [executable, "-NoProfile", "-NonInteractive", "-File", str(POWERSHELL_OUTLINE_SCRIPT)]
-    try:
-        result = subprocess.run(command, input=payload.encode("utf-8"), capture_output=True,
-                                timeout=POWERSHELL_TIMEOUT_SECONDS, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return f"ToolError: running {POWERSHELL_OUTLINE_SCRIPT.name} failed: {exc}"
-    if result.returncode != 0:
-        detail = result.stderr.decode("utf-8", errors="replace").strip()
-        return f"ToolError: {POWERSHELL_OUTLINE_SCRIPT.name} exited {result.returncode}: {detail}"
-    outlines = json.loads(result.stdout.decode("utf-8-sig"))
-    if not isinstance(outlines, list) or len(outlines) != len(files):
-        return f"ToolError: {POWERSHELL_OUTLINE_SCRIPT.name} returned {outlines!r} for {len(files)} files"
-    return outlines
 
 
 def extract_powershell(files: list[tuple[bytes, str]]) -> list[FileFacts]:
     """The facts of each ``(data, rel_path)``, in order, reading many files per PowerShell process."""
     facts: list[FileFacts] = []
-    for start in range(0, len(files), POWERSHELL_FILES_PER_PROCESS):
-        chunk = [(rel_path, _Source.decode(data)) for data, rel_path in files[start:start + POWERSHELL_FILES_PER_PROCESS]]
-        outlines = _run_powershell_outline(chunk)
+    for start in range(0, len(files), FILES_PER_PROCESS):
+        chunk = [(rel_path, _Source.decode(data)) for data, rel_path in files[start:start + FILES_PER_PROCESS]]
+        outlines = run_outline([(rel_path, source.text) for rel_path, source in chunk])
         if isinstance(outlines, str):
             facts.extend(source.facts([], parse_error=outlines) for _, source in chunk)
         else:

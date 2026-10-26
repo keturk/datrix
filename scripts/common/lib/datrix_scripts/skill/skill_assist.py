@@ -30,20 +30,20 @@ CLI_MODULE: Final = "datrix_scripts.skill.assist_cli"
 LLM_TIMEOUT_SECONDS: Final = 600
 COMMANDS: Final = (
     "context-digest", "readiness", "findings-index", "findings-check", "findings-redundant",
-    "findings-redundant-delete", "findings-plan", "findings-assemble", "finding-select", "finding-close", "checklist", "absorb-transfer", "absorb-references", "absorb-delete",
+    "findings-redundant-delete", "finding-select", "finding-close", "checklist", "absorb-transfer", "absorb-references", "absorb-delete",
     "bug-resolution", "design-inventory", "design-verify", "design-plan", "design-check", "design-xref",
     "design-close", "rule-names",
 )
 # The commands that may ask a local model; the others are exact and take no model flags.
 MODEL_COMMANDS: Final = frozenset(
-    {"readiness", "findings-index", "findings-redundant", "findings-plan", "checklist", "absorb-transfer",
+    {"readiness", "findings-index", "findings-redundant", "checklist", "absorb-transfer",
      "bug-resolution", "design-verify", "design-plan", "rule-names"}
 )
 # The model commands whose answer decides something or is written into the docs: with no -LlmModel they use
 # QUALITY_MODEL_PREFERENCE, the most capable model first, and wait for it. The others (an index entry, a
 # name proposal a person reviews) take whichever model is resident.
 QUALITY_COMMANDS: Final = frozenset(
-    {"readiness", "findings-redundant", "findings-plan", "absorb-transfer", "bug-resolution", "design-plan"}
+    {"readiness", "findings-redundant", "absorb-transfer", "bug-resolution", "design-plan"}
 )
 # The assist command line's local-model flags (``local_llm.add_local_llm_arguments``).
 _CLI_TIMEOUT_FLAG: Final = "--local-timeout-ms"
@@ -122,7 +122,6 @@ def _check_model_commands_get_the_local_model_flags() -> None:
 _REQUIRED: Final[dict[str, list[str]]] = {
     "context-digest": ["--phase", "1"], "readiness": ["--phase", "1"], "findings-index": [],
     "findings-check": ["--delete", "f.md"], "findings-redundant": [], "findings-redundant-delete": [],
-    "findings-plan": [], "findings-assemble": [],
     "finding-select": [], "finding-close": ["--finding", "f.md"],
     "checklist": ["--design", "d.md"], "absorb-transfer": ["--design", "d.md", "--target", "t.md"],
     "absorb-references": ["--design", "d.md"], "absorb-delete": ["--design", "d.md"],

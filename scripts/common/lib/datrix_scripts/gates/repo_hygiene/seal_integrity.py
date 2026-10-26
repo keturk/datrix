@@ -28,10 +28,9 @@ Built-in non-vacuity self-test, every invocation: a planted ``src/`` tree must b
 reported at exactly the planted lines, its two permitted writes recognised as
 permitted, and its clean shapes and its ``tests/`` tree not reported at all.
 
-Usage:
-    python seal_integrity.py
-    python seal_integrity.py --self-test
-    python seal_integrity.py --roots D:/datrix/datrix-common/src
+Run it through ``gates/repo-hygiene/seal-integrity-gate.ps1`` or its ``.sh`` twin; it runs in gate mode
+(``datrix_scripts.gate_log.run_as_gate``) and prints the
+``[GATE] seal-integrity PASSED|FAILED exit=<n> log=<path>`` verdict last.
 """
 
 from __future__ import annotations
@@ -48,9 +47,21 @@ from pathlib import Path
 from typing import Final
 
 from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
+from datrix_scripts.gate_log import gate_child, run_as_gate
+from datrix_scripts.gates.repo_hygiene.gate_options import (
+    check_requested_roots_split_on_commas,
+    report_by_printing,
+    requested_roots,
+    roots_gate_parser,
+)
 from datrix_scripts.paths import TMP_DIR, WORKSPACE_DIR
+from datrix_scripts.test import wrappers
 
 logger = logging.getLogger(__name__)
+
+GATE: Final = "seal-integrity"
+MODULE: Final = "datrix_scripts.gates.repo_hygiene.seal_integrity"
+WRAPPER: Final = "seal-integrity-gate"
 
 _EXIT_OK: Final[int] = 0
 _EXIT_FINDINGS: Final[int] = 1
@@ -512,20 +523,35 @@ def run_gate(roots: Sequence[Path]) -> int:
     return _EXIT_FINDINGS if result.findings else _EXIT_OK
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--self-test", action="store_true", help="Run only the non-vacuity self-test.")
-    parser.add_argument("--roots", nargs="*", default=[], help="Source trees to scan (default: every datrix-*/src).")
-    args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+def _check_planted_seal_flag_writes_are_reported_exactly() -> None:
+    assert self_test(), "the scan did not report exactly the planted seal-flag writes (see the self_test_failed record)"
 
+
+def build_parser() -> argparse.ArgumentParser:
+    """The options of ``gates/repo-hygiene/seal-integrity-gate.ps1``: one per wrapper parameter, spelled
+    exactly."""
+    return roots_gate_parser(
+        WRAPPER, "Fail if any code outside Node.seal and Node.__deepcopy__ writes a node's seal flag.", debug=True
+    )
+
+
+def _run(args: argparse.Namespace) -> int:
+    report_by_printing(args.debug)
+    if args.self_test:
+        return wrappers.run_self_test(
+            [_check_planted_seal_flag_writes_are_reported_exactly, check_requested_roots_split_on_commas],
+            wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=wrappers.REPO_HYGIENE_GATES_DIR,
+        )
     if not self_test():
         print("Seal-integrity gate self-test failed: the gate cannot tell a seal-flag write from clean code.")
         return _EXIT_GATE_BROKEN
-    if args.self_test:
-        return _EXIT_OK
-    roots = [Path(root) for root in args.roots] if args.roots else default_roots(WORKSPACE_DIR)
-    return run_gate(roots)
+    requested = requested_roots(args.roots)
+    return run_gate([Path(root) for root in requested] if requested else default_roots(WORKSPACE_DIR))
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Entry point: the gate in gate mode (a claimed log and the verdict line)."""
+    return run_as_gate(GATE, MODULE, gate_child(build_parser, _run), argv)
 
 
 if __name__ == "__main__":

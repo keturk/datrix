@@ -31,7 +31,7 @@ from datrix_scripts.skill.design_inventory import (
     unit_paths,
     unit_text,
 )
-from datrix_scripts.skill.findings_assemble import SourceFile, Unit
+from datrix_scripts.skill.findings_source import SourceFile, Unit
 
 VERDICT_HOLDS: Final = "STILL HOLDS"
 VERDICT_FIXED: Final = "FIXED"

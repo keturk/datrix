@@ -71,9 +71,9 @@ def requested_base_dir(value: str) -> Path:
     return (Path(value) if value else WORKSPACE_DIR).resolve()
 
 
-def roots_gate_parser(wrapper: str, description: str) -> argparse.ArgumentParser:
-    """The parser of a scanner whose wrapper declares only ``-Roots`` (comma-separated directories) and
-    ``-SelfTest``; ``args.debug`` is False, since such a wrapper declares no ``-Dbg``."""
+def roots_gate_parser(wrapper: str, description: str, *, debug: bool = False) -> argparse.ArgumentParser:
+    """The parser of a scanner whose wrapper declares ``-Roots`` (comma-separated directories) and
+    ``-SelfTest``, plus ``-Dbg`` when *debug* (``args.debug`` is False when the wrapper does not declare it)."""
     parser = argparse.ArgumentParser(prog=wrapper, description=description, allow_abbrev=False)
     parser.add_argument(
         "--roots",
@@ -83,7 +83,15 @@ def roots_gate_parser(wrapper: str, description: str) -> argparse.ArgumentParser
     parser.add_argument(
         "--self-test", action="store_true", help="Run only the non-vacuity self-test and the wrapper seam check."
     )
-    parser.set_defaults(debug=False)
+    if debug:
+        parser.add_argument(
+            WRAPPER_DEBUG_FLAG,
+            dest="debug",
+            action="store_true",
+            help="Print the interpreter and arguments first, and log at DEBUG level.",
+        )
+    else:
+        parser.set_defaults(debug=False)
     return parser
 
 
