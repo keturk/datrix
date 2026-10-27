@@ -278,10 +278,6 @@ file = "datrix-codegen-python/src/datrix_codegen_python/type_mappings.py"
 count = 3
 
 [[baseline]]
-file = "datrix-codegen-sql/src/datrix_codegen_sql/constraint_builder.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-sql/src/datrix_codegen_sql/dgen/registrations.py"
 count = 2
 

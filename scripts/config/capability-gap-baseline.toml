@@ -6,7 +6,7 @@
 # a pin (rows were removed without lowering the pin in the same change). A target absent
 # from this file is pinned at zero.
 
-total = 18
+total = 19
 
 [per_target.languages]
 typescript = 13
@@ -17,3 +17,4 @@ angular = 3
 [per_target.platforms]
 aws = 1
 azure = 1
+azure-vm = 1
