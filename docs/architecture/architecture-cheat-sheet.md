@@ -80,6 +80,8 @@ Each is held by an executable gate; the pack and decision named give the check.
 
 10. **One async-hosting decision.** Whether a service's consumers, queue workers and jobs run in its web app (`hosting = "inProcess"`) or in dedicated runtimes is answered once, by the kernel's `resolve_service_async_hosting`, and every platform and language realizes the answer from the kernel `InProcessHostingPlan`; a target never carries its own "supports in-process" flag. A host that suspends idle processes is refused, never silently degraded.
 
+11. **One database access plan.** Which roles an RDBMS block has and what each may touch is decided once, by the kernel's `DatabaseAccessPlan` (owner, service, reader; `ROLE_RIGHTS`); every platform renders that plan through the dialect's access rendering and spells no `GRANT` itself, every role is a login of its own with its password a required provisioning input (never a literal), and each platform proves it provisioned exactly the plan (`require_access_plan_realized`). Detail: `datrix-codegen-kernel/docs/architecture.md` § Database Access Plan.
+
 ## Technology
 
 Python 3.11+, Tree-sitter (author-facing `.dtrx`), Lark (DAL, the internal document language), Pydantic v2, Jinja2, ruff, pytest.

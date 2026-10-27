@@ -445,7 +445,7 @@ Provider-native runtimes are produced by their provider generator plus, where th
 **Result:**
 - **Live snapshot is a third source of `RdbmsSchemaSnapshot`** — an environment-side exporter (where the DB is reachable) reflects the live catalog into a portable, hash-verified `live-schema-snapshot.json`. Datrix imports the artifact offline; the entire existing diff → classify → allocate → ledger pipeline is reused unchanged
 - **Datrix never connects to a live database** — generation and the new `drift`/`reconcile` commands accept only `--live-snapshot <path>`; credentials, connection strings, and reachability stay in the deployment environment
-- **Shared canonicalization** normalizes both source-built and imported live snapshots (implicit/backing indexes, PK-derived constraints, default-literal formatting, type aliasing, identifier casing, index column ordering) so equivalent schemas canonicalize to zero drift
+- **Shared canonicalization** normalizes both source-built and imported live snapshots (implicit/backing indexes, PK-derived constraints, default-literal formatting, identifier casing, index column ordering) so equivalent schemas canonicalize to zero drift; scalar type names are not resolved there: the builder writes canonical names and each engine's reverse type map holds only canonical names
 - **Read-only drift detection** — `datrix migrations drift --live-snapshot` reports `diff(recorded R, live L)` classified, exits non-zero when drift exists (CI-guard friendly), and never writes the ledger or DB
 - **Append-only reconciliation** — `reconcile --adopt` appends an `adopted` revision whose after-state is `L`, sets `R := L`, and records live-snapshot alignment separately (a sibling of the `adapter-alignment.json` precedent), running no DDL; `reconcile --to-desired` emits `diff(L, D)` as a reconciliation revision with destructive entries `blocked` exactly as in source-driven generation — no override flag
 - **Adopt records reality; converge generates DDL** — adopting an observed dropped column documents fact (safe); regenerating one away is gated by `change_policy` (blocked). The ledger gains an `"adopted"` classification and an explicit non-DDL `adopt_live_schema` operation (schema version bumped)
@@ -2917,7 +2917,8 @@ name for a value-less member.
 
 - **Wire** (`enum_member_wire_value`): the declared `value('…')`, else the raw DSL member name.
 - **Stored** (`enum_member_stored_literal`, and `stored_enum_literal_from_parts` for a snapshot's name +
-  declared-value pair): the declared `value('…')`, else the snake_case member name.
+  declared-value pair, in the standard-library-only `datrix_common.datrix_model.enum_literal_text`): the
+  declared `value('…')`, else the snake_case member name.
 
 The stored rule reads `value(...)` because reading everything the DSL declares outranks the argument for
 ignoring it (the strongest-behaviour axes are ordered: fails closed, reads everything the DSL declares,
