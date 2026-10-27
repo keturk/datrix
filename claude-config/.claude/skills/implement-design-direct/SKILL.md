@@ -118,7 +118,7 @@ State one line: `SCOPE: {packages} | reaches: {packages} | surface sets: {n} | m
 
 Write the ledger with `Write` to LEDGER, or to `D:\datrix\.tmp\implement-direct-{slug}.md` when none was given (a scratch folder; never inside a package repo). It is your task graph, your dependency order, and your survival kit across compaction. It is **not** a task file and not committed.
 
-One row per unit of work; each row carries:
+The units are **one markdown table, one row per unit**, with the columns below in this order: `implement-design.ps1` reads a unit as a table row whose first cell is its id and whose last cell is its state, and refuses a ledger with no such row (a unit written as a heading or a bullet list is invisible to it). Keep each cell on one line and write a literal `|` inside a cell as `\|`. Example: `| U01 | delete X; Y records Z | a.py:12 | — | D1. Negative: … Positive: … | test_a.py (tag-x) | [ ] |`. Each row carries:
 
 | Field | Content |
 |---|---|
