@@ -106,7 +106,7 @@
     .\code-index.ps1 -Symbol to_snake_case
 
 .EXAMPLE
-    .\code-index.ps1 -References datrix_common.utils.text.to_snake_case
+    .\code-index.ps1 -References datrix_common.utils.identifier_case.to_snake_case
 
 .EXAMPLE
     .\code-index.ps1 -Outline datrix-common/src/datrix_common/utils/text.py

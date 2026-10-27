@@ -108,7 +108,7 @@ Query the code index (SQLite index of every Python, Markdown, PowerShell, `.dtrx
 |------|---------|
 | Set up a machine (once; then restart Claude Code) | `.\dev\code-index.ps1 -Setup` |
 | Definitions | `.\dev\code-index.ps1 -Symbol to_snake_case` |
-| Uses | `.\dev\code-index.ps1 -References datrix_common.utils.text.to_snake_case` |
+| Uses | `.\dev\code-index.ps1 -References datrix_common.utils.identifier_case.to_snake_case` |
 | File outline | `.\dev\code-index.ps1 -Outline datrix-common/src/datrix_common/utils/text.py` |
 | Search | `.\dev\code-index.ps1 -Search "tenant isolation"` |
 | Logic map markers | `.\dev\code-index.ps1 -Canonical text/to-snake` |
