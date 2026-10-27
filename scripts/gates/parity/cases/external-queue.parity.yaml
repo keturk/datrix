@@ -1,0 +1,60 @@
+- id: external-queue.control.blocks
+  tags:
+  - parity
+  - external-queue
+  input: external-queue
+  stage: parity
+  observer: external_queue_controls
+  selector:
+    facet: blocks
+  expectation:
+  - retail_order_service:supplier_feed
+  reason: Every external-queue block gets one service-wide control module, keyed by the service-qualified block identity the control tables use, on every language.
+- id: external-queue.control.statement-ids
+  tags:
+  - parity
+  - external-queue
+  input: external-queue
+  stage: parity
+  observer: external_queue_controls
+  selector:
+    facet: statement-ids
+    block: retail_order_service:supplier_feed
+  expectation:
+  - create_desired_table
+  - create_instance_table
+  - ddl_lock
+  - prune_instances
+  - seed_default
+  - select_desired
+  - select_state
+  - set_desired
+  - upsert_instance
+  reason: Every language renders each control statement the SQL dialect declares (ExternalQueueControlSql) and no other, so no runtime spells SQL of its own or drops a statement.
+- id: external-queue.control.settings
+  tags:
+  - parity
+  - external-queue
+  input: external-queue
+  stage: parity
+  observer: external_queue_controls
+  selector:
+    facet: settings
+    block: retail_order_service:supplier_feed
+  expectation:
+    default-desired: running
+    reconcile-interval-seconds: '5'
+    desired-running: running
+    desired-stopped: stopped
+  reason: The autoStart default, the reconcile interval and the desired-state values come from the one kernel home, so every language seeds and applies the same desired state on the same schedule.
+- id: external-queue.control.no-process-local-lookup
+  tags:
+  - parity
+  - external-queue
+  input: external-queue
+  stage: parity
+  observer: external_queue_controls
+  selector:
+    facet: process-local-lookups
+  expectation: []
+  reason: 'Control calls act on the whole service: no generated module keeps a per-process consumer registry or hands out the calling process''s own consumer.'
