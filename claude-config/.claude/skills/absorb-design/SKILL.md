@@ -220,7 +220,7 @@ WAIT for user decision.
    ```bash
    powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" absorb-delete --design "{document path}" --verified "{VERIFIED path}"
    ```
-   Rule 1 passes `--verified`; rule 2 passes neither flag (the script reads the `Status:` line); rule 4 passes `--knowledge-only`. The script re-checks the licence and runs the reference search itself, and deletes only a `.md` file under `d:\datrix\design\`. Exit 0 = deleted; exit 2 = kept, with each reason listed (a failed proof, no licence, or lines still naming the design: handle them and run it again); exit 1 = not a design document.
+   Rule 1 passes `--verified`; rule 2 passes neither flag (the script reads the `Status:` line); rule 4 passes `--knowledge-only`. The script re-checks the licence and runs the reference search itself, and deletes the design wherever the `.md` file lies. Exit 0 = deleted; exit 2 = kept, with each reason listed (a failed proof, no licence, or lines still naming the design: handle them and run it again); exit 1 = not a design document.
 
 **End-of-phase output:**
 
