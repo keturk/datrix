@@ -77,8 +77,11 @@ WRAPPER: Final = "implement-design"
 STEPS: Final = ("implement", "verify", "absorb")
 # A ledger row whose last cell (the state) is an unticked box; group 1 is the unit's id (the first cell).
 UNCHECKED_UNIT: Final = re.compile(r"^\s*\|\s*([^|\s]+)\s*\|.*\|\s*\[ \]\s*\|?\s*$", re.MULTILINE)
+# A ledger row with a state cell, ticked or not; group 1 is the unit's id (the first cell).
+UNIT_ROW: Final = re.compile(r"^\s*\|\s*([^|\s]+)\s*\|.*\|\s*\[[ xX]\]", re.MULTILINE)
 FILES_CHANGED: Final = re.compile(r"^##\s+Files changed\s*$", re.MULTILINE | re.IGNORECASE)
 NO_LEDGER: Final = "no ledger"
+NO_UNITS: Final = "no unit row"
 DESIGN_DIR_PARTS: Final = ("design",)
 # Loads every registered language, platform, generator and client-target plugin, as a generation run does.
 PLUGIN_LOAD_SCRIPT: Final = (
@@ -118,10 +121,12 @@ def ledger_path(workspace: Path, design: Path) -> Path:
 
 
 def ledger_gap(ledger: Path) -> str:
-    """What the ledger still lacks for implement to be done: no ledger, unchecked units, no
+    """What the ledger still lacks for implement to be done: no ledger, no unit row, unchecked units, no
     ``## Files changed`` section; empty when nothing."""
     if not ledger.is_file():
         return NO_LEDGER
+    if not ledger_units(ledger):
+        return NO_UNITS
     if unchecked_units(ledger):
         return "unchecked units"
     if not FILES_CHANGED.search(ledger.read_text(encoding="utf-8-sig")):
@@ -134,6 +139,23 @@ def unchecked_units(ledger: Path) -> list[str]:
     if not ledger.is_file():
         return []
     return UNCHECKED_UNIT.findall(ledger.read_text(encoding="utf-8-sig"))
+
+
+def ledger_units(ledger: Path) -> list[str]:
+    """The ids of every unit row of the ledger, ticked or not, in ledger order; empty when there is no ledger."""
+    if not ledger.is_file():
+        return []
+    return UNIT_ROW.findall(ledger.read_text(encoding="utf-8-sig"))
+
+
+def require_unit_rows(chain: Chain, ledger: Path) -> None:
+    """Stop the chain with 1 when the ledger holds no unit row this script can read: no unchecked unit would then
+    read as every unit done."""
+    if not ledger_units(ledger):
+        chain.stop(EXIT_FAILED, f"The ledger holds no unit row this script can read, so no unit would run. Each "
+                                f"unit is one markdown table row: its id in the first cell, its state ('[ ]', or "
+                                f"'[x]' and its proof) in the last. Rewrite the ledger's units as that table, then "
+                                f"rerun this script: {ledger}")
 
 
 def design_files(workspace: Path, count: int) -> list[Path]:
@@ -240,6 +262,7 @@ def implement(chain: Chain, design: Path, ledger: Path, max_rounds: int, gaps: s
     if gaps or not ledger.is_file():
         if plan(chain, design, ledger, gaps).dry_run:
             return
+    require_unit_rows(chain, ledger)
     if chain.options.dry_run:
         for unit in unchecked_units(ledger):
             implement_step(chain, f"unit-{unit}", implement_prompt(design, ledger, f"UNIT: {unit}"))
@@ -308,6 +331,7 @@ def _check_the_ledger_gap_is_read_from_the_ledger() -> None:
             ("| U01 | change | [ ] |\n## Files changed\n", "unchecked units"),
             ("| U01 | change | [x] |\n", "no '## Files changed' section"),
             ("| U01 | change | [x] proof |\n\n## files changed\n- a.py\n", ""),
+            ("### U01 — change\n- state: [ ]\n\n## Files changed\n- a.py\n", NO_UNITS),
         )
         assert ledger_gap(ledger) == NO_LEDGER
         assert unchecked_units(ledger) == []
@@ -319,6 +343,7 @@ def _check_the_ledger_gap_is_read_from_the_ledger() -> None:
             "| U01 | a | no `[ ]` left | [x] `test.ps1 pkg` → pass: 3 (a | b) |\n"
             "| U02 | b | c | [ ] |\n| U03 | d | e | [ ] |\n")})
         assert unchecked_units(ledger) == ["U02", "U03"], unchecked_units(ledger)
+        assert ledger_units(ledger) == ["U01", "U02", "U03"], ledger_units(ledger)
 
 
 def _check_a_missing_design_or_ledger_stops_before_any_step() -> None:
@@ -386,9 +411,15 @@ def _check_a_plugin_load_failure_stops_before_the_unit_session() -> None:
             write_files(workspace, {ledger.name: "| U01 | a | [x] |\n"})
             code = chain_exit_code(lambda: implement(chain, workspace / "d.md", ledger, 1, check=lambda: failure))
             assert code == EXIT_FAILED, code
+            # A ledger whose units are not table rows is refused, never read as every unit done.
+            write_files(workspace, {ledger.name: "### U01 — a\n- state: [ ]\n"})
+            code = chain_exit_code(lambda: implement(chain, workspace / "d.md", ledger, 1, check=lambda: failure))
+            assert code == EXIT_FAILED, code
     text = printed.getvalue()
     assert "so unit U01 would start on a broken test bed" in text, text
     assert "Every unit is ticked, but the ledger still has no '## Files changed' section" in text, text
+    assert "The ledger holds no unit row this script can read" in text, text
+    assert text.count("Every unit is ticked") == 1, text
     assert text.count("KeyError: 'email_local_part'") == 2, text
     assert "=== step" not in text, text
 

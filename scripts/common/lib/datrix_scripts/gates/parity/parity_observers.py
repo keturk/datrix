@@ -34,6 +34,8 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
+    ExternalQueueControlCensus,
+    ExternalQueueControlModule,
     PublishedEventEnvelope,
     RealizedGatewayProblem,
     RealizedRouteUrl,
@@ -312,6 +314,55 @@ def _read_unwritten_consumed_keys(result: object, selector: Selector) -> Observa
 
 def _offer_events(result: object) -> Iterable[dict[str, SelectorValue]]:
     return [{"event": name} for name in sorted({envelope.event_name for envelope in _census(result).published})]
+
+
+# ---------------------------------------------------------------------------
+# External-queue control: external_queue_controls
+# ---------------------------------------------------------------------------
+
+EXTERNAL_QUEUE_CONTROLS: Final[str] = "external_queue_controls"
+BLOCK_KEY: Final[str] = "block"
+
+
+def _controls(result: object) -> ExternalQueueControlCensus:
+    return _typed(result, ExternalQueueControlCensus, EXTERNAL_QUEUE_CONTROLS)
+
+
+def _one_control(result: object, selector: Selector) -> ExternalQueueControlModule:
+    block = _text(selector, BLOCK_KEY)
+    modules = [module for module in _controls(result).modules if module.block == block]
+    if len(modules) != 1:
+        raise SelectorError(f"block {block!r} has {len(modules)} control modules; exactly one is read")
+    return modules[0]
+
+
+def _read_control_blocks(result: object, selector: Selector) -> Observation:
+    return _set(module.block for module in _controls(result).modules)
+
+
+def _read_statement_ids(result: object, selector: Selector) -> Observation:
+    return _set(_one_control(result, selector).statement_ids)
+
+
+def _read_control_settings(result: object, selector: Selector) -> Observation:
+    module = _one_control(result, selector)
+    return Observation(
+        Shape.MAPPING,
+        {
+            "default-desired": module.default_desired,
+            "reconcile-interval-seconds": str(module.reconcile_interval_seconds),
+            "desired-running": module.desired_running,
+            "desired-stopped": module.desired_stopped,
+        },
+    )
+
+
+def _read_process_local_lookups(result: object, selector: Selector) -> Observation:
+    return _set(lookup.name for lookup in _controls(result).process_local_lookups)
+
+
+def _offer_control_blocks(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{BLOCK_KEY: block} for block in sorted({module.block for module in _controls(result).modules})]
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +657,44 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
             ),
         ),
         ProbeReadings(
+            EXTERNAL_QUEUE_CONTROLS,
+            ProbeArgument.GENERATED_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet("blocks", Shape.SET, summary="the row identity of every external-queue block with a control module"),
+                    _read_control_blocks,
+                ),
+                FacetReading(
+                    ParityFacet(
+                        "statement-ids",
+                        Shape.SET,
+                        (BLOCK_KEY,),
+                        summary="the dialect control statements one block's control module renders, by field name",
+                    ),
+                    _read_statement_ids,
+                    _offer_control_blocks,
+                ),
+                FacetReading(
+                    ParityFacet(
+                        "settings",
+                        Shape.MAPPING,
+                        (BLOCK_KEY,),
+                        summary="the autoStart default, reconcile interval and desired-state values one control module carries",
+                    ),
+                    _read_control_settings,
+                    _offer_control_blocks,
+                ),
+                FacetReading(
+                    ParityFacet(
+                        "process-local-lookups",
+                        Shape.SET,
+                        summary="per-process consumer lookups the tree defines or imports beside the service-wide control",
+                    ),
+                    _read_process_local_lookups,
+                ),
+            ),
+        ),
+        ProbeReadings(
             RENDER_ENUM_CLASSIFIER,
             ProbeArgument.EXAMPLE_ENUM,
             _facets(
@@ -711,10 +800,12 @@ def observer_specs(example_names: Sequence[str]) -> dict[str, ParityObserver]:
 
 
 __all__ = [
+    "BLOCK_KEY",
     "DECLARED_EXCEPTION",
     "DOCUMENTATION_SURFACES",
     "ENUM_KEY",
     "EVENT_ENVELOPES",
+    "EXTERNAL_QUEUE_CONTROLS",
     "HEADER_SET_FIXTURES",
     "PROBE_READINGS",
     "MARKER_KEY",

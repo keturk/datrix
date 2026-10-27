@@ -89,6 +89,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
+    ExternalQueueControlCensus,
     IdiomOccurrence,
     LanguageConformanceProbes,
     ResponseBodyWireField,
@@ -1088,6 +1089,9 @@ class _FixtureDocumentationProbes:
 
     def idiom_occurrences(self, generated_root: Path, idioms: Sequence[CodeIdiom]) -> tuple[IdiomOccurrence, ...]:
         return ()
+
+    def external_queue_controls(self, generated_root: Path) -> ExternalQueueControlCensus:
+        return ExternalQueueControlCensus(modules=(), process_local_lookups=())
 
 
 class _FixturePluginWithoutProbes:

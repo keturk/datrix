@@ -160,6 +160,9 @@ _VOCABULARY_SET_FIELDS: Final[frozenset[str]] = frozenset({
     "supported_gateway_types",
     "injected_test_identity_providers",
     "websocket_upgrade_runtimes",
+    # Enforced where resolved: the kernel's async-hosting decision refuses a
+    # decoupled external-queue block on a runtime outside this set.
+    "decoupled_worker_runtimes",
     "non_evicting_cache_flavors",
     # The identity provider types whose rules this package owns -- ownership, not
     # the offered-provider capability, which surface 4 compares.
