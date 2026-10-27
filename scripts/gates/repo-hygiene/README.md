@@ -856,7 +856,7 @@ It does not regenerate and diff (a whole-system generation per language per run)
 **Self-test (every invocation):** a fixture holding every registered language passes; a planted
 unregistered language fails naming it; a fixture missing one registered language fails naming it; a planted
 `datrix_common.migration.live_snapshot_export` fails and `datrix_migration.live_snapshot_export` passes;
-`datrix_common.utils.text.to_snake_case` passes and a missing attribute fails; a file-local import alias is
+`datrix_common.utils.identifier_case.to_snake_case` passes and a missing attribute fails; a file-local import alias is
 exempt only in the file that binds it.
 
 Each violation names `file:line` and the reference, or the directory, the installed sets and the refresh
