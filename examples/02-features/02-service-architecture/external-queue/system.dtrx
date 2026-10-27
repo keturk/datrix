@@ -1,0 +1,4 @@
+include 'order-service.dtrx';
+
+system retail.OrderSystem('config/system.dcfg') : version('1.0.0') {
+}

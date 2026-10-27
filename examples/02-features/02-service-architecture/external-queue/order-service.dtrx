@@ -1,0 +1,67 @@
+// Example: consuming a supplier's external queue under service-wide control.
+//
+// The `supplierFeed` pubsub block is an external queue (engine "external-queue"
+// in config/order-service.dcfg): the service consumes a queue the supplier
+// operates and never publishes to it. Its topic carries the two fixed events of
+// an external queue: `ExternalMessage` (one delivered message) and
+// `ConsumerState` (the consumer's connection state).
+//
+// `supplierFeed.Updates.start()`, `.stop()` and `.state()` act on the whole
+// service, not on the calling process: the desired state is stored in the
+// service's own database (the first rdbms block, `db`), and every process
+// hosting the consumer applies it within a few seconds. `state()` reports the
+// best state among the processes that reported recently, or UNKNOWN when the
+// consumer should run but no process reported. `autoStart` (config) is only the
+// default until a call decides otherwise.
+//
+// Neutral domain: supplier stock updates -> product and order tables.
+service retail.OrderService('config/order-service.dcfg') : version('1.0.0'), description('Order service consuming a supplier queue under service-wide control') {
+
+    // The service's own database; it also holds the queue's control tables.
+    rdbms db {
+        entity Product {
+            UUID id : primaryKey, server = uuid();
+            String(100) sku : unique, trim;
+            String(255) name : trim;
+            Int stock = 0;
+        }
+
+        entity Order {
+            UUID id : primaryKey, server = uuid();
+            String(100) sku : trim;
+            Int quantity;
+        }
+    }
+
+    // The supplier's queue, read over SMF.
+    pubsub supplierFeed {
+        topic Updates {
+            publish ExternalMessage(String body, String? contentType, String messageId, JSON properties, DateTime receivedAt, Integer deliveryCount);
+            publish ConsumerState(String state, String? error);
+        }
+    }
+
+    subscribe supplierFeed.Updates {
+        on ExternalMessage(String body, String? contentType, String messageId, JSON properties, DateTime receivedAt, Integer deliveryCount) {
+            Log.info("supplier_update", { messageId: messageId, deliveryCount: deliveryCount });
+        }
+        on ConsumerState(String state, String? error) {
+            Log.info("supplier_feed_state", { state: state });
+        }
+    }
+
+    // Each call is service-wide and returns once the desired state is stored.
+    fn startSupplierFeed() -> String {
+        supplierFeed.Updates.start();
+        return supplierFeed.Updates.state();
+    }
+
+    fn stopSupplierFeed() -> String {
+        supplierFeed.Updates.stop();
+        return supplierFeed.Updates.state();
+    }
+
+    fn supplierFeedState() -> String {
+        return supplierFeed.Updates.state();
+    }
+}

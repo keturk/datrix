@@ -1,0 +1,135 @@
+config service retail.OrderService {
+  base {
+    port = 8000;
+    flavor = "compose";
+    replicas = 2;
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+      limits {
+        cpu = "500m";
+        memory = "512Mi";
+      }
+    }
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms db {
+      id = "3f6c2a8e-5b1d-4c7e-9a2f-8d4b6e1c0a73";
+      engine = "postgres";
+      flavor = "container";
+      host = "localhost";
+      port = 5432;
+      database = "retail_orders";
+      poolSize = 10;
+      maxOverflow = 10;
+      ssl = false;
+      healthCheckSql = "SELECT 1";
+      dockerImage = "postgres:17-alpine";
+      volumePath = "/var/lib/postgresql/data";
+      defaultUser = "postgres";
+    }
+    // The supplier's queue, reached over SMF on secure WebSocket. The password is
+    // the name of the secret holding it, never the password itself. autoStart is
+    // the desired state until start() or stop() decides otherwise.
+    pubsub supplierFeed {
+      engine = "external-queue";
+      flavor = "external";
+      protocol = "smf";
+      url = "wss://supplier-mesh.example.com:443";
+      vpn = "supplier-vpn";
+      queue = "q.supplier.stock";
+      username = "order-reader";
+      password = "supplier_feed_password";
+      reconnectIntervalMs = 3000;
+      maxDeliveryAttempts = 5;
+    }
+    httpSecurity {
+      allowedHosts = ["order-service.example.com", "localhost"];
+      corsOrigins = ["https://app.example.com"];
+      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      corsHeaders = ["Authorization", "Content-Type"];
+    }
+    cacheOps {
+      ttlSeconds = 300;
+      keyMaxLength = 100;
+      redisPoolSize = 10;
+    }
+    queueOps {
+      sqsPollWaitSeconds = 20;
+      sqsMaxMessagesPerPoll = 10;
+      servicebusMaxWaitSeconds = 5;
+    }
+    kafkaOps {
+      consumerPollTimeoutMs = 1000;
+      keepalivePollTimeoutMs = 1000;
+      maxPollIntervalMs = 600000;
+    }
+    messagingOps {
+      rabbitmqPrefetchCount = 10;
+    }
+    downloadOps {
+      timeoutSeconds = 300;
+      chunkSizeBytes = 65536;
+      maxRetries = 3;
+      retryDelaySeconds = 1.0;
+      retryableStatusCodes = [429, 500, 502, 503, 504];
+    }
+    remoteConfigOps {
+      consulTimeoutSeconds = 5.0;
+      appconfigMinPollSeconds = 15;
+    }
+    rateLimitOps {
+      windowSeconds = 60;
+    }
+    microserviceClientOps {
+      timeoutSeconds = 300;
+      circuitBreakerFailMax = 5;
+      circuitBreakerResetSeconds = 30;
+      bulkheadMaxConcurrent = 10;
+      integrationConnectTimeoutMs = 1000;
+      integrationReadTimeoutMs = 30000;
+      mailgunTimeoutSeconds = 30;
+    }
+    retryBudgetOps {
+      window = 100;
+      ratio = 0.1;
+    }
+    outboxOps {
+      flushBatchSize = 500;
+    }
+    serviceCredentialOps {
+      tokenExpirySkewSeconds = 30;
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+
+    replace rdbms db {
+      id = "3f6c2a8e-5b1d-4c7e-9a2f-8d4b6e1c0a73";
+      engine = "postgres";
+      flavor = "rds";
+      host = "postgres.internal";
+      database = "retail_orders";
+      poolSize = 20;
+      maxOverflow = 20;
+      ssl = true;
+      healthCheckSql = "SELECT 1";
+    }
+  }
+}
