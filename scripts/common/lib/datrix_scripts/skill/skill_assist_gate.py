@@ -635,10 +635,12 @@ def check_absorb_delete_deletes_only_a_licensed_unreferenced_design() -> None:
         assert result.returncode == EXIT_KEPT and "names another design" in result.stdout, result.stdout
         result = _absorb_delete(root, design)
         assert result.returncode == EXIT_KEPT and "it has no Status line" in result.stdout, result.stdout
-        outside = write_file(root / "datrix-alpha/docs/042-fixture-design.md", _DESIGN)
-        result = _absorb_delete(root, outside, "--knowledge-only")
-        assert result.returncode == EXIT_UNUSABLE and outside.exists(), result.stdout
-        outside.unlink()
+        not_markdown = write_file(root / "design/042-fixture-design.txt", _DESIGN)
+        result = _absorb_delete(root, not_markdown, "--knowledge-only")
+        assert result.returncode == EXIT_UNUSABLE and not_markdown.exists(), result.stdout
+        misspelled = write_file(root / "desing_042/043-misfiled-design.md", _DESIGN)
+        result = _absorb_delete(root, misspelled, "--knowledge-only")
+        assert result.returncode == EXIT_DELETED and not misspelled.exists(), result.stdout
         write_file(proof, "Design conformance: INCOMPLETE\n\nDesign conformance: PROVEN\n")
         reference = write_file(root / "datrix-alpha/docs/a.md", "See design 042 for the details.\n")
         result = _absorb_delete(root, design, "--verified", str(proof))

@@ -43,12 +43,8 @@ try:
 except ImportError as exc:
     raise SystemExit(missing_declared_tool("jinja2", PACKAGE_DEPENDENCIES)) from exc
 
-from datrix_common.utils.text import (
-    to_camel_case,
-    to_pascal_case,
-    to_plural,
-    to_snake_case,
-)
+from datrix_common.utils.text import to_camel_case, to_plural
+from datrix_common.utils.identifier_case import to_pascal_case, to_snake_case
 
 from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, print_command, write_files
 from datrix_scripts.paths import WORKSPACE_DIR

@@ -1,6 +1,6 @@
 """Resolve dotted ``datrix_*`` references against the installed framework.
 
-A dotted reference (``datrix_common.utils.text.to_snake_case``) written in text
+A dotted reference (``datrix_common.utils.identifier_case.to_snake_case``) written in text
 -- a committed snapshot, a generator template, a comment or docstring in
 framework source -- names a module and, optionally, a member chain under it.
 Text is never imported, so nothing notices when the module moves or the member

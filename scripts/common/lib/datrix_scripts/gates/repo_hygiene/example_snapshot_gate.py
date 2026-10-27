@@ -99,8 +99,8 @@ LOCAL_ALIAS_BINDING: Final = re.compile(r"\bas\s+(datrix_[a-z0-9_]+)\b")
 _SELF_TEST_UNREGISTERED_LANGUAGE: Final = "cobol"
 _REMOVED_MODULE_REFERENCE: Final = "datrix_common.migration.live_snapshot_export"
 _MOVED_MODULE_REFERENCE: Final = "datrix_migration.live_snapshot_export"
-_EXISTING_ATTRIBUTE_REFERENCE: Final = "datrix_common.utils.text.to_snake_case"
-_MISSING_ATTRIBUTE_REFERENCE: Final = "datrix_common.utils.text.no_such_function_here"
+_EXISTING_ATTRIBUTE_REFERENCE: Final = "datrix_common.utils.identifier_case.to_snake_case"
+_MISSING_ATTRIBUTE_REFERENCE: Final = "datrix_common.utils.identifier_case.no_such_function_here"
 _ALIAS_NAME: Final = "datrix_alias_fixture"
 
 

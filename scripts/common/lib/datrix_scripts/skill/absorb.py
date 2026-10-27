@@ -22,8 +22,8 @@ REFERENCES (exact)
     designs.
 
 DELETE (exact)
-    Deletes the design only when it lies in the workspace's design folder, its deletion licence holds
-    and no line names it any more. The licence is, in order: a verify proof (the saved replies of
+    Deletes the design, wherever the file lies, only when its deletion licence holds and no line names
+    it any more. The licence is, in order: a verify proof (the saved replies of
     /verify-implementation whose last "Design conformance:" line reads PROVEN and which name this
     design), or the design's own Status line reading Implemented, or the skill's statement that the
     design is knowledge only.
@@ -262,11 +262,10 @@ def licence_failures(design: Path, proof: Path | None, knowledge_only: bool) -> 
 
 def delete_design(workspace: Path, design: Path, proof: Path | None, knowledge_only: bool,
                   extra: list[Path]) -> tuple[str, int]:
-    """Delete ``design`` when it is in the design folder, its licence holds and no line names it."""
-    design_root = (workspace / DESIGN_DIR).resolve()
-    if not design.is_relative_to(design_root) or design.suffix.lower() != DESIGN_SUFFIX:
-        return (f"Refused: {design} is not a {DESIGN_SUFFIX} file under {design_root}. absorb-delete deletes "
-                "only design documents; pass a file in the workspace's design folder."), EXIT_FAILED
+    """Delete ``design`` wherever it lies when its licence holds and no line names it."""
+    if not design.is_file() or design.suffix.lower() != DESIGN_SUFFIX:
+        return (f"Refused: {design} is not an existing {DESIGN_SUFFIX} file. absorb-delete deletes only "
+                "design documents."), EXIT_FAILED
     label = workspace_label(workspace, design)
     reasons = licence_failures(design, proof, knowledge_only)
     references = find_references(workspace, design, extra)

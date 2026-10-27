@@ -169,7 +169,6 @@ EXCLUDED_ERROR_SITES: list[tuple[str, str]] = [
     ("datrix_codegen_python/generators/cross_cutting/integration_generator.py", "_generate_email_client"),
     ("datrix_codegen_python/generators/persistence/seed_generator.py", "_parse_seed_yaml"),
     ("datrix_codegen_python/micro_generators/integration.py", "render_email"),
-    ("datrix_codegen_sql/constraint_builder.py", "build_primary_key_constraint"),
     ("datrix_codegen_typescript/generators/entity/constant_generator.py", "_interpolation_expr"),
     ("datrix_codegen_typescript/generators/cross_cutting/integration_generator.py", "_generate_email_service"),
     ("datrix_codegen_typescript/generators/messaging/pubsub_connection_generator.py", "_generate_block"),

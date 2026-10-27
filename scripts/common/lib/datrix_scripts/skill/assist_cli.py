@@ -150,8 +150,8 @@ def _design(workspace: Path, spec: str) -> Path:
     path = Path(spec)
     path = path if path.is_absolute() else workspace / path
     if not path.is_file():
-        raise AssistError(f"Design document '{spec}' not found (resolved to {path}). Pass the path of a file "
-                          "in the workspace's design folder, absolute or workspace-relative.")
+        raise AssistError(f"Design document '{spec}' not found (resolved to {path}). Pass the path of the "
+                          "design file, absolute or workspace-relative.")
     return path.resolve()
 
 

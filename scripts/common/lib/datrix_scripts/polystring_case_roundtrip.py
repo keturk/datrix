@@ -8,7 +8,7 @@ queue or shared-container name, ``QualifiedNode.name`` and ``qualified_name``
 -- is a ``PolyString``: a ``str`` subclass that split its words ONCE at
 construction and exposes ``.snake``, ``.camel``, ``.pascal``, ``.kebab``,
 ``.screaming_snake`` and ``.simple`` as read-only properties. The case
-functions in ``datrix_common.utils.text`` (``to_snake_case`` and friends)
+functions in ``datrix_common.utils.identifier_case`` and ``datrix_common.utils.text`` (``to_snake_case`` and friends)
 exist for text that is NOT already a name object.
 
 The recurring defect is the round trip::

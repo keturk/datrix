@@ -84,7 +84,7 @@ MODULE_COMPILE_PROGRAM = (
 #: that namespace really carries, the other a builder it does not.
 SELF_TEST_TARGET = "sql"
 SELF_TEST_NAMESPACE = "sql.ddl"
-SELF_TEST_RESOLVED_BUILDER = "build_entity_ddl"
+SELF_TEST_RESOLVED_BUILDER = "build_block_schema_ddl"
 SELF_TEST_MISSING_BUILDER = "dgen_corpus_selftest_missing_builder"
 
 

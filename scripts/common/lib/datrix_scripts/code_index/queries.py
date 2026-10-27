@@ -252,7 +252,7 @@ def find_symbol(conn: sqlite3.Connection, name: str, kind: str | None = None,
     query = name.strip()
     if not query:
         raise QueryError("Pass a symbol name: a bare name, a glob such as '*Resolver', 'Class.method', "
-                         "or a dotted path such as 'datrix_common.utils.text.to_snake_case'.")
+                         "or a dotted path such as 'datrix_common.utils.identifier_case.to_snake_case'.")
     kind_sql, kind_args = _kind_clause(kind)
     last = query.rsplit(".", 1)[-1]
     if "*" in query or "?" in query:
