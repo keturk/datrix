@@ -45,7 +45,7 @@ Which projects succeeded or failed in the latest `generate-results-*.log`.
 | Form | Command |
 |------|---------|
 | Status | `.\generation\status-generation.ps1` |
-| Other results folder | `.\generation\status-generation.ps1 -ResultsDir D:\other\.results` |
+| Other results folder (also a `-ResultsSubdir` folder) | `.\generation\status-generation.ps1 -ResultsDir D:\other\.results` |
 
 Parameters: `-ResultsDir` (default `<workspace>\.generated\.results`), `-SelfTest`. Exit: 0 none failed, 1 a project failed or no log.
 

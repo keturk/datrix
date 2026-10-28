@@ -63,7 +63,7 @@
  and the wrapper seam holds.
 
 .EXAMPLE
- .\triage-failures.ps1 "D:\datrix\.generated\.results\generate-results-20260503-172334.log"
+ .\triage-failures.ps1 "D:\datrix\.generated\.results\the-tour-card\generate-results-20260503-172334.log"
  Parse generation log and group failures.
 
 .EXAMPLE
@@ -71,7 +71,7 @@
  Parse pytest output log.
 
 .EXAMPLE
- .\triage-failures.ps1 "D:\datrix\.generated\.results\generate-results-20260503-172334.log" -OutputFile "D:\datrix\.tmp\triage.md"
+ .\triage-failures.ps1 "D:\datrix\.generated\.results\the-tour-card\generate-results-20260503-172334.log" -OutputFile "D:\datrix\.tmp\triage.md"
  Write triage report to a Markdown file.
 #>
 [CmdletBinding(DefaultParameterSetName = "Run")]

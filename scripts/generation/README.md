@@ -75,7 +75,8 @@ Module: `datrix_scripts.generation.refresh_seed_datasets`; POSIX twin
 
 Reports generation status from the latest `generate-results-*.log` file. Lists which projects
 succeeded/failed. `-ResultsDir` defaults to `<workspace>\.generated\.results`; a relative path is taken
-from the workspace.
+from the workspace. It does not look in subfolders: logs written with `generate.ps1 -ResultsSubdir <name>`
+are in `<workspace>\.generated\.results\<name>`, so pass that as `-ResultsDir`.
 
 Module: `datrix_scripts.generation.status_generation`; POSIX twin `generation/status-generation.sh`
 (`--results-dir`, `--self-test`).
