@@ -70,8 +70,7 @@ unrelated → a new findings file (execution-contract §5A). Do not edit this fi
 
 ## Reply
 
-What changed (`file:line`), the test commands you ran and what they printed, and the path of every
-new findings file you wrote. End with exactly one line:
+What changed (`file:line`) and the test commands you ran and what they printed. End with exactly one line:
 
 - `Finding fix: ALREADY RESOLVED` — every defect is gone from the code; you changed nothing;
 - `Finding fix: DONE` — every defect fixed, its test landed, your last test run green, docs updated; or

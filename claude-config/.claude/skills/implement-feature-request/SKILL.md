@@ -245,12 +245,6 @@ For each request resolved, **append** a Resolution to the end of the request fil
 |---|---|
 | {package / target} | realized / counted gap `{id}` / not reached — {why} |
 
-### Changes Made
-
-| Repository | File | Change |
-|---|---|---|
-| `{repo}` | `{file}` | {description} |
-
 ### Verification
 
 | Check | Command | Result |
@@ -259,7 +253,7 @@ For each request resolved, **append** a Resolution to the end of the request fil
 | {opt-in neighbour byte-identical} | `{command}` | {printed result} |
 ```
 
-Build the Changes Made table from `git -C <repo> diff --stat` per repository you changed. For a request that could **not** be implemented, write `**Status**: Unresolved`, the reason, and the four-part proof (verbatim error, the attempt at `file:line`, why it failed, the B1–B4 code). #### Resolution for an Already-available request
+The Resolution lists no changed files: the product needs the capability and its doc, not the framework's diff. For a request that could **not** be implemented, write `**Status**: Unresolved`, the reason, and the four-part proof (verbatim error, the attempt at `file:line`, why it failed, the B1–B4 code). #### Resolution for an Already-available request
 
 The Resolution is the deliverable here: it must let the product's agent solve its problem without asking anyone. It replaces the template above with this one:
 
@@ -302,7 +296,7 @@ The Resolution is the deliverable here: it must let the product's agent solve it
 | {documented at} | `{framework doc path}` | {section, or "undocumented: doc fixed in {file}"} |
 ````
 
-A doc fixed at this stage lists the file in a Changes Made table; otherwise the Resolution has none. The Resolution's example is checked against the toolchain's own analysis, never against memory of the grammar.
+The Resolution's example is checked against the toolchain's own analysis, never against memory of the grammar.
 
 ### Phase 4: Final Report
 
@@ -322,13 +316,8 @@ Verification (commands and results):
 - parity: {command} → {line}
 - opt-in byte-identical: {test} → {result}
 
-Findings written (absolute paths): {none | list}
-
 Resolved requests (absolute paths):
 - {request file}: {title} — Resolved | Already available
-
-Repositories with changes:
-- {repo}: {files changed}
 ```
 
 End with exactly one line per request: `Feature request: IMPLEMENTED` · `Feature request: ALREADY AVAILABLE` · `Feature request: PARTIAL — {what remains and why}` · `Feature request: BLOCKED B<n>` (with the four-part proof above it) · `Feature request: APPROVAL_REQUIRED` (with the question above it).

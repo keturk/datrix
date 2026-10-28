@@ -53,7 +53,7 @@ FIX: false             # verify-implementation reports only, changes no code
 | FIX | No | Passed to `/verify-implementation` (default: fix what is wrong) |
 | LEDGER | No | The ledger path to use in Step 2 (default: `D:\datrix\.tmp\implement-direct-{slug}.md`). If it already exists, it is the work so far: read it and the DOCUMENT, and continue at the first unchecked unit |
 | STOP AFTER | No | `plan`: end the run after Step 2 with the reply `PLANNED: <ledger path>`, and implement no unit. `implement`: end the run after Step 3 with the reply `IMPLEMENTED: <ledger path>`, and do not verify or absorb |
-| UNIT | No | A ledger unit id (`U03`); needs an existing ledger. Skip Steps 1-2, read the ledger and the DOCUMENT, and do only that unit's Step 3 items 1-7. Add the unit's changed files under `## Files changed` (create the heading if absent) and tick its row. End with the reply `UNIT DONE: <id>`, and do not verify or absorb |
+| UNIT | No | A ledger unit id (`U03`); needs an existing ledger. Skip Steps 1-2, read the ledger and the DOCUMENT, and do only that unit's Step 3 items 1-7. List the unit's changed files under `## Files changed` in its proof file (never in the ledger) and tick its row. When the prompt carries a `LEDGER LIMITS EXCEEDED` line, shrink the ledger to the limits first (Step 2). End with the reply `UNIT DONE: <id>`, and do not verify or absorb |
 | GAPS | No | A file holding a `/verify-implementation` report that ended INCOMPLETE. Add a ledger unit for each finding it did not fix, with its acceptance check, and implement those units (with `STOP AFTER: plan`, only add the units) |
 
 ## Run it from the CLI
@@ -132,6 +132,10 @@ The units are **one markdown table, one row per unit**, with the columns below i
 
 **The ledger stays small.** Every unit session re-reads the whole ledger before it does anything, so what a row carries is paid again by every later unit. The full proof of a unit — each command, the output that matters, the census counts, the reasoning behind a "nothing here" verdict — goes to its proof file, `D:\datrix\.tmp\implement-direct-{slug}-proof\<id>.md`, written with `Write`; the row's state cell holds one line and that path, never pasted output. A `## Decisions` line is one sentence plus its rule or `file:line`. `/verify-implementation` and Jon open a proof file when they need it.
 
+**The ledger has hard limits, and the script refuses one that breaks them** (`datrix_scripts/skill/ledger_rules.py`): the whole file at most 24,000 bytes; a table cell at most 400 characters and a state cell at most 240; any other line, a decision included, at most 300; and no section but `## Units` and `## Decisions`. Nothing else is kept in it: no list of changed files, no list of findings filed, no copied test output. A session that starts on a ledger over a limit is given a `LEDGER LIMITS EXCEEDED` line naming the breaks, and shrinks the ledger first by moving the detail into proof files; the script stops the chain when that session leaves it over.
+
+**The files a unit changed go in its proof file**, one path per line under a `## Files changed` heading. The script gathers them into the supplement file `D:\datrix\.tmp\implement-direct-{slug}-files.md`, which `/verify-implementation` takes as its `FILES` input.
+
 Ordering rules, the ones the task path enforced for you:
 
 - **Enforcement before what it governs.** A unit that establishes or enforces an invariant (a validator, a fail-loud guard, a parser-level rejection, a conformance check) comes **before**, and is required by, every unit that relies on it or migrates content it polices. Never order a migration ahead of its guard: it would pass against an absent check.
@@ -161,7 +165,7 @@ For each unit, in order:
 3. **Land every seam comparison as code.** Wherever the unit adds a producer or a consumer of a set of names or values, compute `consumed − produced`, require it empty or explained, and land the comparison as a generation-time validator or a test, not a one-off diff. Parse structure; prove the matcher finds an instance you know exists.
 4. **Write the tests of the new behaviour** in the owning package: real objects, no mocks, each test carrying a feature tag, with the negative case alongside the positive. Update the docs the change touches in the owning repo's `docs/`, as content, with no pointer to the design.
 5. **Run only the tests of what you changed**, naming first the failure the run could show that your evidence cannot: `test.ps1 <pkg> -Specific "a.py,b.py"` for the files, and `-Tag <tag>[,<tag>]` for the behaviour, **in every package it reaches** (at most 3 tags per run). Never a whole suite, never a sweep assembled from targeting flags.
-6. **Prove the unit.** Run the unit's negative and positive acceptance check, write each command and its output to the unit's proof file, and tick the row with its one-line state (Step 2). An unproven unit is not done, whatever the suite colour.
+6. **Prove the unit.** Run the unit's negative and positive acceptance check, write each command and its output, and the files the unit changed under `## Files changed`, to the unit's proof file, and tick the row with its one-line state (Step 2). An unproven unit is not done, whatever the suite colour.
 7. **Cross-surface check.** If the unit touched a shared layer, run the tagged tests of the changed behaviour in each package the change reaches before moving on. "datrix-codegen-python is green" is not done for a shared-layer change.
 
 Generation checks follow the one-example, one-language rule: regenerate only the affected project, only for the language it failed under, and prefer a test over a generation run. Never `-All` / `-Domains` / `-TestSet`.
@@ -170,16 +174,16 @@ Generation checks follow the one-example, one-language rule: regenerate only the
 
 **A defect you find on a surface you touched is yours:** fix it. A design-sized one gets a findings file under `d:\datrix\findings\` (brief: what, `file:line`, evidence, impact) and the run carries on; a small one is fixed in place.
 
-After the last unit, write the files changed into the ledger under a `## Files changed` heading, one path per line, keeping the paths already listed there by earlier runs. Each unit's own negative acceptance check covers the "X replaces Y" it carries; `/verify-implementation` (Step 4) proves the whole design's negatives again.
+Each unit's own negative acceptance check covers the "X replaces Y" it carries; `/verify-implementation` (Step 4) proves the whole design's negatives again.
 
 With `STOP AFTER: implement`, end here with the reply `IMPLEMENTED: <ledger path>`.
 
-With `UNIT: <id>`, run items 1-7 for that one unit only, add its changed files under `## Files changed`, tick its row with its one-line state, and end with `UNIT DONE: <id>`. Read only what the unit needs: the ledger, the DOCUMENT, the census file when the ledger has one, the unit's files and their neighbours. A census unit also adds the fix units its census found (Step 2), inserted right after its own row and ahead of the closing unit; the script runs unchecked rows in ledger order, so they run next.
+With `UNIT: <id>`, run items 1-7 for that one unit only, list its changed files in its proof file, tick its row with its one-line state, and end with `UNIT DONE: <id>`. Read only what the unit needs: the ledger, the DOCUMENT, the census file when the ledger has one, the unit's files and their neighbours. A census unit also adds the fix units its census found (Step 2), inserted right after its own row and ahead of the closing unit; the script runs unchecked rows in ledger order, so they run next.
 ---
 
 ## Step 4: Verify
 
-Invoke `/verify-implementation` through the Skill tool with `DESIGN: <path>`, `TASKS: none`, and `FILES:` the changed files from the ledger. Pass `FIX: false` only if Jon set it.
+Invoke `/verify-implementation` through the Skill tool with `DESIGN: <path>`, `TASKS: none`, and `FILES:` the changed files gathered from the `## Files changed` sections of the proof files (the script passes the supplement file that holds them). Pass `FIX: false` only if Jon set it.
 
 It reviews the code on disk against the design, fixes what is wrong or missing, and ends with `Design conformance: PROVEN | INCOMPLETE`.
 
@@ -200,10 +204,9 @@ Lean, data only:
 
 ```
 IMPLEMENT-DESIGN-DIRECT: {title}
-Units: {N} done ({N} packages, {N} files changed)
+Units: {N} done
 Verify: PROVEN ({n} requirements; {n} fixed by verify)
 Absorb: {N} units transferred, {N} files, source DELETED | PRESERVED
-Findings filed: {paths | none}
 ```
 
 If the run ended on a blocker, report that instead: the four-part proof and the step it stopped at. Nothing else.
