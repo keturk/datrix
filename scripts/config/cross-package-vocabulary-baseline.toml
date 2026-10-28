@@ -239,10 +239,6 @@ file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pu
 count = 3
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/generators/persistence/migration_generator.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_service_generator_ast.py"
 count = 1
 
