@@ -10,7 +10,7 @@ Every module behind a `dev\` wrapper takes its options spelled in full: an abbre
 
 ### `dev\generate.ps1`
 
-Generate Datrix projects from `.dtrx` sources. `-Language`/`-L` is mandatory. `-All`, `-Domains` and `-TestSet` are Jon's: `validate-script-invocation.py` refuses them from an agent tool call. Every run writes `generate-results-<timestamp>-<language>[-<profile>].log` to `<workspace>\.generated\.results` and prints `Log saved to: <path>`.
+Generate Datrix projects from `.dtrx` sources. `-Language`/`-L` is mandatory. `-All`, `-Domains` and `-TestSet` are Jon's: `validate-script-invocation.py` refuses them from an agent tool call. Every run writes `generate-results-<timestamp>-<language>[-<profile>].log` to `<workspace>\.generated\.results` (or `<workspace>\.generated\.results\<ResultsSubdir>` with `-ResultsSubdir`) and prints `Log saved to: <path>`.
 
 | Form | Command |
 |------|---------|
@@ -23,7 +23,7 @@ Generate Datrix projects from `.dtrx` sources. `-Language`/`-L` is mandatory. `-
 | Verbose / debug | `.\dev\generate.ps1 <source.dtrx> -L python -VerboseOutput` (`-Dbg`) |
 | Jon's batches | `.\dev\generate.ps1 -All -L python` · `-TestSet foundation` · `-TestSet non-foundation` · `-Domains` · `-OutputBase .generated2` |
 
-Parameters: `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, mandatory), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner; output path only), `-ConfigProfile` (default `test`), `-ValidationLevel` (none\|fast\|standard), `-OutputBase` (default `.generated`), `-TestSet` (default `all`), `-VerboseOutput`, `-Dbg`, `-CarryForwardLiveSnapshots`
+Parameters: `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, mandatory), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner; output path only), `-ConfigProfile` (default `test`), `-ValidationLevel` (none\|fast\|standard), `-OutputBase` (default `.generated`), `-TestSet` (default `all`), `-VerboseOutput`, `-Dbg`, `-CarryForwardLiveSnapshots`, `-ResultsSubdir` (folder inside `.generated\.results` for the log)
 
 ### `dev\generate-doc-fragments.ps1`
 

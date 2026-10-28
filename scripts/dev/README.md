@@ -34,7 +34,10 @@ test set (`features-core`, `typescript-validation` for a quick TS validation sub
 
 Every run writes `generate-results-<timestamp>-<language>[-<profile>].log` to
 `<workspace>\.generated\.results`, whatever the output path; product repos' generate scripts call this
-script to get that log. Old logs are not deleted automatically. The language and profile segments are
+script to get that log. `-ResultsSubdir <name>` writes the log to `<workspace>\.generated\.results\<name>\`
+instead (created when missing; a relative folder that stays inside `.results`, so `..` or an absolute path
+is refused), which lets a product repo keep its logs apart from the others. Tools that default to the
+`.results` folder (`status-generation.ps1`, `triage-failures.ps1`) need the log path or `-ResultsDir` for it. Old logs are not deleted automatically. The language and profile segments are
 labels, not what keeps two runs apart: each run **claims** its log file
 (`datrix_scripts.run_log.claim_run_log_file`), so two runs that compute the same name — two profiles
 generated in the same second, or two runs of one profile — get `…-2.log`, `…-3.log`, … rather than

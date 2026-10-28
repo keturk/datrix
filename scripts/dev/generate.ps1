@@ -15,7 +15,8 @@
  datrix command runs (reinstalling datrix-cli once when it does not), and validates -Language
  against the installed datrix.languages set.
  Timestamped generate-results-*.log files are always written to .generated/.results at the
- workspace (monorepo) root, regardless of -OutputBase or project output path.
+ workspace (monorepo) root, regardless of -OutputBase or project output path; -ResultsSubdir
+ puts them in a folder inside .results instead.
 
  Exit codes: the generation's; 1 when the run could not start (no language, an unregistered one,
  neither a source nor a batch, a missing source, a failed install, plugin or datrix command check).
@@ -69,6 +70,11 @@
  baseline of its recorded schema, proven by its snapshot. Single project only. When omitted,
  no flag is passed.
 
+.PARAMETER ResultsSubdir
+ Folder under .generated/.results to write the run's log in (a relative path that stays inside
+ .results), so a product repo keeps its logs apart from the others. When omitted, the log goes
+ in .generated/.results itself.
+
 .PARAMETER VerboseOutput
  Enable verbose output. When not specified, minimal output is shown (summary only).
 
@@ -114,6 +120,7 @@ param(
  [Parameter(ParameterSetName = "Run")][string]$TestSet = "all",
  [Parameter(ParameterSetName = "Run")][string]$ValidationLevel,
  [Parameter(ParameterSetName = "Run")][string]$CarryForwardLiveSnapshots,
+ [Parameter(ParameterSetName = "Run")][string]$ResultsSubdir,
  [Parameter(ParameterSetName = "Run")][switch]$VerboseOutput,
  [switch]$Dbg,
  [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
