@@ -2164,39 +2164,135 @@ rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
 
 ### Pattern: Idempotent Operations
 
-```datrix context=service
-enum PaymentStatus { Pending, Settled, Failed }
+A command that a client retries or a sender re-delivers (a webhook, a payment request) must create its record once and answer every repeat with the original result. Declare the key `unique` on the record, and run the find-then-create inside a **keyed transaction**: `transaction(db, serialize: "label", key: k)` takes a transaction-scoped advisory lock on the label and the key before its first statement, so two concurrent requests with the same key queue, and the second finds the row the first committed. A plain find-then-create without the lock races: both callers find nothing and one fails on the unique constraint. The `unique` constraint stays as the backstop. Create-if-absent never overwrites the existing row (`upsert` does).
 
-struct PaymentRequest {
-    String idempotencyKey;
-    Money amount;
-}
+```datrix
+system payments.Ledger('config/system.dcfg') : version('1.0.0') {}
 
-rdbms db {
-    entity PaymentTransaction {
-        UUID id : primaryKey, server = uuid();
-        String idempotencyKey : unique;
-        Money amount;
-        PaymentStatus status;
+service payments.PaymentService('config/payment-service.dcfg') : version('1.0.0') {
+    enum PaymentStatus { Pending, Settled, Failed }
+
+    struct PaymentRequest {
+        UUID accountId;
+        Long amountMinor;
     }
-}
 
-rest_api PaymentAPI : basePath('/api/v1/payments'), rdbms(db) {
-    @path('/')
-    post(PaymentRequest request) : auth(required, providers: [identity]) -> PaymentTransaction {
-        let PaymentTransaction? existing = PaymentTransaction.where(idempotencyKey: request.idempotencyKey).first();
-        if (existing != null) {
-            return existing;  // Already processed
+    struct PaymentResult {
+        UUID paymentId;
+        Boolean created;
+    }
+
+    exceptions {
+        IdempotencyKeyReused : status(422), message("The Idempotency-Key was already used with a different request");
+    }
+
+    rdbms db {
+        entity Payment {
+            UUID id : primaryKey, server = uuid();
+            String(100) idempotencyKey : unique;
+            String(64) requestHash;
+            UUID accountId;
+            Long amountMinor;
+            PaymentStatus status;
         }
+    }
 
-        return PaymentTransaction.create({
-            idempotencyKey: request.idempotencyKey,
-            amount: request.amount,
-            status: PaymentStatus.Pending
-        });
+    // Create the payment for this key once; a repeat returns the stored one, flagged created = false.
+    fn recordPayment(String key, PaymentRequest request) -> PaymentResult {
+        let String requestHash = Crypto.sha256(#"{request.accountId}:{request.amountMinor}");
+        transaction(db, serialize: "payments", key: key) {
+            let db.Payment? existing = db.Payment.where(idempotencyKey: key).first();
+            if (existing != null) {
+                if (existing.requestHash != requestHash) {
+                    throw IdempotencyKeyReused();
+                }
+                return PaymentResult { paymentId: existing.id, created: false };
+            }
+            let db.Payment payment = db.Payment.create({
+                idempotencyKey: key,
+                requestHash: requestHash,
+                accountId: request.accountId,
+                amountMinor: request.amountMinor,
+                status: PaymentStatus.Pending
+            });
+            return PaymentResult { paymentId: payment.id, created: true };
+        }
     }
 }
 ```
+
+The route reads the key from the `Idempotency-Key` header, refuses a missing one, and passes it to the function (`identity` is the service's identity provider):
+
+```datrix context=service
+rest_api PaymentAPI : basePath('/api/v1/payments'), rdbms(db) {
+    post(PaymentRequest request) : auth(required, providers: [identity]) -> PaymentResult {
+        let String key = Request.header("Idempotency-Key");
+        if (key.isEmpty()) {
+            throw ValidationException("The Idempotency-Key header is required");
+        }
+        return recordPayment(key, request);
+    }
+}
+```
+
+The same shape serves a webhook receiver: key on the sender's event id, and return the stored result for a repeat. A retried command whose original response must be replayed byte for byte stores that response (a `JSON? response` column) on the same row and returns it when the key is found.
+
+### Pattern: Currency-Safe Amounts
+
+`Money` is an exact decimal that carries no currency. A multi-currency record stores an amount as two typed columns, the whole number of minor units (`Long`) and a `CurrencyCode` (`CHAR(3)`), so SQL can index, constrain and `SUM ... GROUP BY currency` them, and a value struct keeps the pair together in code. A struct-typed entity field is stored as one JSON column, not as columns, so the entity declares the two columns itself. The struct's functions are the only arithmetic, and each refuses a different currency. `Seed.currencies()` is the ISO 4217 table (`alphabeticCode`, `minorUnits`) for formatting and parsing.
+
+```datrix
+system ledger.Books('config/system.dcfg') : version('1.0.0') {}
+
+module ledger.common {
+    // A whole number of minor units that always travels with its currency.
+    struct Amount {
+        Long minor;
+        CurrencyCode currency;
+
+        fn add(Amount other) -> Amount {
+            if (currency != other.currency) {
+                throw ValidationException("Cannot add amounts in different currencies");
+            }
+            return Amount { minor: minor + other.minor, currency: currency };
+        }
+
+        fn subtract(Amount other) -> Amount {
+            if (currency != other.currency) {
+                throw ValidationException("Cannot subtract amounts in different currencies");
+            }
+            return Amount { minor: minor - other.minor, currency: currency };
+        }
+
+        fn negate() -> Amount {
+            return Amount { minor: 0 - minor, currency: currency };
+        }
+    }
+}
+
+from ledger.common import Amount;
+
+service ledger.LedgerService('config/ledger-service.dcfg') : version('1.0.0') {
+    rdbms db {
+        entity LedgerEntry {
+            UUID id : primaryKey, server = uuid();
+            Long amountMinor : indexed;
+            CurrencyCode amountCurrency : indexed;
+
+            // The pair as one value; a write spells both columns from an Amount.
+            fn amount() -> Amount {
+                return Amount { minor: amountMinor, currency: amountCurrency };
+            }
+        }
+    }
+
+    fn post(Amount value) -> LedgerEntry {
+        return db.LedgerEntry.create({ amountMinor: value.minor, amountCurrency: value.currency });
+    }
+}
+```
+
+A mix of currencies is refused when the function runs, not when the application is analyzed. A conversion between currencies is an explicit function of the application that takes the rate and the rounding as arguments and returns an `Amount` of the target currency.
 
 ### Pattern: Saga Pattern (Event-Driven)
 

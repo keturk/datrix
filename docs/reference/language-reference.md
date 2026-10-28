@@ -777,6 +777,53 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
 
 Ensure clauses generate **client-side validation** functions that run before making the HTTP request. They fail fast with a `ContractViolationError` if a precondition is not met.
 
+### A GraphQL Provider
+
+GraphQL over HTTP is one `POST` of a JSON document, `{"query": …, "variables": …}`, to a single path that answers one JSON envelope, `{"data": …, "errors": …}`. A provider that speaks it is declared with the same `rest_api` block, with no `basePath`: `@path` names the provider's GraphQL path, and the operation takes `String query` and `JSON? variables` as its two parameters. A POST sends every non-path parameter as a top-level JSON member named after the parameter, so these two are exactly the members the provider expects; a struct-typed parameter would be wrapped under its own name and is not a GraphQL request. Declare one endpoint per operation, each with the response struct its selection set returns (`data` mirrors the selection set), and the generated client carries the credential the extern `auth` declares (`bearer`, `apiKey`, `serviceJwt`, `oauth2ClientCredentials`) like any extern endpoint.
+
+An extern endpoint returns the HTTP response, and the generated models module holds the declared structs, so the caller sends the query text itself and decodes the envelope with the generated response model. The selection set is the text the caller sends; the client does not derive it from the response struct. A GraphQL server reports an operation failure as a successful HTTP response whose envelope carries `errors`, so the caller reads that member of the decoded envelope; the extern `errors` block covers failures the provider signals with an HTTP status.
+
+```datrix
+system catalog.Platform('config/system.dcfg') : version('1.0.0') {}
+
+extern service catalog.ProductGraph('config/product-graph.dcfg') : version('1.0.0') {
+    struct GraphqlError {
+        String message;
+    }
+
+    struct ProductNode {
+        UUID id;
+        String name;
+    }
+
+    struct ProductData {
+        ProductNode? product;
+    }
+
+    // The envelope for `query Product($id: ID!) { product(id: $id) { id name } }`.
+    struct ProductResponse {
+        ProductData? data;
+        Array<GraphqlError>? errors;
+    }
+
+    rest_api ProductGraphAPI {
+        // POST /graphql with the body {"query": …, "variables": …}
+        @path('/graphql')
+        post productQuery(String query, JSON? variables) -> ProductResponse;
+    }
+
+    auth : bearer();
+}
+
+service catalog.ProductService('config/product-service.dcfg') : version('1.0.0') {
+    uses ProductGraph;
+
+    fn fetchProduct(UUID id) -> ProductResponse {
+        return ProductGraph.ProductGraphAPI.post.productQuery("query Product($id: ID!) { product(id: $id) { id name } }", { id: id });
+    }
+}
+```
+
 ### Authentication
 
 One `auth` declaration per extern service, in one of these forms:
