@@ -720,13 +720,14 @@ All parts except `extern service <qualified.Name> { }` are optional:
 
 ### Allowed Members
 
-Extern services support exactly six member types:
+Extern services support exactly seven member types:
 
 | Member | Purpose |
 |--------|---------|
 | `struct` | Value types used in API parameters and responses |
 | `enum` | Enumeration types |
 | `rest_api` | REST endpoint signatures (no implementation bodies) |
+| `graphql_api` | GraphQL query and mutation signatures (no documents, no bodies) |
 | `errors` | Typed error declarations |
 | `auth` | Authentication configuration |
 | `health` | Health check endpoint |
@@ -779,37 +780,41 @@ Ensure clauses generate **client-side validation** functions that run before mak
 
 ### A GraphQL Provider
 
-GraphQL over HTTP is one `POST` of a JSON document, `{"query": …, "variables": …}`, to a single path that answers one JSON envelope, `{"data": …, "errors": …}`. A provider that speaks it is declared with the same `rest_api` block, with no `basePath`: `@path` names the provider's GraphQL path, and the operation takes `String query` and `JSON? variables` as its two parameters. A POST sends every non-path parameter as a top-level JSON member named after the parameter, so these two are exactly the members the provider expects; a struct-typed parameter would be wrapped under its own name and is not a GraphQL request. Declare one endpoint per operation, each with the response struct its selection set returns (`data` mirrors the selection set), and the generated client carries the credential the extern `auth` declares (`bearer`, `apiKey`, `serviceJwt`, `oauth2ClientCredentials`) like any extern endpoint.
+A provider that speaks GraphQL over HTTP is declared with a `graphql_api` block. Its `basePath` is the provider's one GraphQL path, and each operation is a typed `query` or `mutation` signature. The author never writes the operation text: the generated client derives it from the signature.
 
-An extern endpoint returns the HTTP response, and the generated models module holds the declared structs, so the caller sends the query text itself and decodes the envelope with the generated response model. The selection set is the text the caller sends; the client does not derive it from the response struct. A GraphQL server reports an operation failure as a successful HTTP response whose envelope carries `errors`, so the caller reads that member of the decoded envelope; the extern `errors` block covers failures the provider signals with an HTTP status.
+- **Document.** One variable per parameter, typed from the parameter's declared type (`String` is `String`, `Boolean` is `Boolean`, `Int` is `Int`, `Float` is `Float`, `UUID` is `ID`; every other builtin scalar is the custom scalar of its name; an enum is the enum of its name and a struct is the input object of its name; `T?` is nullable and anything else is non-null; `Array<T>` and `Set<T>` are lists). The selection set comes from the declared result type, down through nested structs.
+- **Request.** One `POST` of `{"query": …, "operationName": …, "variables": …}` to the base path, carrying the credential the extern `auth` declares (`bearer`, `apiKey`, `serviceJwt`, `oauth2ClientCredentials`) like any extern endpoint.
+- **Result.** The member the operation selects, decoded into the declared return type. A response that reports `errors` fails the call, whatever `data` also holds, and a response that is not a GraphQL result is refused.
+- **Errors.** An `errors` entry whose `extensions.code` names an error in the extern's `errors` block, and whose `extensions` carry that error's fields by name, becomes that declared error. Any other reported error is the extern's base error, carrying the first message. A non-success HTTP status whose body reports `errors` maps the same way.
+- **Retries.** A query is repeated after a transport failure or a retryable status, like an idempotent REST method; a mutation is repeated only when the request provably never reached the provider.
+
+A signature with no document is refused at analysis as `EXN004`: a parameter or result type with no GraphQL form (a `Map`, a union, an entity, a page), a result struct that reaches itself or declares no field, a name beginning with `__`, or a `basePath` that is not a literal route path. Two operations or endpoints whose generated client methods collide are `EXN005`.
+
+A service calls an operation as `Extern.Api.query.operation(args)` or `Extern.Api.mutation.operation(args)`; naming the other kind is `EXN003`.
 
 ```datrix
 system catalog.Platform('config/system.dcfg') : version('1.0.0') {}
 
 extern service catalog.ProductGraph('config/product-graph.dcfg') : version('1.0.0') {
-    struct GraphqlError {
-        String message;
-    }
-
-    struct ProductNode {
+    struct Product {
         UUID id;
         String name;
+        Int stock;
     }
 
-    struct ProductData {
-        ProductNode? product;
+    struct ProductFilter {
+        String? nameContains;
+        Int limit;
     }
 
-    // The envelope for `query Product($id: ID!) { product(id: $id) { id name } }`.
-    struct ProductResponse {
-        ProductData? data;
-        Array<GraphqlError>? errors;
+    errors {
+        ProductLocked(UUID productId);
     }
 
-    rest_api ProductGraphAPI {
-        // POST /graphql with the body {"query": …, "variables": …}
-        @path('/graphql')
-        post productQuery(String query, JSON? variables) -> ProductResponse;
+    graphql_api ProductAPI : basePath('/graphql') {
+        query product(UUID id) -> Product?;
+        query products(ProductFilter filter) -> Array<Product>;
+        mutation restock(UUID id, Int quantity) -> Product;
     }
 
     auth : bearer();
@@ -818,8 +823,12 @@ extern service catalog.ProductGraph('config/product-graph.dcfg') : version('1.0.
 service catalog.ProductService('config/product-service.dcfg') : version('1.0.0') {
     uses ProductGraph;
 
-    fn fetchProduct(UUID id) -> ProductResponse {
-        return ProductGraph.ProductGraphAPI.post.productQuery("query Product($id: ID!) { product(id: $id) { id name } }", { id: id });
+    fn fetchProduct(UUID id) -> Product? {
+        return ProductGraph.ProductAPI.query.product(id);
+    }
+
+    fn restockProduct(UUID id, Int quantity) -> Product {
+        return ProductGraph.ProductAPI.mutation.restock(id, quantity);
     }
 }
 ```
@@ -851,7 +860,7 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
 }
 ```
 
-Errors generate typed exception classes in the consuming service's client code.
+Errors generate typed exception classes in the consuming service's client code. A non-success response whose JSON body names a declared error in its `error` member (by the name as declared, or by the generated class name) and carries that error's fields by their declared names is raised as that typed error, with the response status. Any other non-success response, and a response lacking a declared field, is raised as the extern's base error (`<Name>Error`).
 
 ### Consuming Extern Services
 
@@ -864,6 +873,32 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 ```
 
 Once declared, the service can reference extern service struct and enum types, and the generated code includes a typed HTTP client for calling the extern service's endpoints.
+
+### Calling an Endpoint from a Body
+
+A `fn` or endpoint body calls an endpoint of an extern service it `uses` as `<Extern>.<Api>.<method>.<endpoint>(arguments)`. Arguments bind to the endpoint's parameters as in any call: positional by position, named by the declared parameter name. The call has the endpoint's declared return type, and the extern's structs and enums are in scope for the call's arguments and results.
+
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    uses PricingEngine;
+
+    fn quotedTotal(String productId, Int quantity) -> Decimal {
+        let PricingResponse priced = PricingEngine.PricingAPI.post.calculatePrice(
+            PricingRequest { productId: productId, quantity: quantity });
+        return priced.totalPrice;
+    }
+}
+```
+
+The call is lowered to the extern's generated client, which owns the wire behaviour:
+
+- **Authentication, base URL and timeout** come from the extern's declared `auth` and its profile config (`timeout`, default `30s`, applies to each attempt).
+- **Retry.** `retry.maxAttempts` is the **total** number of attempts, the first included; without a `retry` block a request is sent once. A `502`, `503` or `504` response is repeated only for idempotent methods (`GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`); a method that may have reached the provider (`POST`, `PATCH`) is repeated only after a connection that failed before the request was sent. `retry.backoff` (`exponential`, `linear`, `fixed`) spaces the attempts from a 0.5 second base.
+- **`ensure` clauses** of the endpoint are preconditions over its parameters, checked before the request is sent; a violation raises `ContractViolationError` naming the endpoint and the clause.
+- **Errors.** A declared error is raised as its typed error (see above), so a caller can catch it by type.
+- **Models.** Struct fields travel under their wire names, and the response is decoded into the declared return type.
+
+A fn that calls an extern endpoint completes later, so it is asynchronous in every language and its own call sites await it. Calling an endpoint of an extern the service does not `uses` is a compile-time error (`EXN003`).
 
 ### Type Visibility
 
@@ -927,7 +962,7 @@ For each extern service that a Datrix service consumes via `uses`:
 
 | Artifact | When Generated |
 |----------|----------------|
-| Typed HTTP client class | Always |
+| Typed HTTP client class (one method per endpoint, returning the declared type) | Always |
 | Request/response models (Pydantic / TS interfaces) | When structs or enums exist |
 | Typed error classes | When `errors` block exists |
 | Contract validation functions | When `ensure` clauses exist |

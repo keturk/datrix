@@ -1758,35 +1758,35 @@ For each extern service consumed via `uses`, Datrix generates:
 
 | File | Contents |
 |------|----------|
-| `clients/{name}.py` / `.ts` | Async HTTP client class with one method per endpoint |
-| `clients/{name}_models.py` / `.models.ts` | Pydantic models or TypeScript interfaces for structs/enums |
-| `clients/{name}_errors.py` / `.errors.ts` | Typed exception classes (if `errors` block exists) |
-| `clients/{name}_contracts.py` / `.contracts.ts` | Contract validation functions (if `ensure` clauses exist) |
+| `clients/{name}_client.py` / `{name}-client.ts` | Async HTTP client class with one method per endpoint, each returning the endpoint's declared type |
+| `clients/{name}_models.py` / `{name}-models.ts` | Pydantic models or TypeScript interfaces for structs/enums |
+| `clients/{name}_errors.py` / `{name}-errors.ts` | Typed exception classes (if `errors` block exists) |
+| `clients/{name}_contracts.py` / `{name}-contracts.ts` | Contract validation functions (if `ensure` clauses exist) |
 
-**Python client usage (generated):**
+### Calling an Extern Endpoint
 
-```python
-from clients.pricing_engine import PricingEngineClient
-from clients.pricing_engine_models import PricingRequest
+A `fn` or endpoint body calls the extern's endpoints directly; there is no client to construct by hand. The call is `<Extern>.<Api>.<method>.<endpoint>(arguments)`, and the extern's structs and enums are in scope:
 
-client = PricingEngineClient()  # URL from PRICING_ENGINE_SERVICE_URL env var
-response = await client.calculate_price(
-    PricingRequest(product_id="SKU-123", quantity=5)
-)
+```datrix
+service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
+    uses PricingEngine;
+
+    fn quotedTotal(String productId, Int quantity) -> Decimal {
+        let PricingResponse priced = PricingEngine.PricingAPI.post.calculatePrice(
+            PricingRequest { productId: productId, quantity: quantity });
+        return priced.totalPrice;
+    }
+
+    fn priceOf(String productId) -> Decimal {
+        let PricingResponse priced = PricingEngine.PricingAPI.get.getPrice(productId);
+        return priced.totalPrice;
+    }
+}
 ```
 
-**TypeScript client usage (generated):**
+The generator lowers each call to an awaited call of the extern's generated client, and a fn that makes one is asynchronous in every language (its own callers await it). The client applies the extern's `auth`, the profile's `timeout` and `retry` (`maxAttempts` counts every attempt, the first included; `502`/`503`/`504` responses are repeated only for idempotent methods), checks the endpoint's `ensure` clauses against the arguments before sending (a violation raises `ContractViolationError`), and raises a declared `errors` entry as its typed error when the response names it, so a body can catch it by type. A service that calls an extern it does not `uses` fails analysis (`EXN003`).
 
-```typescript
-import { PricingEngineClient } from './clients/pricing-engine';
-import { PricingRequest } from './clients/pricing-engine.models';
-
-const client = new PricingEngineClient();
-const response = await client.calculatePrice({
-    productId: 'SKU-123',
-    quantity: 5,
-});
-```
+Struct fields travel under their wire names. On the TypeScript target the response is read as the declared type without runtime validation of its fields; on Python it is validated into the declared model.
 
 ### Environment Variables
 

@@ -55,7 +55,7 @@ Diagnostics `API020`–`API023`, `API027`, `API028`, `UI042`, `UI053`; syntax: [
 Contract-only declarations for external libraries/tools Datrix does not generate; consumed via `uses`.
 
 - **Container kinds:** `system`, `module`, `service`, `shared`, `extern service`. The user builds and deploys the implementation.
-- **Allowed members:** `struct`, `enum`, `rest_api` (signature-only), `errors`, `auth`, `health`. No infrastructure blocks.
+- **Allowed members:** `struct`, `enum`, `rest_api` and `graphql_api` (signature-only; a GraphQL operation's document is derived from its signature), `errors`, `auth`, `health`. No infrastructure blocks.
 - **Config:** `deployment: container` (image + port, compose entries generated) or `deployment: external` (remote URL, no deployment artifacts).
 - **Generated per consuming service:** typed HTTP client, request/response models, error classes, contract validation.
 - **AST:** `ExternService` in `datrix_common.datrix_model.extern_service`, on `Application.extern_services`. `uses` resolves shared block → extern service → regular service.
