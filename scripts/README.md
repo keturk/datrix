@@ -152,7 +152,7 @@ For `generate.ps1` and `run-complete.ps1` batch mode:
 | What | Where |
 |------|-------|
 | Virtual environment | `D:\datrix\.venv` |
-| Generation logs | `.generated/.results/generate-results-<timestamp>-<language>[-<profile>][-N].log` — the `-N` suffix appears when another run already claimed that name |
+| Generation logs | `.generated/.results/generate-results-<timestamp>-<language>[-<profile>][-N].log` — the `-N` suffix appears when another run already claimed that name; with `generate.ps1 -ResultsSubdir <name>` the folder is `.generated/.results/<name>/` |
 | Test results | `<project>/.test_results/test-results-YYYYMMDD-HHMMSS/` for package tests; generated projects also use `unit-tests-YYYYMMDD-HHMMSS/` and `deploy-test-YYYYMMDD-HHMMSS/` |
 | Ruff check logs | `D:\datrix\.test-output\ruff\<project>\ruff-YYYYMMDD-HHMMSS.log` — outside every package repo |
 | Test config | `scripts/config/test-projects.json` |
