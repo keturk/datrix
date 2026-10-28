@@ -385,9 +385,11 @@ config system ecommerce.System {
 }
 ```
 
+Each key lists profiles by concrete name (`staging`) or by the short alias a profile declaration gives it (`profile staging as "stg"`); an unset key takes the defaults in [Seed Configuration](./configuration-guide.md#seed-configuration). The categories a profile runs are decided when the project is generated for it: its seed modules carry those categories and no others.
+
 ### Production Safety
 
-`datrix seed --profile prod` runs **only reference data** by default. Baseline and volume categories are rejected for production unless explicitly overridden with `--force`. This ensures running `datrix seed` in a production deployment pipeline is always safe.
+A production profile runs **only reference data** under the defaults, so a seed job in a production deployment pipeline is safe unless the config itself lists the production profile under `baseline` or `volume`.
 
 ---
 

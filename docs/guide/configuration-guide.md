@@ -2089,11 +2089,11 @@ production:
 
 ## Seed Configuration
 
-Seed configuration controls which seed categories are active per profile and how seed data is managed. Seed data declarations live in `.dseed` files (see [Seed Data Guidelines](./seed-data-guidelines.md)); configuration policies live in `.dcfg`.
+Seed configuration controls which seed categories each profile runs. Seed data declarations live in `.dseed` files (see [Seed Data Guidelines](./seed-data-guidelines.md)); configuration policies live in `.dcfg`.
 
-### System-Level Seed Defaults
+### System-Level Seed Categories
 
-Override the default category-to-profile mapping in `system.dcfg`:
+List, per category, the profiles that run it in `system.dcfg`. A key you leave out takes its default:
 
 ```dcfg
 config system ecommerce.System {
@@ -2109,23 +2109,27 @@ config system ecommerce.System {
 }
 ```
 
+A profile is named by its concrete name (`staging`) **or** by the short alias its declaration gives it (`profile staging as "stg"`); either spelling in a list runs that category on that profile. Matching is exact. An empty list (`volume = [];`) runs the category on no profile. A blank entry, an unknown category key and a `profileName` or `profileAlias` key are refused when the config loads.
+
 ### Default Category Mapping
 
 Without explicit configuration, these defaults apply:
 
 | Category | Default Profiles |
 |----------|-----------------|
-| `reference` | all (dev, test, stg, prod) |
-| `baseline` | dev, test, stg |
-| `volume` | stg |
+| `reference` | every profile |
+| `baseline` | `dev`, `development`, `test`, `stg`, `staging` |
+| `volume` | `stg`, `staging`, `load` |
+
+### Resolved At Generation
+
+Which categories run is decided when a profile is generated, not when its seed job starts. The generated seed modules carry the code and rows of the categories their profile runs and nothing else (each module lists them in `SEED_CATEGORIES`), and compare no profile name at runtime. Generate the project for another profile to seed that profile's categories; the seed runners' `--profile` option names the profile in the log (a TypeScript runner refuses any profile but the one it was generated for) and selects nothing.
 
 ### Production Safety
 
-Production profiles run **only reference data** by default. Baseline and volume categories are rejected unless explicitly overridden with `--force` on the CLI. `--reset` is never allowed on production.
+A production profile runs **only reference data** under the defaults. Listing a production profile under `baseline` or `volume` is an explicit choice the config makes; nothing else puts non-reference data there.
 
-### Component-Scoped Seed Policy
-
-Seed policy can be configured per target component (`rdbms`, `nosql`, or `storage`) rather than at the service level. Global defaults in `system.dcfg` apply unless overridden by component-specific settings.
+Seed policy is declared once, for the system: there is no per-component override.
 
 For the full `.dseed` syntax and authoring guidelines, see [Seed Data Guidelines](./seed-data-guidelines.md) and the [Seed Document (`.dseed`) Reference](../../../datrix-language/docs/reference/dseed-reference.md).
 
