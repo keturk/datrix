@@ -6,7 +6,7 @@ The module behind ``scripts/skill/implement-design.ps1`` (and its ``.sh`` twin),
 
   implement  /implement-design-direct, on its model, as several sessions: STOP AFTER: plan (the gate and
              the ledger), then UNIT: <id> for each unchecked ledger unit
-  verify     /verify-implementation, TASKS: none, FILES from the ledger, on its model
+  verify     /verify-implementation, TASKS: none, FILES from the files supplement, on its model
   absorb     /absorb-design, on its model
 
 Every response re-reads the whole context, so what a step costs grows with the square of its length:
@@ -18,7 +18,10 @@ The implement step keeps its work plan in a ledger this module names,
 not by a model: the plan session is run only when there is no ledger (or verify left gaps), and no ledger
 after it means it stopped at its gate for a decision (exit 2). A unit whose row is still unchecked after
 its session runs again (up to ``--max-rounds`` sessions per unit). Implement is done only when the ledger
-has no unchecked unit and a ``## Files changed`` section. Absorb runs only
+has no unchecked unit and the unit proof files list the files changed. The ledger is bounded
+(``ledger_rules``): a session that starts on an over-limit ledger is told to shrink it first, and the chain
+stops when that session leaves it over. The files changed are never kept in the ledger: ``ledger_rules``
+gathers them from the proof files into the supplement file verify reads. Absorb runs only
 after verify replies ``Design conformance: PROVEN`` (``Chain.verify_design``); on INCOMPLETE, a plan
 session with ``GAPS:`` naming verify's saved reply adds the units, and the unit sessions run again.
 
@@ -70,6 +73,14 @@ from datrix_scripts.skill.chain import (
     chain_options,
 )
 from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT
+from datrix_scripts.skill.ledger_rules import (
+    LEDGER_CHECKS,
+    changed_files,
+    files_supplement,
+    ledger_violations,
+    proof_dir,
+    write_files_supplement,
+)
 from datrix_scripts.test.wrappers import SKILL_SCRIPTS_DIR, module_main, run_self_test
 
 MODULE: Final = "datrix_scripts.skill.implement_design"
@@ -79,9 +90,9 @@ STEPS: Final = ("implement", "verify", "absorb")
 UNCHECKED_UNIT: Final = re.compile(r"^\s*\|\s*([^|\s]+)\s*\|.*\|\s*\[ \]\s*\|?\s*$", re.MULTILINE)
 # A ledger row with a state cell, ticked or not; group 1 is the unit's id (the first cell).
 UNIT_ROW: Final = re.compile(r"^\s*\|\s*([^|\s]+)\s*\|.*\|\s*\[[ xX]\]", re.MULTILINE)
-FILES_CHANGED: Final = re.compile(r"^##\s+Files changed\s*$", re.MULTILINE | re.IGNORECASE)
 NO_LEDGER: Final = "no ledger"
 NO_UNITS: Final = "no unit row"
+NO_CHANGED_FILES: Final = "no '## Files changed' section in any unit proof file"
 DESIGN_DIR_PARTS: Final = ("design",)
 # Loads every registered language, platform, generator and client-target plugin, as a generation run does.
 PLUGIN_LOAD_SCRIPT: Final = (
@@ -121,16 +132,16 @@ def ledger_path(workspace: Path, design: Path) -> Path:
 
 
 def ledger_gap(ledger: Path) -> str:
-    """What the ledger still lacks for implement to be done: no ledger, no unit row, unchecked units, no
-    ``## Files changed`` section; empty when nothing."""
+    """What the ledger still lacks for implement to be done: no ledger, no unit row, unchecked units, no changed
+    file listed in the unit proof files; empty when nothing."""
     if not ledger.is_file():
         return NO_LEDGER
     if not ledger_units(ledger):
         return NO_UNITS
     if unchecked_units(ledger):
         return "unchecked units"
-    if not FILES_CHANGED.search(ledger.read_text(encoding="utf-8-sig")):
-        return "no '## Files changed' section"
+    if not changed_files(ledger):
+        return NO_CHANGED_FILES
     return ""
 
 
@@ -202,6 +213,15 @@ def implement_prompt(design: Path, ledger: Path, *options: str) -> str:
     return "\n".join(["/implement-design-direct", f"DOCUMENT: {design}", f"LEDGER: {ledger}", *options])
 
 
+def limit_options(violations: list[str]) -> list[str]:
+    """The prompt option telling a unit session to shrink an over-limit ledger first; none when it is within them."""
+    if not violations:
+        return []
+    return ["LEDGER LIMITS EXCEEDED: " + "; ".join(violations) + ". Before the unit, shrink the ledger to the "
+            "limits: move detail into proof files (a '## Files changed' list goes into a proof file under that "
+            "same heading), keep only the Units and Decisions sections."]
+
+
 def implement_step(chain: Chain, name: str, prompt: str) -> StepRow:
     """One implement session, limited to the tools implement uses (``IMPLEMENT_TOOLS``)."""
     return chain.step(name, prompt, tools=IMPLEMENT_TOOLS)
@@ -244,8 +264,14 @@ def run_unit(chain: Chain, design: Path, ledger: Path, unit: str, max_rounds: in
     row: StepRow | None = None
     for round_number in range(1, max_rounds + 1):
         require_plugins_load(chain, f"unit {unit}", check)
-        row = implement_step(chain, f"unit-{unit}", implement_prompt(design, ledger, f"UNIT: {unit}"))
+        over = ledger_violations(ledger)
+        row = implement_step(chain, f"unit-{unit}", implement_prompt(design, ledger, f"UNIT: {unit}",
+                                                                       *limit_options(over)))
         stop_on_error(chain, row, f"unit {unit}")
+        if over and ledger_violations(ledger):
+            chain.stop(EXIT_FAILED, f"The ledger was over its limits when unit {unit} started, and the session told "
+                                    f"to shrink it left it over: {'; '.join(ledger_violations(ledger))}. Move the "
+                                    f"detail into the proof files by hand, then rerun this script: {ledger}", row)
         if unit not in unchecked_units(ledger):
             return
         say(f"Unit {unit} round {round_number} of {max_rounds} left its row unchecked; running it again.",
@@ -256,8 +282,8 @@ def run_unit(chain: Chain, design: Path, ledger: Path, unit: str, max_rounds: in
 def implement(chain: Chain, design: Path, ledger: Path, max_rounds: int, gaps: str = "",
               check: PluginCheck = plugin_load_error) -> None:
     """Implement the design as one session per step: plan (when there is no ledger, or *gaps* need units), then
-    one session per unchecked unit. Every unit adds its changed files to the ledger, so the ledger must be
-    complete once the last unit is ticked; stops with 1 when it is not. Each unit session starts only after
+    one session per unchecked unit. Every unit lists its changed files in its proof file, so they must be
+    listed once the last unit is ticked; stops with 1 when they are not. Each unit session starts only after
     *check* finds every plugin loading."""
     if gaps or not ledger.is_file():
         if plan(chain, design, ledger, gaps).dry_run:
@@ -274,6 +300,14 @@ def implement(chain: Chain, design: Path, ledger: Path, max_rounds: int, gaps: s
         chain.stop(EXIT_FAILED, f"Every unit is ticked, but the ledger still has {gap}: {ledger}")
 
 
+def require_files_supplement(chain: Chain, ledger: Path) -> None:
+    """Write the files supplement verify reads from the unit proof files; stops the chain with 1 when they list no
+    changed file. A dry run writes nothing."""
+    if not chain.options.dry_run and not write_files_supplement(ledger):
+        chain.stop(EXIT_FAILED, f"No unit proof file lists the files changed, so verify has nothing to review. Each "
+                                f"unit lists them under '## Files changed' in its proof file: {ledger}")
+
+
 def run_direct(chain: Chain, design: Path, ledger: Path, *, start_at: str, keep_source: bool,
                max_rounds: int) -> None:
     """One design's chain from *start_at*: implement, verify (implementing again on INCOMPLETE), absorb.
@@ -283,9 +317,14 @@ def run_direct(chain: Chain, design: Path, ledger: Path, *, start_at: str, keep_
         implement(chain, design, ledger, max_rounds)
     if first <= 1:
         prompt = (f"/verify-implementation\nDESIGN: {design}\nTASKS: none\n"
-                  f"FILES: the files listed under '## Files changed' in {ledger}")
-        chain.verify_design(prompt, design, lambda report: implement(chain, design, ledger, max_rounds, str(report)),
-                            max_rounds)
+                  f"FILES: the files listed in {files_supplement(ledger)}")
+
+        def implement_gaps(report: object) -> None:
+            implement(chain, design, ledger, max_rounds, str(report))
+            require_files_supplement(chain, ledger)
+
+        require_files_supplement(chain, ledger)
+        chain.verify_design(prompt, design, implement_gaps, max_rounds)
     chain.absorb_design(design, keep_source=keep_source)
 
 
@@ -328,16 +367,20 @@ def _check_the_ledger_gap_is_read_from_the_ledger() -> None:
     with TemporaryDirectory() as raw:
         ledger = Path(raw) / "ledger.md"
         cases = (
-            ("| U01 | change | [ ] |\n## Files changed\n", "unchecked units"),
-            ("| U01 | change | [x] |\n", "no '## Files changed' section"),
-            ("| U01 | change | [x] proof |\n\n## files changed\n- a.py\n", ""),
-            ("### U01 — change\n- state: [ ]\n\n## Files changed\n- a.py\n", NO_UNITS),
+            ("| U01 | change | [ ] |\n", "unchecked units"),
+            ("| U01 | change | [x] |\n", NO_CHANGED_FILES),
+            ("### U01 — change\n- state: [ ]\n", NO_UNITS),
         )
         assert ledger_gap(ledger) == NO_LEDGER
         assert unchecked_units(ledger) == []
         for text, gap in cases:
             write_files(ledger.parent, {ledger.name: text})
             assert ledger_gap(ledger) == gap, (text, ledger_gap(ledger))
+        # The files changed are read from the unit proof files, never from the ledger.
+        write_files(ledger.parent, {ledger.name: "| U01 | change | [x] |\n\n## Files changed\n- a.py\n"})
+        assert ledger_gap(ledger) == NO_CHANGED_FILES
+        write_files(proof_dir(ledger), {"U01.md": "## Files changed\n- a.py\n"})
+        assert ledger_gap(ledger) == ""
         write_files(ledger.parent, {ledger.name: (
             "| id | change | acceptance | state |\n|---|---|---|---|\n"
             "| U01 | a | no `[ ]` left | [x] `test.ps1 pkg` → pass: 3 (a | b) |\n"
@@ -365,6 +408,14 @@ def _check_a_missing_design_or_ledger_stops_before_any_step() -> None:
                         "Get-Help .\\implement-design.ps1 -Full."), lines
     assert lines[-1] == (f"-StartAt absorb needs the implement step's ledger, and there is none: "
                          f"{workspace / '.tmp' / 'implement-direct-099-x.md'}"), lines
+
+
+def _check_a_session_is_told_to_shrink_an_over_limit_ledger() -> None:
+    assert limit_options([]) == []
+    option = limit_options(["the ledger is 63450 bytes (max 24000)", "line 9: a table cell holds 2253 chars"])
+    assert len(option) == 1 and option[0].startswith("LEDGER LIMITS EXCEEDED: the ledger is 63450 bytes"), option
+    prompt = implement_prompt(Path("d.md"), Path("l.md"), "UNIT: U02", *option)
+    assert prompt.splitlines()[-2:] == ["UNIT: U02", option[0]], prompt
 
 
 def _check_designs_are_selected_by_name_and_count() -> None:
@@ -407,7 +458,8 @@ def _check_a_plugin_load_failure_stops_before_the_unit_session() -> None:
             # implement runs the same check before the unit it starts with.
             code = chain_exit_code(lambda: implement(chain, workspace / "d.md", ledger, 1, check=lambda: failure))
             assert code == EXIT_FAILED, code
-            # A ledger with every unit ticked but no files listed is not done: no session is left to complete it.
+            # A ledger with every unit ticked but no changed file in any proof file is not done: no session is
+            # left to complete it.
             write_files(workspace, {ledger.name: "| U01 | a | [x] |\n"})
             code = chain_exit_code(lambda: implement(chain, workspace / "d.md", ledger, 1, check=lambda: failure))
             assert code == EXIT_FAILED, code
@@ -417,7 +469,7 @@ def _check_a_plugin_load_failure_stops_before_the_unit_session() -> None:
             assert code == EXIT_FAILED, code
     text = printed.getvalue()
     assert "so unit U01 would start on a broken test bed" in text, text
-    assert "Every unit is ticked, but the ledger still has no '## Files changed' section" in text, text
+    assert f"Every unit is ticked, but the ledger still has {NO_CHANGED_FILES}" in text, text
     assert "The ledger holds no unit row this script can read" in text, text
     assert text.count("Every unit is ticked") == 1, text
     assert text.count("KeyError: 'email_local_part'") == 2, text
@@ -441,7 +493,7 @@ def _check_a_dry_run_prints_the_implement_sessions_verify_and_absorb() -> None:
         proof = workspace / ".tmp" / "verify-proven-d.md"
         head = ["", "##### design 1 of 1: d.md"]
         tail = ["", "=== step {n}-verify ===", "/verify-implementation", f"DESIGN: {design}", "TASKS: none",
-                f"FILES: the files listed under '## Files changed' in {ledger}",
+                f"FILES: the files listed in {files_supplement(ledger)}",
                 "", "=== step {m}-absorb ===", "/absorb-design", f"DOCUMENT: {design}", f"VERIFIED: {proof}"]
 
         def session(number: int, name: str, option: str) -> list[str]:
@@ -461,7 +513,8 @@ def _check_a_dry_run_prints_the_implement_sessions_verify_and_absorb() -> None:
 
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
-        checks = [*CHAIN_CHECKS, _check_designs_are_selected_by_name_and_count,
+        checks = [*CHAIN_CHECKS, *LEDGER_CHECKS, _check_a_session_is_told_to_shrink_an_over_limit_ledger,
+                  _check_designs_are_selected_by_name_and_count,
                   _check_the_ledger_gap_is_read_from_the_ledger,
                   _check_a_missing_design_or_ledger_stops_before_any_step,
                   _check_a_plugin_load_failure_stops_before_the_unit_session,
