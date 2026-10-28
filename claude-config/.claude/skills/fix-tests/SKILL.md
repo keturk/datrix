@@ -35,7 +35,7 @@ With a legacy log file (falls back to manual triage):
 ```
 /fix-tests
 
-LOG: D:\datrix\.generated\.results\generate-results-20260503-172334.log
+LOG: D:\datrix\.generated\.results\the-tour-card\generate-results-20260503-172334.log
 ```
 
 With inline failures:

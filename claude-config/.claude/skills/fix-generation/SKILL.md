@@ -21,18 +21,18 @@ Deciding **which** class an error belongs to is the central judgment call — se
 ## How to Invoke
 
 ```
-/fix-generation D:\datrix\.generated\.results\generate-results-20260614-235227.log
+/fix-generation D:\datrix\.generated\.results\the-tour-card\generate-results-20260614-235227.log
 ```
 
 Minimal form (auto-detect the latest log):
 ```
 /fix-generation
 ```
-With no argument, use the most recent `generate-results-*.log` under `D:\datrix\.generated\.results\`.
+With no argument, use the most recent `generate-results-*.log` under `D:\datrix\.generated\.results\the-tour-card\`.
 
 Optional scope narrowing:
 ```
-/fix-generation D:\datrix\.generated\.results\generate-results-20260614-235227.log
+/fix-generation D:\datrix\.generated\.results\the-tour-card\generate-results-20260614-235227.log
 
 SCOPE: docker generator only
 ```
@@ -60,7 +60,7 @@ The following describes the generation log format, the generation commands, and 
 Generate Results Log
 Timestamp: 2026-06-14 23:52:27
 ================================================================================
-Log file: D:\datrix\.generated\.results\generate-results-20260614-235227.log
+Log file: D:\datrix\.generated\.results\the-tour-card\generate-results-20260614-235227.log
 
 Running generate all...
 

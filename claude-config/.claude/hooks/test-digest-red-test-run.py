@@ -161,7 +161,7 @@ with tempfile.TemporaryDirectory(prefix="digest-hook-") as temp, \
           hook.red_logs([], failed_line), [])
 
     print("== DIGEST: a failed generation run ==")
-    generation_log = make_log(workspace / ".generated" / ".results", "generate-results-1.log")
+    generation_log = make_log(workspace / ".generated" / ".results" / "the-tour-card", "generate-results-1.log")
     context = hook.context_for(hook.red_logs(GENERATE_SCRIPTS, generation_console(1, generation_log)),
                                workspace, settings)
     check("the generation log's digest is in the context",

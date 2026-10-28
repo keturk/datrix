@@ -11,6 +11,7 @@ This directory configures Claude Code for the Datrix project. `CLAUDE.md` define
 | `/fix` | Phased fix workflow with confidence gates | Reference |
 | `/fix-issue` | Fix issues from structured issue reports with Root Cause Analysis | Interactive |
 | `/fix-bug-report` | Analyze project bug reports, classify, fix root causes, and update reports | Interactive |
+| `/implement-feature-request` | Implement product feature requests (Datrix gaps) as generic toolchain capabilities and update the requests | Interactive |
 | `/codegen-review` | Submission checklist, repo rules, code examples | Reference |
 | `/complexity-reducer` | Refactor functions exceeding cognitive complexity 15 | Interactive |
 | `/delegate` | Dispatch work to background agents with two-stage review | Interactive |
@@ -198,6 +199,12 @@ Analyze structured bug reports from project repositories, classify each bug as a
 
 **Workflow reference:** `D:\<project-repo>\claude\fix-bug-report.md`
 
+### `/implement-feature-request`
+
+Implement feature requests (`.feature-request\*.md`, Datrix gaps) filed by products built on Datrix. Verifies each gap against the current toolchain, designs the capability generically against the binding design guidelines, realizes it on every target it reaches with neutral-fixture tests, parity rows and docs, and appends a resolution the product can adopt.
+
+**Phases:** Triage and Design → Implement → Update Request → Report
+
 ### `/evaluate-generated-service`
 
 Service-level evaluation of generated code against `.dtrx` source definitions. Focused on service-level concerns rather than full project evaluation.
@@ -370,6 +377,7 @@ Skills that support delegation:
     fix/SKILL.md
     fix-issue/SKILL.md
     fix-bug-report/SKILL.md
+    implement-feature-request/SKILL.md
     fix-tests/SKILL.md
     fix-cli/SKILL.md
     fix-common/SKILL.md

@@ -258,7 +258,7 @@ an unproven BLOCKED is the second worst.**
 
 ## Skills
 
-**You can invoke these:** `/fix-issue`, `/fix-bug-report`, `/fix-tests`, `/checkpoint-debug`,
+**You can invoke these:** `/fix-issue`, `/fix-bug-report`, `/implement-feature-request`, `/fix-tests`, `/checkpoint-debug`,
 `/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/verify-design`, `/verify-implementation`,
 `/absorb-design`, `/commit-and-push`, `/add-script` (a new tool script: wrapper + `.sh` twin + `datrix_scripts` module),
 `/evaluate-generated`, `/evaluate-generated-service`, `/merge-findings`, `/delete-redundant-findings`, `/organize-findings`,
