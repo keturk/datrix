@@ -244,7 +244,6 @@ _REQUIRED_PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     "platform_label",
     "default_secret_backend",
     "crypto_signing_backend",
-    "rdbms_connection_identity",
     "cache_connection_identity",
     "supported_secret_backends",
     "serverless_compute_model",
