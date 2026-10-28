@@ -110,6 +110,13 @@
     {
       "repos": ["*"],
       "gitignore": ".gitignore",
+      "pattern": ".mypy_cache/",
+      "path_glob": "**/.mypy_cache/**",
+      "reason": "mypy's incremental type-check cache (the cache.N.db files, CACHEDIR.TAG and its own nested .gitignore). Scoped to any depth because mypy writes the cache into the directory it runs from, so a run from inside a package leaves one there. Like .ruff_cache, it is tool output at every depth: never source, never published."
+    },
+    {
+      "repos": ["*"],
+      "gitignore": ".gitignore",
       "pattern": ".hypothesis/",
       "path_glob": ".hypothesis/**",
       "reason": "Hypothesis example database written during property-based test runs."
