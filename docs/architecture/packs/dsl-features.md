@@ -60,6 +60,11 @@ Contract-only declarations for external libraries/tools Datrix does not generate
 - **Generated per consuming service:** typed HTTP client, request/response models, error classes, contract validation.
 - **AST:** `ExternService` in `datrix_common.datrix_model.extern_service`, on `Application.extern_services`. `uses` resolves shared block → extern service → regular service.
 
+## Embedded Fields and Amounts
+
+- **`: embedded`** on a struct-typed entity field is lowered once by semantic analysis (`datrix_semantic.embedded_fields`, after inheritance and FK synthesis, before index resolution and type checking): the declared field is replaced, in its position, by one ordinary field per struct member (`priceMinor`, `priceCurrency`, marked `Field.embedded_in` / `embedded_member`) and a computed field of the declared name rebuilds the struct. Every target, the migration snapshot and seeds therefore see ordinary typed columns; nothing target-side knows `embedded`. Misuse is `EMB001`.
+- **`Amount`** (`datrix.billing`, with `CurrencyUnits`, `RoundingMode`, `SafeMinor`) is a stdlib struct, not a builtin object: its arithmetic is DSL code every language transpiles. Mixed currencies throw at run time and are `AMT001` where both are literal.
+
 ## DSL Grammar Snapshot (`.dtrx`)
 
 Detail: [language-reference.md](../../reference/language-reference.md), [datrix-syntax-reference.md](../../../../datrix-language/docs/reference/datrix-syntax-reference.md).

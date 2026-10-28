@@ -2239,60 +2239,39 @@ The same shape serves a webhook receiver: key on the sender's event id, and retu
 
 ### Pattern: Currency-Safe Amounts
 
-`Money` is an exact decimal that carries no currency. A multi-currency record stores an amount as two typed columns, the whole number of minor units (`Long`) and a `CurrencyCode` (`CHAR(3)`), so SQL can index, constrain and `SUM ... GROUP BY currency` them, and a value struct keeps the pair together in code. A struct-typed entity field is stored as one JSON column, not as columns, so the entity declares the two columns itself. The struct's functions are the only arithmetic, and each refuses a different currency. `Seed.currencies()` is the ISO 4217 table (`alphabeticCode`, `minorUnits`) for formatting and parsing.
+`Money` is an exact decimal that carries no currency. The standard library's `Amount` (module `datrix.billing`, in scope without an import) is a whole number of minor units (`Long`) that always travels with its currency (`CurrencyCode`, `CHAR(3)`).
+
+- **Storage.** A struct-typed entity field is one JSON column. Declared `: embedded`, it is stored as one typed column per struct member instead: `Amount price : embedded;` is `price_minor BIGINT` and `price_currency CHAR(3)`, so SQL can index, constrain and `SUM(price_minor) ... GROUP BY price_currency` them, and a migration sees ordinary columns. Reading `price` in a body or a response rebuilds the struct; creating or updating a row sets the member columns (`priceMinor`, `priceCurrency`). Put an index on a member column by declaring the column yourself; `embedded` fields carry no other column modifiers.
+- **Arithmetic.** `add`, `subtract` and `compare` refuse a different currency: when the call runs (`ValidationException`), and at analysis (`AMT001`) where both currencies are written in the source. `negate` flips the sign. The result of `add`, `subtract` and `convert` is held to ±9007199254740991 minor units, the range a JavaScript number holds exactly, so every generated language agrees.
+- **Conversion.** `convert(rate, to, rounding)` is the only operation that changes currency. It scales by the ISO 4217 minor-unit exponents of both currencies (`CurrencyUnits.minorUnits()`: JPY 0, USD 2, KWD 3, CLF 4; all 165 currencies of the ISO list) and rounds as `RoundingMode` says: `HalfUp` and `Up` away from zero, `HalfEven` to the even neighbour, `Down` toward zero.
 
 ```datrix
 system ledger.Books('config/system.dcfg') : version('1.0.0') {}
-
-module ledger.common {
-    // A whole number of minor units that always travels with its currency.
-    struct Amount {
-        Long minor;
-        CurrencyCode currency;
-
-        fn add(Amount other) -> Amount {
-            if (currency != other.currency) {
-                throw ValidationException("Cannot add amounts in different currencies");
-            }
-            return Amount { minor: minor + other.minor, currency: currency };
-        }
-
-        fn subtract(Amount other) -> Amount {
-            if (currency != other.currency) {
-                throw ValidationException("Cannot subtract amounts in different currencies");
-            }
-            return Amount { minor: minor - other.minor, currency: currency };
-        }
-
-        fn negate() -> Amount {
-            return Amount { minor: 0 - minor, currency: currency };
-        }
-    }
-}
-
-from ledger.common import Amount;
 
 service ledger.LedgerService('config/ledger-service.dcfg') : version('1.0.0') {
     rdbms db {
         entity LedgerEntry {
             UUID id : primaryKey, server = uuid();
-            Long amountMinor : indexed;
-            CurrencyCode amountCurrency : indexed;
-
-            // The pair as one value; a write spells both columns from an Amount.
-            fn amount() -> Amount {
-                return Amount { minor: amountMinor, currency: amountCurrency };
-            }
+            Amount amount : embedded;
         }
     }
 
     fn post(Amount value) -> LedgerEntry {
         return db.LedgerEntry.create({ amountMinor: value.minor, amountCurrency: value.currency });
     }
+
+    fn balanceOf(UUID id) -> Amount {
+        let LedgerEntry entry = db.LedgerEntry.get(id);
+        return entry.amount;
+    }
+
+    fn inYen(Amount value, Decimal rate) -> Amount {
+        return value.convert(rate, "JPY", RoundingMode.HalfEven);
+    }
 }
 ```
 
-A mix of currencies is refused when the function runs, not when the application is analyzed. A conversion between currencies is an explicit function of the application that takes the rate and the rounding as arguments and returns an `Amount` of the target currency.
+A struct of your own works the same way: any struct whose members are scalars or enums can be `: embedded` (otherwise `EMB001`).
 
 ### Pattern: Saga Pattern (Event-Driven)
 

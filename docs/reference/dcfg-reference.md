@@ -689,6 +689,23 @@ config service ecommerce.OrderService {
 
 ---
 
+## System Egress Policy (`egress`)
+
+A system profile can declare that the generated system calls nothing outside itself. Generation then lists every outbound endpoint (notification providers, payment, search, HTTP clients, external extern services, storage endpoints) that is neither part of the stack nor in `allow`, and fails naming each one.
+
+```dcfg
+config system library.System {
+  profile production as "prod" extends base {
+    egress {
+      mode = "inSystem";
+      allow = ["api.stripe.com"];
+    }
+  }
+}
+```
+
+Full rules and the enumerated sources: [datrix-common dcfg reference](../../../datrix-common/docs/dcfg-reference.md#system-egress-policy-egress).
+
 ## Syntax Rules
 
 ### General

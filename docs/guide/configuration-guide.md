@@ -430,6 +430,24 @@ config system ecommerce.System {
 
 Target language is not part of `system.dcfg` — it is a required generation parameter passed via `--language`/`-L` on `datrix generate`.
 
+### Deploying a docker-compose stack to a shared host
+
+`provider = local` is a stack on the developer's own machine: every generated route guard also admits the `test_auth` provider, and the compose file carries a `datrix-test-jwks` sidecar serving the published deploy-test public key, so generated tests can mint tokens. A stack that runs on a host other people can reach must not trust that key. Declare it with `provider = remote`:
+
+```dcfg
+config system ecommerce.System {
+  profile staging as "stage" {
+    alias env = "STAGE";
+    deployment {
+      runtime = docker-compose;
+      provider = remote;
+    }
+  }
+}
+```
+
+The `remote` profile generates the same compose stack as `local` with these differences: no route guard lists `test_auth`, no `datrix-test-jwks` service exists, and the identity plan holds only the providers the application declares, so a token signed with the deploy-test key is refused. Generated tests that mint `test_auth` tokens target a `local` profile only. A `remote` profile hosts no web client target (an `app` with a web target is refused with `UI034`).
+
 ### Using Profiles
 
 **Default profile:** `test`
@@ -577,7 +595,7 @@ config system ecommerce.System {
   base {
     deployment {                         # Required: deployment target
       runtime = docker-compose;           # docker-compose, ecs-fargate, app-runner, etc.
-      provider = local;                   # local, existing, aws, azure
+      provider = local;                   # local, remote, existing, aws, azure
     }
     defaultTimeout = 30000;              # Default request timeout (ms)
     secrets { provider = env; }
