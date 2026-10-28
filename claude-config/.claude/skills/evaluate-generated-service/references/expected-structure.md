@@ -82,7 +82,6 @@
 {service_dir}/
 +-- package.json
 +-- tsconfig.json
-+-- tsconfig.check.json                    # only with an RDBMS block
 +-- tsconfig.build.json
 +-- Dockerfile
 +-- .dockerignore
