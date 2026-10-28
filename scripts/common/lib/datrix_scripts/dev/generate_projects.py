@@ -210,18 +210,6 @@ def generate_single_project(
         # (they cannot disagree). --runtime is output-path
         # derivation only; the deployment runtime/provider still comes from
         # config/system.dcfg for the active profile (--profile; default test).
-        import os
-        import tempfile
-
-        # Get venv path from python_exe
-        venv_path = Path(python_exe).parent.parent
-
-        # Try to find datrix command in venv
-        if os.name == "nt":
-            datrix_cmd_path = venv_path / "Scripts" / "datrix.exe"
-        else:
-            datrix_cmd_path = venv_path / "bin" / "datrix"
-
         # Build command arguments
         # The command structure is: datrix generate --language <lang> [OPTIONS]
         # Language is forwarded from this script's --language flag; deployment
@@ -239,24 +227,11 @@ def generate_single_project(
         if hasattr(args, 'debug') and args.debug:
             cmd_args.append("--verbose")
  
-        # Use datrix command if available, otherwise use python to call Typer app directly
-        temp_script = None
-        if datrix_cmd_path.exists():
-            cmd = [str(datrix_cmd_path)] + cmd_args
-        else:
-            # Fallback: use python to run the Typer app by importing and calling it
-            # Create a temporary script file that sets up sys.argv and calls the app
-            args_str = ", ".join([repr(arg) for arg in cmd_args])
-            script_content = f"""import sys
-sys.argv = ["datrix", {args_str}]
-from datrix_cli.main import app
-app()
-"""
-            # Write to temp file and execute it
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
-                f.write(script_content)
-                temp_script = f.name
-            cmd = [python_exe, temp_script]
+        # Run the CLI through the venv's interpreter, never through the venv's
+        # datrix.exe console-script launcher: Windows keeps a running exe locked, so
+        # a generation started from datrix.exe blocked pip from replacing it for the
+        # whole run, and with it every other project's install and generate.
+        cmd = [python_exe, "-m", "datrix_cli.main", *cmd_args]
 
         # Run command
         process = subprocess.Popen(
@@ -344,12 +319,6 @@ app()
         finally:
             # Unregister process after completion
             unregister_process(process)
-            # Clean up temp script if we created one
-            if temp_script and Path(temp_script).exists():
-                try:
-                    Path(temp_script).unlink()
-                except Exception:
-                    pass  # Ignore cleanup errors
     except Exception as e:
         error_msg = f"Error generating {project_name}: {e}"
         print(f"ERROR: {error_msg}", file=sys.stderr)
