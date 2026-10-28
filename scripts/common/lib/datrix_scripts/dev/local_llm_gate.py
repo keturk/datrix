@@ -133,11 +133,12 @@ def check_scope_reads_framework_repos_and_test_output_only() -> None:
 def check_scope_reads_generation_logs_and_extra_roots_only_when_given() -> None:
     with _workspace() as root, TemporaryDirectory(prefix="local-llm-gate-extra-") as extra_temp, \
             LoopbackOllama(answering("ok")) as server:
-        write_file(root / ".generated" / ".results" / "generate-results-1.log", "Failed: 1\n")
+        write_file(root / ".generated" / ".results" / "the-tour-card" / "generate-results-1.log", "Failed: 1\n")
         write_file(root / ".generated" / "python" / "app.py", "GENERATED = 1\n")
         extra = Path(extra_temp)
         write_file(extra / "service.dtrx", f"service Shop {{}}\n// {_GATE_TERM}\n")
-        assert ReadScope(root).files([".generated/.results/generate-results-1.log"]), "generation logs are in scope"
+        assert ReadScope(root).files([".generated/.results/the-tour-card/generate-results-1.log"]), (
+            "generation logs are in scope")
         assert "outside what local-model tools may read" in _refused(ReadScope(root), ".generated/python/app.py"), \
             "a generated tree is not a log and stays out of scope"
         outside = str(extra / "service.dtrx")

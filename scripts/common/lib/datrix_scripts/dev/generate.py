@@ -6,7 +6,8 @@ The module behind ``dev/generate.ps1`` (and its ``.sh`` twin). One run generates
 other than ``all``), always for one --language.
 
 A run claims its own ``generate-results-<timestamp>-<language>[-<profile>].log`` under
-``<workspace>/.generated/.results`` (whatever --output or --output-base say), checks the package installs, that
+``<workspace>/.generated/.results`` (whatever --output or --output-base say; --results-subdir names a folder
+inside it for the log instead), checks the package installs, that
 every plugin loads and that the ``datrix`` command runs, and validates --language against the registered
 ``datrix.languages`` set. It then runs ``datrix_scripts.dev.generate_projects`` as a child, showing its output
 (without the detailed sections unless --verbose-output) and writing every line to the log, and ends with the
@@ -142,6 +143,9 @@ def build_parser() -> argparse.ArgumentParser:
                              "generate --carry-forward-live-snapshots (single project only).")
     parser.add_argument("--verbose-output", action="store_true",
                         help="Show the detailed output sections on the console too (the log always has them).")
+    parser.add_argument("--results-subdir", default="",
+                        help="Folder under <workspace>/.generated/.results to write the run's log in, so a product "
+                             "repo keeps its logs apart from the others (default: .results itself).")
     parser.add_argument(WRAPPER_DEBUG_FLAG, dest="debug", action="store_true", help="Enable debug logging.")
     parser.add_argument("--self-test", action="store_true",
                         help="Run only the self-test: the child's arguments per mode, the output filter, the "
@@ -198,6 +202,18 @@ def single_arguments(args: argparse.Namespace, source: Path) -> list[str]:
 def _path_option(flag: str, value: str) -> list[str]:
     """*flag* with *value* made absolute, so the child resolves it from any directory."""
     return [flag, str(Path(value).absolute())] if value.strip() else []
+
+
+def results_dir(subdir: str) -> Path:
+    """The folder the run's log goes in: ``RESULTS_DIR``, or its *subdir* folder (a plain relative path that stays
+    inside ``RESULTS_DIR``)."""
+    name = subdir.strip()
+    if not name:
+        return RESULTS_DIR
+    folder = (RESULTS_DIR / name).resolve()
+    if not folder.is_relative_to(RESULTS_DIR.resolve()) or folder == RESULTS_DIR.resolve():
+        raise GenerateError(f"Error: -ResultsSubdir '{subdir}' must be a relative folder inside {RESULTS_DIR}.")
+    return folder
 
 
 def language_problem(language: str, installed: Sequence[str]) -> str:
@@ -448,6 +464,7 @@ def _run(args: argparse.Namespace) -> int:
             _check_quiet_console_drops_detail_and_long_lines_split,
             _check_summary_counts_results_and_keeps_errors_for_the_log,
             _check_language_must_be_registered,
+            _check_results_subdir_stays_inside_results_dir,
         ]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=DEV_SCRIPTS_DIR)
     if not args.language.strip():
@@ -456,7 +473,8 @@ def _run(args: argparse.Namespace) -> int:
         return EXIT_FAILED
     log: Path | None = None
     try:
-        log = claim_run_log_file(RESULTS_DIR, run_log_base_name(LOG_PREFIX, [args.language, args.config_profile]))
+        log = claim_run_log_file(results_dir(args.results_subdir),
+                                 run_log_base_name(LOG_PREFIX, [args.language, args.config_profile]))
         return _generate(args, log)
     except (GenerateError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
         tee(log, f"\nError occurred: {exc}", ColorCodes.RED)
@@ -521,6 +539,17 @@ def _check_summary_counts_results_and_keeps_errors_for_the_log() -> None:
     assert errors == {"beta": ["ERROR pipeline x error=boom:", "Pipeline failed"]}, errors
     assert "\nErrors\n" in errors_report(results, errors) and "    Pipeline failed\n" in errors_report(results, errors)
     assert "No project results found." in summary_report([]) and errors_report([], {}) == ""
+
+
+def _check_results_subdir_stays_inside_results_dir() -> None:
+    assert results_dir("") == RESULTS_DIR and results_dir("  ") == RESULTS_DIR, "no subdir: the results folder"
+    assert results_dir("product") == (RESULTS_DIR / "product").resolve()
+    for escaping in ("..", "../other", ".", str(RESULTS_DIR.parent)):
+        try:
+            results_dir(escaping)
+        except GenerateError:
+            continue
+        raise AssertionError(f"'{escaping}' must be refused")
 
 
 def _check_language_must_be_registered() -> None:
