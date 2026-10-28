@@ -236,6 +236,19 @@ warehouseDb.DeliveryZone table {
 
 RDBMS seeding of geometry and geospatial columns is currently rejected at generation time on Python.
 
+### Dates That Stay Current
+
+A demo or staging dataset that must look current after every reset writes its dates relative to the seed run, so nothing has to rewrite the files before a seed:
+
+```dseed
+shop.Event table on(code) {
+  code,      startsOn,        endsAt;
+  "launch",  @date("+12d"),   @datetime("-3d 14:30", tz: "Europe/Paris");
+}
+```
+
+The offsets are evaluated against the day the seed runs; `datrix seed --anchor 2026-01-31` fixes that day so a run is reproducible. A `reference` table re-evaluates on every run, a `baseline` or `volume` row is inserted once and never moved. The same constructs work inside imported CSV cells. Syntax, evaluation rule and limits: [dseed reference](../../../datrix-language/docs/reference/dseed-reference.md).
+
 ### JSON and Map Fields
 
 Use `@json()` for structured literals:

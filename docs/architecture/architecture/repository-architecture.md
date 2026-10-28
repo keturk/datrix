@@ -35,7 +35,7 @@ The project is split into one repository per installable package (the core toolc
 
 **Responsibilities:**
 - Parsing .dtrx files (Tree-sitter grammar, lexer, parser)
-- Parsing .dseed seed documents on the same grammar (seed declarations, tabular data, registry, `@ref`/`@lookup`/`@uuid`/`@hash`/`@json`/`@geo` constructs)
+- Parsing .dseed seed documents on the same grammar (seed declarations, tabular data, registry, `@ref`/`@lookup`/`@uuid`/`@hash`/`@json`/`@geo`/`@date`/`@datetime` constructs)
 - Implements `ParserProtocol` and `StdlibParserProtocol` (defined in `datrix-common`) — provides the concrete `TreeSitterParser` used by CLI and stdlib loader
 - Shipped **builtins** `.dtrx` definitions under `src/datrix_language/builtins/` (injected at parse time)
 - CST-to-AST transformers that produce `Application` objects (defined in `datrix-common`)
