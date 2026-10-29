@@ -263,7 +263,7 @@ an unproven BLOCKED is the second worst.**
 `/absorb-design`, `/commit-and-push`, `/add-script` (a new tool script: wrapper + `.sh` twin + `datrix_scripts` module),
 `/evaluate-generated`, `/evaluate-generated-service`, `/merge-findings`, `/delete-redundant-findings`, `/organize-findings`,
 `/consolidate-to-design`, `/implement-finding`, `/fix-cli`, `/fix-common`,
-`/fix-extensions`, `/fix-language`, `/fix-migration`, `/fix-semantic`, `/fix-testing`,
+`/fix-extensions`, `/fix-language`, `/fix-rdbms-schema`, `/fix-semantic`, `/fix-testing`,
 `/fix-vscode`, `/fix-test-suites` (several packages' index.json at once),
 `/fix-codegen-{angular,aws,azure,common,component,docker,flutter,kernel,python,sql,typescript,typescript-core}`.
 

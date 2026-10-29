@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5-5
 effort: low
-description: Sort the findings files lying loose in d:\datrix\findings into one level of area subfolders (python, typescript, clients, language, migration, seed, kernel, docker, aws, azure, component, tests, tooling, docs) by running the organize-findings script. The area comes from the file name; a local model picks it for a name that states none. Moves files only — merges, renames and deletes nothing. Use when Jon asks to "organize findings", "sort the findings into folders", "file the new findings by area", or runs /organize-findings.
+description: Sort the findings files lying loose in d:\datrix\findings into one level of area subfolders (python, typescript, clients, language, schema, seed, kernel, docker, aws, azure, component, tests, tooling, docs) by running the organize-findings script. The area comes from the file name; a local model picks it for a name that states none. Moves files only — merges, renames and deletes nothing. Use when Jon asks to "organize findings", "sort the findings into folders", "file the new findings by area", or runs /organize-findings.
 ---
 
 # Organize Findings
@@ -61,7 +61,7 @@ Get-ChildItem d:\datrix\findings -File -Filter *.md | Sort-Object Name
 For each, read the file and pick its area by the rule `/merge-findings` uses: **the subject the finding
 is about, never the package its fix lands in and never a group of subjects.** Areas, in order: `python`
 (specific to the Python generator), `typescript` (specific to the TypeScript generator and its core),
-`clients` (Angular, Flutter), `language` (parser, semantic analysis, DSL), `migration`, `seed`, `kernel`
+`clients` (Angular, Flutter), `language` (parser, semantic analysis, DSL), `schema` (RDBMS snapshots, differ, change policy, schema converge), `seed`, `kernel`
 (shared generation machinery), `docker`, `aws`, `azure`, `component`, `tests`, `tooling` (scripts,
 gates, skills), `docs`. There is no catch-all area and none is added.
 

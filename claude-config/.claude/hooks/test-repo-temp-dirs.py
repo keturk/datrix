@@ -50,7 +50,7 @@ check("flutter (mobile target repo)", write("d:/datrix/datrix-codegen-flutter/.t
 check("vscode (non-Python repo)", write(r"d:\datrix\datrix-vscode\temp\a.json"), BLOCK)
 check("a repo no list ever named", write("d:/datrix/datrix-codegen-kotlin/.tmp/out.log"), BLOCK)
 check("a repo no list ever named, relative redirect",
-      cmd("python foo.py > datrix-migration/.tmp/out.log"), BLOCK)
+      cmd("python foo.py > datrix-rdbms-schema/.tmp/out.log"), BLOCK)
 
 print("== Write/Edit: legitimate paths stay writable ==")
 check("workspace .tmp (sanctioned)", write(r"d:\datrix\.tmp\ratchet.txt"), ALLOW)

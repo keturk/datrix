@@ -13,7 +13,7 @@ pushed unless a human notices:
 `datrix-codegen-docker`, `datrix-codegen-flutter`, `datrix-codegen-kernel`,
 `datrix-codegen-python`, `datrix-codegen-sql`, `datrix-codegen-typescript`,
 `datrix-codegen-typescript-core`, `datrix-common`, `datrix-extensions`, `datrix-language`,
-`datrix-migration`, `datrix-semantic`, `datrix-testing`, `datrix-vscode`
+`datrix-rdbms-schema`, `datrix-semantic`, `datrix-testing`, `datrix-vscode`
 
 `datrix-codegen-typescript-core` holds the TypeScript language core
 (`datrix_codegen_typescript_core`: the transpiler core and visitors, the language profile,
@@ -26,7 +26,7 @@ dependency; it imports none of them, and no frontend target depends on the backe
 `datrix-codegen-kernel` holds the target-neutral generation framework
 (`datrix_codegen_kernel`: generator base classes, template engine, discovery, the shared
 route and runtime derivations, the deploy-script machinery, the DAL generator data model, the Seed
-datasets) and depends on `datrix-common` and `datrix-migration`. Every generator, the language layer
+datasets) and depends on `datrix-common` and `datrix-rdbms-schema`. Every generator, the language layer
 (`datrix-codegen-common`), the CLI and `datrix-testing` declare it as a runtime
 dependency; it loads no language-layer, generator, parser, semantic or CLI module.
 
@@ -34,15 +34,15 @@ dependency; it loads no language-layer, generator, parser, semantic or CLI modul
 a `dev` extra, never as a runtime dependency. The `pytest11` feature-tag plugin
 (`datrix_common.testing.feature_tags`) stays in `datrix-common`.
 
-`datrix-migration` holds the RDBMS migration machinery (`datrix_migration`: schema
+`datrix-rdbms-schema` holds the RDBMS migration machinery (`datrix_rdbms_schema`: schema
 snapshot, schema diff, change policy, revision ledger, state store, SQL lowering) and depends
 on `datrix-common` alone. The CLI, the generation kernel, the codegen layer, every
 RDBMS-emitting generator and `datrix-semantic` declare it as a runtime dependency.
 
 `datrix-semantic` holds semantic analysis (`datrix_semantic`: the analyzer, its phase
 pipeline, every domain validator, synthesis, and auth-contract lowering) and depends on
-`datrix-common` and, for the SQL lowering alone (`datrix_migration.sql_lowering`, which the
-analyzer runs over every column default), `datrix-migration`. `datrix-language`, `datrix-cli`
+`datrix-common` and, for the SQL lowering alone (`datrix_rdbms_schema.sql_lowering`, which the
+analyzer runs over every column default), `datrix-rdbms-schema`. `datrix-language`, `datrix-cli`
 and `datrix-testing` declare it as a runtime dependency.
 
 **The count is not a constant.** This list grows as targets are added — a new language, a

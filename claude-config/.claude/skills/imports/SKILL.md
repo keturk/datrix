@@ -40,8 +40,8 @@ disable-model-invocation: true
 - `datrix_codegen_common.generation.language_hooks` → `LanguageHooks`
 - `datrix_common.plugin.hook_outcome` → `HookOutcome`
 - `datrix_codegen_kernel.generation.app_context` → `get_app_name`
-- `datrix_migration.differ` → `SchemaDiffer`, `SchemaDiff`, `SchemaChange`, `ChangeKind`
-- `datrix_migration.errors` → `DestructiveOperationError`, `NoSnapshotError`
+- `datrix_rdbms_schema.differ` → `SchemaDiffer`, `SchemaDiff`, `SchemaChange`, `ChangeKind`
+- `datrix_rdbms_schema.errors` → `DestructiveOperationError`, `NoSnapshotError`
 - `datrix_common.fileops` → `read_text_utf8`, `write_text_utf8`, `load_json`, `save_json`
 - `datrix_common.utils.text` → `to_snake_case`, `to_camel_case`, `to_pascal_case`, `to_kebab_case`, `to_screaming_snake_case`, `to_plural`, `to_singular`, `extract_simple_name`
 - `datrix_common.paths` → `ServicePaths`

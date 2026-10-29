@@ -62,7 +62,7 @@ D:\datrix\datrix-codegen-typescript-core\.tasks
 D:\datrix\datrix-common\.tasks
 D:\datrix\datrix-extensions\.tasks
 D:\datrix\datrix-language\.tasks
-D:\datrix\datrix-migration\.tasks
+D:\datrix\datrix-rdbms-schema\.tasks
 D:\datrix\datrix-semantic\.tasks
 D:\datrix\datrix-testing\.tasks
 ```

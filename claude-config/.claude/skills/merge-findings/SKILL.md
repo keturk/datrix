@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5-5
 effort: medium
-description: Merge the findings inbox at d:\datrix\findings in place — group every set of findings one fix session would tackle together (the same or SIMILAR issues — same defect, seam, fix site or defect class, or one shared remedy) into one file per theme, leaving no two similar files behind, carry every source's evidence and citations as numbered sections, delete the originals, and name every file NNNN-<area>-<slug>.md numbered contiguously in area order (python, typescript, clients, language, migration, seed, kernel, docker, aws, azure, component, tests, tooling, docs). Use when Jon asks to "merge findings", "dedupe the findings", "merge similar findings", or runs /merge-findings.
+description: Merge the findings inbox at d:\datrix\findings in place — group every set of findings one fix session would tackle together (the same or SIMILAR issues — same defect, seam, fix site or defect class, or one shared remedy) into one file per theme, leaving no two similar files behind, carry every source's evidence and citations as numbered sections, delete the originals, and name every file NNNN-<area>-<slug>.md numbered contiguously in area order (python, typescript, clients, language, schema, seed, kernel, docker, aws, azure, component, tests, tooling, docs). Use when Jon asks to "merge findings", "dedupe the findings", "merge similar findings", or runs /merge-findings.
 ---
 
 # Merge Findings
@@ -96,7 +96,7 @@ needs a one-clause reason why one session would not take it with that group.
 
 **Areas, in this order** (the order sets the numbering): `python` (what is specific to the Python
 generator), `typescript` (what is specific to the TypeScript generator and its core), `clients`
-(Angular, Flutter), `language` (parser, semantic analysis, DSL), `migration`, `seed`, `kernel`
+(Angular, Flutter), `language` (parser, semantic analysis, DSL), `schema` (RDBMS snapshots, differ, change policy, schema converge), `seed`, `kernel`
 (shared generation: the framework, the shared language layer, secrets, hosting, pooling,
 observability export), `docker`, `aws`, `azure`, `component`, `tests` (red or weak test suites),
 `tooling` (scripts, gates, skills), `docs`.

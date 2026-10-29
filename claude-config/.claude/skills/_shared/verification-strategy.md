@@ -112,7 +112,7 @@ Not reached: aws, azure, docker, sql, component. The run is the tags of that beh
 conftest, declared deps). It is where step 3 starts looking, never the answer.
 
 **The parser entry-point edge.** Every package below the parser (datrix-common,
-datrix-semantic, datrix-migration, datrix-codegen-kernel, datrix-codegen-typescript-core,
+datrix-semantic, datrix-rdbms-schema, datrix-codegen-kernel, datrix-codegen-typescript-core,
 datrix-testing) parses its `.dtrx` fixtures with the real datrix-language parser, reached
 through the `datrix.parsers` entry point its root `conftest.py` discovers
 (`datrix_testing.parsing.register_installed_parsers`), never through an import. A change in

@@ -383,7 +383,7 @@ Skills that support delegation:
     fix-common/SKILL.md
     fix-extensions/SKILL.md
     fix-language/SKILL.md
-    fix-migration/SKILL.md
+    fix-rdbms-schema/SKILL.md
     fix-semantic/SKILL.md
     fix-testing/SKILL.md
     fix-vscode/SKILL.md

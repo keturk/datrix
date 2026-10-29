@@ -76,7 +76,7 @@ Reporting a cross-package finding and stopping there is **not** an outcome.
 | (shared codegen base) → `datrix-codegen-common` | `/fix-codegen-common` |
 | (target-neutral generation framework) → `datrix-codegen-kernel` | `/fix-codegen-kernel` |
 | (shared TypeScript language core) → `datrix-codegen-typescript-core` | `/fix-codegen-typescript-core` |
-| (RDBMS migration machinery) → `datrix-migration` | `/fix-migration` |
+| (RDBMS schema machinery) → `datrix-rdbms-schema` | `/fix-rdbms-schema` |
 
 Datrix is a multi-language, multi-platform generator — this table grows. A `{generator}` token with no row here means the table is stale, **not** that the generator is unowned: its package is `datrix-codegen-{generator}`, and its fix skill is `/fix-codegen-{generator}`. If no `D:\datrix\datrix-codegen-{generator}` directory exists, the generator is not installed in this workspace (never built, or archived) and cannot be the fix target — the failing input named a target the registry does not carry; say so with the evidence rather than recreating the package.
 
