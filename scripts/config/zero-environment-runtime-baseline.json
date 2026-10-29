@@ -24,10 +24,6 @@
           "reason": "The container-platform serverless HTTP entrypoint binds the port the compose runtime injects as PORT; fails loud (KeyError) when absent."
         },
         {
-          "path": "examples_order_service/migration-tools/export-live-schema-db.py",
-          "reason": "Emits the operator's live-schema export tool, not service runtime: it reads the read-only DSN the operator supplies, never logs it, and exits 1 naming the variable when it is unset."
-        },
-        {
           "path": "scripts/deploy.py",
           "reason": "Emits the project's deploy script, operator tooling run before any service starts, not service runtime: it honours compose's own environment overrides (the force flag, COMPOSE_PROJECT_NAME and the .env completeness check)."
         },
