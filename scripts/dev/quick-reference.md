@@ -19,11 +19,10 @@ Generate Datrix projects from `.dtrx` sources. `-Language`/`-L` is mandatory. `-
 | Output runtime segment | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L typescript -R azure-app-service` |
 | Config profile | `.\dev\generate.ps1 <source.dtrx> -L python -ConfigProfile production` |
 | Validation level | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L python -ValidationLevel fast` |
-| Carry chains forward with live snapshots (single project) | `.\dev\generate.ps1 <source.dtrx> <output-dir> -L python -ConfigProfile staging -CarryForwardLiveSnapshots <dir>` |
 | Verbose / debug | `.\dev\generate.ps1 <source.dtrx> -L python -VerboseOutput` (`-Dbg`) |
 | Jon's batches | `.\dev\generate.ps1 -All -L python` · `-TestSet foundation` · `-TestSet non-foundation` · `-Domains` · `-OutputBase .generated2` |
 
-Parameters: `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, mandatory), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner; output path only), `-ConfigProfile` (default `test`), `-ValidationLevel` (none\|fast\|standard), `-OutputBase` (default `.generated`), `-TestSet` (default `all`), `-VerboseOutput`, `-Dbg`, `-CarryForwardLiveSnapshots`, `-ResultsSubdir` (folder inside `.generated\.results` for the log)
+Parameters: `-Source` (positional 0), `-Output` (positional 1), `-All`, `-Domains`, `-Language`/`-L` (any registered `datrix.languages` target, mandatory), `-Runtime`/`-R` (docker-compose\|azure-container-apps\|azure-app-service\|ecs-fargate\|app-runner; output path only), `-ConfigProfile` (default `test`), `-ValidationLevel` (none\|fast\|standard), `-OutputBase` (default `.generated`), `-TestSet` (default `all`), `-VerboseOutput`, `-Dbg`, `-ResultsSubdir` (folder inside `.generated\.results` for the log)
 
 ### `dev\generate-doc-fragments.ps1`
 

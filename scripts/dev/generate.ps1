@@ -63,13 +63,6 @@
  (none, fast or standard; the CLI validates the value and owns the default, standard).
  When omitted, no flag is passed.
 
-.PARAMETER CarryForwardLiveSnapshots
- Directory of live schema snapshots (one <rdbms_id>.json per database) exported from the
- databases of the -ConfigProfile profile, forwarded to `datrix generate --carry-forward-live-snapshots`.
- Each block whose chain holds revisions that recorded no statements is carried forward onto a
- baseline of its recorded schema, proven by its snapshot. Single project only. When omitted,
- no flag is passed.
-
 .PARAMETER ResultsSubdir
  Folder under .generated/.results to write the run's log in (a relative path that stays inside
  .results), so a product repo keeps its logs apart from the others. When omitted, the log goes
@@ -119,7 +112,6 @@ param(
  [Parameter(ParameterSetName = "Run")][string]$OutputBase = ".generated",
  [Parameter(ParameterSetName = "Run")][string]$TestSet = "all",
  [Parameter(ParameterSetName = "Run")][string]$ValidationLevel,
- [Parameter(ParameterSetName = "Run")][string]$CarryForwardLiveSnapshots,
  [Parameter(ParameterSetName = "Run")][string]$ResultsSubdir,
  [Parameter(ParameterSetName = "Run")][switch]$VerboseOutput,
  [switch]$Dbg,

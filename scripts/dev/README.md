@@ -23,9 +23,6 @@ output-path provider segment is read from each project's `config/system.dcfg` de
 `-ConfigProfile`, default `test`), not a flag. Deployment runtime/provider, service flavor, and
 infrastructure flavor used for generation are read from project config. `-ValidationLevel` is forwarded to
 `datrix generate --validation-level` (validated by the CLI; omitted = the CLI default, standard).
-`-CarryForwardLiveSnapshots` is forwarded to `datrix generate --carry-forward-live-snapshots`; one
-`<rdbms_id>.json` per database of that profile; single project only (refused with
-`-All`/`-Domains`/`-TestSet`).
 
 `-All`, `-Domains` and `-TestSet` are Jon's: `validate-script-invocation.py` refuses them from an agent
 tool call. The batch forms: `-All` (test set all), `-TestSet foundation` (examples/01-foundation),
