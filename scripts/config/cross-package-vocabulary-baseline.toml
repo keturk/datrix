@@ -443,11 +443,11 @@ count = 1
 reason = "_STRING_ONLY_ATTRIBUTES: the .dcfg config-key attributes only a String key accepts. datrix-common datrix_model/scalars.py's STRING_CONSTRAINTS is the scalar-declaration constraints only a String scalar accepts; the sets coincide at {pattern} while the vocabularies differ (numeric: min/max here, min/max/range there)."
 
 [[baseline]]
-file = "datrix-migration/src/datrix_migration/canonicalize.py"
+file = "datrix-rdbms-schema/src/datrix_rdbms_schema/canonicalize.py"
 count = 1
 
 [[baseline]]
-file = "datrix-migration/src/datrix_migration/live_snapshot_export.py"
+file = "datrix-rdbms-schema/src/datrix_rdbms_schema/live_snapshot_export.py"
 count = 1
 
 [[baseline]]

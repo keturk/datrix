@@ -17,7 +17,7 @@
     "datrix-common": 0,
     "datrix-extensions": 0,
     "datrix-language": 0,
-    "datrix-migration": 0,
+    "datrix-rdbms-schema": 0,
     "datrix-semantic": 0,
     "datrix-testing": 0,
     "datrix-vscode": 0

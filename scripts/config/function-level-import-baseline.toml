@@ -5,7 +5,7 @@
 # nested in a function/method body, an `if TYPE_CHECKING:` block, or a
 # `try`/`except`) in the code that was datrix-common's before the
 # foundation packages were extracted from it: every src/ file of
-# datrix-common, datrix-semantic, datrix-migration and datrix-testing, plus
+# datrix-common, datrix-semantic, datrix-rdbms-schema and datrix-testing, plus
 # each file an entry below names in another package (a former
 # datrix-common module that moved up a layer; its entry moved with it).
 #
@@ -157,12 +157,12 @@ count = 1
 reason = "utils.engine_helpers <-> datrix_model.containers: containers -> datrix_model.pubsub imports engine_str from engine_helpers at module top, so the Application annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
-file = "datrix-migration/src/datrix_migration/foreign_key_naming.py"
+file = "datrix-rdbms-schema/src/datrix_rdbms_schema/foreign_key_naming.py"
 count = 1
 reason = "foreign_key_naming <-> schema_snapshot: schema_snapshot imports record_foreign_key_names from foreign_key_naming at module top, so the SnapshotForeignKey/SnapshotTable annotation imports stay TYPE_CHECKING-only."
 
 [[baseline]]
-file = "datrix-migration/src/datrix_migration/index_naming.py"
+file = "datrix-rdbms-schema/src/datrix_rdbms_schema/index_naming.py"
 count = 1
 reason = "index_naming <-> schema_snapshot: schema_snapshot imports record_index_names from index_naming at module top, so the SnapshotIndex/SnapshotTable annotation imports stay TYPE_CHECKING-only."
 
