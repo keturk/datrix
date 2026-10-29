@@ -103,13 +103,13 @@ The canonical Datrix schema revision chain is shared across target languages, pr
 
 **Status:** In force for generation; the deploy reflects the database (D44), so no bootstrap or stamping exists.
 
-Datrix generation does not infer whether a target database is empty or already populated. Database state is external runtime state, not available to normal offline generation. When a generated output changes runtime migration tool or lacks generated-output migration history for the canonical ledger, Datrix emits deployment-readiness diagnostics and requires explicit bootstrap/stamping.
+Datrix generation does not infer whether a target database is empty or already populated. Database state is external runtime state, not available to normal offline generation: generation writes `D`, and the deploy's schema client reads the database into `L` when it converges.
 
 ## D13: Automatic Migrations Are Safe/Additive Only
 
 **Status:** In force as amended: each change's outcome is `convergence_outcome` (D44).
 
-Datrix-generated automatic migrations do not perform destructive or ambiguous schema changes. Field/table removal, rename, type narrowing, enum removal/rename/reorder, index removal, primary-key changes, and foreign-key removal fail as generation errors before rendering. The one override is the deploy's command-line `--approved` switch, and it approves the plan of the one run it is given to, never a later plan; no `.dcfg` value, environment variable or DSL element approves anything, and no list of approved objects exists (`datrix-migration/docs/architecture.md` § Convergence outcomes).
+A deploy applies a destructive change only when the operator approves it. The removal of a table, column, index, unique constraint, foreign key or enum type `D` no longer declares, and a type narrowing, need approval: without it the deploy is refused before anything applies, naming each change and the switch, and with it the change runs in the contract phase and the removed object's data goes with it. A check `D`'s rules no longer derive is dropped without approval. Removing or reordering an enum member is never applied. The one override is the deploy's command-line `--approved` switch, and it approves the plan of the one run it is given to, never a later plan; no `.dcfg` value, environment variable or DSL element approves anything, and no list of approved objects exists (`datrix-migration/docs/architecture.md` § Convergence outcomes).
 
 ## D14: SQL Files Are Not an Implicit Fallback
 
@@ -167,11 +167,13 @@ Generated `add_foreign_key` is allowed only for a table created by the same revi
 
 Generated enum migration supports enum creation and safe enum value append only. Enum value removal, rename, reorder, or representation-strategy changes are generation errors.
 
-## D23: Rollback Is Not the Deployment Contract
+## D23: A Rollback Is a Deploy of the Earlier Output
 
-**Status:** Retired with the revision files (D44): the converge renders forward statements only.
+**Status:** In force as amended by D44: there are no rollback bodies; a rollback converges the database to the earlier release's `D`.
 
-Generated deployment applies migrations forward only. Adapters render rollback bodies only because target migration tools require them or because a deterministic inverse is available. Irreversible generated operations fail loudly in rollback bodies rather than silently no-oping.
+There is no rollback path and nothing records which release a database last held. Rolling back is deploying the earlier release's generated output, which converges the database to the earlier `D` through the one converge (D44). What the later release added and the earlier `D` does not declare -- its tables, columns, indexes, unique constraints and foreign keys, with their data -- is removed, and a column the later release widened is narrowed back, only when the deploy is run with `--approved`; without it the rollback is refused, naming each object and the switch. `deploy --plan --approved` prints exactly what the rollback would remove before anything runs. The checks the later release derived from its rules are definition-named checks the earlier `D` does not state, and are dropped without approval. Deploying the later output again converges forward, recreating what was removed, empty.
+
+**Rejected: render a reverse script with each release.** It is a second path that has to be kept in step with the converge and is never exercised until it is needed; the converge already computes the reverse from the two sides it reads.
 
 ---
 
@@ -329,17 +331,17 @@ Two obligations travel with the type. **The language-runtime mapping is register
 
 **A renderer that meets an operation kind it does not recognise raises.** An operation-dispatch chain with no final branch renders an unrecognised kind as nothing at all — a silently dropped migration step, which is the worst available outcome for an append-only history. The fail-loud branch lands *before* any new operation kind is added to that renderer, never in the same change and never after.
 
-## D42: A Foreign Key Is Created, Named Once, States Both Actions, and Is Re-Asserted When It Drifts
+## D42: A Foreign Key Is Created, Named Once, States Both Actions, and Is Replaced When Its Actions Drift
 
-**Status:** In force as amended by D44: a key is re-asserted when its actions changed or when `L` holds it under another name (`plan_foreign_key_reassertions`), never once for every key.
+**Status:** In force as amended by D44 and by the differ owning every comparison of `L` with `D`: a key whose actions changed is replaced (`FOREIGN_KEY_REPLACED`: dropped under exactly the name `L` holds it by, then `D`'s key added under `D`'s name, validated, in the expand phase), and a key `L` holds under another name with the same actions is renamed (`FOREIGN_KEY_RENAMED`); both are reported by `compute_snapshot_diff`, never once for every key.
 
 Every foreign-key constraint is named by one function (`fk_<table>_<columns>`, `datrix_migration.foreign_key_naming`), and the snapshot records the realized name, so a drop or re-assertion targets what the database holds. Every baseline creates every key the snapshot records, an entity added later gets its keys in the same revision, and every constraint states `ON DELETE` and `ON UPDATE` from the DSL (default `restrict`) through the one shared keyword spelling -- a constraint with no clause means `NO ACTION`, which is neither the default nor anything an author declared. Referential integrity is therefore enforced on every database a Datrix adapter builds; a Python baseline once created none.
 
-An action is part of the constraint a database enforces, so a change to `onDelete`/`onUpdate` on an existing key is a change (`FOREIGN_KEY_REASSERTED`), where the differ used to alter the schema hash and plan nothing. The same change kind reconciles a database built before names were recorded: the generation has no database connection, so it re-asserts every key the schema keeps once, dropping every name a retired rule may have given it where it exists and adding it under the shared name. On PostgreSQL the new constraint is added `NOT VALID` and then validated. A row with no parent fails the revision, naming the constraint; no row is deleted to make it pass. Re-assertion is classified `risky`, never blocked (it moves and loses no row) -- D21 is unchanged: a *new* key on an existing table is still a generation error.
+An action is part of the constraint a database enforces, so a change to `onDelete`/`onUpdate` on an existing key is a change (`FOREIGN_KEY_REPLACED`), where the differ used to alter the schema hash and plan nothing. The change carries `D`'s key as its subject and the name `L` holds as `old_value`, so exactly that name is dropped and the key added under the shared name. On PostgreSQL the new constraint is added `NOT VALID` and then validated. A row with no parent fails the revision, naming the constraint; no row is deleted to make it pass. Replacement is classified `risky`, never blocked (it moves and loses no row) -- D21 is unchanged: a *new* key on an existing table is still a generation error.
 
 A relationship change is matched to its constraint by the full (columns, referred table, referred columns) tuple, never by the table alone: an entity with a `createdBy` and an `updatedBy` user holds two keys to one table.
 
-**Rejected: reflect the deployed catalog at generation time to find drifted keys.** The generator has no database connection, and re-asserting every key once is deterministic.
+**Rejected: reflect the deployed catalog at generation time to find drifted keys.** The generator has no database connection; the deploy's converge reads the live catalog instead (D44), and the differ replaces exactly the keys whose actions differ.
 
 ## D43: A Live Database's Unreadable Chain Is Carried Forward (`R := R`), Never Reset on an Assumption
 
@@ -358,6 +360,8 @@ Because it resets nothing — the database keeps every object, and the recorded 
 ## D44: Every Deploy Converges the Live Catalog to the Declared Schema; No History Is Kept
 
 Generation builds the desired snapshot `D` (`schema.json`) fresh on every run and writes it into each block's schema tool. The deploy's schema client reflects the live catalog into `L`, prepares it for comparison (`prepare_live_for_comparison`: enums aligned with `D`, `L` given `D`'s member values wherever a label matches, its identity fields taken from `D`), and converges it: `convergence_changes(L, D, approved, facts)` builds the changes, `convergence_outcome` puts each in one outcome (applied safe, applied risky, needs approval, never applied), and the kernel renders the applied ones (`render_convergence`; an empty database gets `render_schema`). No revision ledger, revision files, recorded baseline, migration state, drift policy or live-snapshot artifact exists, and no generator writes migration state.
+
+An object `L` holds and `D` does not declare is an undeclared object (`undeclared_object_changes`); `removal_outcomes` refuses its removal until the deploy is run with `--approved`, except a definition-named check and a Datrix trigger whose declaration was removed, which are dropped without it. A refused change stops the deploy before anything applies, so a database holding objects an earlier release declared -- the tables an older migration runner kept its history in among them -- is converged only once the operator has read the refusals and approved the drop. A rollback is a deploy of the earlier output, converged the same way (D23).
 
 One snapshot format is read: `SCHEMA_VERSION`. A snapshot of any other format or version is refused, naming both and telling the user to regenerate it; nothing is kept for snapshots recorded under older rules, and the differ compares every field on every call. A snapshot stores no hash: `compute_schema_hash` is computed on demand.
 
