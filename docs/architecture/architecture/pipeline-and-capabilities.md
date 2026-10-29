@@ -106,9 +106,9 @@ After analysis completes, `analyze()` seals the `Application` tree by calling `a
  ↓
 Generated Application
   - Service source code
-  - Database migrations (incremental,
-    append-only revision chain per
-    RDBMS block UUID)
+  - Database schema (the desired snapshot
+    per RDBMS block UUID, converged
+    against the live catalog on deploy)
   - Docker manifest
   - Seed scripts (profile-gated,
     multi-target, cross-component)
@@ -118,7 +118,7 @@ The `datrix generate` command requires `--language`/`-L` (resolved against the r
 
 > **Migration note:** `--language` is a required CLI argument, not a legacy override — it is resolved against the registered `datrix.languages` set before the pipeline runs and selects the backend language plugin; there is no `apply_cli_overrides` stage and no `platform_validation` stage. The legacy `--hosting` and `--platform` overrides are removed (see above).
 
-**Pipeline stages (`GenerationPipeline.run` in `datrix-cli`, `datrix-cli/src/datrix_cli/pipeline/generation.py`)** are declared nodes, each stating the typed artifact keys it reads and writes; the run order is derived from those declarations and every stage executes through one runner. The stage list, the derived order, and how declarations are enforced live in the [pipeline-stages pack](../packs/pipeline-stages.md). `build_deployment_plan` resolves `DeploymentPlan` with language generators, runtime generators, and provider generators from the deployment config — see [Decision 6: Deployment Target Contract](../architecture-overview.md#decision-6-deployment-target-contract-stable) — and `discover_platforms` receives the pre-resolved platform config from the plan. `commit_migration_state` writes the migration-state commits every generator staged in the run's `MigrationStateTransaction`; it is skipped for a dry run, an `--only` run, or a run that recorded a failure, so none of those advances a ledger. Extension **directives** are recorded during parse; **registry** and **type-registry** integration run when the active code path invokes `PluginRegistry` / `TypeRegistry` APIs (see [Domain extension system](repository-architecture.md#domain-extension-system)). Language generators receive declared extension names via `declared_extension_names(app)` and merge per-language maps through the shared `build_type_map` (for example `datrix-codegen-python` calling it with its own `PYTHON_TYPE_MAP`/`PYTHON_EXTENSION_MAPS`).
+**Pipeline stages (`GenerationPipeline.run` in `datrix-cli`, `datrix-cli/src/datrix_cli/pipeline/generation.py`)** are declared nodes, each stating the typed artifact keys it reads and writes; the run order is derived from those declarations and every stage executes through one runner. The stage list, the derived order, and how declarations are enforced live in the [pipeline-stages pack](../packs/pipeline-stages.md). `build_deployment_plan` resolves `DeploymentPlan` with language generators, runtime generators, and provider generators from the deployment config — see [Decision 6: Deployment Target Contract](../architecture-overview.md#decision-6-deployment-target-contract-stable) — and `discover_platforms` receives the pre-resolved platform config from the plan. Extension **directives** are recorded during parse; **registry** and **type-registry** integration run when the active code path invokes `PluginRegistry` / `TypeRegistry` APIs (see [Domain extension system](repository-architecture.md#domain-extension-system)). Language generators receive declared extension names via `declared_extension_names(app)` and merge per-language maps through the shared `build_type_map` (for example `datrix-codegen-python` calling it with its own `PYTHON_TYPE_MAP`/`PYTHON_EXTENSION_MAPS`).
 
 #### Validation levels
 
@@ -161,7 +161,7 @@ Details and generator APIs: [code-generation.md](../../../../datrix-common/docs/
 
 - **Background jobs** (Stable) — DSL `jobs` blocks plus resolved `JobsConfig` drive `JobsGenerator` (`datrix_codegen_python.generators.messaging.jobs_generator`): APScheduler wiring (`jobs/scheduler.py`, `jobs/runner.py`, `jobs/config.py`), transpiled job bodies via `PythonTranspiler`, timeout/retry/DLQ from config. For Python on Docker, `ComposeBuilder` (`datrix_codegen_docker.generators.compose.compose_builder`) adds a `<compose-service>-worker` that runs `python -m <package>.jobs.scheduler` (no HTTP port, shared env/infra deps).
 
-- **RDBMS schema** (Stable) — a generated Python service carries no migration runner and no DDL credential; the deploy's `converge` step builds and changes each block's schema from the kernel's renderer. The Python plugin names the Alembic history tables a previously managed database holds (`migration_history_tables`), which the converge sets aside.
+- **RDBMS schema** (Stable) — a generated Python service carries no migration runner and no DDL credential; the deploy's `converge` step builds and changes each block's schema from the kernel's renderer, and sets no table of the live catalog aside.
 
 - **Seed data** (Stable) — Optional `config/seed-data.yaml` in the generated service tree is read by `SeedGenerator` (`datrix_codegen_python.generators.persistence.seed_generator`), which emits `seed.py` and packaged `seed_data.yaml` with PostgreSQL idempotent inserts (`ON CONFLICT … DO NOTHING`).
 

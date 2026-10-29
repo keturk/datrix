@@ -162,7 +162,7 @@ the static check that would have caught it. Detail:
 
 **Application:** The codebase raises explicit errors with context (e.g. entity not found with available names and suggestions). No silent fallbacks or `None` returns for lookup failures.
 
-**Example (migration revisions):** the kernel's shared revision renderer (`datrix_codegen_kernel.sql_facts.revision.render_revision`) raises `GenerationError` when a column is typed with an enum that declares no members or whose stored labels the snapshot does not record, naming the column and table; the Alembic adapter raises when the snapshot and the render context name different block schemas — generation stops with a concrete message instead of emitting broken DDL.
+**Example (schema rendering):** the kernel's shared schema renderer (`datrix_codegen_kernel.sql_facts.revision.render_schema`) raises `GenerationError` when a column is typed with an enum that declares no members or whose stored labels the snapshot does not record, naming the column and table — generation stops with a concrete message instead of emitting broken DDL.
 
 **Example (incremental migration safety):** The shared migration change policy in `datrix_migration.change_policy` classifies schema diffs as `safe`, `risky`, or `blocked` before adapter rendering. Destructive changes (field/table removal, rename, type narrowing, enum value removal/rename/reorder) are generation errors — they fail loudly instead of silently generating migrations that could corrupt deployed databases. Missing RDBMS UUID, missing migration state with existing history, and append-only file content changes are also hard errors.
 

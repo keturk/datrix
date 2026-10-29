@@ -398,12 +398,12 @@ Provider-native runtimes are produced by their provider generator plus, where th
 - **Immutable migration history** — Once generated, a migration revision file is append-only. Later generations append new revisions; they never rewrite previous revisions
 - **Append-only file retention** — `GeneratedFile` gains a `retention` field (`"normal"` or `"append_only"`). `FileWriter` and manifest logic preserve append-only files across regenerations and reject content changes
 - **Shared diff and safety policy** — Schema changes are classified as `safe`, `risky`, or `blocked` before adapter rendering. Destructive changes (field/table removal, rename, type narrowing, enum removal) are generation errors — no `.dcfg` or CLI override converts them to automatic migrations
-- **Target-language adapter protocol** — `RdbmsMigrationAdapter` in `datrix-codegen-common` defines the contract. Python/Alembic, TypeScript/MikroORM, and SQL are adapters that render target-native migration files from shared canonical state
-- **Shared-owned RDBMS migrations** — Shared RDBMS blocks generate migration files under `SharedPaths.rdbms_dir`, once per `rdbms_id`; every consuming service carries that chain byte for byte and applies it in its own migration step under one dialect-derived advisory lock keyed by the `rdbms_id`. No platform creates a separate apply unit
+- **No target-language migration adapter** — no language plugin declares one; the deploy's schema client applies every schema
+- **Shared-owned RDBMS schemas** — A shared RDBMS block is one schema per `rdbms_id`, converged once by the deploy's schema client under one dialect-derived advisory lock keyed by the `rdbms_id`. No generated service migrates or holds the block's owner login, and no platform creates a migration unit for a service
 
-**State ownership:** The migration orchestrator owns snapshot/ledger lifecycle. Adapters render target-native files from `MigrationState` but do not load, write, or allocate revision IDs. Canonical state (`schema.json`, `ledger.json`) lives under the application source folder and is target-language/platform/engine agnostic.
+**State ownership:** The migration state store owns snapshot/ledger persistence. Canonical state (`schema.json`, `ledger.json`) lives under the application source folder and is target-language/platform/engine agnostic.
 
-**Reference:** [RDBMS Migration Decisions (D1-D23)](rdbms-migration-decisions.md) | [Migration API](../../../datrix-common/docs/architecture/migration.md) | [Adapter Protocol](../../../datrix-codegen-kernel/docs/migration-adapter.md)
+**Reference:** [RDBMS Migration Decisions (D1-D23)](rdbms-migration-decisions.md) | [Migration API](../../../datrix-common/docs/architecture/migration.md)
 
 ---
 
@@ -444,12 +444,10 @@ Provider-native runtimes are produced by their provider generator plus, where th
 
 **Result:**
 - **Live snapshot is a third source of `RdbmsSchemaSnapshot`** — an environment-side exporter (where the DB is reachable) reflects the live catalog into a portable, hash-verified `live-schema-snapshot.json`. Datrix imports the artifact offline; the entire existing diff → classify → allocate → ledger pipeline is reused unchanged
-- **Datrix never connects to a live database** — generation and the new `drift`/`reconcile` commands accept only `--live-snapshot <path>`; credentials, connection strings, and reachability stay in the deployment environment
+- **Datrix never connects to a live database** — generation never opens a database connection; credentials, connection strings, and reachability stay in the deployment environment
 - **Shared canonicalization** normalizes both source-built and imported live snapshots (implicit/backing indexes, PK-derived constraints, default-literal formatting, identifier casing, index column ordering) so equivalent schemas canonicalize to zero drift; scalar type names are not resolved there: the builder writes canonical names and each engine's reverse type map holds only canonical names
-- **Read-only drift detection** — `datrix migrations drift --live-snapshot` reports `diff(recorded R, live L)` classified, exits non-zero when drift exists (CI-guard friendly), and never writes the ledger or DB
-- **Append-only reconciliation** — `reconcile --adopt` appends an `adopted` revision whose after-state is `L`, sets `R := L`, and records live-snapshot alignment separately (a sibling of the `adapter-alignment.json` precedent), running no DDL; `reconcile --to-desired` emits `diff(L, D)` as a reconciliation revision with destructive entries `blocked` exactly as in source-driven generation — no override flag
 - **Adopt records reality; converge generates DDL** — adopting an observed dropped column documents fact (safe); regenerating one away is gated by `change_policy` (blocked). The ledger gains an `"adopted"` classification and an explicit non-DDL `adopt_live_schema` operation (schema version bumped)
-- **Policy split** — a per-environment selector (default off) makes production treat drift as a guard (detect & refuse, never auto-reconcile) while pre-prod gains the reconcile loop. Reflector scope: every registered RDBMS engine (PostgreSQL)
+- **Reflector scope:** every registered RDBMS engine (PostgreSQL)
 
 **Reference:** [RDBMS Migration Decisions D24–D29](rdbms-migration-decisions.md#database-drift-detection--reconciliation-d24d29) | [Migration API](../../../datrix-common/docs/architecture/migration.md)
 
@@ -1146,7 +1144,7 @@ Three things surfaced during implementation that the approved shape did not anti
 | 6 | Consolidation is behaviour-preserving unless it is declared otherwise | Duplicate-block count strictly dropped per package (before/after pasted) and each consolidated symbol's rendered output is pinned by a test beside its shared home; the single intended exception (azure's pooled-group hash) is declared and pinned by its own test, never reported as a no-op |
 | 7 | One implementation per fact in the foundation, with no new third-party dependency | Negative grep for the second implementation, plus a test proving the union of previously-divergent accepted inputs now resolves through one path |
 | 8 | A declared dependency is an imported dependency | Absent from the manifest; a clean editable install of each affected package succeeds and the moved test-only library still resolves in the shared environment |
-| 9 | An adapter cannot widen an orchestrator-owned policy set | `MigrationOrchestrator` validates every registered adapter against the declared policy and fails loud on a widening; both per-adapter sets survive independently |
+| 9 | An adapter cannot widen an orchestrator-owned policy set | Superseded and deleted: no migration adapter or orchestrator exists |
 | 10 | Parallel implementations across language packages, and separately across platform packages, are measurable by a signal that survives divergence | Superseded and deleted (Decision 47): the role-keyed `behaviour-parity-gate.ps1` compares behaviour skeletons grouped by role on both axes; it reproduced the retired name-keyed report's platform-axis output before that report and its wrapper were deleted |
 
 **Scope boundaries:** No item adds an edge to the dependency graph, and Decision 34's scope fence held at the time this decision shipped — the SQL and component packages gained no shared-codegen runtime dependency then; their consolidation stayed package-local. The SQL package's fence was later retired by Decision 42, and the component package's when its manifest was brought in line with the dependency its modules already carried. No new third-party dependency was taken anywhere, and specifically not in the foundation layer: the merge, version, duration, email-validation, retry, quantity-parsing, and case-conversion libraries were each considered against a named site and each rejected. The two hand-written DSL parsers were not replaced — their error messages carry the source-location data the fail-fast contract depends on. The cron dialect translators, which translate between vendor dialects rather than validating a single one, were not touched, nor was the fixed-size batching primitive that landed in a Python release above the declared floor. No cross-language parity or matrix test was added: each package tests its own surface, and the two repo-level items here are scripts, never a test suite in the showcase repo. The C-style string escaper was deliberately left unreplaced.
@@ -1460,9 +1458,7 @@ reviewed exemptions in the rule-(c) enforcer's baseline, not silently ignored. D
 `datrix-codegen-component`'s manifest (its own fence was retired separately). Namespace
 allow-listing before `importlib.import_module` in `dgen/target_registry.py` and
 `datrix-common`'s `migration.state_store.RdbmsMigrationStateStore` adopting the shared
-containment helper for its `block_dir`/`_legacy_block_dir` joins (the persisted-state path;
-`datrix-codegen-common`'s `orchestration/migration_state.py` stateless branch already routed
-through the same helper before this design) are optional-hardening / uniformity items from the
+containment helper for its `block_dir`/`_legacy_block_dir` joins (the persisted-state path) are optional-hardening / uniformity items from the
 source design's lower-confidence observations, landed alongside the above for defense in depth.
 
 **Status:** Adopted. Both DAL generator render sinks validate output paths through the shared

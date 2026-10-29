@@ -2,8 +2,7 @@
 
 **Last Updated:** June 8, 2026
 
-This document records the architectural decisions for Datrix incremental RDBMS schema migrations. For API-level documentation see [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md). For the adapter protocol see [RdbmsMigrationAdapter](../../../datrix-codegen-kernel/docs/migration-adapter.md).
-
+This document records the architectural decisions for Datrix incremental RDBMS schema migrations. For API-level documentation see [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md).
 ---
 
 ## Non-Goals
@@ -100,9 +99,9 @@ Shared-owned RDBMS blocks are first-class migration targets. Their adapter-nativ
 
 ## D18: Shared-Owned RDBMS Migrations Are One Chain Per `rdbms_id`, Applied By One Writer Under One Lock
 
-A shared container's RDBMS block is rendered once per `rdbms_id` into the shared container's own output (D17) and carried byte for byte into every consumer, and no consumer allocates a revision of its own. One consumer applies the chain: the block's chain applier, the first consumer by qualified name holding `readwrite` (`shared_chain_applier`; a block every consumer only reads is SHR014). It applies the chain in its own migration step, before its own blocks, under one advisory lock the block's dialect derives from the lower-case `rdbms_id` (`SQLDialect.session_lock_sql`; PostgreSQL `hashtext`), so its replicas serialize. Every other consumer, reader or writer, runs no DDL: its migration step waits, within the same lock budget, until the block's version table records the chain head its image carries. A reader therefore never needs DDL privileges and can hold a credential that only reads. A second writer creating tables would also leave tables its role owns, which the other roles cannot read. Shared-block seeds run only in a consumer that holds `readwrite` access, inside the same lock; a `readonly` consumer never seeds.
+A shared container's RDBMS block is one schema per `rdbms_id` (D17), converged once by the deploy's schema client (`converge_schema_blocks`) under one advisory lock the block's dialect derives from the lower-case `rdbms_id` (`SQLDialect.session_lock_sql`; PostgreSQL `hashtext`), so concurrent deploys serialize. The block's chain applier, the first consumer by qualified name holding `readwrite` (`shared_chain_applier`; a block every consumer only reads is SHR014), only names the block's owner. No service migrates and none holds the block's owner login: every consumer, reader or writer, connects as a login of its own that holds data rights and no DDL right. A reader therefore holds a credential that only reads, and a second writer creates no tables whose owner the other roles cannot read. Shared-block seeds run only in a consumer that holds `readwrite` access, inside the same lock; a `readonly` consumer never seeds.
 
-No platform creates a migration init/job for a shared block, and a service is a consumer only through a resolved `uses` directive -- never by one of its own blocks sharing a `config.id`. Where a service's migration step runs is the platform's one fact (`run_migrations_at_startup`). Docker uses a one-shot init container. Azure App Service and AWS (ECS Fargate, App Runner), which have no one-shot step the deploy can reach the database from, run it in the service process at startup. The owned blocks are applied there too, each under its own session lock (`apply_lock_for_block`).
+No platform creates a migration init container, job or in-process step for any block, owned or shared, and a service is a consumer only through a resolved `uses` directive -- never by one of its own blocks sharing a `config.id`. The platform fact `run_migrations_at_startup` no longer exists; the one startup fact left is whether the service seeds in its own process (`run_seeds_at_startup`, read through the kernel's `service_runs_startup_seeds_in_process`).
 
 ## D19: No Legacy Generated-Output Adoption Path
 
@@ -271,6 +270,4 @@ Because it resets nothing — the database keeps every object, and the recorded 
 - [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations-adopted) — Rationale and summary
 - [Architecture Overview — Decision 45](architecture-overview.md#decision-45-a-generated-service-must-be-able-to-reach-its-database--probe-transport-migration-readiness-and-chain-owned-schema-approved--implementation-in-progress) — Boot-path contracts these decisions detail
 - [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md) — Shared module documentation
-- [RdbmsMigrationAdapter Protocol](../../../datrix-codegen-kernel/docs/migration-adapter.md) — Adapter contract
-- [CLI Migrations Commands](../../../datrix-cli/docs/commands/migrations.md) — CLI surface
 - [Config Document Reference — RDBMS ID](../reference/dcfg-reference.md#rdbms-migration-identity) — `.dcfg` `id` field

@@ -67,7 +67,7 @@ The project is split into one repository per installable package (the core toolc
 **Dependencies:**
 - `datrix-common` (AST model, type system, configuration)
 - `datrix-codegen-kernel` (generator base classes, template rendering, the DAL generator data model, the service-feature vocabulary)
-- `datrix-migration` (schema snapshot, diff, change policy, revision ledger and state store the migration orchestrator drives)
+- `datrix-migration` (schema snapshot, diff, change policy and convergence planner the kernel's schema rendering reads)
 
 See [datrix-codegen-common — Architecture](../../../../datrix-codegen-common/docs/architecture.md).
 
@@ -95,7 +95,7 @@ Generates SQL DDL (PostgreSQL). Seed DML (PostgreSQL `ON CONFLICT ... DO NOTHING
 - `datrix-codegen-common` (shared transpiler, algorithms, context models, field analysis)
 - `datrix-codegen-kernel` (generator base classes, template rendering, generation framework)
 - `datrix-common` (AST model, type system, configuration)
-- `datrix-migration` (schema snapshot, diff and revision ledger their migration adapters render from)
+- `datrix-migration` (schema snapshot, diff and convergence planner the kernel's schema rendering reads)
 - `jinja2` (for template rendering)
 - No language package depends on `datrix-codegen-sql`: the SQL dialect facts their migration adapters render DDL through (dialect protocol and registry, index constants, naming, column derivation, type map) live in `datrix-codegen-kernel` (`datrix_codegen_kernel.sql_facts`). A language package never depends on a sibling language package.
 
@@ -166,7 +166,7 @@ Command-line interface for code generation and seed management
 - `datrix-codegen-kernel` (generation framework, generator discovery)
 - `datrix-semantic` (the `analyze` stage, push device-registry injection, and `datrix validate`)
 - `datrix-language` (parser, CST-to-AST transformers, `ParserProtocol` implementation)
-- `datrix-migration` (the migrations stage, the migration state transaction, and the `datrix migrations` commands)
+- `datrix-migration` (the migrations stage and the migration state transaction)
 - `datrix-codegen-common` (the migration and generator-inspection commands import migration state and render, the migration CQRS algorithm, and DAL generator definitions lazily inside their command bodies)
 - Discovers installed generator *plugins* dynamically (datrix-codegen-python, etc.)
 
@@ -206,7 +206,7 @@ The shared test harness every package's suite imports: factories that build real
 ### Migration framework (1)
 
 #### 16. datrix-migration
-The RDBMS migration machinery every RDBMS-emitting generator shares: the canonical schema snapshot and revision ledger formats, the schema differ and snapshot-to-snapshot differ, the change policy, deterministic revision ids, the rebaseline builder, the live-snapshot artifact contract, and the migration state store. Target adapters (Alembic, MikroORM, versioned SQL) render their own files from its canonical state. `datrix-common` must never import it; the core names the run's state transaction through the `RunScopedStateCommit` Protocol. See [datrix-migration — Architecture](../../../../datrix-migration/docs/architecture.md).
+The RDBMS schema machinery every RDBMS-emitting generator shares: the canonical schema snapshot format, the schema differ and snapshot-to-snapshot differ, the change policy and the convergence planner (`L` vs `D`). The kernel renders its changes to SQL. `datrix-common` must never import it. See [datrix-migration — Architecture](../../../../datrix-migration/docs/architecture.md).
 
 **Dependencies:**
 - `datrix-common`
@@ -406,7 +406,7 @@ Adding a new target language (e.g., Go, Rust) requires a new `datrix-codegen-{la
 2. Subclass **`LanguageGenerator`** — implement the ten abstract methods; wire sub-generators and project-level output through the shared `generate()` implementation.
 3. Define a **`LanguageProfile`** instance (`datrix_codegen_common.transpiler.profile`) with the nine sub-profiles (Syntax, Operators, Builtins, Types, Naming, ORM, Scope, Docs, Errors). For C-style languages, inherit from `CBraceSyntaxEmitters`.
 4. Wire the **`SharedTranspiler`** from `datrix-codegen-common` with the language profile. Implement an ORM-specific entity query module for the language's framework.
-5. Declare each domain in the language's **DAL generator document** (`dgen/generator.dal`) — its file clauses and the context builders they name, which call the shared context models — and supply an `RdbmsMigrationAdapter` factory for the `migration` domain.
+5. Declare each domain in the language's **DAL generator document** (`dgen/generator.dal`) — its file clauses and the context builders they name, which call the shared context models.
 6. Add **`type_mappings.py`** — map every canonical type; expose the static map as the plugin's `static_type_map`.
 7. Implement **`LanguageHooks`** — post-generation formatting and validation.
 8. Implement **`LanguageRuntimeSpec`** — Dockerfile context, healthchecks, DB URL schemes, migration commands, job runner commands, plus the three provider-facing methods (`container_command`, `hosts_consumers_in_process`, `project_language`). The parity gate fails onboarding if any method is unimplemented.

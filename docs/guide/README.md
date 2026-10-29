@@ -51,14 +51,6 @@ How to use `ensure` clauses on `publish` events to enforce value-level invariant
 - Static analysis (CTR001-CTR003) and runtime assertions
 - Design decisions and rationale
 
-### [Database Drift Reconciliation](./database-drift-reconciliation.md)
-How to detect and reconcile schema drift in non-ephemeral database environments:
-- The problem: recorded vs. live vs. desired schema divergence in shared environments
-- Export live snapshots and detect drift offline (no database connection)
-- Reconcile with `--adopt` (keep reality) or `--to-desired` (generate DDL)
-- Configure guard mode for production safety and reconcile mode for pre-prod flexibility
-- Decision D29 and the complete drift/reconcile workflow
-
 ### [Patterns and Best Practices](./patterns-and-best-practices.md)
 Proven patterns for common scenarios:
 - Multi-tenancy implementation
@@ -87,7 +79,6 @@ Proven patterns for common scenarios:
 - Jobs → [Writing Datrix Applications § Background Jobs](./writing-datrix-applications.md#background-jobs)
 - CQRS → [Writing Datrix Applications § CQRS](./writing-datrix-applications.md#cqrs)
 - Seed Data → [Seed Data Guidelines](./seed-data-guidelines.md) (reference data, baseline, volume)
-- Database Drift → [Database Drift Reconciliation](./database-drift-reconciliation.md) (guard vs reconcile modes)
 
 **Configuring deployment?**
 - [Configuration Guide § System Configuration](./configuration-guide.md#system-configuration)

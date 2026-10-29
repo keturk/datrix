@@ -18,7 +18,7 @@
 | Touching DSL doc comments, enum keywords or wire/stored values, `work { }`, `extern service`, or needing the grammar snapshot | [dsl-features](./packs/dsl-features.md) |
 | Touching the transpiler, DAL generator paths/escaping, `#"..."` interpolation, SQL literal quoting | [codegen-engine](./packs/codegen-engine.md) |
 | Touching generated-service startup, the secret backend, env vars, framework headers, problem types, gateways, observability | [runtime-and-deploy](./packs/runtime-and-deploy.md) |
-| Touching schema snapshots, the migration ledger, `migrations { }`, migration adapters | [migrations](./packs/migrations.md) |
+| Touching schema snapshots, the schema converge, `migrations { }`, the kernel's schema rendering | [migrations](./packs/migrations.md) |
 | Touching the LSP, keyword manifest, `datrix-vscode` | [language-server](./packs/language-server.md) |
 | Touching the `agents` block, tools, model providers, `approval`, `replay` | [ai-agents](./packs/ai-agents.md) |
 | Adding/reordering a pipeline stage; builtins/stdlib loading; "where in the run does X happen?" | [pipeline-stages](./packs/pipeline-stages.md) |
@@ -32,7 +32,7 @@ The core packages plus optional **datrix-extensions**; `.claude/docs/repo-bounda
 |---------|------|
 | datrix-common | Foundation: AST model, types, config resolution, plugin and deployment declarations. ZERO deps on other Datrix packages |
 | datrix-semantic | `SemanticAnalyzer`, phase pipeline, validators, synthesis, auth-contract lowering. Depends on common, and on migration's SQL lowering only (column defaults are lowered at analysis) |
-| datrix-migration | RDBMS migration machinery (snapshot, diff, policy, ledger, state store). Depends on common only |
+| datrix-migration | RDBMS schema machinery (snapshot, diff, policy, convergence planner). Depends on common only |
 | datrix-language | Tree-sitter parser, CST→AST transformers, stdlib `.dtrx` modules, language server. Depends on common, semantic |
 | datrix-codegen-kernel | Target-neutral generation framework (`Generator`, template engine, discovery, type-mapping registry, shared route/runtime derivations, deploy-script machinery, DAL generator model, Seed, `sql_facts`). Depends on common, migration; loads no language-layer module |
 | datrix-codegen-common | Language layer: transpiler, `LanguageProfile` + `SyntaxEmitters`, context builders, DAL generator. Used by EVERY language generator |
@@ -80,7 +80,7 @@ Each is held by an executable gate; the pack and decision named give the check.
 
 10. **One async-hosting decision.** Whether a service's consumers, queue workers and jobs run in its web app (`hosting = "inProcess"`) or in dedicated runtimes is answered once, by the kernel's `resolve_service_async_hosting`, and every platform and language realizes the answer from the kernel `InProcessHostingPlan`; a target never carries its own "supports in-process" flag. A host that suspends idle processes is refused, never silently degraded.
 
-11. **One database access plan.** Which roles an RDBMS block has and what each may touch is decided once, by the kernel's `DatabaseAccessPlan` (owner, service, reader; `ROLE_RIGHTS`); every platform renders that plan through the dialect's access rendering and spells no `GRANT` itself, every role is a login of its own with its password a required provisioning input (never a literal), and each platform proves it provisioned exactly the plan (`require_access_plan_realized`). Detail: `datrix-codegen-kernel/docs/architecture.md` § Database Access Plan.
+11. **One database access plan.** Which roles an RDBMS block has and what each may touch is decided once, by the kernel's `DatabaseAccessPlan` (owner, service, reader; `ROLE_RIGHTS`); every platform renders that plan through the dialect's access rendering and spells no `GRANT` itself, every role is a login of its own with its password a required provisioning input (never a literal), and each platform proves it provisioned exactly the plan (`require_access_plan_realized`). No generated service migrates or holds a block's owner login: the deploy's schema client alone reads it, and each platform proves that in code (`require_schema_credential_is_owner`). Detail: `datrix-codegen-kernel/docs/architecture.md` § Database Access Plan.
 
 ## Technology
 

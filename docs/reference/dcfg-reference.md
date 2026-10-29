@@ -515,13 +515,13 @@ rdbms orderDb from postgresContainer(
 
 The `id` is not affected by changes to resolved database engine, profile, platform, output directory, connection host, database name, schema name, owner container, or block alias. Migration state under `{app_dir}/.datrix/rdbms-migrations/{rdbms_id}/` is keyed solely by this UUID.
 
-Use `datrix migrations init-rdbms-ids --app <app-dir>` to add missing `id` fields to existing RDBMS blocks. See [migrations CLI commands](../../../datrix-cli/docs/commands/migrations.md) and [RDBMS migration decisions](../architecture/rdbms-migration-decisions.md).
+Add the `id` field to each RDBMS block by hand. See [RDBMS migration decisions](../architecture/rdbms-migration-decisions.md).
 
 ---
 
 ## Migration Lifecycle (`migrations` block)
 
-The per-profile `migrations` block controls whether the RDBMS migration lifecycle runs during generation and whether it keeps a ledger. Both keys are **additive, gated, and default on** — a profile that does not declare the block produces byte-identical generation output.
+The per-profile `migrations` block controls whether the deploy's schema converge builds and changes the profile's RDBMS blocks. It is **gated and default on** — a profile that does not declare the block converges every block.
 
 **Declaration:**
 
@@ -530,7 +530,6 @@ config system library.System {
   base {
     migrations {
       enabled = true;
-      ledger = false;
     }
   }
 }
@@ -540,54 +539,12 @@ config system library.System {
 
 | Key | Default | Behavior |
 |-----|---------|----------|
-| `enabled` | `true` | Whether the lifecycle runs at all. `false` renders no `0001_initial` baseline and persists no state; a deployment of such a project comes up against a database with no tables, so it fits only a project that is never booted. |
-| `ledger` | `true` | Whether the lifecycle keeps its append-only record beside the source (`.datrix/rdbms-migrations/{target}/{rdbms_id}/`). `false` runs the lifecycle **stateless**: every generation renders the baseline from the current schema, in whichever target language the run asks for, and writes nothing back into the application directory. Meaningful only with `enabled = true`. |
-
-**When to turn the ledger off.** A persisted ledger records exactly one language's rendering of each revision and replays it verbatim, so it belongs to the language that sealed it — a second `--language` against the same ledger is refused, naming the sealing language and both remedies. A project that is generated in several languages and only ever meets a fresh database (every reference example under `datrix/examples/`) has nothing to migrate *from*: it declares `ledger = false`, gets a complete baseline in every language, and never owns a revision history. A deployed project keeps the default and, if it changes language, reseals with `datrix migrations rebaseline --language <lang>`.
+| `enabled` | `true` | Whether the deploy's schema converge builds and changes the profile's RDBMS blocks. `false` leaves every block out of the converge; a deployment of such a project comes up against a database with no tables, so it fits only a project that is never booted. |
 
 **Important Notes:**
 
-- **Orthogonal to `driftPolicy`:** `driftPolicy` governs how a destructive diff is handled once a migration history exists; `migrations` governs whether that lifecycle exists and whether it keeps a history.
-- **No database connectivity:** neither key grants Datrix a database connection.
-- **`enabled = false` with `ledger = false`** is consistent (nothing runs, so nothing is recorded) and is accepted.
-
----
-
-## Drift Policy Selector
-
-The drift policy selector controls whether database drift detection and reconciliation is required in an environment. It is **additive, gated, and defaults to off** — a project that does not declare it produces byte-identical generation output.
-
-**Declaration:**
-
-```dcfg
-profile production as "prod" extends base {
-  driftPolicy {
-    mode = "guard";
-  }
-}
-
-profile staging as "stg" extends base {
-  driftPolicy {
-    mode = "reconcile";
-  }
-}
-```
-
-**Modes:**
-
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| `off` (default) | No drift workflow required. Drift detection and reconciliation commands remain available for manual use. | Development and non-critical environments. |
-| `guard` | Production guard mode. Drift detection is required before deploying; reconciliation verbs refuse execution. Use this to ensure live database state matches expected schema. | Production environments. |
-| `reconcile` | Pre-production mode. Reconciliation verbs are available. Allows auto-reconciliation via `datrix migrations reconcile --adopt` or `--to-desired`. | Staging, QA, and development environments. |
-
-**Important Notes:**
-
-- **Additive and gated:** The absence of `driftPolicy` (or an unspecified `mode`) defaults to `off`. When `off`, no workflow machinery is required; existing applications continue unchanged.
-- **No database connectivity:** The drift policy selector never grants Datrix database connectivity. It controls only whether exported live snapshots are required for the guard/reconcile workflow. Credentials, connection strings, and hostnames remain in the deployment environment.
-- **Requires live snapshot export:** When `guard` or `reconcile` is active, the environment must export a live database snapshot (via an environment-side exporter or CLI tool) before drift detection or reconciliation can run.
-
-**See also:** [Decision D29 — Drift as a Production Guard and Pre-Prod Reconcile Path](../architecture/rdbms-migration-decisions.md#d29-drift-is-a-production-guard-and-a-pre-prod-reconcile-path) and [Database Drift Reconciliation Guide](../../guide/database-drift-reconciliation.md).
+- **No database connectivity:** the key grants Datrix no database connection.
+- **Unknown keys are refused:** the block accepts `enabled` only; any other key (a misspelling, or the removed `ledger`) fails config loading by name. A profile declaring the removed `driftPolicy` section is refused the same way.
 
 ---
 
