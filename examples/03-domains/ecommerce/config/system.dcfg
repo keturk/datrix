@@ -7,19 +7,12 @@ config system library.System {
   base {
     migrations {
       // `enabled = false` is for projects that are generated fresh and never
-      // booted, where a migration lifecycle is meaningless. This example is
+      // booted, where a schema converge is meaningless. This example is
       // booted: a deployed stack and the generated browser client calling it
-      // both need the schema to exist. Without a migration
-      // baseline the stack comes up against a database holding the enum types
-      // and not one table, and every read answers 500.
+      // both need the schema to exist. Without the deploy's schema converge
+      // the stack comes up against a database with no tables, and every read
+      // answers 500.
       enabled = true;
-      // No ledger: this example is generated in every registered language and
-      // only ever meets a fresh database, so it has nothing to migrate FROM.
-      // A ledger would record one language's rendering of each revision and
-      // seal the store against every other language on the next generation.
-      // Every generation renders a fresh baseline instead, and nothing is
-      // written back under `.datrix/`.
-      ledger = false;
     }
     defaultTimeout = 30000;
     maxPageSize = 100;
