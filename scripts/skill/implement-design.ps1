@@ -43,6 +43,10 @@
 .PARAMETER Count
     How many designs to take from <workspace>\design, first by name. Default: 10. Not used with -Design.
 
+.PARAMETER All
+    Implement every design of a folder, in name order, with no count cap: <workspace>\design, or the folder
+    given as -Design. The first one that does not finish stops the run. Not with -Count.
+
 .PARAMETER StartAt
     The step to start at (implement | verify | absorb), to resume after answering a question.
 
@@ -79,6 +83,9 @@
     .\implement-design.ps1 -Count 3 -DryRun
 
 .EXAMPLE
+    .\implement-design.ps1 -All
+
+.EXAMPLE
     .\implement-design.ps1 -Design "D:\datrix\design\<the design>.md"
 
 .EXAMPLE
@@ -88,6 +95,7 @@
 param(
     [Parameter(Position = 0)] [string]$Design,
     [int]$Count,
+    [switch]$All,
     [ValidateSet("implement", "verify", "absorb")] [string]$StartAt,
     [switch]$KeepSource,
     [switch]$Resume,

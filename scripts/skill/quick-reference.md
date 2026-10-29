@@ -11,13 +11,15 @@ Run skills one after another as headless `claude -p` steps, each on its own skil
 | Form | Command |
 |------|---------|
 | Implement a design | `.\skill\implement-design.ps1 -Design "D:\datrix\design\<file>.md"` |
+| Every design of `D:\datrix\design` | `.\skill\implement-design.ps1 -All` |
+| Every design of another folder | `.\skill\implement-design.ps1 -All "D:\datrix\design\<folder>"` |
 | Resume at a step | `.\skill\implement-design.ps1 -Design "<file>" -StartAt verify` |
 | Any sequence | `.\skill\skill-chain.ps1 "/fix-codegen-python <index.json>" "/commit-and-push"` |
 | One session throughout | add `-Resume` |
 | Preview the steps | add `-DryRun` |
 | Summary lines only | add `-Quiet` |
 
-Parameters: `-Design` (or first positional), `-StartAt` (`implement`, `verify`, `absorb`), `-KeepSource`, `-MaxRounds` (default 3) for `implement-design.ps1`; the prompts as positionals for `skill-chain.ps1`. Both: `-Resume`, `-PermissionMode auto|acceptEdits|dontAsk|bypassPermissions` (default `auto`), `-MaxBudgetUsd` (per step), `-DryRun`, `-Quiet`. Before each unit session `implement-design.ps1` loads every registered plugin in a fresh interpreter and stops with 1 when one fails to load, printing the error's end; rerun once it loads. It reads a ledger unit only as a markdown table row (id first, state `[ ]`/`[x]` last) and stops with 1 on a ledger holding no such row. The ledger is bounded (24,000 bytes; cell, state and line lengths; only `## Units` and `## Decisions`): a unit session that starts on an over-limit ledger is told to shrink it, and the chain stops with 1 when it stays over. The files a unit changed are listed in its proof file under `## Files changed`; the script gathers them into `implement-direct-<design>-files.md` for verify. Logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit: 0 done, 1 a step errored or a check failed, 2 a step stopped for a decision only Jon can make (its reply and session id are printed).
+Parameters: `-Design` (or first positional; a folder with `-All`), `-Count` (default 10 designs of `D:\datrix\design` when no `-Design`), `-All` (every design of the folder, no count cap; refused with `-Count`, a file, or `-StartAt`; the first design that does not finish stops the run), `-StartAt` (`implement`, `verify`, `absorb`), `-KeepSource`, `-MaxRounds` (default 3) for `implement-design.ps1`; the prompts as positionals for `skill-chain.ps1`. Both: `-Resume`, `-PermissionMode auto|acceptEdits|dontAsk|bypassPermissions` (default `auto`), `-MaxBudgetUsd` (per step), `-DryRun`, `-Quiet`. Before each unit session `implement-design.ps1` loads every registered plugin in a fresh interpreter and stops with 1 when one fails to load, printing the error's end; rerun once it loads. It reads a ledger unit only as a markdown table row (id first, state `[ ]`/`[x]` last) and stops with 1 on a ledger holding no such row. The ledger is bounded (24,000 bytes; cell, state and line lengths; only `## Units` and `## Decisions`): a unit session that starts on an over-limit ledger is told to shrink it, and the chain stops with 1 when it stays over. The files a unit changed are listed in its proof file under `## Files changed`; the script gathers them into `implement-direct-<design>-files.md` for verify. Logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit: 0 done, 1 a step errored or a check failed, 2 a step stopped for a decision only Jon can make (its reply and session id are printed).
 
 From Git Bash set `MSYS_NO_PATHCONV=1` for `skill-chain.ps1`, or a leading `/` in a prompt becomes a Windows path.
 
@@ -30,10 +32,12 @@ Drain the findings inbox one finding at a time: one fresh headless `/implement-f
 | First 10 findings | `.\skill\implement-finding.ps1` |
 | Fewer | `.\skill\implement-finding.ps1 -Count 3` |
 | One folder | `.\skill\implement-finding.ps1 azure` |
+| Every finding of the inbox | `.\skill\implement-finding.ps1 -All` |
+| Every finding of one folder | `.\skill\implement-finding.ps1 -All D:\datrix\findings\azure` |
 | Given files | `.\skill\implement-finding.ps1 -Finding "D:\datrix\findings\<file>.md"` |
 | Preview | add `-DryRun` |
 
-Parameters: `-Count` (default 10), `-Finding`, `-Dir` (absolute, or relative to `findings`; default the subfolders in turn), `-Model` (default `claude-opus-5-5`), `-Effort` (default `high`), `-PermissionMode`, `-MaxBudgetUsd`, `-DryRun`, `-Quiet`. Exit: 0 every finding deleted, 1 a session erred or a finding was left in place, 2 a session stopped for a decision only Jon can make.
+Parameters: `-Count` (default 10), `-All` (every finding of `-Dir`, or of every inbox folder in turn, no count cap; refused with `-Count` or `-Finding`), `-Finding`, `-Dir` (absolute, or relative to `findings`; default the subfolders in turn), `-Model` (default `claude-opus-5-5`), `-Effort` (default `high`), `-PermissionMode`, `-MaxBudgetUsd`, `-DryRun`, `-Quiet`. Exit: 0 every finding deleted, 1 a session erred or a finding was left in place, 2 a session stopped for a decision only Jon can make.
 
 ## `skill\organize-findings.ps1`
 

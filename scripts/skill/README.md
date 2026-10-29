@@ -31,6 +31,10 @@ starts at `implement`, `verify` or `absorb` (after `implement`, its ledger must 
 one session through every step instead of a fresh one per step. By default each agent message, tool call
 and refused tool call is printed as it happens; `-Quiet` shows only each step's prompt and summary.
 
+Without `-Design`, `implement-design.ps1` takes the first `-Count` (default 10) designs of `D:\datrix\design` in
+name order; `-All` takes every design of that folder (or of the folder passed as `-Design`), with no count cap.
+Later designs build on earlier ones, so the first design that does not finish stops the run.
+
 `implement-design.ps1` checks the result between steps itself; no model decides it:
 - The implement step keeps its ledger at `D:\datrix\.tmp\implement-direct-<design file name>.md`. The plan session runs only when there is no ledger (or verify left gaps); no ledger after it means it stopped at its gate for a decision. Each unchecked unit then runs in its own fresh session (up to `-MaxRounds` per unit), because every response re-reads the whole context: one session over all units of a 7-unit design averaged 270k tokens per response and compacted twice. Implement sessions run with `--tools` limited to Bash, Read, Edit, Write, Grep, Glob, Skill, ToolSearch and Task, and with only the workspace `.mcp.json` servers (`--strict-mcp-config`): that start-up context is 34k tokens, against 56k with all 50 tools. The step is done only when the ledger has no unchecked unit and a `## Files changed` section.
 - Before each unit session a fresh interpreter loads every registered plugin; a failure stops the chain with 1 and prints the error's end. A session started on a workspace another session has left half-edited can neither test nor generate, and spends itself on workarounds: one measured run lost two hours of unit sessions that way, behind a shared-package commit missing its new modules.
@@ -49,7 +53,7 @@ decision only Jon can make (its reply and session id are printed), or a command 
 read.
 
 Modules: `datrix_scripts.skill.implement_design`, `datrix_scripts.skill.skill_chain`; POSIX twins
-`skill/implement-design.sh` (`--design`, `--start-at`, `--keep-source`, `--resume`, `--permission-mode`,
+`skill/implement-design.sh` (`--design`, `--count`, `--all`, `--start-at`, `--keep-source`, `--resume`, `--permission-mode`,
 `--max-budget-usd`, `--max-rounds`, `--dry-run`, `--quiet`, `--self-test`) and `skill/skill-chain.sh`
 (the prompts as positionals or repeated `--step`, `--resume`, `--permission-mode`, `--max-budget-usd`,
 `--dry-run`, `--quiet`, `--self-test`). `-SelfTest` runs the chain checks (stdin delivery, refused
@@ -72,7 +76,9 @@ With no argument it takes the first 10 findings, one session each, on Opus, from
 subfolder (area order: `python`, `typescript`, … `docs`, then other subfolders by name), going on to the
 next subfolder once the one before holds no more, and last the files lying directly in `findings`.
 A folder argument (or `-Dir azure`, or a full path such as `D:\datrix\findings\python`) names one
-subfolder (absolute, or relative to `findings`). `-Finding` files are worked as given, wherever
+subfolder (absolute, or relative to `findings`). `-All` lifts the count cap: every finding of that
+folder, or, without a folder, of every inbox folder in turn (refused with `-Count` or `-Finding`).
+`-Finding` files are worked as given, wherever
 they are, instead of the first `-Count`. A session ending `Finding fix: BLOCKED B<n>` stops that finding
 and the chain moves to the next. Step logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit code 2:
 no failure, but a session stopped for a decision only Jon can make.
@@ -82,7 +88,7 @@ the `skill-assist.ps1` commands `finding-select` and `finding-close` (below); `/
 by hand calls `finding-close` itself.
 
 Module: `datrix_scripts.skill.implement_finding`; POSIX twin `skill/implement-finding.sh` (`--count`,
-`--finding`, `--dir`, `--model`, `--effort`, `--permission-mode`, `--max-budget-usd`, `--dry-run`,
+`--all`, `--finding`, `--dir`, `--model`, `--effort`, `--permission-mode`, `--max-budget-usd`, `--dry-run`,
 `--quiet`, `--self-test`).
 
 ## `organize-findings.ps1`

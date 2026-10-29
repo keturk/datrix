@@ -28,6 +28,10 @@
 .PARAMETER Count
     How many findings files to take, first by name. Default: 10.
 
+.PARAMETER All
+    Work every findings file of the folder given with -Dir, or, without -Dir, of every folder of
+    <workspace>\findings in turn, with no count cap. Not with -Count or -Finding.
+
 .PARAMETER Finding
     Work these findings files in place of the first -Count of the inbox.
 
@@ -68,12 +72,16 @@
     .\implement-finding.ps1 D:\datrix\findings\python
 
 .EXAMPLE
+    .\implement-finding.ps1 -All D:\datrix\findings\azure
+
+.EXAMPLE
     .\implement-finding.ps1 -Finding "D:\datrix\findings\<the finding>.md"
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)] [string]$Dir,
     [int]$Count,
+    [switch]$All,
     [string[]]$Finding,
     [string]$Model,
     [ValidateSet("low", "medium", "high", "xhigh", "max")] [string]$Effort,
