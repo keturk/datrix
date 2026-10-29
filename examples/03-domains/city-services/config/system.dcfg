@@ -1,6 +1,6 @@
 ﻿config system cityservices {
   base {
-    migrations {
+    schemaConvergence {
       enabled = false;
     }
     deployment {

@@ -1,6 +1,6 @@
 ﻿config system social.System {
   base {
-    migrations {
+    schemaConvergence {
       enabled = false;
     }
     deployment {

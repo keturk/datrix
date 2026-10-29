@@ -1,6 +1,6 @@
 ﻿config system taskapp.System {
   base {
-    migrations {
+    schemaConvergence {
       enabled = false;
     }
     deployment {

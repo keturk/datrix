@@ -5,7 +5,7 @@ config system library.System {
   // the profile of the target that realizes it -- a profile can override a
   // value it inherits, but it cannot un-declare one.
   base {
-    migrations {
+    schemaConvergence {
       // `enabled = false` is for projects that are generated fresh and never
       // booted, where a schema converge is meaningless. This example is
       // booted: a deployed stack and the generated browser client calling it
