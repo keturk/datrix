@@ -30,17 +30,6 @@ Per-language census of dependency-set decision sites outside the language's decl
 
 Parameters: `-Dbg`, `-SelfTest`, `-UpdateBaseline` (the only writer of the baseline). Exit: 0 at or below baseline, 1 above it, 2 self-test failed / fewer than 2 languages registered / discovery or parse error.
 
-## `gates\ratchet\migration-upgrade-op-family-gate.ps1`
-
-Pins the target-specific `_build_upgrade_op_for_*` family and the one shared `INDEX_ADDED` parser call counts per language (`scripts/config/migration-upgrade-op-family-baseline.json`).
-
-| Form | Command |
-|------|---------|
-| Run | `.\gates\ratchet\migration-upgrade-op-family-gate.ps1` |
-| Debug | `.\gates\ratchet\migration-upgrade-op-family-gate.ps1 -Dbg` |
-
-Parameters: `-Dbg`, `-SelfTest`. Exit: 0 all hold, 1 a violation, 2 self-test failed / language package unresolved / baseline missing or malformed.
-
 ## `gates\ratchet\capability-gap-ledger-gate.ps1`
 
 Census of every target's `capability_gaps` rows against a two-directional pin (`scripts/config/capability-gap-baseline.toml`); fails a surface every implementation of an axis carries a row for.

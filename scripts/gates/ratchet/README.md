@@ -1,8 +1,8 @@
 # Ratchet Gates
 
 Gates that pin a count and let it only move one way (or both ways only together with its pin):
-generated-file construction sites, out-of-table dependency decisions, capability gaps, slow tests, and
-the migration upgrade-op family. Repo-level validation **scripts**, not pytest suites. The commands,
+generated-file construction sites, out-of-table dependency decisions, capability gaps and slow tests.
+Repo-level validation **scripts**, not pytest suites. The commands,
 parameters and exit codes of each gate are in [quick-reference.md](quick-reference.md); this file holds
 what each pins and how it decides. The family overview is [../README.md](../README.md).
 
@@ -121,37 +121,6 @@ the number.
 Exit codes: 0 = the report ran and the out-of-table count is at or below the baseline (or a successful
 `-SelfTest`/`-UpdateBaseline`), 1 = the out-of-table count exceeds the baseline, 2 = the non-vacuity
 self-test failed, fewer than 2 languages are registered, or a discovery/parse error occurred.
-
-## `migration-upgrade-op-family-gate.ps1`
-
-Migration upgrade-op family gate: the cross-package half of the upgrade-op duplication census. Six
-`_build_upgrade_op_for_*` symbols exist once per migration target that carries the family (today
-python's Alembic migration generator); the census read their bodies and concluded they are genuinely
-target-specific, so **every private copy must survive** — a later "cleanup" deleting one would be
-deleting a target's real behaviour. One genuinely shared fact WAS hoisted: the targets reassembled the
-`INDEX_ADDED` JSON detail into its `SnapshotIndex` with byte-identical semantics and error text, so that
-parse now lives once in `datrix_codegen_kernel.sql_facts.snapshot.migration_upgrade_op_index`, each
-target calls it the exact number of times its own paths need, and none may redefine it. Structural
-resolution only, never a text match. The gate names no target: every registered `datrix.languages`
-package (its backend and each language core) is scanned, and the per-language facts live in
-`scripts/config/migration-upgrade-op-family-baseline.json` -- `carries_divergent_family` and the exact
-`shared_parser_call_sites` count, hand-authored and reviewed. A language with no entry is held to no
-family and zero calls, so adding a language needs no edit while it uses neither. A unit test importing
-several generator packages to compare their bodies is the shape the repo boundary forbids outright; the
-shared parser's own input/output behaviour stays as a unit test in `datrix-codegen-common`, which owns
-the function.
-
-Module: `datrix_scripts.gates.ratchet.migration_upgrade_op_family_gate`; POSIX twin options `--dbg`,
-`--self-test`. `-Dbg` names each self-test check as it passes.
-
-**Assertions:**
-- Each of the six target-specific symbols is still defined exactly once per recorded carrier; a language not recorded as a carrier that defines any of them fails until it is recorded; a baseline recording no carrier fails as vacuous.
-- Each registered language has exactly its recorded number of resolved call sites for `parse_index_added_detail` (a count, not a `>= 1`: a path silently losing its call is the regression this pins, and a new path is reviewed and recorded in the same change), and no language defines `parse_index_added_detail` or the retired `_index_from_index_added_detail`.
-- A baseline entry naming a language that is not registered is stale and fails.
-- Non-vacuity self-test (every invocation): the gate names no registered target (`datrix_scripts.registered_targets.self_test_gate_names_no_target`); the baseline comparison passes a matching fixture tree and reports exactly one problem per divergence (wrong count, missing family member, unrecorded carrier, stale entry, no carrier), and the loader refuses a malformed entry; the resolver finds a planted direct call, follows a `from … import … as …` alias, and finds a module-qualified `alias.symbol(...)` call; and it does NOT count a same-suffix private wrapper (`_parse_index_added_detail`) or a bare docstring/string mention — both false-positive shapes this chain has been bitten by. The definition scan is proven in both directions too: it finds a planted definition and invents none.
-
-Exit codes: 0 = every check holds (or a successful `-SelfTest`), 1 = at least one violation, 2 = the
-self-test failed, a registered language's package cannot be resolved, or the baseline is missing/malformed.
 
 ## `capability-gap-ledger-gate.ps1`
 
