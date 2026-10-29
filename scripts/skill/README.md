@@ -91,7 +91,7 @@ Module: `datrix_scripts.skill.implement_finding`; POSIX twin `skill/implement-fi
 file name alone.** A name in the merged scheme (`NNNN-<area>-<slug>.md`) carries its area; any other name
 is read by the first word of its slug (an area name or alias such as `azure-`, `ts-`, `gate-`). A name
 that states no area is sent, by name only, to a local model that picks one of the areas of
-`/merge-findings` (`python`, `typescript`, `clients`, `language`, `migration`, `seed`, `kernel`,
+`/merge-findings` (`python`, `typescript`, `clients`, `language`, `schema`, `seed`, `kernel`,
 `docker`, `aws`, `azure`, `component`, `tests`, `tooling`, `docs`; each the subject the finding is about,
 not the package its fix lands in, so the folders can be worked in priority order); its answer is checked
 against the asked names and the area set, and a name carrying a registered customer term is not sent.

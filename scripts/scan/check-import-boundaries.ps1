@@ -63,7 +63,7 @@
  Run the function-level-import ratchet check. Compares current per-file
  function-level-import counts in the code that was datrix-common's before
  the foundation packages were extracted from it (the src/ trees of
- datrix-common, datrix-semantic, datrix-migration and datrix-testing, plus
+ datrix-common, datrix-semantic, datrix-rdbms-schema and datrix-testing, plus
  each file a baseline entry names in another package) against the
  decrease-only baseline at scripts/config/function-level-import-baseline.toml,
  and fails on any baseline entry that is inert, empty, or carries no written

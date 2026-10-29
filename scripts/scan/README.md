@@ -242,7 +242,7 @@ A DISTINCT, STRICTER check from the provider-conditional ratchet above — same 
 (`discover_shared_packages` — every discovered package registering none of
 `datrix.languages`/`datrix.platforms`/`datrix.generators`/`datrix.extensions`; today
 `datrix_common`/`datrix_codegen_kernel`/`datrix_codegen_common`/`datrix_codegen_typescript_core`/
-`datrix_cli`/`datrix_language`/`datrix_semantic`/`datrix_migration`/`datrix_testing`) instead of the
+`datrix_cli`/`datrix_language`/`datrix_semantic`/`datrix_rdbms_schema`/`datrix_testing`) instead of the
 language packages, and held at a hard zero instead of a decrease-only ratchet: there is **no baseline
 file** for shared packages, so any single hit — ever — fails, with no grandfathering mechanism that could
 hide one. Runs unconditionally whenever `-CheckProviderConditionals` is passed (it needs no
@@ -254,7 +254,7 @@ ratchet's own exit behavior.
 Scans for function-level imports — any `Import`/`ImportFrom` AST node that is not a direct top-level
 statement of its module (nested in a function/method body, an `if TYPE_CHECKING:` block, or a
 `try`/`except`). Scope: every `src/` `.py` file of `datrix-common`, `datrix-semantic`,
-`datrix-migration` and `datrix-testing` (the code that was `datrix-common`'s before those packages were
+`datrix-rdbms-schema` and `datrix-testing` (the code that was `datrix-common`'s before those packages were
 extracted from it; a policed package missing from disk exits 2), plus every file a baseline entry names
 in another package — a former core module that moved up a layer keeps its entry under its new path at the
 same count and stays policed there. Baseline: `datrix/scripts/config/function-level-import-baseline.toml`;

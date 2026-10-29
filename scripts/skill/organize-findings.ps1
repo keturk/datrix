@@ -9,7 +9,7 @@
     is never read. The area comes from the name: the area of a merged name (NNNN-<area>-<slug>.md), else the
     first word of the slug when it names an area or an alias (azure-..., ts-..., gate-...). A name that states
     no area is sent, by name only, to a local model that picks one of the areas (python, typescript, clients,
-    language, migration, seed, kernel, docker, aws, azure, component, tests, tooling, docs); a name
+    language, schema, seed, kernel, docker, aws, azure, component, tests, tooling, docs); a name
     carrying a registered customer term is not sent. A move never overwrites an existing file.
 
     finding-select, finding-close and implement-finding.ps1 work the area subfolders in turn, or one given
