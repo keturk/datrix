@@ -126,7 +126,7 @@ graph TD
 - **datrix-language** (depends on datrix-common and datrix-semantic) — Parser + CST-to-AST transformers, implements `ParserProtocol` and `StdlibParserProtocol` defined in datrix-common; its language server runs semantic analysis
 - **datrix-extensions** (depends on datrix-common) — Optional domain packs; **not** required by `datrix-cli` or generators unless you declare `use extension` and install the pack
 - **datrix-testing** (depends on datrix-common, datrix-semantic and datrix-codegen-kernel) — The shared test harness (factories, fixtures, assertions, `.dtrx` parsing helpers). Every package lists it in its `dev` extra only, so no runtime edge points at it and none is drawn; the `pytest11` feature-tag plugin stays in datrix-common. See [datrix-testing architecture](../../../datrix-testing/docs/architecture.md)
-- **datrix-migration** (depends on datrix-common) — The RDBMS migration machinery every RDBMS-emitting generator shares: canonical schema snapshot, schema diff, change policy, revision ledger and ids, rebaseline, live-snapshot artifact contract, and the migration state store. `datrix-cli`, `datrix-codegen-kernel`, `datrix-codegen-common`, `datrix-codegen-python`, `datrix-codegen-typescript` and `datrix-codegen-sql` declare it; `datrix-common` must never import it. See [datrix-migration architecture](../../../datrix-migration/docs/architecture.md)
+- **datrix-migration** (depends on datrix-common) — The RDBMS schema machinery every RDBMS-emitting generator shares: canonical schema snapshot, schema diff, change policy and convergence planner. `datrix-common` must never import it. See [datrix-migration architecture](../../../datrix-migration/docs/architecture.md)
 - **datrix-codegen-common** (depends on datrix-common, datrix-migration and datrix-codegen-kernel) — The language layer: profile-driven transpiler, shared generator algorithms, context models, field analysis, parity checking, the language-generator orchestrators, and the conformance kit (`testkit`). Consumed by the language generators, the frontend targets and the CLI. Platform generators, SQL and component do **not** depend on it.
 - **Language Code Generators** (depend on datrix-codegen-common and datrix-codegen-kernel, which depend on datrix-common) — Python and TypeScript today. The set is open: each new target language is one more peer package here, and a language generator never depends on a sibling language package. `datrix-codegen-typescript` also depends on its own language core, `datrix-codegen-typescript-core` — an internal-family edge, not a frontend edge.
 - **datrix-codegen-typescript-core** (depends on datrix-common, datrix-codegen-kernel and datrix-codegen-common) — The TypeScript language core: transpiler core and visitors, language profile, type maps and resolver, the TypeScript naming and path facts the transpiler binds imports with, and the web-client mechanics. A library with no entry point; the TypeScript backend and every frontend target that emits TypeScript (Angular today) depend on it, so a frontend target never depends on the backend language package. It imports none of its consumers (its own import-linter contract, `TYPE_CHECKING` included, and a fresh-subprocess test that imports each module first). See [datrix-codegen-typescript-core architecture](../../../datrix-codegen-typescript-core/docs/architecture.md)
@@ -386,22 +386,22 @@ Provider-native runtimes are produced by their provider generator plus, where th
 
 ### Decision 8: Incremental RDBMS Schema Migrations (Adopted)
 
+> **Amended by the schema converge:** the revision ledger, revision files, language migration adapters and migration state store this decision first introduced are deleted. Every deploy compares the freshly generated declared schema `D` with the live catalog `L` and converges it; the Result below states what is in force. The rationale remains: a regeneration must still change a deployed database.
+
 **Rationale:**
 - Generated services with RDBMS entities are deployed with an initial schema migration applied. If a later regeneration rewrites that initial migration to include newly added fields, the live database does not change because migration engines track applied revision IDs, not changed file contents
 - Generated application code can then reference columns that do not exist in the deployed database
 - Python/Alembic and TypeScript/MikroORM both exhibit this gap: a fixed initial migration file is overwritten on each generation, but once applied, no new migration identity is created for schema changes
 
 **Result:**
-- **Canonical schema snapshots** — Language-neutral JSON files (`schema.json`) under `{app_dir}/.datrix/rdbms-migrations/{rdbms_id}/` record the deployed database contract
-- **Revision ledger** — An append-only JSON file (`ledger.json`) in the same directory records ordered Datrix revision IDs and database-agnostic canonical migration operations
+- **Canonical schema snapshots** — Language-neutral JSON files (`schema.json`), the desired snapshot `D` of each block, built fresh on every generation and written into the block's schema tool; the deploy reflects the live catalog `L` and converges it to `D`. No revision ledger, revision files or migration history is kept
 - **RDBMS UUID identity** — Every `RdbmsConfig` in `.dcfg` requires an `id: UUID` field. This UUID is the canonical migration identity, independent of service name, block alias, profile, engine, platform, or output directory
-- **Immutable migration history** — Once generated, a migration revision file is append-only. Later generations append new revisions; they never rewrite previous revisions
 - **Append-only file retention** — `GeneratedFile` gains a `retention` field (`"normal"` or `"append_only"`). `FileWriter` and manifest logic preserve append-only files across regenerations and reject content changes
-- **Shared diff and safety policy** — Schema changes are classified as `safe`, `risky`, or `blocked` before adapter rendering. Destructive changes (field/table removal, rename, type narrowing, enum removal) are generation errors — no `.dcfg` or CLI override converts them to automatic migrations
+- **Shared diff and change policy** — Each change of the converge lands in one outcome (`convergence_outcome`: applied safe, applied risky, needs approval, never applied). Only the deploy's `--approved` switch applies a change that needs approval; no `.dcfg` value or DSL element does
 - **No target-language migration adapter** — no language plugin declares one; the deploy's schema client applies every schema
 - **Shared-owned RDBMS schemas** — A shared RDBMS block is one schema per `rdbms_id`, converged once by the deploy's schema client under one dialect-derived advisory lock keyed by the `rdbms_id`. No generated service migrates or holds the block's owner login, and no platform creates a migration unit for a service
 
-**State ownership:** The migration state store owns snapshot/ledger persistence. Canonical state (`schema.json`, `ledger.json`) lives under the application source folder and is target-language/platform/engine agnostic.
+**State ownership:** Generation keeps no migration state. Each block's `schema.json` is the desired snapshot `D`, rebuilt on every run; a snapshot of any format version but `SCHEMA_VERSION` is refused with the instruction to regenerate it, and it stores no hash (`compute_schema_hash` is computed on demand).
 
 **Reference:** [RDBMS Migration Decisions (D1-D23)](rdbms-migration-decisions.md) | [Migration API](../../../datrix-common/docs/architecture/migration.md)
 
@@ -436,6 +436,8 @@ Provider-native runtimes are produced by their provider generator plus, where th
 ---
 
 ### Decision 10: Database Drift Detection & Reconciliation (Adopted)
+
+> **Superseded by the schema converge (see Decision 8, as amended):** the deploy's schema client reflects the live catalog `L` itself and converges it to `D` on every deploy, so there is no recorded baseline `R` to drift from. The environment-side exporter, the `live-schema-snapshot.json` artifact, the adopt and reconcile operations and the drift policy are deleted. The shared canonicalization this decision introduced remains (`canonicalize_snapshot`, `prepare_live_for_comparison`).
 
 **Rationale:**
 - The migration engine is purely source-driven and offline: every revision diffs a **recorded** baseline (`schema.json`) against a **desired** snapshot built from the AST. It never consults the live database — deliberate, so generation runs in CI without DB access, but it leaves the engine blind to the actual deployed schema
@@ -1457,8 +1459,8 @@ remove the interpolation-rule violations that already exist in `datrix-codegen-p
 reviewed exemptions in the rule-(c) enforcer's baseline, not silently ignored. Does not touch
 `datrix-codegen-component`'s manifest (its own fence was retired separately). Namespace
 allow-listing before `importlib.import_module` in `dgen/target_registry.py` and
-`datrix-common`'s `migration.state_store.RdbmsMigrationStateStore` adopting the shared
-containment helper for its `block_dir`/`_legacy_block_dir` joins (the persisted-state path) are optional-hardening / uniformity items from the
+the migration state store's path joins adopting the shared containment helper (the store has
+since been deleted with the revision ledger) are optional-hardening / uniformity items from the
 source design's lower-confidence observations, landed alongside the above for defense in depth.
 
 **Status:** Adopted. Both DAL generator render sinks validate output paths through the shared
@@ -2942,15 +2944,10 @@ the asyncpg dialect, which binds a string as `$1::VARCHAR`.)
 
 **Data compatibility.** A stored label can now change for an existing member (a `value(...)` added,
 changed or removed), so it is a schema change: `ChangeKind.ENUM_VALUE_RELABELED` is detected by the
-snapshot differ when both snapshots record their declared member values, classified `safe`, recorded in
-the ledger as `relabel_enum_value` (distinct from the blocked member-name `rename_enum_value`), and
-rendered by the Python adapter as an ordered, idempotent `ALTER TYPE … RENAME VALUE` block that fails
-closed rather than strand rows under a label the type already holds. A chain sealed before `value(...)`
-was read for storage created every type under the member names while its recorded snapshot already
-claimed the declared values; an adapter that can read its own frozen revisions
-(`StoredRevisionEnumLabelAuditor`) reports the labels the chain created, the orchestrator corrects the
-recorded claim, and the ordinary differ plans the relabel once. The MikroORM adapter realizes no enum
-member-list change, so it refuses a relabel by name like an append.
+snapshot differ, which compares declared member values on every diff (the live side `L` is given
+`D`'s member values wherever a label matches), classified `safe`, and rendered by the kernel through
+the dialect (`render_rename_enum_value`, PostgreSQL's guarded `ALTER TYPE … RENAME VALUE`), failing
+closed rather than strand rows under a label the type already holds.
 
 **Breaking change.** A TypeScript consumer of a value-less enum sees `PendingReview` where it saw
 `pending_review`; Python persists a declared `value('…')` where it persisted the snake name.
@@ -3028,7 +3025,7 @@ datrix generate --source system.dtrx --output ./generated -L typescript
 - **Paths are declared.** Static path templates over Decision 42's sanitizing path attributes; a domain's structural glob derives from them or from its committed `structural` line, never from a class.
 - **Declaration replaces, never joins.** Each migrated domain deleted its orchestrator, micro-generator, hooks, emission builder and binding in the same change, and its output was proven byte-identical before the generator was deleted. The bridge machinery retired with its last user: the emission seam, the builder factory, the file-owner and structural-declarer bridges, the emission-yielding contribution field, `orchestrated()` and the shared orchestrator registry.
 - **`.dal` resources.** Every target's definition is a `dgen/generator.dal` package resource loaded by `generator_definition_file`; the docstring form is deleted.
-- **`migration` is the sole F2 exemption.** Its lifecycle (ledger staging, sealed-revision replay) is not expressible as file clauses, so its compiled spec is replaced by the migration orchestrator's, which carries the compiled domain; its glob is committed in its `.dal` domain, and its `builder` line binds to a function that fails loud if the swap is ever skipped.
+- **No domain is F2-exempt.** The one exemption, the `migration` domain (ledger staging, sealed-revision replay), was deleted with the migration orchestrator and the revision ledger; every caller of the gate passes an empty exemption map.
 - **Held by:** the shared emission-path gate (a domain carrying any `builder` line is undeclared unless F2-exempt — a hard zero), the domain-machinery census in each backend suite, the derived declarations (no class-attribute branch), and the self-consistency gate over real generated output.
 
 **Security posture.** No auth, secret, transport, permission or emitted runtime default changes: generated bytes are identical. Every declared path goes through the existing output-path containment guard on both render sinks; no path is assembled in Python. The `.dal` loader reads only package resources of an installed, registered plugin and takes no path from configuration or from the application. Details: [codegen-engine](./packs/codegen-engine.md).
