@@ -79,12 +79,6 @@ _SUCCESS: Final = "success"
 
 LANGUAGE_REQUIRED: Final = "Error: -Language (-L) parameter is required (any registered datrix.languages target)."
 NO_MODE: Final = "Error: Either -All, -Domains, -TestSet <set>, or Source parameter must be provided."
-CARRY_FORWARD_IN_BATCH: Final = (
-    "Error: -CarryForwardLiveSnapshots cannot be combined with -All, -Domains or -TestSet: the live "
-    "snapshots belong to the databases of one application's profile, so they carry forward one "
-    "project's chains. Pass the project's .dtrx as Source with -ConfigProfile set to the profile the "
-    "snapshots were exported from."
-)
 INSTALL_CHECK_FAILED: Final = (
     "The datrix packages are not installed, or a Datrix plugin failed to load; fix what is named above, then re-run."
 )
@@ -93,7 +87,7 @@ _HELP: Final = (
     ("Usage:", ColorCodes.YELLOW),
     (" Generate single project:", ColorCodes.CYAN),
     (" .\\generate.ps1 <Source> [Output] -Language <lang> [-Runtime <runtime>] [-ConfigProfile <profile>] "
-     "[-ValidationLevel <level>] [-CarryForwardLiveSnapshots <dir>] [-Dbg]", ""),
+     "[-ValidationLevel <level>] [-Dbg]", ""),
     ("   (Output optional; derived from test-projects.json when omitted)", ColorCodes.GRAY),
     ("", ""),
     (" Generate all projects:", ColorCodes.CYAN),
@@ -138,9 +132,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"The test set of a batch (default: {DEFAULT_TEST_SET}).")
     parser.add_argument("--validation-level", default="",
                         help="Post-generation validation level, forwarded to datrix generate (the CLI's when omitted).")
-    parser.add_argument("--carry-forward-live-snapshots", default="",
-                        help="Directory of live schema snapshots of the profile's databases, forwarded to datrix "
-                             "generate --carry-forward-live-snapshots (single project only).")
     parser.add_argument("--verbose-output", action="store_true",
                         help="Show the detailed output sections on the console too (the log always has them).")
     parser.add_argument("--results-subdir", default="",
@@ -194,7 +185,6 @@ def single_arguments(args: argparse.Namespace, source: Path) -> list[str]:
         *_option("--runtime", args.runtime),
         *_option("--profile", args.config_profile),
         *_option("--validation-level", args.validation_level),
-        *_path_option("--carry-forward-live-snapshots", args.carry_forward_live_snapshots),
         *_switches(args),
     ]
 
@@ -439,9 +429,6 @@ def _generate(args: argparse.Namespace, log: Path) -> int:
     if problem:
         tee(log, problem, ColorCodes.RED)
         return EXIT_FAILED
-    if batch_mode(args) and args.carry_forward_live_snapshots.strip():
-        tee(log, CARRY_FORWARD_IN_BATCH, ColorCodes.RED)
-        return EXIT_FAILED
     if batch_mode(args):
         arguments = batch_arguments(args)
         tee(log, f"Running generate {DOMAINS_TEST_SET if args.domains else DEFAULT_TEST_SET}...", ColorCodes.CYAN)
@@ -507,10 +494,8 @@ def _check_child_arguments_follow_the_mode() -> None:
         "--source", str(source), "--language", "python", "--profile", "pilot", "--verbose"], (
         single_arguments(single, source))
     assert not batch_mode(parser.parse_args(["--language=python", "--test-set=all"])), "-TestSet all is no batch"
-    carried = parser.parse_args(["--source=x.dtrx", "--language=python", "--carry-forward-live-snapshots=live"])
-    assert single_arguments(carried, source) == [
-        "--source", str(source), "--language", "python",
-        "--carry-forward-live-snapshots", str(Path("live").absolute())], single_arguments(carried, source)
+    assert parser.parse_known_args(["--carry-forward-live-snapshots=live"])[1] == [
+        "--carry-forward-live-snapshots=live"], "the removed option is not a script parameter"
 
 
 def _check_quiet_console_drops_detail_and_long_lines_split() -> None:

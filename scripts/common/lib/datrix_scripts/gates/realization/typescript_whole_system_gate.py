@@ -10,10 +10,9 @@ before writing anything. This gate proves a real end-to-end TypeScript whole-sys
 2. REALNESS: run 1 holds generated ``*.ts`` files, and no ``*.py`` file is the service implementation.
 3. BYTE-STABILITY: run 1 and run 2 hold the same files with the same bytes.
 
-A blanket "no ``*.py``" would fail correct output: every target language's project carries a fixed set of
-language-agnostic Python artifacts, the HTTP-contract integration tests under ``tests/`` (black-box tests against
-the running service) and the live-schema exporter under ``migration-tools/`` (a database tool). Any ``*.py`` under a
-``src`` segment, or under neither allowed directory, is a language leak.
+A blanket "no ``*.py``" would fail correct output: every target language's project carries the
+language-agnostic HTTP-contract integration tests under ``tests/`` (black-box tests against the running
+service). Any ``*.py`` under a ``src`` segment, or outside ``tests/``, is a language leak.
 
 Post-generation build and install artifacts (``.datrix``, ``.ruff_cache``, ``.tsc_cache``, ``node_modules``) embed
 absolute paths or install state, and are excluded from both checks.
@@ -62,7 +61,7 @@ RUN_COUNT: Final = 2
 #: Post-generation build and install artifacts, never deterministic generated source.
 EXCLUDED_DIR_NAMES: Final = (".datrix", ".ruff_cache", ".tsc_cache", "node_modules")
 #: Where every target language's project carries Python by design.
-LANGUAGE_AGNOSTIC_PYTHON_DIRS: Final = ("tests", "migration-tools")
+LANGUAGE_AGNOSTIC_PYTHON_DIRS: Final = ("tests",)
 SOURCE_SEGMENT: Final = "src"
 TYPESCRIPT_SUFFIX: Final = ".ts"
 PYTHON_SUFFIX: Final = ".py"
@@ -153,7 +152,7 @@ def _print_failures(header: str, failures: Sequence[str]) -> None:
 def _print_summary(verdict: GenerationVerdict) -> None:
     print("=== Summary ===")
     print(f"Generated TypeScript source files (*.ts, excl. build artifacts): {verdict.ts_count}")
-    print(f"Language-agnostic Python artifacts (tests/ + migration-tools/):  {verdict.py_count}")
+    print(f"Language-agnostic Python artifacts (tests/):                     {verdict.py_count}")
     print(f"Compared source files run1 vs run2:                              {verdict.compared_count}")
     print(f"Byte differences (excl. {'/'.join(EXCLUDED_DIR_NAMES)}): {verdict.byte_diff_count}")
 
@@ -204,7 +203,6 @@ def _planted_pair(root: Path) -> tuple[Path, Path]:
             {
                 "service/src/app.ts": "export const app = 1;",
                 "service/tests/test_contract.py": "def test_contract(): ...",
-                "service/migration-tools/export.py": "print('export')",
                 "service/node_modules/pkg/index.js": run.name,
             },
         )
