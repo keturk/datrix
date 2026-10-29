@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +42,8 @@ EXIT_UNUSABLE = EXIT_FAILED
 EXIT_KEPT = EXIT_CHECK_FAILED
 
 DEFAULT_COUNT = 10
+# The count of "every file": no folder holds more files than this, so selecting it takes them all.
+UNLIMITED = sys.maxsize
 FINDINGS_DIR_PARTS = ("findings",)
 # The areas of /merge-findings in its order, each with what it holds. An area is the subject a finding is about
 # (a language, a platform and its services, a construct), never the package where the fix lands and never a

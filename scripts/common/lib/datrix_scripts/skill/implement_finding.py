@@ -56,6 +56,7 @@ from datrix_scripts.skill.finding_inbox import (
     EXIT_DELETED,
     EXIT_KEPT,
     EXIT_UNUSABLE,
+    UNLIMITED,
     close_finding,
     inbox_dir,
 )
@@ -92,6 +93,18 @@ def select_findings(workspace: Path, findings: Sequence[str], count: int, direct
         say(f"  ERROR: {exc}")
         say(f"Selecting the findings failed (exit {EXIT_UNUSABLE}).", ColorCodes.RED)
         raise ChainStopped(EXIT_FAILED) from exc
+
+
+def finding_count(everything: bool, count: int | None, findings: Sequence[str]) -> int:
+    """How many findings to take: every one with *everything*, else *count* (default ``DEFAULT_COUNT``); stops
+    with 1 when *everything* is combined with a count or with named findings, which it would silently override."""
+    if everything and (count is not None or findings):
+        say("-All works every findings file of the folder; it cannot be combined with -Count or -Finding.",
+            ColorCodes.RED)
+        raise ChainStopped(EXIT_FAILED)
+    if everything:
+        return UNLIMITED
+    return DEFAULT_COUNT if count is None else count
 
 
 def finding_outcome(text: str) -> tuple[str, str]:
@@ -165,8 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Work through the first findings files one at a time, one fresh session per finding.",
         allow_abbrev=False,
     )
-    parser.add_argument("--count", type=int, default=DEFAULT_COUNT,
+    parser.add_argument("--count", type=int, default=None,
                         help="How many findings files to take, first by name. Default: 10.")
+    parser.add_argument("--all", action="store_true",
+                        help="Work every findings file of the folder given with --dir (default: every folder of "
+                             "<workspace>/findings in turn), with no count cap. Not with --count or --finding.")
     parser.add_argument("--finding", action="append", default=[],
                         help="A findings file to work, in place of the first --count of the inbox (repeat for each).")
     parser.add_argument("--dir", default="",
@@ -240,6 +256,25 @@ def _check_the_subfolders_are_worked_in_turn_or_only_the_one_given() -> None:
             assert close(inbox / "azure" / "a2.md", inbox=inbox) == EXIT_DELETED
 
 
+def _check_all_takes_every_finding_of_the_folder_and_refuses_a_count() -> None:
+    assert finding_count(False, None, []) == DEFAULT_COUNT
+    assert finding_count(False, 3, []) == 3
+    assert finding_count(True, None, []) == UNLIMITED
+    with TemporaryDirectory() as raw:
+        workspace = Path(raw)
+        inbox = workspace / "findings"
+        write_files(inbox, {f"azure/a{n:02d}.md": "a\n" for n in range(DEFAULT_COUNT + 2)} | {"python/p1.md": "p\n"})
+        everything = select_findings(workspace, [], UNLIMITED, "")
+        assert len(everything) == DEFAULT_COUNT + 3, everything
+        assert [path.name for path in select_findings(workspace, [], UNLIMITED, "azure")] == [
+            f"a{n:02d}.md" for n in range(DEFAULT_COUNT + 2)]
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            assert chain_exit_code(lambda: finding_count(True, 3, [])) == EXIT_FAILED
+            assert chain_exit_code(lambda: finding_count(True, None, ["a.md"])) == EXIT_FAILED
+        assert len(printed.getvalue().splitlines()) == 2, printed.getvalue()
+
+
 def _check_a_dry_run_prints_every_session() -> None:
     with TemporaryDirectory() as raw:
         workspace = Path(raw)
@@ -263,11 +298,13 @@ def _run(args: argparse.Namespace) -> int:
         checks = [*CHAIN_CHECKS, _check_the_outcome_is_the_last_finding_fix_line,
                   _check_findings_are_selected_and_closed_in_process,
                   _check_the_subfolders_are_worked_in_turn_or_only_the_one_given,
+                  _check_all_takes_every_finding_of_the_folder_and_refuses_a_count,
                   _check_a_dry_run_prints_every_session]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SKILL_SCRIPTS_DIR)
 
     def body() -> NoReturn:
-        selected = select_findings(WORKSPACE_DIR, args.finding, args.count, args.dir)
+        selected = select_findings(WORKSPACE_DIR, args.finding, finding_count(args.all, args.count, args.finding),
+                                   args.dir)
         if not selected:
             say("No findings files to work on.")
             raise ChainStopped(EXIT_DONE)

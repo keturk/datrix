@@ -72,7 +72,7 @@ from datrix_scripts.skill.chain import (
     chain_exit_code,
     chain_options,
 )
-from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT
+from datrix_scripts.skill.finding_inbox import DEFAULT_COUNT, UNLIMITED
 from datrix_scripts.skill.ledger_rules import (
     LEDGER_CHECKS,
     changed_files,
@@ -169,10 +169,9 @@ def require_unit_rows(chain: Chain, ledger: Path) -> None:
                                 f"rerun this script: {ledger}")
 
 
-def design_files(workspace: Path, count: int) -> list[Path]:
-    """The first *count* ``*.md`` files directly in ``<workspace>/design``, by name; stops with 1 when the
-    folder is missing or *count* is below 1."""
-    directory = workspace.joinpath(*DESIGN_DIR_PARTS)
+def design_files(directory: Path, count: int) -> list[Path]:
+    """The first *count* ``*.md`` files directly in *directory*, by name; stops with 1 when the folder is
+    missing or *count* is below 1."""
     if not directory.is_dir():
         say(f"Design folder '{directory}' does not exist. Pass -Design <path>.", ColorCodes.RED)
         raise ChainStopped(EXIT_FAILED)
@@ -182,15 +181,26 @@ def design_files(workspace: Path, count: int) -> list[Path]:
     return sorted(path for path in directory.glob("*.md") if path.is_file())[:count]
 
 
-def select_designs(design: str, count: int, start_at: str, workspace: Path) -> list[Path]:
-    """The designs to implement: *design* alone when given, else the first *count* of the design folder;
-    stops with 1 when -StartAt is given without -Design (a later start needs one named design's ledger)."""
-    if design:
+def select_designs(design: str, count: int | None, start_at: str, workspace: Path, *,
+                   everything: bool = False) -> list[Path]:
+    """The designs to implement: *design* alone when given, else the first *count* (default ``DEFAULT_COUNT``)
+    of the design folder. With *everything*, every design of the folder *design* names (default
+    ``<workspace>/design``), with no count cap; stops with 1 when that is combined with a count or names a file,
+    or when -StartAt is given without a single design (a later start needs one named design's ledger)."""
+    if everything:
+        if count is not None or (design and not Path(design).is_dir()):
+            say("-All implements every design of a folder: pass that folder (default <workspace>\\design) as "
+                "-Design, and no -Count.", ColorCodes.RED)
+            raise ChainStopped(EXIT_FAILED)
+    elif design:
         return [Path(design)]
     if start_at != STEPS[0]:
         say(f"-StartAt {start_at} resumes one design's run; pass that design with -Design <path>.", ColorCodes.RED)
         raise ChainStopped(EXIT_FAILED)
-    return design_files(workspace, count)
+    directory = Path(design) if design else workspace.joinpath(*DESIGN_DIR_PARTS)
+    if everything:
+        return design_files(directory, UNLIMITED)
+    return design_files(directory, DEFAULT_COUNT if count is None else count)
 
 
 def preflight(design: str, start_at: str, *, dry_run: bool, workspace: Path) -> tuple[Path, Path]:
@@ -348,8 +358,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--design", default="",
                         help="The design document to implement, in place of the first --count of the design folder.")
-    parser.add_argument("--count", type=int, default=DEFAULT_COUNT,
+    parser.add_argument("--count", type=int, default=None,
                         help="How many designs to take from the design folder, first by name. Default: 10.")
+    parser.add_argument("--all", action="store_true",
+                        help="Implement every design of the folder given as --design (default: <workspace>/design), "
+                             "with no count cap. Not with --count.")
     parser.add_argument("--start-at", choices=STEPS, default=STEPS[0],
                         help="The step to start at, to resume after answering a question.")
     parser.add_argument("--keep-source", action="store_true", help="Pass KEEP SOURCE: true to /absorb-design.")
@@ -425,12 +438,25 @@ def _check_designs_are_selected_by_name_and_count() -> None:
         write_files(folder, {"020-b.md": "b\n", "010-a.md": "a\n", "030-c.md": "c\n", "notes.txt": "x\n"})
         assert select_designs("", 2, "implement", workspace) == [folder / "010-a.md", folder / "020-b.md"]
         assert select_designs("x.md", 2, "verify", workspace) == [Path("x.md")]
+        # -All takes every design of the default folder, or of the folder given, past the default count.
+        write_files(folder, {f"{n:03d}-d.md": "d\n" for n in range(100, 100 + DEFAULT_COUNT + 2)})
+        everything = select_designs("", None, "implement", workspace, everything=True)
+        assert len(everything) == DEFAULT_COUNT + 2 + 3, everything
+        assert len(select_designs("", None, "implement", workspace)) == DEFAULT_COUNT
+        other = workspace / "other"
+        write_files(other, {"b.md": "b\n", "a.md": "a\n"})
+        assert select_designs(str(other), None, "implement", workspace, everything=True) == [other / "a.md",
+                                                                                              other / "b.md"]
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed):
             assert chain_exit_code(lambda: select_designs("", 0, "implement", workspace)) == EXIT_FAILED
             assert chain_exit_code(lambda: select_designs("", 2, "verify", workspace)) == EXIT_FAILED
             assert chain_exit_code(lambda: select_designs("", 2, "implement", workspace / "none")) == EXIT_FAILED
-    assert len(printed.getvalue().splitlines()) == 3, printed.getvalue()
+            assert chain_exit_code(lambda: select_designs("", 2, "implement", workspace, everything=True)) == EXIT_FAILED
+            assert chain_exit_code(lambda: select_designs(str(folder / "010-a.md"), None, "implement", workspace,
+                                                          everything=True)) == EXIT_FAILED
+            assert chain_exit_code(lambda: select_designs("", None, "verify", workspace, everything=True)) == EXIT_FAILED
+    assert len(printed.getvalue().splitlines()) == 6, printed.getvalue()
 
 
 def _dry_run_lines(workspace: Path, design: Path) -> list[str]:
@@ -523,7 +549,7 @@ def _run(args: argparse.Namespace) -> int:
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SKILL_SCRIPTS_DIR)
 
     def body() -> NoReturn:
-        designs = select_designs(args.design, args.count, args.start_at, WORKSPACE_DIR)
+        designs = select_designs(args.design, args.count, args.start_at, WORKSPACE_DIR, everything=args.all)
         if not designs:
             say("No design documents to work on.")
             raise ChainStopped(EXIT_DONE)
