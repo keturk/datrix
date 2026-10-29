@@ -515,20 +515,20 @@ rdbms orderDb from postgresContainer(
 
 The `id` is not affected by changes to resolved database engine, profile, platform, output directory, connection host, database name, schema name, owner container, or block alias. Migration state under `{app_dir}/.datrix/rdbms-migrations/{rdbms_id}/` is keyed solely by this UUID.
 
-Add the `id` field to each RDBMS block by hand. See [RDBMS migration decisions](../architecture/rdbms-migration-decisions.md).
+Add the `id` field to each RDBMS block by hand. See [RDBMS schema decisions](../architecture/rdbms-schema-decisions.md).
 
 ---
 
-## Migration Lifecycle (`migrations` block)
+## Schema Convergence (`schemaConvergence` block)
 
-The per-profile `migrations` block controls whether the deploy's schema converge builds and changes the profile's RDBMS blocks. It is **gated and default on** — a profile that does not declare the block converges every block.
+The per-profile `schemaConvergence` block controls whether the deploy's schema converge builds and changes the profile's RDBMS blocks. It is **gated and default on** — a profile that does not declare the block converges every block.
 
 **Declaration:**
 
 ```dcfg
 config system library.System {
   base {
-    migrations {
+    schemaConvergence {
       enabled = true;
     }
   }
@@ -544,7 +544,7 @@ config system library.System {
 **Important Notes:**
 
 - **No database connectivity:** the key grants Datrix no database connection.
-- **Unknown keys are refused:** the block accepts `enabled` only; any other key (a misspelling, or the removed `ledger`) fails config loading by name. A profile declaring the removed `driftPolicy` section is refused the same way.
+- **Unknown keys are refused:** the block accepts `enabled` only; any other key (a misspelling, or the removed `ledger`) fails config loading by name. A profile declaring the removed `driftPolicy` or `migrations` section is refused the same way.
 
 ---
 
@@ -902,7 +902,6 @@ rdbms:
     poolSize: 40
     ssl: true
     asyncDriver: postgresql+asyncpg
-    syncDriver: postgresql+psycopg2
     healthCheckSql: SELECT 1
 cache:
   orderCache:

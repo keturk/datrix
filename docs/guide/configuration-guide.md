@@ -531,7 +531,7 @@ Order service uses templates for common config plus production overrides.
 
 ### Engine Defaults
 
-Fields like `port`, `docker_image`, `asyncDriver`, `syncDriver` are auto-injected based on engine choice:
+Fields like `port`, `docker_image`, `asyncDriver` are auto-injected based on engine choice:
 
 ```yaml
 base:
@@ -965,7 +965,6 @@ test:
     password: ${POSTGRES_PASSWORD}      # Environment variable
     docker_image: postgres:16-alpine    # Docker image (for container platform)
     volume_path: ./data/postgres        # Volume mount path
-    sync_driver: psycopg2              # Sync driver: psycopg2, pg8000
     async_driver: asyncpg              # Async driver: asyncpg
     health_check_sql: "SELECT 1"       # Health check SQL
 
@@ -1026,7 +1025,6 @@ production:
 | `password` | String | Database password (use env vars) |
 | `docker_image` | String | Docker image for database |
 | `volume_path` | String | Volume mount path |
-| `sync_driver` | String | Synchronous driver |
 | `async_driver` | String | Asynchronous driver |
 | `health_check_sql` | String | SQL for health checks |
 

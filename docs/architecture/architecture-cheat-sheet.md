@@ -18,7 +18,7 @@
 | Touching DSL doc comments, enum keywords or wire/stored values, `work { }`, `extern service`, or needing the grammar snapshot | [dsl-features](./packs/dsl-features.md) |
 | Touching the transpiler, DAL generator paths/escaping, `#"..."` interpolation, SQL literal quoting | [codegen-engine](./packs/codegen-engine.md) |
 | Touching generated-service startup, the secret backend, env vars, framework headers, problem types, gateways, observability | [runtime-and-deploy](./packs/runtime-and-deploy.md) |
-| Touching schema snapshots, the schema converge, `migrations { }`, the kernel's schema rendering | [migrations](./packs/migrations.md) |
+| Touching schema snapshots, the schema converge, `schemaConvergence { }`, the kernel's schema rendering | [schema-convergence](./packs/schema-convergence.md) |
 | Touching the LSP, keyword manifest, `datrix-vscode` | [language-server](./packs/language-server.md) |
 | Touching the `agents` block, tools, model providers, `approval`, `replay` | [ai-agents](./packs/ai-agents.md) |
 | Adding/reordering a pipeline stage; builtins/stdlib loading; "where in the run does X happen?" | [pipeline-stages](./packs/pipeline-stages.md) |
@@ -31,10 +31,10 @@ The core packages plus optional **datrix-extensions**; `.claude/docs/repo-bounda
 | Package | Role |
 |---------|------|
 | datrix-common | Foundation: AST model, types, config resolution, plugin and deployment declarations. ZERO deps on other Datrix packages |
-| datrix-semantic | `SemanticAnalyzer`, phase pipeline, validators, synthesis, auth-contract lowering. Depends on common, and on migration's SQL lowering only (column defaults are lowered at analysis) |
-| datrix-migration | RDBMS schema machinery (snapshot, diff, policy, convergence planner). Depends on common only |
+| datrix-semantic | `SemanticAnalyzer`, phase pipeline, validators, synthesis, auth-contract lowering. Depends on common, and on datrix-rdbms-schema's SQL lowering only (column defaults are lowered at analysis) |
+| datrix-rdbms-schema | RDBMS schema machinery (snapshot, diff, policy, convergence planner). Depends on common only |
 | datrix-language | Tree-sitter parser, CST→AST transformers, stdlib `.dtrx` modules, language server. Depends on common, semantic |
-| datrix-codegen-kernel | Target-neutral generation framework (`Generator`, template engine, discovery, type-mapping registry, shared route/runtime derivations, deploy-script machinery, DAL generator model, Seed, `sql_facts`). Depends on common, migration; loads no language-layer module |
+| datrix-codegen-kernel | Target-neutral generation framework (`Generator`, template engine, discovery, type-mapping registry, shared route/runtime derivations, deploy-script machinery, DAL generator model, Seed, `sql_facts`). Depends on common, rdbms-schema; loads no language-layer module |
 | datrix-codegen-common | Language layer: transpiler, `LanguageProfile` + `SyntaxEmitters`, context builders, DAL generator. Used by EVERY language generator |
 | datrix-codegen-typescript-core | Shared TypeScript core (transpiler core, profile, type maps, naming/path facts, web-client mechanics). Library; used by the TS backend and every TS-emitting frontend |
 | datrix-codegen-python / -typescript | Backend language generators (FastAPI / NestJS-Express) |

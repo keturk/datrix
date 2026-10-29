@@ -1,8 +1,8 @@
-# RDBMS Migration Architectural Decisions
+# RDBMS Schema Architectural Decisions
 
 **Last Updated:** October 28, 2026
 
-This document records the architectural decisions for Datrix RDBMS schema migrations. For API-level documentation see [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md).
+This document records the architectural decisions for the Datrix RDBMS schema, from the earlier migration chains to the schema converge. For API-level documentation see [RDBMS Schema API](../../../datrix-common/docs/architecture/rdbms-schema.md).
 
 **Status:** The revision ledger, migration history, language migration adapters, migration state and drift tooling that D1–D43 built are deleted. D44 states the model in force; each decision carries its own status line.
 ---
@@ -25,7 +25,7 @@ This migration contract intentionally does not:
 
 ## D1: Incremental Schema Migration Is a Datrix Platform Contract
 
-**Status:** In force as amended: the snapshot, diff, change policy and convergence planner are shared (`datrix-migration`); no ledger or retention state is kept (D44).
+**Status:** In force as amended: the snapshot, diff, change policy and convergence planner are shared (`datrix-rdbms-schema`); no ledger or retention state is kept (D44).
 
 Language generators render target-native artifacts, but snapshot state, diffing, ledger, retention, and safety policy belong to shared Datrix infrastructure in `datrix-common`.
 
@@ -95,7 +95,7 @@ The canonical Datrix schema revision chain is shared across target languages, pr
 
 `ledger.json` stores canonical Datrix migration operations from a fixed database-agnostic vocabulary. It does not store SQL, Alembic operations, MikroORM code, generated filenames, adapter IDs, active profile, platform, or database engine. Unsupported schema diffs fail before rendering.
 
-**Allowed operations:** `create_table`, `add_column`, `alter_column_nullable`, `alter_column_type`, `alter_column_default`, `alter_column_unique`, `add_primary_key`, `add_foreign_key`, `reassert_foreign_key`, `rename_foreign_key`, `add_index`, `rename_index`, `create_enum`, `add_enum_value`, `relabel_enum_value`, `create_cqrs_view_table`, `relocate_schema`, `set_comment` (plus the non-DDL `adopt_live_schema` marker). The diff-change-to-operation mapping is `datrix_migration.revision_ledger.CHANGE_KIND_TO_LEDGER_OP`, read by the orchestrator and by drift reconciliation alike.
+**Allowed operations:** `create_table`, `add_column`, `alter_column_nullable`, `alter_column_type`, `alter_column_default`, `alter_column_unique`, `add_primary_key`, `add_foreign_key`, `reassert_foreign_key`, `rename_foreign_key`, `add_index`, `rename_index`, `create_enum`, `add_enum_value`, `relabel_enum_value`, `create_cqrs_view_table`, `relocate_schema`, `set_comment` (plus the non-DDL `adopt_live_schema` marker). The diff-change-to-operation mapping is `datrix_rdbms_schema.revision_ledger.CHANGE_KIND_TO_LEDGER_OP`, read by the orchestrator and by drift reconciliation alike.
 
 **Blocked operations:** `drop_table`, `drop_column`, `drop_primary_key`, `drop_foreign_key`, `drop_index`, enum value removal/rename/reorder, `drop_cqrs_view_table`, arbitrary SQL, target-native migration code.
 
@@ -109,7 +109,7 @@ Datrix generation does not infer whether a target database is empty or already p
 
 **Status:** In force as amended: each change's outcome is `convergence_outcome` (D44).
 
-A deploy applies a destructive change only when the operator approves it. The removal of a table, column, index, unique constraint, foreign key or enum type `D` no longer declares, and a type narrowing, need approval: without it the deploy is refused before anything applies, naming each change and the switch, and with it the change runs in the contract phase and the removed object's data goes with it. A check `D`'s rules no longer derive is dropped without approval. Removing or reordering an enum member is never applied. The one override is the deploy's command-line `--approved` switch, and it approves the plan of the one run it is given to, never a later plan; no `.dcfg` value, environment variable or DSL element approves anything, and no list of approved objects exists (`datrix-migration/docs/architecture.md` § Convergence outcomes).
+A deploy applies a destructive change only when the operator approves it. The removal of a table, column, index, unique constraint, foreign key or enum type `D` no longer declares, and a type narrowing, need approval: without it the deploy is refused before anything applies, naming each change and the switch, and with it the change runs in the contract phase and the removed object's data goes with it. A check `D`'s rules no longer derive is dropped without approval. Removing or reordering an enum member is never applied. The one override is the deploy's command-line `--approved` switch, and it approves the plan of the one run it is given to, never a later plan; no `.dcfg` value, environment variable or DSL element approves anything, and no list of approved objects exists (`datrix-rdbms-schema/docs/architecture.md` § Convergence outcomes).
 
 ## D14: SQL Files Are Not an Implicit Fallback
 
@@ -335,7 +335,7 @@ Two obligations travel with the type. **The language-runtime mapping is register
 
 **Status:** In force as amended by D44 and by the differ owning every comparison of `L` with `D`: a key whose actions changed is replaced (`FOREIGN_KEY_REPLACED`: dropped under exactly the name `L` holds it by, then `D`'s key added under `D`'s name, validated, in the expand phase), and a key `L` holds under another name with the same actions is renamed (`FOREIGN_KEY_RENAMED`); both are reported by `compute_snapshot_diff`, never once for every key.
 
-Every foreign-key constraint is named by one function (`fk_<table>_<columns>`, `datrix_migration.foreign_key_naming`), and the snapshot records the realized name, so a drop or re-assertion targets what the database holds. Every baseline creates every key the snapshot records, an entity added later gets its keys in the same revision, and every constraint states `ON DELETE` and `ON UPDATE` from the DSL (default `restrict`) through the one shared keyword spelling -- a constraint with no clause means `NO ACTION`, which is neither the default nor anything an author declared. Referential integrity is therefore enforced on every database a Datrix adapter builds; a Python baseline once created none.
+Every foreign-key constraint is named by one function (`fk_<table>_<columns>`, `datrix_rdbms_schema.foreign_key_naming`), and the snapshot records the realized name, so a drop or re-assertion targets what the database holds. Every baseline creates every key the snapshot records, an entity added later gets its keys in the same revision, and every constraint states `ON DELETE` and `ON UPDATE` from the DSL (default `restrict`) through the one shared keyword spelling -- a constraint with no clause means `NO ACTION`, which is neither the default nor anything an author declared. Referential integrity is therefore enforced on every database a Datrix adapter builds; a Python baseline once created none.
 
 An action is part of the constraint a database enforces, so a change to `onDelete`/`onUpdate` on an existing key is a change (`FOREIGN_KEY_REPLACED`), where the differ used to alter the schema hash and plan nothing. The change carries `D`'s key as its subject and the name `L` holds as `old_value`, so exactly that name is dropped and the key added under the shared name. On PostgreSQL the new constraint is added `NOT VALID` and then validated. A row with no parent fails the revision, naming the constraint; no row is deleted to make it pass. Replacement is classified `risky`, never blocked (it moves and loses no row) -- D21 is unchanged: a *new* key on an existing table is still a generation error.
 
@@ -371,5 +371,5 @@ One snapshot format is read: `SCHEMA_VERSION`. A snapshot of any other format or
 
 - [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations-adopted) — Rationale and summary
 - [Architecture Overview — Decision 45](architecture-overview.md#decision-45-a-generated-service-must-be-able-to-reach-its-database--probe-transport-migration-readiness-and-chain-owned-schema-approved--implementation-in-progress) — Boot-path contracts these decisions detail
-- [RDBMS Migration API](../../../datrix-common/docs/architecture/migration.md) — Shared module documentation
+- [RDBMS Schema API](../../../datrix-common/docs/architecture/rdbms-schema.md) — Shared module documentation
 - [Config Document Reference — RDBMS ID](../reference/dcfg-reference.md#rdbms-migration-identity) — `.dcfg` `id` field

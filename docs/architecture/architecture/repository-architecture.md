@@ -67,7 +67,7 @@ The project is split into one repository per installable package (the core toolc
 **Dependencies:**
 - `datrix-common` (AST model, type system, configuration)
 - `datrix-codegen-kernel` (generator base classes, template rendering, the DAL generator data model, the service-feature vocabulary)
-- `datrix-migration` (schema snapshot, diff, change policy and convergence planner the kernel's schema rendering reads)
+- `datrix-rdbms-schema` (schema snapshot, diff, change policy and convergence planner the kernel's schema rendering reads)
 
 See [datrix-codegen-common — Architecture](../../../../datrix-codegen-common/docs/architecture.md).
 
@@ -95,14 +95,14 @@ Generates SQL DDL (PostgreSQL). Seed DML (PostgreSQL `ON CONFLICT ... DO NOTHING
 - `datrix-codegen-common` (shared transpiler, algorithms, context models, field analysis)
 - `datrix-codegen-kernel` (generator base classes, template rendering, generation framework)
 - `datrix-common` (AST model, type system, configuration)
-- `datrix-migration` (schema snapshot, diff and convergence planner the kernel's schema rendering reads)
+- `datrix-rdbms-schema` (schema snapshot, diff and convergence planner the kernel's schema rendering reads)
 - `jinja2` (for template rendering)
 - No language package depends on `datrix-codegen-sql`: the SQL dialect facts their migration adapters render DDL through (dialect protocol and registry, index constants, naming, column derivation, type map) live in `datrix-codegen-kernel` (`datrix_codegen_kernel.sql_facts`). A language package never depends on a sibling language package.
 
 **Dependencies (component, SQL):**
 - `datrix-codegen-kernel` (generator base classes, template rendering, generation framework, DAL generator runtime and registrations; component also consumes derived domain declarations, the shared serverless plan and NoSQL connection plans, SQL the migration-adapter contract, its language-agnostic plans and the SQL dialect facts in `sql_facts`)
 - `datrix-common` (AST model, type system, configuration)
-- `datrix-migration` (SQL only: schema diff, revision ids, live-snapshot reflector contract)
+- `datrix-rdbms-schema` (SQL only: schema diff, revision ids, live-snapshot reflector contract)
 - `jinja2` (for template rendering)
 
 Neither declares `datrix-codegen-common`: the import-boundary scanner forbids them every `datrix_codegen_common` import in `src/`.
@@ -166,7 +166,7 @@ Command-line interface for code generation and seed management
 - `datrix-codegen-kernel` (generation framework, generator discovery)
 - `datrix-semantic` (the `analyze` stage, push device-registry injection, and `datrix validate`)
 - `datrix-language` (parser, CST-to-AST transformers, `ParserProtocol` implementation)
-- `datrix-migration` (the migrations stage and the migration state transaction)
+- `datrix-rdbms-schema` (the migrations stage and the migration state transaction)
 - `datrix-codegen-common` (the migration and generator-inspection commands import migration state and render, the migration CQRS algorithm, and DAL generator definitions lazily inside their command bodies)
 - Discovers installed generator *plugins* dynamically (datrix-codegen-python, etc.)
 
@@ -205,8 +205,8 @@ The shared test harness every package's suite imports: factories that build real
 
 ### Migration framework (1)
 
-#### 16. datrix-migration
-The RDBMS schema machinery every RDBMS-emitting generator shares: the canonical schema snapshot format, the schema differ and snapshot-to-snapshot differ, the change policy and the convergence planner (`L` vs `D`). The kernel renders its changes to SQL. `datrix-common` must never import it. See [datrix-migration — Architecture](../../../../datrix-migration/docs/architecture.md).
+#### 16. datrix-rdbms-schema
+The RDBMS schema machinery every RDBMS-emitting generator shares: the canonical schema snapshot format, the schema differ and snapshot-to-snapshot differ, the change policy and the convergence planner (`L` vs `D`). The kernel renders its changes to SQL. `datrix-common` must never import it. See [datrix-rdbms-schema — Architecture](../../../../datrix-rdbms-schema/docs/architecture.md).
 
 **Dependencies:**
 - `datrix-common`
@@ -234,7 +234,7 @@ The target-neutral generation framework every generator shares: the `Generator` 
 
 **Dependencies:**
 - `datrix-common`
-- `datrix-migration` (the RDBMS migration machinery the migration orchestrator drives)
+- `datrix-rdbms-schema` (the RDBMS migration machinery the migration orchestrator drives)
 - `lark` (pure Python, with its `interegular` extra; the DAL parser)
 
 **Consumers (runtime dependency):** `datrix-cli`, `datrix-codegen-common`, `datrix-codegen-typescript-core`, every language, platform and frontend generator, `datrix-codegen-sql`, `datrix-codegen-component`, and `datrix-testing`.
