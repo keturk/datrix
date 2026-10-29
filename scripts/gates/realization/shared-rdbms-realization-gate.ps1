@@ -8,16 +8,15 @@
  registered `datrix.languages` target this gate GENERATES the shared-rdbms fixture (a shared container's
  block, a `readwrite` consumer that holds a seed and a `readonly` consumer) and applies language-neutral
  file-set assertions to the emitted tree: every consumer emits an entity module for the consumed block,
- every file of the owner's canonical migration chain appears byte for byte in every consumer, and the
- block's seed is emitted in the writer and in no reader. The behavioural assertions per language (typed
- access, read-only repositories, the chain lock key) live in each package's own tests.
+ and the block's seed is emitted in the writer and in no reader. The behavioural assertions per language
+ (typed access, read-only repositories, the seed lock key) live in each package's own tests.
 
  Derives the language set from `importlib.metadata.entry_points(group="datrix.languages")` at runtime --
  never a hardcoded language list -- and refuses to pass (exit 2) with fewer than two registered languages.
 
  Runs a built-in non-vacuity self-test on every invocation, before trusting any real comparison: a planted
- language whose consumer emits no entity module, one whose carried chain differs from the canonical one,
- and one that seeds a reader must each be reported; a faithful planted language must report nothing; and a
+ language whose consumer emits no entity module, one that seeds a reader, and one whose writer emits no
+ seed must each be reported; a faithful planted language must report nothing; and a
  single-language run must be refused as vacuous.
 
  Repo-level validation script (per the datrix showcase boundary -- no pytest suite lives in datrix).
