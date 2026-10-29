@@ -27,19 +27,16 @@
        Any content or file-set difference fails the gate.
 
   WHY NOT a blanket "*.py == 0" over the whole tree: a TypeScript whole-system
-  project legitimately contains a small, fixed set of LANGUAGE-AGNOSTIC Python
-  artifacts, emitted by design for EVERY target language:
+  project legitimately contains LANGUAGE-AGNOSTIC Python artifacts, emitted by
+  design for EVERY target language:
     - `tests/**` HTTP contract suite rendered by datrix-codegen-component's
       `contract_tests` domain, the same bytes for every backend language. These
       are black-box HTTP tests against the running service; they are not the
       service implementation.
-    - `migration-tools/**` live-schema exporter rendered by datrix-codegen-sql
-      (a DB tool that runs where the database is reachable, independent of the
-      service's implementation language).
   A blanket *.py==0 would therefore FAIL on correct, intended output. This gate
-  instead pins the allowed Python locations: any *.py OUTSIDE `tests/` or
-  `migration-tools/` (in particular any *.py under `src/`) is treated as a
-  language leak and fails the gate.
+  instead pins the allowed Python location: any *.py OUTSIDE `tests/` (in
+  particular any *.py under `src/`) is treated as a language leak and fails the
+  gate.
 
   Excluded from BOTH the realness scan and the byte diff are non-source,
   post-generation build/install artifacts whose contents embed absolute paths or

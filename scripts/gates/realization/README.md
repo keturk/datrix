@@ -64,7 +64,7 @@ Module: `datrix_scripts.gates.realization.typescript_whole_system_gate`; POSIX t
 
 **Assertions:**
 - **Realness (positive):** generated `*.ts` source count > 0 (the TypeScript language generator ran).
-- **Realness (leak guard):** no `*.py` under any generated `src/` tree, and every `*.py` in the output lives only under `tests/` or `migration-tools/` — the two **language-agnostic** Python artifact classes emitted for every target (the HTTP contract suite rendered by datrix-codegen-component's `contract_tests` domain; the live-schema exporter rendered by datrix-codegen-sql). Any other `*.py` is a language leak and fails the gate.
+- **Realness (leak guard):** no `*.py` under any generated `src/` tree, and every `*.py` in the output lives only under `tests/` — the **language-agnostic** HTTP contract suite rendered for every target by datrix-codegen-component's `contract_tests` domain. Any other `*.py` is a language leak and fails the gate.
 - **Byte-stability:** recursive sha256 diff of run1 vs run2, excluding non-source build/install artifacts `.datrix/`, `.ruff_cache/`, `.tsc_cache/`, `node_modules/`. Any content or file-set difference fails.
 
 ## `generation-determinism-gate.ps1`
