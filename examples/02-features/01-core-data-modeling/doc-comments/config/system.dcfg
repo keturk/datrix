@@ -1,6 +1,6 @@
 config system glossary.System {
   base {
-    migrations {
+    schemaConvergence {
       enabled = false;
     }
     deployment {

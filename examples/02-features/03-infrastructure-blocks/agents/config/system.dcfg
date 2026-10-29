@@ -1,6 +1,6 @@
 config system credentials.System {
   base {
-    migrations {
+    schemaConvergence {
       // enabled: this example's spec test writes and reads rows through the ORM
       // (db.Issuer.create, record.save()), so it needs the deploy's schema
       // converge to create actual tables -- unlike a project that is generated

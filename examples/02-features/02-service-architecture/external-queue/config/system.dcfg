@@ -1,6 +1,6 @@
 config system retail.OrderSystem {
   base {
-    migrations {
+    schemaConvergence {
       enabled = false;
     }
     deployment {

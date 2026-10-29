@@ -1,6 +1,6 @@
 ﻿config system library.System {
   base {
-    migrations {
+    schemaConvergence {
       enabled = false;
     }
     deployment {

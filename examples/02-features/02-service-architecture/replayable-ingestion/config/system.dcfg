@@ -1,6 +1,6 @@
 ﻿config system catalog.SupplierFeedSystem {
   base {
-    migrations {
+    schemaConvergence {
       enabled = false;
     }
     deployment {
