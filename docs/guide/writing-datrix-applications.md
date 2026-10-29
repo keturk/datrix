@@ -2261,7 +2261,7 @@ service ledger.LedgerService('config/ledger-service.dcfg') : version('1.0.0') {
     }
 
     fn balanceOf(UUID id) -> Amount {
-        let LedgerEntry entry = db.LedgerEntry.get(id);
+        let LedgerEntry entry = db.LedgerEntry.findOrFail(id);
         return entry.amount;
     }
 

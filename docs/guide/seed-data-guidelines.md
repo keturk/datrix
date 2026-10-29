@@ -346,7 +346,7 @@ reference {
 
 ### Cascade Relationships and Ordering
 
-Entities with cascade relationships imply parent-child ordering. The seed generator topologically sorts entities by foreign key dependencies, inserting parents before children regardless of declaration order.
+Entities with cascade relationships imply parent-child ordering. Within one category, the seed generator writes the tables of an entity after the tables of every entity it `belongsTo`, regardless of declaration order and whether either side is a table or an import (`Category from "categories.csv"`). Where no foreign key decides it, tables keep their declaration order, so a category already written parent first is written exactly as declared. Entities that reference each other in a cycle have no parent-first order: their tables keep declaration order, so the rows written first must leave the cyclic foreign key empty.
 
 ### Fulltext Indexes
 
