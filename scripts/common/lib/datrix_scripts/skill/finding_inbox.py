@@ -51,7 +51,7 @@ AREAS: dict[str, str] = {
     "typescript": "what is specific to the TypeScript backend generator (NestJS / Express) and its shared TypeScript core",
     "clients": "the Angular and Flutter client targets",
     "language": "the parser, semantic analysis and the DSL",
-    "migration": "schema snapshots, the migration ledger and migration adapters",
+    "schema": "the RDBMS schema: snapshots, the differ, the change policy and the deploy's schema converge",
     "seed": "seed data",
     "kernel": "shared generation: the framework, the shared language layer (transpiler, profiles, context builders), secrets, hosting, pooling, observability export",
     "docker": "the Docker Compose platform and the services it runs",

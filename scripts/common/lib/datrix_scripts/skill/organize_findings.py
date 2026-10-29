@@ -81,7 +81,8 @@ NAMES_PER_REQUEST: Final = 40
 
 # First word of a slug -> area, besides the area names themselves.
 ALIASES: Final[dict[str, str]] = {
-    "ts": "typescript", "angular": "clients", "flutter": "clients", "migrations": "migration",
+    "ts": "typescript", "angular": "clients", "flutter": "clients", "migration": "schema", "migrations": "schema",
+    "snapshot": "schema", "rdbms": "schema",
     "test": "tests", "script": "tooling", "scripts": "tooling", "gate": "tooling", "gates": "tooling",
     "skill": "tooling", "skills": "tooling", "doc": "docs",
 }
@@ -303,7 +304,8 @@ def _check_a_name_states_its_area() -> None:
         "0007-docker-cosmosdb-emulator.md": "docker",
         "0007-nonsense-cosmosdb-emulator.md": "",
         "consolidated-012-python-regex.md": "python",
-        "migration-ledger.md": "migration",
+        "migration-ledger.md": "schema",
+        "20261027-004800-snapshot-table-options-dead-field.md": "schema",
         "20261024-110446-aws.md": "aws",
         "notes.md": "",
     }

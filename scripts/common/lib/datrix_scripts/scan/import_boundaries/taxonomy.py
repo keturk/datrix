@@ -375,9 +375,9 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 "datrix_cli",
                 "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
                 "datrix_extensions",
-                # datrix-migration depends on the core; the core names its
+                # datrix-rdbms-schema depends on the core; the core names its
                 # run-scoped state transaction through a Protocol instead.
-                "datrix_migration",
+                "datrix_rdbms_schema",
                 # datrix-semantic depends on the core; a fact both the core's
                 # consumers and a semantic phase read lives in the core.
                 "datrix_semantic",
@@ -569,7 +569,7 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
         # codegen layer and the CLI consume it, so an import of any of them --
         # or of the semantic layer above the core -- would close a cycle. Its
         # tests reach the parser only through the datrix.parsers entry point.
-        "datrix_migration": BoundaryRule(
+        "datrix_rdbms_schema": BoundaryRule(
             forbidden_prefixes=(
                 "datrix_language",
                 "datrix_cli",
@@ -594,9 +594,9 @@ def build_boundary_rules(taxonomy: GeneratorTaxonomy) -> dict[str, BoundaryRule]
                 "datrix_cli",
                 "datrix_codegen_",  # Wildcard: any package starting with datrix_codegen_
                 "datrix_extensions",
-                "datrix_migration",
+                "datrix_rdbms_schema",
             ),
-            allowed_subtrees=frozenset({"datrix_migration.sql_lowering"}),
+            allowed_subtrees=frozenset({"datrix_rdbms_schema.sql_lowering"}),
         ),
         # The CLI is the composition root: it may import any installed package
         # (generator and platform packages are still reached through entry
@@ -1256,20 +1256,20 @@ def _self_test_dotted_precision_and_carveout(rules: dict[str, BoundaryRule]) -> 
     # The semantic layer reaches the migration package's SQL lowering and
     # nothing else of it; the migration package never reaches back.
     ok &= _check(
-        "datrix_semantic may import datrix_migration.sql_lowering.lower",
-        not _rule_forbids(rules, "datrix_semantic", "datrix_migration.sql_lowering.lower"),
+        "datrix_semantic may import datrix_rdbms_schema.sql_lowering.lower",
+        not _rule_forbids(rules, "datrix_semantic", "datrix_rdbms_schema.sql_lowering.lower"),
     )
     ok &= _check(
-        "datrix_semantic still forbids datrix_migration.snapshot_diff",
-        _rule_forbids(rules, "datrix_semantic", "datrix_migration.snapshot_diff"),
+        "datrix_semantic still forbids datrix_rdbms_schema.snapshot_diff",
+        _rule_forbids(rules, "datrix_semantic", "datrix_rdbms_schema.snapshot_diff"),
     )
     ok &= _check(
-        "datrix_semantic's lowering carve-out does not leak to datrix_migration.sql_lowering_other",
-        _rule_forbids(rules, "datrix_semantic", "datrix_migration.sql_lowering_other"),
+        "datrix_semantic's lowering carve-out does not leak to datrix_rdbms_schema.sql_lowering_other",
+        _rule_forbids(rules, "datrix_semantic", "datrix_rdbms_schema.sql_lowering_other"),
     )
     ok &= _check(
-        "datrix_migration still forbids datrix_semantic",
-        _rule_forbids(rules, "datrix_migration", "datrix_semantic.analyzer"),
+        "datrix_rdbms_schema still forbids datrix_semantic",
+        _rule_forbids(rules, "datrix_rdbms_schema", "datrix_semantic.analyzer"),
     )
 
     return ok

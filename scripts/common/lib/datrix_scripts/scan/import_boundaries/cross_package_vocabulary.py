@@ -56,7 +56,7 @@ def _resolve_g3_vocabulary_element(node: ast.AST) -> tuple[str, bool] | None:
     reference when ``EnumClass`` happens to be harvested from
     ``datrix_codegen_kernel.enums`` -- would silently make every qualified
     reference to any OTHER enum (e.g. ``ChangeKind`` from
-    ``datrix_migration.differ``, ``TracingProvider`` from
+    ``datrix_rdbms_schema.differ``, ``TracingProvider`` from
     ``datrix_common.config.observability.models``) unresolvable, which
     would drop the WHOLE container (not just exempt it) and could hide a
     genuinely duplicated bare-literal sibling in the same container.

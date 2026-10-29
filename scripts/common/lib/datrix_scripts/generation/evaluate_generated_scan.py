@@ -224,12 +224,11 @@ class ManifestData:
     generated_at: str
     files: tuple[str, ...]
     user_files: tuple[str, ...]
-    append_only_files: tuple[str, ...]
 
     @property
     def all_tracked(self) -> tuple[str, ...]:
         """Every path the manifest claims, including scaffolding."""
-        return self.files + self.user_files + self.append_only_files
+        return self.files + self.user_files
 
 
 # ── Shared helpers (also imported by evaluate_service_scan.py) ──
@@ -382,7 +381,6 @@ def load_manifests(generated_root: Path) -> list[ManifestData]:
                 generated_at=_require_str(data, "generated_at", context),
                 files=_optional_str_tuple(data, "files", context),
                 user_files=_optional_str_tuple(data, "user_files", context),
-                append_only_files=_optional_str_tuple(data, "append_only_files", context),
             )
         )
     return manifests
@@ -390,8 +388,7 @@ def load_manifests(generated_root: Path) -> list[ManifestData]:
 
 def find_missing_manifest_files(manifest: ManifestData, generated_root: Path) -> list[str]:
     """Manifest-tracked files (excluding user scaffolding) absent on disk."""
-    tracked = [*manifest.files, *manifest.append_only_files]
-    return [entry for entry in tracked if not (generated_root / entry).exists()]
+    return [entry for entry in manifest.files if not (generated_root / entry).exists()]
 
 
 def find_absent_user_files(manifest: ManifestData, generated_root: Path) -> list[str]:
@@ -643,7 +640,6 @@ def _build_manifest_entries(
             "generated_at": manifest.generated_at,
             "file_count": len(manifest.files),
             "user_file_count": len(manifest.user_files),
-            "append_only_count": len(manifest.append_only_files),
             "missing_on_disk": find_missing_manifest_files(manifest, generated_root),
             "user_files_absent": find_absent_user_files(manifest, generated_root),
         })

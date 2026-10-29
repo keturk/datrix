@@ -3,8 +3,9 @@
 A service that ``uses`` a shared container's RDBMS block realizes that block next to its own
 (``datrix_common.datrix_model.shared_rdbms_scope.realized_rdbms_blocks``). Every registered
 ``datrix.languages`` target must emit, for each consumer, the entity modules of the consumed block,
-carry the one canonical migration chain the owner renders byte for byte, and emit the block's seed
-only in a consumer that holds write access.
+and emit the block's seed only in a consumer that holds write access. The block's schema is the
+deploy's to converge, from the one declared snapshot generation writes for it; no consumer carries
+schema history.
 
 THE GATE GENERATES. For each registered language it generates the shared-rdbms fixture -- a shared
 container's block, a ``readwrite`` consumer that holds a seed, and a ``readonly`` consumer -- and applies
@@ -12,7 +13,6 @@ the same language-neutral file-set assertions to the emitted tree:
 
 * every consumer emits an entity module for the consumed block (a file whose path names the block and
   whose content names the entity);
-* every file of the owner's canonical chain appears, byte for byte, in every consumer;
 * the block's seed is emitted in the writer and in no reader.
 
 The per-language behavioural assertions (typed access, read-only repositories, the lock key) live in
@@ -22,8 +22,8 @@ The language set is enumerated from the installed ``datrix.languages`` entry poi
 a hardcoded list -- and the gate refuses to pass (exit 2) with fewer than two registered languages.
 
 A non-vacuity self-test runs first on every invocation: a planted language whose consumer emits no entity
-module must be reported, a planted language whose carried chain differs from the canonical one must be
-reported, a planted language that seeds a reader must be reported, a faithful planted language must
+module must be reported, a planted language that seeds a reader must be reported, a planted language
+whose writer emits no seed must be reported, a faithful planted language must
 report nothing, and a single-language run must be refused as vacuous.
 
 This module is what ``gates/realization/shared-rdbms-realization-gate.ps1`` (and its ``.sh`` twin)
@@ -34,7 +34,6 @@ runs, in gate mode (``datrix_scripts.gate_log.run_as_gate``): the last line is t
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import shutil
@@ -64,7 +63,6 @@ EXIT_FAIL: Final[int] = 1
 EXIT_VACUOUS: Final[int] = 2
 
 #: The fixture's facts. The gate reads the fixture's own services, so these name its vocabulary only.
-_SHARED_NAME: Final[str] = "CatalogData"
 _BLOCK_NAME: Final[str] = "catalog_db"
 _ENTITY_NAME: Final[str] = "Product"
 _WRITER_NAME: Final[str] = "shop.WriterService"
@@ -72,11 +70,6 @@ _READER_NAME: Final[str] = "shop.ReaderService"
 
 #: Path vocabulary a language may spell a seed with.
 _SEED_TOKEN: Final[str] = "seed"
-
-#: Where every target's manifest records the files it emitted, and the key listing the revision
-#: files (retention ``append_only``): the language-neutral definition of "a migration revision".
-_MANIFEST_DIR: Final[str] = ".datrix/manifests"
-_APPEND_ONLY_KEY: Final[str] = "append_only_files"
 
 
 @dataclass(frozen=True)
@@ -90,9 +83,8 @@ class ConsumerTree:
 
 @dataclass(frozen=True)
 class GeneratedTree:
-    """What one language emitted: the owner's canonical revision files and every consumer's files."""
+    """What one language emitted: every consumer's files."""
 
-    owner_chain: Mapping[str, str]
     consumers: tuple[ConsumerTree, ...]
 
 
@@ -109,9 +101,6 @@ def violations_in(
 ) -> list[str]:
     """Every way *tree* fails the realization assertions (empty = realized)."""
     found: list[str] = []
-    chain = tree.owner_chain
-    if not chain:
-        found.append("the owner rendered no revision file for the shared block")
     for consumer in tree.consumers:
         has_entity = any(
             _names_block(path, block_markers) and entity_name in content
@@ -119,10 +108,6 @@ def violations_in(
         )
         if not has_entity:
             found.append(f"{consumer.name}: no entity module for '{entity_name}' of the consumed block")
-        emitted = set(consumer.files.values())
-        missing = sorted(path for path, content in chain.items() if content not in emitted)
-        for path in missing:
-            found.append(f"{consumer.name}: the canonical chain file '{path}' is not carried byte for byte")
         seeds = [
             path
             for path in consumer.files
@@ -153,16 +138,6 @@ def _read_tree(root: Path) -> dict[str, str]:
     }
 
 
-def _append_only_paths(root: Path) -> frozenset[str]:
-    """Every revision file any target's manifest under *root* records (retention append-only)."""
-    paths: set[str] = set()
-    manifest_dir = root / _MANIFEST_DIR
-    for manifest in sorted(manifest_dir.glob("*.json")) if manifest_dir.is_dir() else ():
-        recorded = json.loads(manifest.read_text(encoding="utf-8")).get(_APPEND_ONLY_KEY, [])
-        paths.update(str(path).replace("\\", "/") for path in recorded)
-    return frozenset(paths)
-
-
 def generate_language_tree(language: str, out_dir: Path) -> GeneratedTree:
     """Generate the fixture for *language* through the real pipeline and split the output.
 
@@ -173,7 +148,7 @@ def generate_language_tree(language: str, out_dir: Path) -> GeneratedTree:
     from datrix_cli.generation.validation_level import ValidationLevel
     from datrix_cli.pipeline.contract import PipelineConfig
     from datrix_cli.pipeline.generation import GenerationPipeline
-    from datrix_common.paths import ServicePaths, SharedPaths
+    from datrix_common.paths import ServicePaths
     from datrix_common.plugin.identity import LanguageId
     from datrix_language.registration import register_all
     from datrix_testing.shared_fixtures import shared_rdbms_consumption_path
@@ -214,13 +189,6 @@ def generate_language_tree(language: str, out_dir: Path) -> GeneratedTree:
                     break
         return found
 
-    append_only = _append_only_paths(output)
-    shared_dir = SharedPaths(_SHARED_NAME).shared_dir
-    owner_chain = {
-        path: content
-        for path, content in files.items()
-        if path in append_only and shared_dir in path.split("/")[:-1]
-    }
     consumers: list[ConsumerTree] = []
     for name, writes in ((_WRITER_NAME, True), (_READER_NAME, False)):
         paths = ServicePaths(name)
@@ -231,7 +199,7 @@ def generate_language_tree(language: str, out_dir: Path) -> GeneratedTree:
                 files=under((paths.service_dir, paths.compose_service)),
             )
         )
-    return GeneratedTree(owner_chain=owner_chain, consumers=tuple(consumers))
+    return GeneratedTree(consumers=tuple(consumers))
 
 
 _BLOCK_MARKERS: Final[frozenset[str]] = frozenset(
@@ -288,15 +256,11 @@ def run_gate(
 # Non-vacuity self-test
 # ---------------------------------------------------------------------------
 
-_CHAIN_FILE = "catalog-data/rdbms/migrations/catalog_db/001_initial.sql"
-_CHAIN_BODY = "CREATE TABLE products (sku TEXT PRIMARY KEY);"
-
-
 def _planted(
     *,
     reader_entity: bool = True,
-    carried_chain: str = _CHAIN_BODY,
     reader_seeds: bool = False,
+    writer_seeds: bool = True,
 ) -> GeneratedTree:
     """A synthetic language's output, faithful unless a flag plants a defect."""
     entity_file = "entities/catalog_db/product.src"
@@ -304,15 +268,14 @@ def _planted(
     seed_file = "seeds/catalog_db.src"
 
     def consumer(name: str, writes: bool) -> ConsumerTree:
-        files: dict[str, str] = {"migrations/catalog_db/001_initial.sql": carried_chain}
+        files: dict[str, str] = {}
         if name != _READER_NAME or reader_entity:
             files[entity_file] = entity_body
-        if writes or reader_seeds:
+        if (writes and writer_seeds) or (not writes and reader_seeds):
             files[seed_file] = "seed rows"
         return ConsumerTree(name=name, writes=writes, files=files)
 
     return GeneratedTree(
-        owner_chain={_CHAIN_FILE: _CHAIN_BODY},
         consumers=(consumer(_WRITER_NAME, True), consumer(_READER_NAME, False)),
     )
 
@@ -336,11 +299,11 @@ def run_self_test() -> None:
     )
     print(f"[OK] a planted consumer with no entity module is reported ({len(no_entity)} violation(s))")
 
-    drifted = found(_planted(carried_chain=_CHAIN_BODY + "-- drift"))
-    assert any("byte for byte" in line for line in drifted), (
-        f"self-test: a carried chain that differs from the canonical one must be reported: {drifted}"
+    unseeded = found(_planted(writer_seeds=False))
+    assert any("writing consumer emits no seed" in line for line in unseeded), (
+        f"self-test: a writer that emits no seed for the shared block must be reported: {unseeded}"
     )
-    print(f"[OK] a planted drifted chain is reported ({len(drifted)} violation(s))")
+    print(f"[OK] a planted writer without a seed is reported ({len(unseeded)} violation(s))")
 
     seeded = found(_planted(reader_seeds=True))
     assert any("read-only consumer emits the shared seed" in line for line in seeded), (
@@ -367,9 +330,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=WRAPPER,
         description=(
-            "Shared-RDBMS realization gate: every registered language emits the entity modules, the "
-            "carried migration chain and the writer-only seed of a consumed shared RDBMS block "
-            "(generates the shared fixture per language)."
+            "Shared-RDBMS realization gate: every registered language emits the entity modules and "
+            "the writer-only seed of a consumed shared RDBMS block (generates the shared fixture "
+            "per language)."
         ),
         allow_abbrev=False,
     )

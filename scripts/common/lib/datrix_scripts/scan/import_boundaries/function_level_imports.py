@@ -89,7 +89,7 @@ from datrix_scripts.scan.import_boundaries._ast_common import (
 FUNCTION_LEVEL_IMPORT_PACKAGES: tuple[str, ...] = (
     "datrix_common",
     "datrix_semantic",
-    "datrix_migration",
+    "datrix_rdbms_schema",
     "datrix_testing",
 )
 
@@ -314,7 +314,7 @@ def write_function_level_import_baseline(
         "# nested in a function/method body, an `if TYPE_CHECKING:` block, or a\n"
         "# `try`/`except`) in the code that was datrix-common's before the\n"
         "# foundation packages were extracted from it: every src/ file of\n"
-        "# datrix-common, datrix-semantic, datrix-migration and datrix-testing, plus\n"
+        "# datrix-common, datrix-semantic, datrix-rdbms-schema and datrix-testing, plus\n"
         "# each file an entry below names in another package (a former\n"
         "# datrix-common module that moved up a layer; its entry moved with it).\n"
         "#\n"

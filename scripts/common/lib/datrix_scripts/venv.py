@@ -95,7 +95,7 @@ REQUIRED_REPOS: Final = (
     "datrix-codegen-flutter",
     "datrix-codegen-docker",
     "datrix-testing",
-    "datrix-migration",
+    "datrix-rdbms-schema",
     "datrix-semantic",
     "datrix-codegen-kernel",
     "datrix-codegen-typescript-core",

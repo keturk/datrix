@@ -496,7 +496,7 @@ def manifest_service_subset(
     service_relative: set[str] = set()
     for manifest in manifests:
         tracked = _entries_under(manifest.all_tracked, dir_prefixes)
-        generated_only = _entries_under(manifest.files + manifest.append_only_files, dir_prefixes)
+        generated_only = _entries_under(manifest.files, dir_prefixes)
         missing = [entry for entry in generated_only if not (project_root / entry).exists()]
         for entry in tracked:
             service_relative.add(entry.split("/", 1)[1])

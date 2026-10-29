@@ -298,7 +298,7 @@ _SERVICE_DTRX: Final[str] = f"""service catalog.CatalogService('config/catalog-s
 
 _SYSTEM_DCFG: Final[str] = """config system catalog.System {
   base {
-    migrations {
+    schemaConvergence {
       enabled = false;
     }
     deployment {
@@ -452,7 +452,6 @@ _SERVICE_DCFG: Final[str] = """config service catalog.CatalogService {
       poolSize = 20;
       maxOverflow = 20;
       asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
       dockerImage = "postgres:17-alpine";
       volumePath = "/var/lib/postgresql/data";
@@ -565,7 +564,6 @@ _SERVICE_DCFG: Final[str] = """config service catalog.CatalogService {
       maxOverflow = 20;
       ssl = true;
       asyncDriver = "postgresql+asyncpg";
-      syncDriver = "postgresql+psycopg2";
       healthCheckSql = "SELECT 1";
     }
     strategy {
