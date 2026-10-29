@@ -2,15 +2,10 @@ config system credentials.System {
   base {
     migrations {
       // enabled: this example's spec test writes and reads rows through the ORM
-      // (db.Issuer.create, record.save()), so it needs a real migration baseline
-      // rendering actual tables -- unlike a project that is generated and never
-      // booted.
+      // (db.Issuer.create, record.save()), so it needs the deploy's schema
+      // converge to create actual tables -- unlike a project that is generated
+      // and never booted.
       enabled = true;
-      // No ledger: this example is generated fresh on every run and only ever
-      // meets a fresh database, so it has nothing to migrate FROM. A ledger
-      // would record one language's rendering of each revision and persist
-      // state back into the source tree.
-      ledger = false;
     }
     deployment {
       runtime = "docker-compose";
