@@ -512,3 +512,30 @@ file and consolidate together, and `powershell -File` cannot pass `-Path` as an 
 Module: `datrix_scripts.dev.generate_test_rules`; POSIX twin `dev\generate-test-rules.sh` (the packages
 positional or `--projects`, `--all`, `--apply`, `--review`, `--model`, `--path`, `--no-seed`,
 `--self-test`, …): `bash dev/generate-test-rules.sh datrix-codegen-python --review`.
+
+## Container Image Pins
+
+### `refresh-image-pins.ps1`
+
+Every image a generator chooses for a generated project is emitted pinned by digest
+(`<name>:<tag>@sha256:<64 hex>`): a package names it as `IMAGE_PINS.pinned("<name>:<tag>")`, and the
+digest comes from the package's own `image_pins.json`, beside its top module
+(`datrix_common.config.image_pins`). This script is the only writer of those tables. It finds every
+`datrix-*/src/*/image_pins.json`, resolves each reference with `docker buildx imagetools inspect` (the
+digest of the tag's multi-platform index) and rewrites each table sorted by reference, so a tag moved
+upstream shows as a table diff in review. `-Package` limits the run to one package's table, and `-Add`
+puts new references into that table first.
+
+It is all tables or none: a reference that does not resolve, or an answer that is not
+`sha256:<64 lowercase hex>`, fails the run before anything is written; the written text is validated
+by the same loader every package reads it with. A registry's rate-limit answer (`429`,
+`toomanyrequests`) is retried with a growing wait before it counts as a failure. Each package's
+`image_pins` census test fails when its source names an image outside the table or the table keeps a
+reference nothing names.
+
+The self-test plants tables in a temporary directory and proves a table is rewritten with an addition,
+that an unresolved reference or a non-digest answer writes nothing, and that each usage refusal fires;
+it never reaches a registry.
+
+Module: `datrix_scripts.dev.refresh_image_pins`; POSIX twin `dev\refresh-image-pins.sh` (`--package`,
+`--add`, `--self-test`): `bash dev/refresh-image-pins.sh --package datrix-codegen-docker --add redis:7`.

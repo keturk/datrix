@@ -256,3 +256,17 @@ Generate `@test-rule` conformance annotations for tests with a local LLM. Defaul
 | Other model | `.\dev\generate-test-rules.ps1 -All -Model qwen3-coder:30b-ctx32k` |
 
 Parameters: `-Projects` (positional, variadic), `-All`, `-Apply`, `-Review`, `-Model` (default `exaone-deep:32b`), `-LocalMachines`, `-Parallel` (default 4), `-Limit` (default 0 = none), `-Path` (file/dir filter, repeatable; also scopes `-Apply`/`-Review`; run once per path, `powershell -File` cannot pass an array), `-NoSeed`, `-NoConsolidate`, `-IncludeE2e`, `-IncludeIntegration` (excluded by default), `-Dbg`, `-SelfTest`
+
+## Container Image Pins
+
+### `dev\refresh-image-pins.ps1`
+
+Rewrite every package's `image_pins.json` (the digests of the images its generators choose) from the registries. Needs `docker buildx` and network; no framework test runs it.
+
+| Form | Command |
+|------|---------|
+| Re-resolve every table | `.\dev\refresh-image-pins.ps1` |
+| One package's table | `.\dev\refresh-image-pins.ps1 -Package datrix-codegen-docker` |
+| Pin a new image | `.\dev\refresh-image-pins.ps1 -Package datrix-codegen-docker -Add redis:7` |
+
+Parameters: `-Package` (package directory; limits the run to its table; required with `-Add`), `-Add <name:tag,...>`, `-SelfTest`. Exit: 0 every table rewritten, 1 a reference did not resolve (no table written), 2 usage error.
