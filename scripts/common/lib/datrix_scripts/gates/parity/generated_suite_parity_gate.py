@@ -23,6 +23,10 @@ language however its framework names it (pytest ``classname::name``, Jest ``full
 so module paths, ``describe`` titles and test wording never decide whether two languages
 test the same thing. A test that carries no case id can match nothing, so it is reported
 as an UNIDENTIFIED TEST -- its own failing category, never a role gap and never dropped.
+A test whose case id belongs to a contract-tier family (``CONTRACT_TIER_FAMILIES``, the
+families the component's HTTP contract suite owns for every backend language) is a
+CONTRACT-TIER TEST -- its own failing category: no language suite may carry one, so it is
+never compared as a role gap either.
 
 THERE IS NO STORED BASELINE. The gate reads whatever the latest unit-test run of each
 project wrote, prints every language's oldest and newest index timestamp, and REFUSES to
@@ -66,7 +70,11 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Final, TypeVar
 
-from datrix_codegen_common.algorithms.test_case_identity import TEST_CASE_ID_PROPERTY
+from datrix_codegen_common.algorithms.test_case_identity import (
+    CONTRACT_TIER_FAMILIES,
+    TEST_CASE_ID_PROPERTY,
+    case_id_family,
+)
 
 from datrix_scripts.gates.parity.artifact_role_parity_gate import (
     DEFAULT_GENERATED_ROOT,
@@ -100,6 +108,9 @@ EXIT_FAIL: Final[int] = 1
 EXIT_USAGE: Final[int] = 2
 
 _MIN_LANGUAGES: Final[int] = 2
+
+#: Joins a compared test's service and its case id (:func:`identity_key`).
+_IDENTITY_SEPARATOR: Final[str] = "::"
 
 #: Where a generated project's own test runner writes each run, and the run directory
 #: and index file names it uses (``run_complete.py`` indexes the ``unit`` runs).
@@ -250,6 +261,19 @@ class UnidentifiedTest:
 
 
 @dataclasses.dataclass(frozen=True)
+class ContractTierTest:
+    """A test a language's suite ran whose case id belongs to a contract-tier family
+    (``CONTRACT_TIER_FAMILIES``): the component's HTTP contract suite owns those
+    behaviours, so no language suite may carry one."""
+
+    example: str
+    runtime: str
+    provider: str
+    language: str
+    test_name: str
+
+
+@dataclasses.dataclass(frozen=True)
 class SuiteComparison:
     """Every divergence :func:`compare_suites` found, by kind."""
 
@@ -257,11 +281,15 @@ class SuiteComparison:
     behaviour_gaps: list[BehaviourGap]
     skip_gaps: list[SkipGap]
     unidentified: list[UnidentifiedTest]
+    contract_tier: list[ContractTierTest]
 
     @property
     def clean(self) -> bool:
         """True when no divergence of any kind was found."""
-        return not (self.role_gaps or self.behaviour_gaps or self.skip_gaps or self.unidentified)
+        return not (
+            self.role_gaps or self.behaviour_gaps or self.skip_gaps or self.unidentified
+            or self.contract_tier
+        )
 
     def extend(self, other: SuiteComparison) -> None:
         """Add every divergence *other* found to this comparison."""
@@ -269,11 +297,18 @@ class SuiteComparison:
         self.behaviour_gaps.extend(other.behaviour_gaps)
         self.skip_gaps.extend(other.skip_gaps)
         self.unidentified.extend(other.unidentified)
+        self.contract_tier.extend(other.contract_tier)
 
 
 def _empty_comparison() -> SuiteComparison:
     """A comparison that has found nothing yet."""
-    return SuiteComparison([], [], [], [])
+    return SuiteComparison([], [], [], [], [])
+
+
+def _is_contract_tier(name: str) -> bool:
+    """Whether the compared test *name* (``<service>::<case id>``) carries a case id of
+    a contract-tier family."""
+    return case_id_family(name.split(_IDENTITY_SEPARATOR, 1)[1]) in CONTRACT_TIER_FAMILIES
 
 
 def identity_key(service: str, case: str) -> str:
@@ -290,7 +325,7 @@ def identity_key(service: str, case: str) -> str:
     Returns:
         ``<service>::<case>``.
     """
-    return f"{service}::{case}"
+    return f"{service}{_IDENTITY_SEPARATOR}{case}"
 
 
 # ---------------------------------------------------------------------------
@@ -747,12 +782,17 @@ def _compare_group(
     by_language = {suite.language: suite.outcomes for suite in group}
     names: set[str] = set()
     for suite_outcomes in by_language.values():
-        names.update(suite_outcomes)
+        names.update(name for name in suite_outcomes if not _is_contract_tier(name))
     comparison = _empty_comparison()
     for suite in sorted(group, key=lambda s: s.language):
         comparison.unidentified.extend(
             UnidentifiedTest(example, runtime, provider, suite.language, test)
             for test in suite.unidentified
+        )
+        comparison.contract_tier.extend(
+            ContractTierTest(example, runtime, provider, suite.language, test)
+            for test in sorted(suite.outcomes)
+            if _is_contract_tier(test)
         )
     for name in sorted(names):
         present = tuple(sorted(lang for lang, outcomes in by_language.items() if name in outcomes))
@@ -875,6 +915,11 @@ def _report_group(
         [f"test={g.test_name} language={g.language}" for g in comparison.unidentified],
         limit,
     )
+    _log_gaps(
+        "GENERATED-SUITE CONTRACT-TIER TEST", label,
+        [f"test={g.test_name} language={g.language}" for g in comparison.contract_tier],
+        limit,
+    )
 
 
 def check_generated_suite_parity(
@@ -896,9 +941,9 @@ def check_generated_suite_parity(
 
     Returns:
         ``EXIT_OK`` when every comparable group's suites agree, ``EXIT_FAIL`` when a role,
-        behaviour or skip gap or an unidentified test was found, ``EXIT_USAGE`` when no
-        group is unit-tested in
-        >= 2 languages (a vacuous comparison).
+        behaviour or skip gap, an unidentified test or a contract-tier test was found,
+        ``EXIT_USAGE`` when no group is unit-tested in >= 2 languages (a vacuous
+        comparison).
 
     Raises:
         IncompleteCorpusError: Fewer than two registered languages, or a language has no
@@ -932,9 +977,10 @@ def check_generated_suite_parity(
         return EXIT_OK
     logger.error(
         "GENERATED-SUITE PARITY GATE FAILED: %d group(s) compared, %d role gap(s), %d "
-        "behaviour gap(s), %d skip gap(s), %d unidentified test(s).",
+        "behaviour gap(s), %d skip gap(s), %d unidentified test(s), %d contract-tier "
+        "test(s).",
         len(groups), len(totals.role_gaps), len(totals.behaviour_gaps), len(totals.skip_gaps),
-        len(totals.unidentified),
+        len(totals.unidentified), len(totals.contract_tier),
     )
     return EXIT_FAIL
 
@@ -1094,6 +1140,30 @@ def _self_test_unidentified() -> list[str]:
         problems.append(f"an unidentified test was folded into another gap kind: {found}")
     if found.clean:
         problems.append("a comparison holding an unidentified test reported clean")
+    return problems
+
+
+def _self_test_contract_tier() -> list[str]:
+    """A test carrying a contract-tier family's case id is reported as a contract-tier
+    test of the language that ran it -- never as a role gap -- and keeps the comparison
+    from being clean."""
+    (family, *_rest) = sorted(CONTRACT_TIER_FAMILIES)
+    shared = _planted("shared")
+    contract = identity_key(_SELF_TEST_SERVICE, f"{family}/Planted/list")
+    found = compare_suites([
+        _fixture_index(_SELF_TEST_LANGUAGE_A, {shared: OUTCOME_PASSED, contract: OUTCOME_PASSED}),
+        _fixture_index(_SELF_TEST_LANGUAGE_B, {shared: OUTCOME_PASSED}),
+    ])
+    expected = ContractTierTest(
+        _SELF_TEST_EXAMPLE, _SELF_TEST_RUNTIME, _SELF_TEST_PROVIDER, _SELF_TEST_LANGUAGE_A, contract,
+    )
+    problems: list[str] = []
+    if found.contract_tier != [expected]:
+        problems.append(f"expected exactly the planted ContractTierTest {expected}, got {found.contract_tier}")
+    if found.role_gaps or found.behaviour_gaps or found.skip_gaps or found.unidentified:
+        problems.append(f"a contract-tier test was folded into another gap kind: {found}")
+    if found.clean:
+        problems.append("a comparison holding a contract-tier test reported clean")
     return problems
 
 
@@ -1589,6 +1659,11 @@ _IN_MEMORY_CASES: Final[tuple[tuple[str, Callable[[], list[str]]], ...]] = (
         "unidentified test: a test carrying no case id is its own reported category, never "
         "a role gap and never dropped",
         _self_test_unidentified,
+    ),
+    (
+        "contract-tier test: a test carrying a contract-tier family's case id is its own "
+        "reported category, never a role gap",
+        _self_test_contract_tier,
     ),
     (
         "language floor: fewer than two registered languages is refused, and so is a "

@@ -451,7 +451,6 @@ _SERVICE_DCFG: Final[str] = """config service catalog.CatalogService {
       database = "catalog_products";
       poolSize = 20;
       maxOverflow = 20;
-      asyncDriver = "postgresql+asyncpg";
       healthCheckSql = "SELECT 1";
       dockerImage = "postgres:17-alpine";
       volumePath = "/var/lib/postgresql/data";
@@ -563,7 +562,6 @@ _SERVICE_DCFG: Final[str] = """config service catalog.CatalogService {
       poolSize = 40;
       maxOverflow = 20;
       ssl = true;
-      asyncDriver = "postgresql+asyncpg";
       healthCheckSql = "SELECT 1";
     }
     strategy {

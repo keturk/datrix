@@ -5,7 +5,7 @@ Every installed ``datrix.platforms`` plugin declares a
 platform-axis counterpart of the language-axis ``supported_domain_parity_gate``
 module. This gate compares those declarations ACROSS platforms at the CAPABILITY
 level: an obligation exists for a block type, an observability category, an
-identity feature, a runtime floor and a model provider -- never for the
+identity feature, an identity policy, a runtime floor and a model provider -- never for the
 implementation a capability is realized by. A platform that does not offer one
 particular flavor, vendor product or provider has simply not got it in its
 vocabulary; that is never a gap. A platform that realizes a capability by NO
@@ -20,7 +20,7 @@ the class's field list); every comparison is a pure function over
 on any cell shape, and the self-test plants :class:`PlatformFacts` directly and
 constructs no declaration or cell.
 
-THE SEVEN SURFACES:
+THE EIGHT SURFACES:
 
 1. ``block_types`` -- every block type any platform realizes by at least one
    flavor is realized by at least one flavor on every platform
@@ -40,6 +40,13 @@ THE SEVEN SURFACES:
    a platform whose edge binds no domain carries neither.
 7. ``model_realizations`` -- a platform realizes at least one model provider
    with at least one flavor cell when any other does.
+8. ``identity_policies`` -- every value of a policy-shaped identity feature (one
+   whose values are the author's portable choice, not a provider's vocabulary:
+   ``sign_up`` = ``enabled`` | ``disabled``) that any platform realizes through
+   at least one provider is so realized on every platform
+   (``identity_feature:<feature>=<value>`` row). Surface 4 sees only that a
+   feature is offered, so a platform offering ``sign_up`` closed-only would
+   otherwise pass while refusing every open-registration source.
 
 Surfaces 5-7 compare REQUIRED declaration fields, which the optional-field
 partition alone could never see; :func:`_assert_field_partition_complete`
@@ -75,6 +82,7 @@ from datrix_common.plugin.capability import (
     PlatformCapabilityDeclaration,
 )
 from datrix_common.plugin.capability_cells import (
+    IDENTITY_SIGN_UP_FEATURE,
     CustomDomainSurfaceName,
     StaticWebHostingOrigin,
 )
@@ -119,6 +127,12 @@ _GAP_KIND_BLOCK_TYPE: Final[str] = "block_type"
 _GAP_KIND_OBSERVABILITY: Final[str] = "observability_category"
 _GAP_KIND_IDENTITY: Final[str] = "identity_feature"
 
+#: Identity features whose values are portable author policies (surface 8),
+#: compared value by value; every other feature's values are provider
+#: vocabulary and only the feature's presence is compared (surface 4).
+_POLICY_IDENTITY_FEATURES: Final[frozenset[str]] = frozenset({IDENTITY_SIGN_UP_FEATURE})
+_POLICY_VALUE_SEPARATOR: Final[str] = "="
+
 _RUNTIME_CAPABILITY: Final[str] = "runtime"
 _MODEL_CAPABILITY: Final[str] = "model"
 
@@ -131,7 +145,7 @@ _MODEL_CAPABILITY: Final[str] = "model"
 _SURFACE_OWNED_OPTIONAL_FIELDS: Final[frozenset[str]] = frozenset({
     "native_observability_providers",   # surface 2
     "identity_provider_realizations",   # surface 4 (providers; the features are compared)
-    "identity_feature_realizations",    # surface 4
+    "identity_feature_realizations",    # surfaces 4 and 8
 })
 
 #: Optional fields whose floor the declaration enforces at construction (an
@@ -189,6 +203,9 @@ _PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     "native_identity_provider",
     "gateway_terminates_tls",
     "rdbms_login_principal_is_per_service",
+    # The token endpoint a container host serves in place of its metadata
+    # service; a platform with no container host of its own serves none.
+    "container_token_endpoint",
     "published_host_ports",
     "published_host_port_bindings",
     "edge_origin_host_port",
@@ -214,7 +231,7 @@ _EMISSION_INVENTORY_FIELDS: Final[frozenset[str]] = frozenset({
 
 #: Fields that LEDGER the capabilities a platform realizes by no implementation,
 #: each a typed gap row. The ledger is read here only as accounting for a
-#: violation of surfaces 1, 2 and 4 and never compared as a coordinate set: a
+#: violation of surfaces 1, 2, 4 and 8 and never compared as a coordinate set: a
 #: platform with no known hole correctly carries no row.
 _CAPABILITY_GAP_LEDGER_FIELDS: Final[frozenset[str]] = frozenset({
     "capability_gaps",
@@ -340,6 +357,7 @@ class PlatformFacts:
     observability: Mapping[str, frozenset[str]]    # category -> native provider names
     runtimes: frozenset[str]                       # supported_runtimes, by value
     identity_features: frozenset[str]              # features with >= 1 offered (provider, feature) cell
+    identity_policies: frozenset[str]              # "<feature>=<value>" of policy features, any provider
     static_hosting_origin: str                     # "loopback_port" | "domain"
     binds_domains: bool                            # the platform's edge binds custom domains
     custom_domain_surfaces: frozenset[str]         # names of the custom-domain surfaces present
@@ -380,6 +398,12 @@ def extract_facts(platform: str, decl: PlatformCapabilityDeclaration) -> Platfor
         },
         runtimes=frozenset(runtime.value for runtime in decl.supported_runtimes),
         identity_features=frozenset(feature for _, feature in decl.identity_feature_realizations),
+        identity_policies=frozenset(
+            f"{feature}{_POLICY_VALUE_SEPARATOR}{value}"
+            for (_, feature), cell in decl.identity_feature_realizations.items()
+            if feature in _POLICY_IDENTITY_FEATURES
+            for value in cell.values
+        ),
         static_hosting_origin=origin,
         binds_domains=binds_domains,
         custom_domain_surfaces=frozenset(decl.custom_domain_surfaces),
@@ -473,7 +497,7 @@ def _custom_domain_gaps(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViola
 
 
 def surface_violations(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViolation]:
-    """Run surfaces 1-7 over the extracted facts and return every violation.
+    """Run surfaces 1-8 over the extracted facts and return every violation.
 
     Raises:
         ValueError: If *facts* has fewer than ``_MIN_PLATFORMS_FOR_COMPARISON``
@@ -505,6 +529,11 @@ def surface_violations(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViolat
     violations.extend(_static_web_hosting_gaps(facts))
     violations.extend(_custom_domain_gaps(facts))
     violations.extend(_coverage_gaps(facts, "model_realizations", _model_floor, gap_kind=None))
+    violations.extend(
+        _coverage_gaps(
+            facts, "identity_policies", lambda f: f.identity_policies, gap_kind=_GAP_KIND_IDENTITY
+        )
+    )
     return violations
 
 
@@ -514,6 +543,7 @@ _GAP_KIND_BY_SURFACE: Final[Mapping[str, str]] = {
     "block_types": _GAP_KIND_BLOCK_TYPE,
     "observability_categories": _GAP_KIND_OBSERVABILITY,
     "identity_features": _GAP_KIND_IDENTITY,
+    "identity_policies": _GAP_KIND_IDENTITY,
 }
 
 
@@ -537,6 +567,8 @@ _SELF_TEST_PLATFORM_A: Final[str] = "self_test_platform_a"
 _SELF_TEST_PLATFORM_B: Final[str] = "self_test_platform_b"
 _SELF_TEST_BLOCK_TYPES: Final[frozenset[str]] = frozenset({"self_test_block_x", "self_test_block_y"})
 _SELF_TEST_FEATURES: Final[frozenset[str]] = frozenset({"self_test_feature_x", "self_test_feature_y"})
+_SELF_TEST_POLICY_OPEN: Final[str] = "self_test_policy=open"
+_SELF_TEST_POLICIES: Final[frozenset[str]] = frozenset({_SELF_TEST_POLICY_OPEN, "self_test_policy=closed"})
 _SELF_TEST_RUNTIME: Final[str] = "self_test_runtime"
 _SELF_TEST_MODEL_PROVIDER: Final[str] = "self_test_model_provider"
 
@@ -552,6 +584,7 @@ def _facts(platform: str, **overrides: object) -> PlatformFacts:
         observability={category: frozenset({f"{category}_provider"}) for category in _OBSERVABILITY_CATEGORIES},
         runtimes=frozenset({_SELF_TEST_RUNTIME}),
         identity_features=_SELF_TEST_FEATURES,
+        identity_policies=_SELF_TEST_POLICIES,
         static_hosting_origin=_ORIGIN_LOOPBACK,
         binds_domains=False,
         custom_domain_surfaces=frozenset(),
@@ -628,6 +661,24 @@ def _self_test_coverage(problems: list[str]) -> None:
         "an identity feature offered through no provider",
         surface_violations(_pair(identity_features=frozenset({"self_test_feature_x"}))),
         [(_SELF_TEST_PLATFORM_B, "identity_features", "self_test_feature_y")],
+    )
+    closed_only = _SELF_TEST_POLICIES - {_SELF_TEST_POLICY_OPEN}
+    _expect_exactly(
+        problems,
+        "an identity policy realized through no provider, the feature still offered",
+        surface_violations(_pair(identity_policies=closed_only)),
+        [(_SELF_TEST_PLATFORM_B, "identity_policies", _SELF_TEST_POLICY_OPEN)],
+    )
+    _expect_exactly(
+        problems,
+        "an identity policy realized through no provider, accounted by its row",
+        surface_violations(
+            _pair(
+                identity_policies=closed_only,
+                gap_surfaces=frozenset({f"{_GAP_KIND_IDENTITY}:{_SELF_TEST_POLICY_OPEN}"}),
+            )
+        ),
+        [],
     )
     _expect_exactly(
         problems,
@@ -784,6 +835,7 @@ _LIVE_UNION_SURFACES: Final[tuple[tuple[str, Callable[[PlatformFacts], frozenset
     ("block_types", lambda f: f.block_types),
     ("observability_categories", _realized_observability_categories),
     ("identity_features", lambda f: f.identity_features),
+    ("identity_policies", lambda f: f.identity_policies),
     ("supported_runtimes", _runtime_floor),
     ("model_realizations", _model_floor),
 )
