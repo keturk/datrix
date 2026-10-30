@@ -16,5 +16,4 @@ angular = 3
 
 [per_target.platforms]
 aws = 1
-azure = 1
-azure-vm = 1
+azure = 2

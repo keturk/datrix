@@ -77,14 +77,6 @@
           "reason": "The container-platform serverless HTTP entrypoint binds the port the compose runtime injects as PORT; fails loud when absent."
         },
         {
-          "path": "examples_order_service/test/deploy_tests.spec.ts",
-          "reason": "Emits the deploy-test harness, not service runtime."
-        },
-        {
-          "path": "examples_order_service/test/controllers/order-api.order.controller.spec.ts",
-          "reason": "Emits a generated test, not service runtime."
-        },
-        {
           "path": "examples_order_service/test/controllers/order-api.order.controller.integration.spec.ts",
           "reason": "Emits a generated test, not service runtime."
         },

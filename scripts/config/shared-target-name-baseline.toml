@@ -64,3 +64,8 @@ reason = "sqlalchemy_column_expr (:84) and mikro_orm_column_spec (:85): CQRS vie
 file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/deploy_entrypoint.py"
 count = 2
 reason = "DEPLOY_PY_NAME (:49, 'deploy.py') and DEPLOY_APP_PY_NAME (:64, 'deploy-app.py'): the 'py' segment is the file extension of the generated deployment script, which is Python by design on every platform; the names are shared by the docker, azure and aws platform packages and their tests, so a rename touches other packages. Drives to zero if the deployment script's file names are ever declared per platform instead of as shared constants."
+
+[[baseline]]
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/source_text.py"
+count = 2
+reason = "python_string_literal (:123) and python_literal (:138): the literal grammar of the operator scripts and runtime assets the platform packages write in Python by design (the aws gateway's Lambda authorizer handler, component's client sync scripts), beside json_text and toml_string; aws and component depend only on the kernel and datrix-common, so the one canonical writer lives here and codegen-python imports it too. Drives to zero if platform operator scripts and runtime assets are ever emitted in a per-platform language instead of Python."

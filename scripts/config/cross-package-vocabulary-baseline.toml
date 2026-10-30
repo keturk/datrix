@@ -111,11 +111,6 @@ file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/cache.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/email_templates.py"
-count = 1
-reason = "_LINE_BREAKS (CR, LF): the characters a generation-time email template check refuses in a header value. Its twin in datrix-codegen-python runtime/email_message.py is a runtime source inlined verbatim into each generated service, which runs where no Datrix package is installed and so can import no shared home; the two sets coincide because both guard the same header-injection rule on opposite sides of generation."
-
-[[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/context_models/webhook_verification.py"
 count = 1
 
@@ -241,11 +236,6 @@ count = 3
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_service_generator_ast.py"
 count = 1
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/runtime/email_message.py"
-count = 1
-reason = "_LINE_BREAKS (CR, LF): this module is inlined verbatim into a generated service's integrations/_email_helpers.py and runs where no Datrix package is installed, so it states the header-injection characters itself; the generation-time check in datrix-codegen-common algorithms/email_templates.py states the same two characters for the same rule."
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/runtime_spec.py"
