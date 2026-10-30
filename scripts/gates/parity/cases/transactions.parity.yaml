@@ -1,0 +1,60 @@
+- id: transactions.called-block-joins-the-open-unit
+  tags:
+  - parity
+  - transaction-options
+  input: transactions
+  stage: parity
+  observer: transaction_units
+  selector:
+    facet: unit
+    owner: recordReturn
+  expectation:
+    scope: joins-open-unit
+    isolation: owner-only
+    retry: yields-to-open-unit
+  reason: 'Every language runs a block a function opens through the unit scope: called inside another unit it opens and commits nothing, sets its isolation level only when it owns the unit, and its retry rethrows to the owning unit instead of re-running inside an aborted transaction.'
+- id: transactions.calling-block-owns-its-unit-the-same-way
+  tags:
+  - parity
+  - transaction-options
+  input: transactions
+  stage: parity
+  observer: transaction_units
+  selector:
+    facet: unit
+    owner: returnBook
+  expectation:
+    scope: joins-open-unit
+    isolation: owner-only
+    retry: yields-to-open-unit
+  reason: 'The block that calls another runs through the same unit scope on every language, so it owns its unit at top level and joins one when it is itself called inside a transaction.'
+- id: transactions.called-service-fn-block-joins-the-open-unit
+  tags:
+  - parity
+  - transaction-options
+  input: transactions
+  stage: parity
+  observer: transaction_units
+  selector:
+    facet: unit
+    owner: recordRenewal
+  expectation:
+    scope: joins-open-unit
+    isolation: owner-only
+    retry: yields-to-open-unit
+  reason: 'A service-level function runs its block through the same unit scope as an API helper on every language: called inside another unit it opens and commits nothing and sets no isolation level, because it transacts on the session or manager its caller holds.'
+- id: transactions.calling-service-fn-block-owns-its-unit-the-same-way
+  tags:
+  - parity
+  - transaction-options
+  input: transactions
+  stage: parity
+  observer: transaction_units
+  selector:
+    facet: unit
+    owner: renewCheckout
+  expectation:
+    scope: joins-open-unit
+    isolation: owner-only
+    retry: yields-to-open-unit
+  reason: 'The service-level function whose block calls another owns its unit at top level and joins one when called inside a transaction, the same on every language.'

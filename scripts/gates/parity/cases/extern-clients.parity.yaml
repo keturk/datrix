@@ -1,0 +1,32 @@
+- id: extern-clients.post-sends-first-parameter-as-whole-body
+  tags:
+  - parity
+  - extern-service
+  input: external-integration
+  stage: parity
+  observer: extern_client_requests
+  selector:
+    facet: request
+    client: ModerationProviderClient
+    method: review
+  expectation:
+    http-method: POST
+    body: request
+    query: locale
+  reason: 'Every language sends a body-carrying extern request by the rule a rest_api route binds it by: the first non-path parameter is the whole JSON body, every other one a query key.'
+- id: extern-clients.get-sends-no-body
+  tags:
+  - parity
+  - extern-service
+  input: external-integration
+  stage: parity
+  observer: extern_client_requests
+  selector:
+    facet: request
+    client: ModerationProviderClient
+    method: verdict
+  expectation:
+    http-method: GET
+    body: ''
+    query: detailed
+  reason: 'Every language sends a get extern request with no body: its path variable fills the path and every other parameter is a query key.'
