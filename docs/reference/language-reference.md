@@ -753,7 +753,7 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
 
 Supported HTTP methods: `get`, `post`, `put`, `delete`, `patch`, `head`, `options`.
 
-An endpoint with no `@path('...')` is called at the **kebab-case of its name** beneath the base path in every language (`getPrice` is called at `/api/v1/get-price`). `@path('/...')` is the one decorator an extern endpoint accepts and overrides that default. Path variables written as `{name}` must match a declared parameter, and the generated client percent-encodes each value. A generator that cannot realize the declared auth type fails generation.
+An endpoint with no `@path('...')` is called at the **kebab-case of its name** beneath the base path in every language (`getPrice` is called at `/api/v1/get-price`). `@path('/...')` is the one decorator an extern endpoint accepts and overrides that default. Path variables written as `{name}` must match a declared parameter, and the generated client percent-encodes each value. The other parameters travel by the rule a `rest_api` route reads them by: a `post`, `put` or `patch` sends its first non-path parameter as the whole JSON body (`calculatePrice` sends the `PricingRequest` itself, not an object wrapping it under `req`), and every other parameter goes in the query string under its declared name. A generator that cannot realize the declared auth type fails generation.
 
 ### Ensure Clauses
 
