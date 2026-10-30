@@ -1,12 +1,12 @@
 ---
-description: Diagnose and fix related test failures, errors, and warnings across several datrix packages from the index.json files of their test runs
+description: Diagnose and fix test failures, errors, and warnings from the index.json files of test runs, and in every related test suite across all datrix packages
 model: claude-sonnet-5-5
 effort: high
 ---
 
 # Fix Test Suites
 
-Diagnose and fix failures, errors, and warnings that show up in the structured test results (`index.json`) of **two or more `datrix-*` packages** at once, treating them as one problem set. Use it when a change in one package breaks tests in others, or when the same root cause surfaces in several runs. For a single package use that package's `/fix-*` skill.
+Diagnose and fix failures, errors, and warnings that show up in the structured test results (`index.json`) of one or more `datrix-*` packages, and in **every related test suite** the root causes reach, treating them all as one problem set. The supplied runs are where the job starts, never where it ends: no test suite is outside the job. Use it when a change in one package breaks tests in others, or when the same root cause surfaces in several runs.
 
 **Execute the shared playbook:** read `d:\datrix\.claude\skills\_shared\fix-package-playbook.md` and follow it, with the multi-package adjustments below. The playbook owns the index.json schema, the extraction scripts, the per-cluster investigation steps, the security and no-expedient-fix rules, and the abort conditions. This file only changes what the playbook scopes to one package.
 
@@ -16,12 +16,12 @@ Diagnose and fix failures, errors, and warnings that show up in the structured t
 /fix-test-suites D:\datrix\datrix-common\.test_results\test-results-YYYYMMDD-HHMMSS\index.json D:\datrix\datrix-codegen-kernel\.test_results\test-results-YYYYMMDD-HHMMSS\index.json
 ```
 
-The arguments are one or more absolute paths to an `index.json` inside a `.test_results/test-results-*/` directory, each from a different repo (two runs of the same repo are allowed; the newer one wins for that repo, and say so). Separate them with spaces, commas or new lines.
+The arguments are one or more absolute paths to an `index.json` inside a `.test_results/test-results-*/` directory (two runs of the same repo are allowed; the newer one wins for that repo, and say so). Separate them with spaces, commas or new lines.
 
 ## Parameters
 
-- `{RUNS}` = the supplied index.json files. For each, `{PACKAGE}` is the `project` field of the file and `{PACKAGE_PATH}` is `d:\datrix\{PACKAGE}\`.
-- `{SCOPE}` = the set of `{PACKAGE}` values across `{RUNS}`: the packages whose failing ids the ledger tracks. **It is not a fence.** Every Datrix package is in play; a root cause is fixed in the package that owns it.
+- `{RUNS}` = the index.json files the job holds: the supplied ones, plus every run of a related suite that Step 1b brings in. For each, `{PACKAGE}` is the `project` field of the file and `{PACKAGE_PATH}` is `d:\datrix\{PACKAGE}\`.
+- `{SCOPE}` = the set of `{PACKAGE}` values across `{RUNS}`: the packages whose failing ids the ledger tracks. **It is not a fence, and it grows.** Every Datrix package and every test suite is in play; a root cause is fixed in the package that owns it, and a related suite is checked whether or not it was supplied.
 
 Reject at once, naming the file, any path that does not exist, is not an `index.json`, or whose `project` does not resolve to a directory under `d:\datrix\`.
 
@@ -30,6 +30,7 @@ Reject at once, naming the file, any path that does not exist, is not an `index.
 The playbook's single-repo scope is a standing order for `/fix-{suffix}` skills. It does not apply here: invoking `/fix-test-suites` lifts it for every Datrix package.
 
 - **Read, edit, and run tests in any Datrix package** the root causes lead to, whether or not it has a run in `{RUNS}`.
+- **Check and fix every related test suite**, not only the supplied ones (Step 1b). A related suite that fails joins `{RUNS}` and its failures are worked like the supplied ones; a related suite that is green is reported as checked.
 - **Tests:** `-Specific` and `-Tag` runs only, at most 3 tags per run, `-Keyword` in one package only. Never a whole suite, a tier switch, `-All`, `-Rerun`, or `affected-gate.ps1`.
 - **Root cause in any other package** → fix it there, in the same job, and verify it with `-Specific` on that package's tests of the changed file. This replaces the playbook's "Cross-Project Root Cause" stop.
 - **Findings** for a defect the fixes do not need, in any package, still go to `d:\datrix\findings\` per the CLAUDE.md rule.
@@ -55,6 +56,15 @@ For each index.json, follow playbook Step 1 unchanged: read `digest.txt` and `fa
 
 Then store the job's finish line: `test/failure-ledger.ps1 -Runs <the index.json paths, comma-separated>`. It lists the failing test ids by package; `-Status` at any point shows which are still open. The job is not a pin count or a green file: it is finished only when `-Status` prints `LEDGER: 0 open id(s)`.
 
+### Step 1b: Bring in the related suites
+
+The supplied runs do not bound the job. For every package in `{SCOPE}` and every package a fix edits, find the suites that can be affected and check them:
+
+- **Which:** the packages that depend on it and the packages it depends on (the architecture cheat sheet's package table, each `pyproject.toml`), plus every package whose tests reference a symbol, module or fixture named in the failing frames (`find_references`, `search`). A shared layer reaches every package that imports it.
+- **How:** use the package's newest `.test_results/test-results-*/index.json` when one exists and is recent enough to cover the changed code. Otherwise run its tests that reach the change: `-Specific` on the test files that reference the changed code, `-Tag` for the changed behaviour (`-ListTags`), at most 3 tags per run. Never a whole suite.
+- **Join the job:** a related suite with failures, errors or warnings is added to `{RUNS}` and goes through Step 2 with the rest. Store the ledger again with every run the job now holds (`failure-ledger.ps1 -Runs` replaces the stored list, so pass all of them).
+- **Repeat** whenever a fix edits a package not yet checked, or a new failure points at one. The set of related suites is closed only when no package in `{SCOPE}` or edited has an unchecked dependent or dependency.
+
 ### Step 2: Correlate across runs, then order the work
 
 Build one table of families across all runs: `run (package) | family label | normalized pattern | source_location | cluster IDs`. Then group:
@@ -79,7 +89,7 @@ After the errors and failures of all runs, playbook Step 8 per run.
 
 ### Step 5: Final check, per package
 
-Playbook Step 9, once, after every fix: for each package in `{SCOPE}` and each other package you edited, re-run its originally failing tests plus the test files you added or edited (`-Specific`), then the feature tags of the behaviours you changed in that package (`-Tag`, at most 3 per run). A changed behaviour no tagged test covers gets a new tagged test in the package that owns it.
+Playbook Step 9, once, after every fix: for each package in `{SCOPE}`, each other package you edited, and each related suite from Step 1b, re-run its originally failing tests plus the test files you added or edited (`-Specific`), then the feature tags of the behaviours you changed in that package (`-Tag`, at most 3 per run). A changed behaviour no tagged test covers gets a new tagged test in the package that owns it.
 
 Then `test/failure-ledger.ps1 -Status`: every open id is work (`FAILING` = still red, `NOT-RERUN` = not yet proven, `NEW` = a failure the starting runs never had, so a regression or an unreached test). A failed run writes a new `.test_results/` directory: work every cluster it reports. The turn ends when `-Status` prints `0 open id(s)` and every changed behaviour's tags pass in every package the job edited, or at a valid B1–B4 blocker with its four-part proof.
 
@@ -92,7 +102,7 @@ Original issues: {E} errors, {F} failures in {C} clusters, {W} warnings — {R} 
 Root cause {n}: {file:line in package} — {what was wrong} — covers {package: cluster #ids}
 Fixed: {file:line} — {what changed} — {package / cluster #id / warning category}   (one line each)
 Verification: per package — originally-failing tests {PASS/FAIL}; warnings resolved {N}/{total}; tags {list} {PASS/FAIL} ({pass}/{total})
-Reaches (not run): {packages the change reaches that the job neither edited nor ran, with the tags, or "none"}
+Related suites checked: {package: how checked (run dir or -Specific/-Tag) — PASS/FAIL, or "none reached"}
 Unresolved (if any): {package: cluster/warning} — {reason}
 ```
 
