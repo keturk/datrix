@@ -259,7 +259,6 @@
     replace pubsub mq {
       engine = "kafka";
       flavor = "event-hubs";
-      sku = "Standard";
       namespaceGroup = "ecommerce-events";
       partitions = 3;
       replicationFactor = 3;
