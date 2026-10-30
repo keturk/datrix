@@ -11,8 +11,12 @@ session on ``--model`` ends with one line:
 
 The session never deletes the finding; this module does, through ``finding_inbox.close_finding`` in this
 process, not on a model's word: never while another findings file names it, and after DONE only when the
-session's last foreground test.ps1 or ``*-gate.ps1`` run passed (read from the step's stream log). Each
-finding is closed before the next one starts. ``finding_inbox.select_findings`` selects the findings (the inbox's subfolders in turn, or the one given with ``--dir``), unless
+tests related to what the session wrote pass. This module runs those itself (``skill.related_tests``: the
+tests the session wrote, their feature tags across the packages the change reaches, and the end-to-end tier
+when a plugin package is reached); while any fails it resumes the session with the failures, twice at most.
+When the session wrote no package source or test (the scripts tree hosts no test suite), its last foreground
+test.ps1 or ``*-gate.ps1`` run must have passed (read from the step's stream log). Each finding is closed
+before the next one starts. ``finding_inbox.select_findings`` selects the findings (the inbox's subfolders in turn, or the one given with ``--dir``), unless
 ``--finding`` names them.
 
 Exit codes: 0 every selected finding is deleted (or a passing self-test); 1 a step ended in error, replied
@@ -25,9 +29,11 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import os
 import re
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final, NoReturn
@@ -45,6 +51,7 @@ from datrix_scripts.skill.chain import (
     Chain,
     ChainOptions,
     ChainStopped,
+    StepRow,
     add_chain_arguments,
     chain_exit_code,
     chain_options,
@@ -63,6 +70,11 @@ from datrix_scripts.skill.finding_inbox import (
 from datrix_scripts.skill.finding_inbox import (
     select_findings as select_inbox,
 )
+from datrix_scripts.skill.related_tests import repair_prompt, verify_related
+from datrix_scripts.skill.related_tests_checks import (
+    CHECKS as RELATED_CHECKS,
+)
+from datrix_scripts.skill.related_tests_checks import tool_use_line, write_stub_harness, write_workspace
 from datrix_scripts.test.wrappers import SKILL_SCRIPTS_DIR, module_main, run_self_test
 
 MODULE: Final = "datrix_scripts.skill.implement_finding"
@@ -73,6 +85,8 @@ OUTCOME_PATTERN: Final = re.compile(r"Finding fix:[ \t*_`]*(DONE|ALREADY RESOLVE
 ALREADY_RESOLVED: Final = "ALREADY RESOLVED"
 FAILED_PREFIX: Final = "FAILED"
 NEEDS_JON_PREFIX: Final = "NEEDS JON"
+# How often a fixed finding's session is resumed with the related tests that failed before the finding is kept.
+MAX_REPAIR_ROUNDS: Final = 2
 DRY_RUN_OUTCOME: Final = "dry run"
 ALREADY_GONE: Final = "already gone"
 FINDINGS_COLUMNS: Final = ("Finding", "Outcome")
@@ -145,9 +159,50 @@ def resolve_finding(chain: Chain, finding: Path, model: str, effort: str) -> str
         if close(finding, inbox=inbox_dir(WORKSPACE_DIR)) == EXIT_DELETED:
             return "deleted (no longer an issue)"
         return f"{FAILED_PREFIX}: already resolved, but not deletable (see above); {resume}"
-    if close(finding, row.stream_path, inbox_dir(WORKSPACE_DIR)) == EXIT_DELETED:
+    proof = prove_related(chain, row, model, effort)
+    if proof.message:
+        return f"{proof.message}; {resume}"
+    session_log = None if proof.checked else row.stream_path
+    if close(finding, session_log, inbox_dir(WORKSPACE_DIR)) == EXIT_DELETED:
         return "fixed and deleted"
     return f"{FAILED_PREFIX}: fixed, but left in place (see above); {resume}"
+
+
+@dataclass(frozen=True)
+class RelatedProof:
+    """The related-suites proof of one fixed finding: *message* is empty when every related run passed;
+    *checked* is whether any related run was planned (when none was, the session's own last run is the proof)."""
+
+    message: str
+    checked: bool
+
+
+def prove_related(chain: Chain, row: StepRow, model: str, effort: str) -> RelatedProof:
+    """Run the tests related to the files the session wrote (``related_tests``); while some fail, resume the
+    session with the failures, up to ``MAX_REPAIR_ROUNDS`` times, and run them again."""
+    streams = [row.stream_path]
+    for attempt in range(MAX_REPAIR_ROUNDS + 1):
+        try:
+            verdict = verify_related(chain.options.workspace, streams, chain.run_dir / f"{row.name}-related-{attempt}")
+        except AssistError as exc:
+            return RelatedProof(f"{FAILED_PREFIX}: the related tests could not be planned: {exc}", True)
+        if not verdict.selections:
+            return RelatedProof("", False)
+        say(f"  related runs: {len(verdict.selections)}, not passing: {len(verdict.failures)}")
+        for result in verdict.failures:
+            say(f"    NOT PASSING {result.selection.describe()}", ColorCodes.RED)
+        if verdict.passed:
+            return RelatedProof("", True)
+        if attempt == MAX_REPAIR_ROUNDS:
+            return RelatedProof(f"{FAILED_PREFIX}: related tests still not passing after {MAX_REPAIR_ROUNDS} repairs", True)
+        repair = chain.step("repair", repair_prompt(verdict), model=model, effort=effort, resume_session=row.session_id)
+        if repair.is_error:
+            return RelatedProof(f"{FAILED_PREFIX}: the repair session ended in error ({repair.subtype})", True)
+        _, blocker = finding_outcome("\n".join(chain.replies(repair)))
+        if blocker:
+            return RelatedProof(f"{NEEDS_JON_PREFIX}: the repair stopped {blocker}", True)
+        streams.append(repair.stream_path)
+    return RelatedProof(f"{FAILED_PREFIX}: related tests were not proven", True)
 
 
 def run_findings(chain: Chain, selected: Sequence[Path], *, model: str, effort: str) -> NoReturn:
@@ -275,6 +330,59 @@ def _check_all_takes_every_finding_of_the_folder_and_refuses_a_count() -> None:
         assert len(printed.getvalue().splitlines()) == 2, printed.getvalue()
 
 
+_REPAIR_SESSION: Final = "5b0c4a8e-3a7f-4f43-9a0e-2f4f1f0f9c11"
+_STUB_RESULT: Final = ('{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"Finding fix: DONE",'
+                       f'"session_id":"{_REPAIR_SESSION}","total_cost_usd":0,"modelUsage":{{}},"permission_denials":[]}}')
+
+
+def _stub_claude(directory: Path, fixed_flag: Path | None) -> str:
+    """A real ``claude`` executable for a check: it reads the prompt, creates *fixed_flag* (the stub harness
+    passes once it exists) and prints one result event."""
+    if os.name == "nt":
+        script = directory / "claude.cmd"
+        flag_line = f'echo.>"{fixed_flag}"\n' if fixed_flag else ""
+        script.write_text(f"@echo off\nmore >nul\n{flag_line}echo {_STUB_RESULT}\n", encoding="utf-8")
+    else:
+        script = directory / "claude"
+        flag_line = f'echo > "{fixed_flag}"\n' if fixed_flag else ""
+        script.write_text(f"#!/bin/sh\ncat >/dev/null\n{flag_line}echo '{_STUB_RESULT}'\n", encoding="utf-8")
+        script.chmod(0o755)
+    return str(script)
+
+
+def _fixed_session(root: Path) -> StepRow:
+    """The finished fix step of a session that wrote a package's source and its test."""
+    stream = root / "01-fix.stream.jsonl"
+    written = [root / "datrix-lib" / "src" / "datrix_lib" / "__init__.py",
+               root / "datrix-lib" / "tests" / "unit" / "test_lib.py"]
+    stream.write_text("\n".join(tool_use_line("Edit", {"file_path": str(path)}) for path in written),
+                      encoding="utf-8")
+    return StepRow("01-fix", False, "success", "Finding fix: DONE", _REPAIR_SESSION, "", 1, 0.0, 0.0, 0, stream, False)
+
+
+def _proof_after_repairs(repairs_fix_it: bool) -> tuple[RelatedProof, int]:
+    """prove_related over a workspace whose related runs fail until the stub session's repair creates the flag
+    (when *repairs_fix_it*); the proof and the number of repair steps run."""
+    with TemporaryDirectory() as raw:
+        root = Path(raw)
+        write_workspace(root)
+        flag = root / "datrix" / "scripts" / "test" / "fixed.flag"
+        write_stub_harness(root, "if (Test-Path \"$PSScriptRoot/fixed.flag\") { Write-Output 'Total: 1 | Passed: 1 | "
+                                 "Failed: 0'; exit 0 }\nWrite-Output 'Total: 1 | Passed: 0 | Failed: 1'\nexit 1\n")
+        chain = Chain(ChainOptions(workspace=root, auto_compact_window=0, quiet=True),
+                      _stub_claude(root, flag if repairs_fix_it else None))
+        with contextlib.redirect_stdout(io.StringIO()):
+            proof = prove_related(chain, _fixed_session(root), DEFAULT_MODEL, DEFAULT_EFFORT)
+        return proof, len(chain.steps)
+
+
+def _check_failing_related_runs_resume_the_session_until_they_pass() -> None:
+    proof, repairs = _proof_after_repairs(repairs_fix_it=True)
+    assert (proof, repairs) == (RelatedProof("", True), 1), (proof, repairs)
+    proof, repairs = _proof_after_repairs(repairs_fix_it=False)
+    assert proof.checked and proof.message.startswith(FAILED_PREFIX) and repairs == MAX_REPAIR_ROUNDS, (proof, repairs)
+
+
 def _check_a_dry_run_prints_every_session() -> None:
     with TemporaryDirectory() as raw:
         workspace = Path(raw)
@@ -295,10 +403,11 @@ def _check_a_dry_run_prints_every_session() -> None:
 
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
-        checks = [*CHAIN_CHECKS, _check_the_outcome_is_the_last_finding_fix_line,
+        checks = [*CHAIN_CHECKS, *RELATED_CHECKS, _check_the_outcome_is_the_last_finding_fix_line,
                   _check_findings_are_selected_and_closed_in_process,
                   _check_the_subfolders_are_worked_in_turn_or_only_the_one_given,
                   _check_all_takes_every_finding_of_the_folder_and_refuses_a_count,
+                  _check_failing_related_runs_resume_the_session_until_they_pass,
                   _check_a_dry_run_prints_every_session]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SKILL_SCRIPTS_DIR)
 

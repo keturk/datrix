@@ -32,7 +32,7 @@ import subprocess
 import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -405,11 +405,13 @@ class Chain:
         """A chain over the ``claude`` on ``PATH`` (exit 1 when there is none)."""
         return cls(options, find_claude())
 
-    def step(self, name: str, prompt: str, *, model: str = "", effort: str = "", tools: str = "") -> StepRow:
+    def step(self, name: str, prompt: str, *, model: str = "", effort: str = "", tools: str = "",
+             resume_session: str = "") -> StepRow:
         """Run *prompt* as one headless step and return its row. *model* and *effort* start the session on
         that model and effort; a skill's own ``model:``/``effort:`` still applies while it runs, so they are
         for skills that declare none and leave the choice to the caller. *tools* limits the session to those
-        built-in tools and the workspace's own MCP servers (``step_command``)."""
+        built-in tools and the workspace's own MCP servers (``step_command``). *resume_session* continues that
+        earlier session of this chain, whatever ``options.resume`` says."""
         self._number += 1
         label = f"{self._number:02d}-{name}"
         window = self.options.auto_compact_window
@@ -421,8 +423,9 @@ class Chain:
         stream_path = self.run_dir / f"{label}.stream.jsonl"
         if self.options.dry_run:
             return StepRow(label, False, "", "", "", "", 0, 0.0, 0.0, 0, stream_path, dry_run=True)
-        command = step_command(self.claude, self.options, session_id=self.session_id, model=model, effort=effort,
-                               tools=tools)
+        options = replace(self.options, resume=True) if resume_session else self.options
+        command = step_command(self.claude, options, session_id=resume_session or self.session_id, model=model,
+                               effort=effort, tools=tools)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         error_path = self.run_dir / f"{label}.stderr.txt"
         started = time.monotonic()

@@ -185,8 +185,14 @@ def _gate_failure(command: str, output: str) -> str:
 def _verdicts_all_pass(command: str, output: str) -> bool:
     """Whether ``output`` keeps test.ps1's summary line for every invocation in ``command``, each one
     with every package passed -- the verdict a piped run's exit code cannot give."""
+    return summaries_passed(output, len(_TEST_COMMAND.findall(command)))
+
+
+def summaries_passed(output: str, expected: int = 1) -> bool:
+    """Whether ``output`` keeps at least ``expected`` of test.ps1's closing ``Total: N | Passed: N | Failed: N``
+    lines and every one reports every package passed."""
     verdicts = _SUMMARY.findall(output)
-    if len(verdicts) < len(_TEST_COMMAND.findall(command)):
+    if len(verdicts) < expected:
         return False
     return all(int(total) == int(passed) and int(failed) == 0 for total, passed, failed in verdicts)
 
