@@ -34,6 +34,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
+    ExternClientRequest,
     ExternalQueueControlCensus,
     ExternalQueueControlModule,
     PublishedEventEnvelope,
@@ -41,6 +42,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     RealizedRouteUrl,
     ResponseBodyWireField,
     RouteWireContract,
+    TransactionUnit,
     route_key,
 )
 from datrix_codegen_kernel.platform.web_security_headers import WebSecurityHeaderSet, build_web_security_headers
@@ -363,6 +365,106 @@ def _read_process_local_lookups(result: object, selector: Selector) -> Observati
 
 def _offer_control_blocks(result: object) -> Iterable[dict[str, SelectorValue]]:
     return [{BLOCK_KEY: block} for block in sorted({module.block for module in _controls(result).modules})]
+
+
+# ---------------------------------------------------------------------------
+# Extern client requests: extern_client_requests
+# ---------------------------------------------------------------------------
+
+EXTERN_CLIENT_REQUESTS: Final[str] = "extern_client_requests"
+CLIENT_KEY: Final[str] = "client"
+METHOD_KEY: Final[str] = "method"
+
+
+def _extern_requests(result: object) -> tuple[ExternClientRequest, ...]:
+    return _items(result, ExternClientRequest, EXTERN_CLIENT_REQUESTS)
+
+
+def _extern_request_label(request: ExternClientRequest) -> str:
+    return f"{request.client}.{request.method}"
+
+
+def _read_extern_request(result: object, selector: Selector) -> Observation:
+    """The HTTP method one client method sends, the parameter sent as its whole body ('' for none),
+    and its query keys in order."""
+    client, method = _text(selector, CLIENT_KEY), _text(selector, METHOD_KEY)
+    matches = [r for r in _extern_requests(result) if r.client == client and r.method == method]
+    if len(matches) != 1:
+        raise SelectorError(f"extern client method {client}.{method} has {len(matches)} requests; exactly one is read")
+    request = matches[0]
+    return Observation(
+        Shape.MAPPING,
+        {
+            "http-method": request.http_method,
+            "body": request.body or "",
+            "query": _QUERY_KEY_SEPARATOR.join(request.query_keys),
+        },
+    )
+
+
+def _read_extern_requests(result: object, selector: Selector) -> Observation:
+    return _set(_extern_request_label(request) for request in _extern_requests(result))
+
+
+def _offer_extern_requests(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{CLIENT_KEY: request.client, METHOD_KEY: request.method} for request in _extern_requests(result)]
+
+
+# ---------------------------------------------------------------------------
+# Transaction units: transaction_units
+# ---------------------------------------------------------------------------
+
+TRANSACTION_UNITS: Final[str] = "transaction_units"
+OWNER_KEY: Final[str] = "owner"
+
+
+def _transaction_units(result: object) -> tuple[TransactionUnit, ...]:
+    return _items(result, TransactionUnit, TRANSACTION_UNITS)
+
+
+def _unit_isolation(unit: TransactionUnit) -> str:
+    if not unit.sets_isolation:
+        return "none"
+    return "owner-only" if unit.isolation_owner_only else "always"
+
+
+def _unit_retry(unit: TransactionUnit) -> str:
+    if not unit.retried:
+        return "none"
+    return "yields-to-open-unit" if unit.retry_yields_to_open_unit else "retries-inside-open-unit"
+
+
+def _unit_reading(unit: TransactionUnit) -> dict[str, str]:
+    return {
+        "scope": "joins-open-unit" if unit.joins_open_unit else "opens-its-own",
+        "isolation": _unit_isolation(unit),
+        "retry": _unit_retry(unit),
+    }
+
+
+def _read_transaction_unit(result: object, selector: Selector) -> Observation:
+    """How one function's ``transaction`` block opens its unit, sets its isolation level and retries.
+
+    A target may emit one function more than once (a dependency-injected method and
+    a standalone variant of it): the function reads once when every unit it emits
+    reads the same, and is unreadable when they disagree.
+    """
+    owner = _text(selector, OWNER_KEY)
+    matches = [unit for unit in _transaction_units(result) if unit.owner == owner]
+    if not matches:
+        raise SelectorError(f"function {owner} has no transaction unit")
+    readings = {tuple(sorted(_unit_reading(unit).items())) for unit in matches}
+    if len(readings) != 1:
+        files = sorted({unit.file_path for unit in matches})
+        raise SelectorError(
+            f"function {owner} emits {len(matches)} transaction units that read differently "
+            f"({sorted(readings)}) in {files}; one reading is expected"
+        )
+    return Observation(Shape.MAPPING, _unit_reading(matches[0]))
+
+
+def _offer_transaction_units(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{OWNER_KEY: unit.owner} for unit in _transaction_units(result)]
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +797,42 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
             ),
         ),
         ProbeReadings(
+            EXTERN_CLIENT_REQUESTS,
+            ProbeArgument.GENERATED_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "request",
+                        Shape.MAPPING,
+                        (CLIENT_KEY, METHOD_KEY),
+                        summary="the HTTP method, whole-body parameter and query keys one extern client method sends",
+                    ),
+                    _read_extern_request,
+                    _offer_extern_requests,
+                ),
+                FacetReading(
+                    ParityFacet("requests", Shape.SET, summary="every extern client method, 'Client.method'"),
+                    _read_extern_requests,
+                ),
+            ),
+        ),
+        ProbeReadings(
+            TRANSACTION_UNITS,
+            ProbeArgument.GENERATED_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "unit",
+                        Shape.MAPPING,
+                        (OWNER_KEY,),
+                        summary="how one function's transaction block opens its unit, sets its isolation and retries",
+                    ),
+                    _read_transaction_unit,
+                    _offer_transaction_units,
+                ),
+            ),
+        ),
+        ProbeReadings(
             RENDER_ENUM_CLASSIFIER,
             ProbeArgument.EXAMPLE_ENUM,
             _facets(
@@ -805,6 +943,7 @@ __all__ = [
     "DOCUMENTATION_SURFACES",
     "ENUM_KEY",
     "EVENT_ENVELOPES",
+    "EXTERN_CLIENT_REQUESTS",
     "EXTERNAL_QUEUE_CONTROLS",
     "HEADER_SET_FIXTURES",
     "PROBE_READINGS",

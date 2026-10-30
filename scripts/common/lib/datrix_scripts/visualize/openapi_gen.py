@@ -218,6 +218,47 @@ def _check_a_planted_example_gets_its_specs() -> None:
         assert list((docs / SPEC_OUTPUT_DIRS[ASYNCAPI]).glob("*.yaml")), sorted(docs.rglob("*"))
 
 
+_ORDER_TOPIC: Final = "        topic OrderEvents {\n"
+_ORDER_SUBSCRIPTION: Final = "        subscribe mq.OrderEvents {\n"
+_REFUND_TOPIC: Final = "        topic RefundEvents {\n            publish OrderCancelled(UUID orderId);\n        }\n\n"
+_REFUND_SUBSCRIPTION: Final = (
+    "        subscribe mq.RefundEvents {\n"
+    "            on OrderCancelled(UUID orderId) {\n"
+    "                Log.info(#\"Refund cancelled: {orderId}\");\n"
+    "            }\n"
+    "        }\n\n"
+)
+
+
+def _check_one_event_on_two_channels_gets_an_operation_each() -> None:
+    from datrix_common.paths import ServicePaths
+
+    with tempfile.TemporaryDirectory() as tmp:
+        project = plant_example(_PLANTED_EXAMPLE, Path(tmp))
+        source = project / "order-service.dtrx"
+        text = source.read_text(encoding="utf-8")
+        assert _ORDER_TOPIC in text and _ORDER_SUBSCRIPTION in text, "the planted example's pubsub changed"
+        text = text.replace(_ORDER_TOPIC, _REFUND_TOPIC + _ORDER_TOPIC)
+        source.write_text(text.replace(_ORDER_SUBSCRIPTION, _REFUND_SUBSCRIPTION + _ORDER_SUBSCRIPTION),
+                          encoding="utf-8")
+        app = load_application(project, DEFAULT_PROFILE)
+        service = next(s for s in app.services.values() if ServicePaths(s.name).simple_name == "OrderService")
+        spec = build_asyncapi_spec(service)
+        operations, channels = spec["operations"], spec["channels"]
+        assert isinstance(operations, dict) and isinstance(channels, dict)
+        expected = {
+            "OrderEvents_publishOrderCancelled", "RefundEvents_publishOrderCancelled",
+            "OrderEvents_onOrderCancelled", "RefundEvents_onOrderCancelled",
+        }
+        assert expected <= operations.keys(), sorted(operations)
+        # A subscription to the service's own topic receives on that topic's declared channel.
+        dangling = {
+            op_id: ref for op_id, op in operations.items()
+            if (ref := op["channel"]["$ref"].removeprefix("#/channels/")) not in channels
+        }
+        assert not dangling, dangling
+
+
 def _check_a_missing_source_fails_and_no_selection_is_refused() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         args = build_parser().parse_args([f"--source={Path(tmp) / 'no-such.dtrx'}"])
@@ -227,7 +268,11 @@ def _check_a_missing_source_fails_and_no_selection_is_refused() -> None:
 
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
-        checks = [_check_a_planted_example_gets_its_specs, _check_a_missing_source_fails_and_no_selection_is_refused]
+        checks = [
+            _check_a_planted_example_gets_its_specs,
+            _check_one_event_on_two_channels_gets_an_operation_each,
+            _check_a_missing_source_fails_and_no_selection_is_refused,
+        ]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
                              folder=VISUALIZE_SCRIPTS_DIR)
     require_selection(args)

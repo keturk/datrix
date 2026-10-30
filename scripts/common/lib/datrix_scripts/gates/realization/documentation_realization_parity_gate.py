@@ -89,11 +89,13 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
+    ExternClientRequest,
     ExternalQueueControlCensus,
     IdiomOccurrence,
     LanguageConformanceProbes,
     ResponseBodyWireField,
     RouteWireContract,
+    TransactionUnit,
     conformance_probes_of_language_plugin,
     language_conformance_probes,
 )
@@ -1088,6 +1090,12 @@ class _FixtureDocumentationProbes:
 
     def external_queue_controls(self, generated_root: Path) -> ExternalQueueControlCensus:
         return ExternalQueueControlCensus(modules=(), process_local_lookups=())
+
+    def extern_client_requests(self, generated_root: Path) -> tuple[ExternClientRequest, ...]:
+        return ()
+
+    def transaction_units(self, generated_root: Path) -> tuple[TransactionUnit, ...]:
+        return ()
 
 
 class _FixturePluginWithoutProbes:

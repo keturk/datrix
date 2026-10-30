@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from datrix_common.datrix_model.callables import Endpoint
     from datrix_common.datrix_model.containers import Application, Service
     from datrix_common.datrix_model.entity import Entity, Field
-    from datrix_common.datrix_model.pubsub import Event, PubsubBlock
+    from datrix_common.datrix_model.pubsub import Event, PubsubBlock, Subscription
 
 from datrix_common.datrix_model.exceptions import ExceptionDeclaration, ExceptionField
 
@@ -44,6 +44,10 @@ SCALAR_TYPE_MAP: dict[str, dict[str, str]] = {
     "BigInteger": {"type": "string", "format": "integer"},
     "Short": {"type": "integer", "format": "int16"},
 }
+
+# AsyncAPI operation verbs: a topic's published event is sent, a subscription handler receives.
+_PUBLISH_VERB = "publish"
+_RECEIVE_VERB = "on"
 
 
 def _map_display_name_to_json_schema(type_name: str) -> dict[str, object]:
@@ -509,6 +513,15 @@ def _build_event_message(event: Event) -> dict[str, object]:
     return {"payload": payload}
 
 
+def _operation_id(channel: str, verb: str, event_name: str) -> str:
+    """The id of the *verb* operation of *event_name* on *channel*: ``OrderEvents_publishOrderPlaced``.
+
+    An event name is scoped to its topic, so one service may publish (or handle) the same
+    event on two channels; the channel is part of the id so those operations stay distinct.
+    """
+    return f"{channel}_{verb}{event_name}"
+
+
 def _add_operation(
     operations: dict[str, object], op_id: str, operation: dict[str, object], origin: str
 ) -> None:
@@ -517,7 +530,7 @@ def _add_operation(
         raise ValueError(
             f"AsyncAPI: operation id '{op_id}' ({origin}) is already declared by another "
             f"operation of this service: {operations[op_id]}. Expected one operation per "
-            "id; rename the event or handler so the ids differ."
+            "channel and event; remove the duplicate publish or handler."
         )
     operations[op_id] = operation
 
@@ -550,7 +563,7 @@ def _add_pubsub_block_channels(
             messages[event_name] = _build_event_message(event)
             _add_operation(
                 operations,
-                f"publish{event_name}",
+                _operation_id(topic_name, _PUBLISH_VERB, event_name),
                 {"action": "send", "channel": {"$ref": f"#/channels/{topic_name}"}},
                 f"publish of event '{event_name}' on topic '{topic_name}'",
             )
@@ -561,13 +574,29 @@ def _add_pubsub_block_channels(
         }
 
 
+def _subscribed_topic_name(subscription: Subscription) -> str:
+    """The name of the topic *subscription* consumes: the channel its handlers receive on.
+
+    The subscription's own name is the path it was written with (``mq.OrderEvents``),
+    not a channel key, so the channel is read from the topic analysis resolved.
+    """
+    ref = subscription.resolved_topic
+    if ref is None or not ref.is_resolved:
+        raise ValueError(
+            f"AsyncAPI: subscription '{subscription.name}' has no resolved topic. Expected "
+            "semantic analysis to resolve every subscription to its topic; load the "
+            "application through load_application, which analyzes it."
+        )
+    return str(ref.target.name)
+
+
 def build_asyncapi_spec(service: Service) -> dict[str, object]:
     """Build one AsyncAPI 3.0 specification dict for every pubsub block of *service*.
 
     A service's pubsub blocks share its broker identity and its subscriptions,
     so they are one document: every block's topics as channels, every published
     event as a ``send`` operation, and every subscription handler once as a
-    ``receive`` operation.
+    ``receive`` operation, each keyed by its channel and event (``_operation_id``).
 
     Args:
         service: Service whose pubsub blocks to document.
@@ -576,8 +605,8 @@ def build_asyncapi_spec(service: Service) -> dict[str, object]:
         Complete AsyncAPI 3.0 specification as a dict (ready for YAML serialization).
 
     Raises:
-        ValueError: Two pubsub blocks declare the same topic, or two operations
-            resolve to the same operation id.
+        ValueError: Two pubsub blocks declare the same topic, two operations
+            resolve to the same operation id, or a subscription's topic is unresolved.
     """
     channels: dict[str, object] = {}
     operations: dict[str, object] = {}
@@ -589,13 +618,14 @@ def build_asyncapi_spec(service: Service) -> dict[str, object]:
     # Subscription operations (subscriptions belong on Service, not PubsubBlock)
     for subscription in service.iter_subscriptions_including_serverless():
         sub_name = str(subscription.name)
+        topic_name = _subscribed_topic_name(subscription)
         for handler in subscription.handlers:
             event_name = handler.event_name()
             if event_name:
                 _add_operation(
                     operations,
-                    f"on{event_name}",
-                    {"action": "receive", "channel": {"$ref": f"#/channels/{sub_name}"}},
+                    _operation_id(topic_name, _RECEIVE_VERB, event_name),
+                    {"action": "receive", "channel": {"$ref": f"#/channels/{topic_name}"}},
                     f"handler of event '{event_name}' in subscription '{sub_name}'",
                 )
 

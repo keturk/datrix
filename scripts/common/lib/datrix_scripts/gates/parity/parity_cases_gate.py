@@ -54,11 +54,13 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
+    ExternClientRequest,
     ExternalQueueControlCensus,
     IdiomOccurrence,
     RealizedRouteUrl,
     ResponseBodyWireField,
     RouteWireContract,
+    TransactionUnit,
     client_target_conformance_probes,
     conformance_probes_of_client_target_class,
     conformance_probes_of_language_plugin,
@@ -567,6 +569,12 @@ class _PlantedProbes:
 
     def external_queue_controls(self, generated_root: Path) -> ExternalQueueControlCensus:
         return ExternalQueueControlCensus(modules=(), process_local_lookups=())
+
+    def extern_client_requests(self, generated_root: Path) -> tuple[ExternClientRequest, ...]:
+        return ()
+
+    def transaction_units(self, generated_root: Path) -> tuple[TransactionUnit, ...]:
+        return ()
 
 
 class _ProbesReturningList(_PlantedProbes):
