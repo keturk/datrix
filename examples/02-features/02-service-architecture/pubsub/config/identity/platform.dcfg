@@ -19,4 +19,7 @@ config identity platform {
 
   profile production as "prod" extends base {
   }
+
+  profile productionApprunner as "prod-ar" extends base {
+  }
 }
