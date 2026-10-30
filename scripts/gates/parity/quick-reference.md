@@ -168,7 +168,7 @@ Parameters: `-GeneratedRoot` (default `<workspace>/.generated`), `-Dbg`, `-SelfT
 
 ## `gates\parity\generated-suite-parity-gate.ps1`
 
-Compares the emitted unit-test suites (the `unit-tests-*` `index.json` `run-complete.ps1` wrote) of every example tested in two or more languages: role, behaviour and skip gaps. Reads only.
+Compares the emitted unit-test suites (the `unit-tests-*` `index.json` `run-complete.ps1` wrote) of every example tested in two or more languages: role, behaviour and skip gaps, unidentified tests, and contract-tier tests (a case id of a `CONTRACT_TIER_FAMILIES` family, which no language suite may carry). Reads only.
 
 | Form | Command |
 |------|---------|
@@ -176,7 +176,7 @@ Compares the emitted unit-test suites (the `unit-tests-*` `index.json` `run-comp
 | Other generated base | `.\gates\parity\generated-suite-parity-gate.ps1 -GeneratedRoot D:\datrix\.generated` |
 | List more gaps per group | `.\gates\parity\generated-suite-parity-gate.ps1 -ListLimit 50` |
 
-Parameters: `-GeneratedRoot` (default `<workspace>/.generated`), `-ListLimit` (default 10), `-Dbg`, `-SelfTest`. Exit: 0 suites agree, 1 a role, behaviour or skip gap, 2 self-test failed / fewer than two languages / incomplete corpus / unusable index / no multi-language group.
+Parameters: `-GeneratedRoot` (default `<workspace>/.generated`), `-ListLimit` (default 10), `-Dbg`, `-SelfTest`. Exit: 0 suites agree, 1 a role, behaviour or skip gap, an unidentified test or a contract-tier test, 2 self-test failed / fewer than two languages / incomplete corpus / unusable index / no multi-language group.
 
 ## `gates\parity\block-realization-parity-gate.ps1`
 

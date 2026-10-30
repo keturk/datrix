@@ -629,12 +629,16 @@ id** (`datrix_codegen_common.algorithms.test_case_identity`), which the writer r
 `<property name="datrix_case">` a generated pytest suite records, or from a Jest test's own title when that
 title is a case id; the framework-reported full name (pytest `classname::name`, Jest `fullName`) is kept
 for the report but never decides identity, so module paths, `describe` titles and test wording cannot make
-two languages' identical tests look different. Four divergences are reported, each its own category: a
+two languages' identical tests look different. Five divergences are reported, each its own category: a
 **role gap** (a test present in one language's suite and absent from another's), a **behaviour gap** (a
 test present in several languages' suites that passes in one and fails or errors in another), a **skip
 gap** (a test one language skips and another runs — a skip is neither a pass nor a fail, so it is never
 folded into the other two; a test every language skips is no divergence), and an **unidentified test** (a
-test carrying no case id, which can match nothing — never counted as a role gap and never dropped). The
+test carrying no case id, which can match nothing — never counted as a role gap and never dropped), and a
+**contract-tier test** (a test whose case id belongs to a family in `CONTRACT_TIER_FAMILIES`
+(`datrix_codegen_common.algorithms.test_case_identity`): the component's HTTP contract suite owns those
+behaviours for every backend language, so no language suite may carry one; it is never compared as a role
+gap). The
 pass/fail comparison runs over the languages a test is present in, so a role gap never hides a behaviour
 gap. Only unit-test runs are compared: a deploy-test index records the docker lifecycle phases of a live
 stack, not a flat per-test suite.
@@ -656,7 +660,7 @@ therefore zero gap". `-ListLimit` (default 10) bounds the gaps listed per (examp
 **Assertions:**
 - Every `(example, runtime, provider)` unit-tested in >= 2 registered languages is compared; the language set comes from the installed `datrix.languages` entry points, never a list in the script.
 - A test present in one language's index and absent from another's is a role gap; present in several with a pass in one and a fail/error in another is a behaviour gap; skipped in one and run in another is a skip gap.
-- Non-vacuity self-test (every invocation, 11 `[OK]` lines): a planted role gap, a planted behaviour gap and a planted skip divergence are each reported as exactly that gap; a matching pair reports none; a fail against an error is no gap; fewer than two registered languages is refused (the real entry point and the comparator); every outcome the index writer records is classified; indices written by the real writer (pytest JUnit and Jest JSON) are read, grouped and compared; an incomplete corpus is refused naming the pair while a parked pair is not missing; each unusable-index shape above is refused with its reason; the newest run is read and a newest run with no index is refused; and the entry point exits 0 for agreeing suites, 1 for each gap kind (named in the report, bounded by `-ListLimit`) and 2 over an empty corpus.
+- Non-vacuity self-test (every invocation, 13 `[OK]` lines): a planted role gap, a planted behaviour gap and a planted skip divergence are each reported as exactly that gap; a planted contract-tier test is reported as exactly that test and never as a role gap; a matching pair reports none; a fail against an error is no gap; fewer than two registered languages is refused (the real entry point and the comparator); every outcome the index writer records is classified; indices written by the real writer (pytest JUnit and Jest JSON) are read, grouped and compared; an incomplete corpus is refused naming the pair while a parked pair is not missing; each unusable-index shape above is refused with its reason; the newest run is read and a newest run with no index is refused; and the entry point exits 0 for agreeing suites, 1 for each gap kind (named in the report, bounded by `-ListLimit`) and 2 over an empty corpus.
 
 Exit code 2 also covers an unusable index, an incomplete corpus, or no group unit-tested in >= 2 languages.
 
