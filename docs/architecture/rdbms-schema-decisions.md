@@ -367,6 +367,18 @@ One snapshot format is read: `SCHEMA_VERSION`. A snapshot of any other format or
 
 ---
 
+## D45: A Geographic Column Is Created With One Declared SRID
+
+**Status:** In force.
+
+Every `Geometry` and `Geography` column is created with the SRID `GEO_COLUMN_SRID` (EPSG:4326, `datrix_common.types.geo_column`), and nothing else spells it for a column. Each engine declares the typed column (`RdbmsEngine.geometry_column_type` / `geography_column_type`, spelled once in the standard-library-only `datrix_common.config.datasource.geo_column_types`): on PostgreSQL `geometry(Geometry,4326)` and `geography(Geometry,4326)` -- PostGIS refuses `geography(Geography,n)`, since a typmod names a geometry subtype. The kernel's SQL type map renders the DDL from those names, the Python ORM declares `geoalchemy2.Geometry('GEOMETRY', srid=...)` / `Geography('GEOMETRY', srid=...)` and the TypeScript ORM's `columnType` is the engine's column type, so ORM metadata and the converged schema agree. The database stamps the column SRID on a value that carries none (bare WKT) and refuses a value in any other SRID, so a column never holds mixed SRIDs.
+
+The SRID is part of the column's type in the snapshot: the declared snapshot records it as the `srid` constraint (`GEO_SRID_CONSTRAINT`), and the PostgreSQL reader reads it back from the typmod `format_type` writes. A live column without the SRID, or with another one, is a `FIELD_TYPE_CHANGED`; setting or moving an SRID is a narrowing (a stored value in another SRID no longer fits), so it needs approval and is applied as `ALTER COLUMN ... TYPE geometry(Geometry,4326) USING ...`, which stamps SRID-less rows and fails the apply naming the column on a row in another SRID. Dropping an SRID widens the column.
+
+**Rejected: leave the column unconstrained and rely on the ORM.** Only the ORM that binds a value would hold the SRID; a raw query, a seed or another target would store a value in another SRID, and spatial predicates over mixed SRIDs fail or answer wrongly at run time.
+
+---
+
 ## See Also
 
 - [Architecture Overview — Decision 8](architecture-overview.md#decision-8-incremental-rdbms-schema-migrations-adopted) — Rationale and summary

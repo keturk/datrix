@@ -99,7 +99,7 @@ Each new surface lives in one of two config locations, chosen by ownership bound
 | RDBMS SSL | `RdbmsConfig.ssl` | K | block | `rdbms db { ssl = true; }` |
 | RDBMS port (for pooled groups) | `ServerGroupSpec.port` | L | block | Added to pooled server-group sizing |
 | Cache pool sizing | `SearchConfig.replicasCount`, `SearchConfig.partitions` | G | block | `search idx { replicasCount = 3; partitions = 1; }` |
-| NoSQL sizing | `NosqlConfig.instance_count`, `NosqlConfig.engine_version` | L | block | `nosql catalog { instanceCount = 1; engineVersion = "5.0.0"; }` |
+| NoSQL sizing | `NosqlConfig.instance_count`, `NosqlConfig.engine_version` | L | block | `nosql catalog { instanceCount = 1; engineVersion = "5.0.0"; }` — `engineVersion` is required for a managed MongoDB-protocol store: the DocumentDB engine version, or a Cosmos DB for MongoDB account's server version (`3.6`, `4.0`, `4.2`, `5.0` or `6.0`; an omitted version is the platform's pick). A Cosmos DB NoSQL-API (`cosmosdb` engine) block has no server version and refuses it |
 | NoSQL partition key | `NosqlConfig.partition_key` | L | block | `nosql reviews { partitionKey = "productId"; }` — the field a partitioned managed store (Cosmos DB, DynamoDB) shards on; resolved in this order: this override, else the entity's primary key, else a generation error. Must name a field on every entity in the block |
 | Resilience timeout defaults | `ResilienceProfileConfig.defaults.timeout` | H | service | `resilience { defaults { timeout = "10s"; } }` |
 | Resilience circuit-breaker timeout | `CircuitBreakerConfig.timeout` | L | service | `resilience { defaults { circuitBreaker { timeout = "30s"; } } }` |
@@ -447,6 +447,8 @@ config system ecommerce.System {
 ```
 
 The `remote` profile generates the same compose stack as `local` with these differences: no route guard lists `test_auth`, no `datrix-test-jwks` service exists, and the identity plan holds only the providers the application declares, so a token signed with the deploy-test key is refused. Generated tests that mint `test_auth` tokens target a `local` profile only. A `remote` profile hosts no web client target (an `app` with a web target is refused with `UI034`).
+
+Deploy a `remote` stack on its host: copy the generated project there and run `scripts/deploy.sh` (or `deploy.ps1`) against that host's local engine. The compose file mounts project files (secrets, configuration, init scripts) by relative path, and Docker resolves a bind mount's source on the engine's machine, so the deploy script refuses a Docker context or `DOCKER_HOST` that reaches the engine over SSH or TCP, naming the mounts, before it runs anything.
 
 ### Using Profiles
 
@@ -1155,6 +1157,10 @@ nosql orders {
 }
 ```
 
+A `cosmosdb` block cannot use `flavor = "container"`: its client authenticates only with the
+workload's managed identity, which no self-hosted emulator accepts, so config resolution refuses
+it. Declare it on the managed `cosmos-db` flavor (or `external` for an existing account).
+
 A MongoDB block addressed by `host`/`port` is always authenticated. A `container` block
 authenticates as the application user Datrix provisions (its password is generated at
 build time and delivered as the `<block>_secret-key` secret handle). An `external`
@@ -1754,7 +1760,7 @@ Connection and ops fields (when required): `host`, `port`, `managementPort`, `de
 | `visibilityTimeout` | Seconds before redelivery (default 30) |
 | `maxReceiveCount` | Max deliveries before DLQ routing (default 5) |
 | `retentionDays` | Retention in days (default 14) |
-| `delay` | Default delay seconds (0); RabbitMQ may use delayed-exchange plugin when non-zero |
+| `delay` | Default delay seconds (0). On RabbitMQ a non-zero delay builds the broker with the delayed-exchange plugin, pinned by checksum for the `dockerImage` tag's `major.minor` (3.13, 4.0, 4.1, 4.2); any other tag fails generation |
 | `maxConcurrency` | Worker prefetch / concurrency (default 5) |
 | `timeout` | Handler timeout seconds (default 60) |
 | `workerReplicas` | Worker replica count for generated deployments (default 1) |
