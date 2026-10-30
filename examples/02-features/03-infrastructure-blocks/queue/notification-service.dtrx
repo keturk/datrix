@@ -27,7 +27,7 @@ service library.NotificationService('config/notification-service.dcfg') : versio
         Email.sendTemplate({
             to: recipientEmail,
             subject: "Book Notification",
-            template: "book-notification",
+            template: "bookNotification",
             data: {
                 bookId: bookId,
                 message: message

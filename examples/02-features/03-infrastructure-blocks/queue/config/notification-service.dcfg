@@ -69,6 +69,11 @@
         }
       }
     }
+    integrations {
+      emailTemplates {
+        bookNotification ="Book {{ bookId }}: {{ message }}";
+      }
+    }
     httpSecurity {
       allowedHosts = ["notification-service.example.com", "localhost"];
       corsOrigins = ["https://app.example.com"];
