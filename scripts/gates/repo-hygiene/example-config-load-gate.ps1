@@ -1,7 +1,8 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
- Example config load gate: every declared profile of every example .dcfg loads.
+ Example config load gate: every declared profile of every example .dcfg loads,
+ and every example analyzes under every leaf profile of its system config.
 
 .DESCRIPTION
  Runs datrix_scripts.gates.repo_hygiene.example_config_load_gate in the shared venv.
@@ -13,10 +14,18 @@
  identity, app, strings, extern) and fails on any error, so a misspelled or
  retired key in the corpus is found here.
 
+ Every example whose configs all load is then parsed, config-resolved and
+ semantically analyzed (the front half of a generation run) under every leaf
+ profile of its system config -- a profile no other profile extends -- and
+ fails on any error diagnostic, so a config that loads but breaks a semantic
+ rule on a profile nobody generates by default is found here too.
+
  Runs a built-in non-vacuity self-test on every invocation: a planted temp
  .dcfg carrying an unknown nested key must be reported (key named, value not
- echoed) and its clean twin must load. Fails loud (exit 2) if zero .dcfg
- files exist on disk.
+ echoed) and its clean twin must load; a planted project whose pooled
+ messaging block sizes itself must be reported with POOL002 under its leaf
+ profile only, and its clean twin must analyze clean. Fails loud (exit 2) if
+ zero .dcfg or system.dtrx files exist on disk.
 
  Repo-level validation script (per the datrix showcase boundary -- no
  pytest suite lives in datrix).
@@ -29,7 +38,8 @@
 
 .EXAMPLE
  .\example-config-load-gate.ps1
- Load every declared profile of every example .dcfg.
+ Load every declared profile of every example .dcfg and analyze every example
+ under every leaf profile.
 
 .EXAMPLE
  .\example-config-load-gate.ps1 -SelfTest

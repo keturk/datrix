@@ -933,13 +933,19 @@ document validates into rejects unknown keys, so a key the model does not declar
 rather than a value silently dropped. The gate loads every declared profile of every `.dcfg` under
 `datrix/examples` through the real loaders (`service`, `shared`, `system`, `identity`, `app`, `strings`,
 `extern`; the kind is read from the parsed declaration) and fails on any parse, resolution or validation
-error.
+error. A config that loads can still break a rule only semantic analysis checks (a pooled block sizing
+itself, group members that disagree), and a non-default profile is otherwise first analyzed by whoever
+generates it; so every example whose configs all load is then analyzed through the front half a generation
+run executes (`datrix_testing.project.analysis_of`: parse, config resolution, semantic analysis) under every
+leaf profile of its one system config — a profile no other profile `extends`. An intermediate profile that
+only other profiles build on is not analyzed, since service configs need not declare it.
 
 **Assertions:**
 - Every profile declared by every `.dcfg` under `datrix/examples` loads without error.
-- Non-vacuity self-test (every invocation): a planted temp `.dcfg` with an unknown nested key is reported with the key named and the value not echoed, and its clean twin loads.
+- Every example (a directory holding `system.dtrx`) whose configs all load holds exactly one system config and analyzes with no error diagnostic under each of its leaf profiles.
+- Non-vacuity self-test (every invocation): a planted temp `.dcfg` with an unknown nested key is reported with the key named and the value not echoed, and its clean twin loads; a planted project whose pooled messaging block sizes itself is reported with `POOL002` under its one leaf profile (its intermediate profile is not analyzed), and its clean twin analyzes clean.
 
-Exit code 2 also covers zero `.dcfg` files on disk, or a file that does not parse.
+Exit code 2 also covers zero `.dcfg` or `system.dtrx` files on disk, or a file that does not parse.
 
 Module: `datrix_scripts.gates.repo_hygiene.example_config_load_gate`; POSIX twin options `--dbg`,
 `--self-test`.

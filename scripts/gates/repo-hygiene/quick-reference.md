@@ -267,13 +267,13 @@ Parameters: `-Dbg`, `-SelfTest`. Exit: 0 every handle seeded, 1 an unseeded hand
 
 ## `gates\repo-hygiene\example-config-load-gate.ps1`
 
-Every declared profile of every example `.dcfg` loads through the real loaders.
+Every declared profile of every example `.dcfg` loads through the real loaders, and every example analyzes clean under every leaf profile of its system config (a profile no other profile `extends`). About 90 s.
 
 | Form | Command |
 |------|---------|
 | Run | `.\gates\repo-hygiene\example-config-load-gate.ps1` |
 
-Parameters: `-Dbg`, `-SelfTest`. Exit: 0 every profile loads, 1 a profile failed to load, 2 failing self-test / no `.dcfg` / a file does not parse.
+Parameters: `-Dbg`, `-SelfTest`. Exit: 0 every profile loads and every leaf profile analyzes, 1 a profile failed to load or a leaf profile failed analysis, 2 failing self-test / no `.dcfg` or `system.dtrx` / a file does not parse.
 
 ## `gates\repo-hygiene\docs-fence-gate.ps1`
 
