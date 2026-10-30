@@ -37,7 +37,7 @@ Drain the findings inbox one finding at a time: one fresh headless `/implement-f
 | Given files | `.\skill\implement-finding.ps1 -Finding "D:\datrix\findings\<file>.md"` |
 | Preview | add `-DryRun` |
 
-Parameters: `-Count` (default 10), `-All` (every finding of `-Dir`, or of every inbox folder in turn, no count cap; refused with `-Count` or `-Finding`), `-Finding`, `-Dir` (absolute, or relative to `findings`; default the subfolders in turn), `-Model` (default `claude-opus-5-5`), `-Effort` (default `high`), `-PermissionMode`, `-MaxBudgetUsd`, `-DryRun`, `-Quiet`. Exit: 0 every finding deleted, 1 a session erred or a finding was left in place, 2 a session stopped for a decision only Jon can make.
+Parameters: `-Count` (default 10), `-All` (every finding of `-Dir`, or of every inbox folder in turn, no count cap; refused with `-Count` or `-Finding`), `-Finding`, `-Dir` (absolute, or relative to `findings`; default the subfolders in turn), `-Model` (default `claude-opus-5-5`), `-Effort` (default `high`), `-PermissionMode`, `-MaxBudgetUsd`, `-DryRun`, `-Quiet`. Exit: 0 every finding deleted, 1 a session erred or a finding was left in place, 2 a session stopped for a decision only Jon can make. After `DONE` the script runs the related tests itself (the session's tests, their feature tags across the packages the change reaches, the `tests/e2e` tier when a plugin package is reached) and resumes the session while any fails; [README.md](README.md#implement-findingps1).
 
 ## `skill\organize-findings.ps1`
 

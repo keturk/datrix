@@ -14,8 +14,13 @@
 
     The session never deletes the finding; the script does (datrix_scripts.skill.finding_inbox, the
     code behind skill-assist finding-close), not on a model's word: never while another findings
-    file names it, and after DONE only when the session's last foreground test.ps1 or *-gate.ps1 run
-    passed (read from the step's stream log; a gate passes on its "[GATE] <name> PASSED exit=0"
+    file names it, and after DONE only when the tests related to what the session wrote pass. The
+    script derives and runs those itself (datrix_scripts.skill.related_tests; targeted test.ps1 runs,
+    never a whole suite): the test files the session wrote, their feature tags in every package the
+    change reaches, and the tests/e2e tier when a plugin package is reached. While any fails it
+    resumes the session with the failures, twice at most. A session that wrote no package source or
+    test (the scripts tree hosts no test suite) is judged by its last foreground test.ps1 or
+    *-gate.ps1 run in the step's stream log (a gate passes on its "[GATE] <name> PASSED exit=0"
     verdict line, and -SelfTest runs do not count). Each finding is closed before the next one starts.
 
     Step logs: <workspace>\.tmp\skill-chain\<timestamp>\.

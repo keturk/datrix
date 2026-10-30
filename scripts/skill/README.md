@@ -68,9 +68,19 @@ starts.** The multi-finding form of `/implement-finding`. Per finding, in name o
 checks the finding against the code and, when it still holds, fixes it (code, tagged test, targeted
 runs, docs, pointers from other findings). It ends `Finding fix: ALREADY RESOLVED`, `DONE` or
 `BLOCKED B<n>` and never deletes the finding itself. The script then runs `finding-close`: never while
-another findings file names the finding, and after `DONE` only when the session's last foreground
-`test.ps1` or `*-gate.ps1` run passed (a gate proves code no `test.ps1` reaches, such as the scripts
-tree), read from the step's `.stream.jsonl` — not a model's word.
+another findings file names the finding, and after `DONE` only when the tests *related* to what the
+session wrote pass — a proof the script runs itself, not a model's word (`datrix_scripts.skill.related_tests`).
+From the files the session wrote (read from the step's `.stream.jsonl`) it derives targeted `test.ps1`
+runs, never a whole suite: the test files the session wrote; the feature tags those tests carry, in every
+package of the edited packages' affected closure (`affected-set`) that has a test with one; and, when the
+reached packages include a plugin package (one declaring a `datrix.*` entry point, which the generation
+pipeline runs without importing), the `tests/e2e` tier of the package that owns `GenerationPipeline` and
+of each edited package. While any run fails, the script resumes the same session with the failing
+output (twice at most) and runs them again; a finding whose related runs still fail stays, and a run that
+could not take the package lock after five tries stops the finding without a repair. Output of every
+run: `<step>-related-<attempt>\related-NN.log` beside the step logs. When the session wrote no package
+source or test (the scripts tree hosts no test suite), its last foreground `test.ps1` or `*-gate.ps1`
+run must have passed instead (a gate proves code no `test.ps1` reaches), read from the stream log.
 
 With no argument it takes the first 10 findings, one session each, on Opus, from the first inbox
 subfolder (area order: `python`, `typescript`, … `docs`, then other subfolders by name), going on to the
