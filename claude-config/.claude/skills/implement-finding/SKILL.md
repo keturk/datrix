@@ -51,6 +51,14 @@ Before your first edit, read the mandatory cores and the knowledge pack of each 
    counts when its output keeps the gate's last line `[GATE] <name> PASSED exit=0` for every gate
    call. Your **last** `test.ps1` or gate run must pass: under `CLOSE: script` the script reads it
    from the session log and keeps the finding when it failed, never ran, or proved nothing.
+   **Your own runs are not the whole proof for package code.** Under `CLOSE: script`, after you
+   reply `DONE` the script derives the related tests from the files you wrote and runs them itself:
+   the test files you wrote, the feature tags they carry in every package your change reaches (the
+   affected closure), and the `tests/e2e` tier of the generation pipeline's package and of each
+   package you edited when a plugin package is reached. If any fails, the script resumes this
+   session with the output; fix the cause and reply again. Run those selections yourself before you
+   reply, so the script finds them green, and tag your tests with every behaviour the change touches
+   (a tag your tests lack is a related package the script never runs).
 5. **Update the documentation** your change makes wrong, and every doc the finding names as stale —
    it must describe the behaviour the code now has. No design-doc or task reference and no customer
    term in a committed file. **Remove pointers to this finding** from other findings files (a

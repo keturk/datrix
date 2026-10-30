@@ -21,19 +21,18 @@ The arguments are one or more absolute paths to an `index.json` inside a `.test_
 ## Parameters
 
 - `{RUNS}` = the supplied index.json files. For each, `{PACKAGE}` is the `project` field of the file and `{PACKAGE_PATH}` is `d:\datrix\{PACKAGE}\`.
-- `{SCOPE}` = the set of `{PACKAGE}` values across `{RUNS}`. **This set is the fence for the whole job.**
+- `{SCOPE}` = the set of `{PACKAGE}` values across `{RUNS}`: the packages whose failing ids the ledger tracks. **It is not a fence.** Every Datrix package is in play; a root cause is fixed in the package that owns it.
 
 Reject at once, naming the file, any path that does not exist, is not an `index.json`, or whose `project` does not resolve to a directory under `d:\datrix\`.
 
 ## Multi-package adjustments to the playbook
 
-The playbook's single-repo scope is a standing order for `/fix-{suffix}` skills. Jon's invoking `/fix-test-suites` with several runs lifts it for the repos in `{SCOPE}`, and only for them:
+The playbook's single-repo scope is a standing order for `/fix-{suffix}` skills. It does not apply here: invoking `/fix-test-suites` lifts it for every Datrix package.
 
-- **Read, edit, and run tests in any package in `{SCOPE}`.** Never touch a package outside it.
-- **Tests:** `-Specific` and `-Tag` runs only, at most 3 tags per run, `-Keyword` in one package only. Never a whole suite, a tier switch, `-All`, `-Rerun`, or `affected-gate.ps1`. A package outside `{SCOPE}` is never named in a `test.ps1` call.
-- **Root cause in another package of `{SCOPE}`** → fix it there, in the same job. This replaces the playbook's "Cross-Project Root Cause" stop for in-scope packages.
-- **Root cause outside `{SCOPE}`** → do not fix it and do not write a findings file for it. Stop work on the clusters traced there and state, under `Unresolved`, the package, `file:line`, the evidence and the cluster IDs. Jon decides whether to add that package's run.
-- **Findings** for a defect inside `{SCOPE}` that the fixes do not need still go to `d:\datrix\findings\` per the CLAUDE.md rule.
+- **Read, edit, and run tests in any Datrix package** the root causes lead to, whether or not it has a run in `{RUNS}`.
+- **Tests:** `-Specific` and `-Tag` runs only, at most 3 tags per run, `-Keyword` in one package only. Never a whole suite, a tier switch, `-All`, `-Rerun`, or `affected-gate.ps1`.
+- **Root cause in any other package** → fix it there, in the same job, and verify it with `-Specific` on that package's tests of the changed file. This replaces the playbook's "Cross-Project Root Cause" stop.
+- **Findings** for a defect the fixes do not need, in any package, still go to `d:\datrix\findings\` per the CLAUDE.md rule.
 
 ## Scripts and local models first
 
@@ -80,9 +79,9 @@ After the errors and failures of all runs, playbook Step 8 per run.
 
 ### Step 5: Final check, per package
 
-Playbook Step 9, once, after every fix: for each package in `{SCOPE}`, re-run its originally failing tests plus the test files you added or edited (`-Specific`), then the feature tags of the behaviours you changed in that package (`-Tag`, at most 3 per run). A changed behaviour no tagged test covers gets a new tagged test in the package that owns it.
+Playbook Step 9, once, after every fix: for each package in `{SCOPE}` and each other package you edited, re-run its originally failing tests plus the test files you added or edited (`-Specific`), then the feature tags of the behaviours you changed in that package (`-Tag`, at most 3 per run). A changed behaviour no tagged test covers gets a new tagged test in the package that owns it.
 
-Then `test/failure-ledger.ps1 -Status`: every open id is work (`FAILING` = still red, `NOT-RERUN` = not yet proven, `NEW` = a failure the starting runs never had, so a regression or an unreached test). A failed run writes a new `.test_results/` directory: work every cluster it reports. The turn ends when `-Status` prints `0 open id(s)` and every changed behaviour's tags pass in every package of `{SCOPE}`, or at a valid B1–B4 blocker with its four-part proof.
+Then `test/failure-ledger.ps1 -Status`: every open id is work (`FAILING` = still red, `NOT-RERUN` = not yet proven, `NEW` = a failure the starting runs never had, so a regression or an unreached test). A failed run writes a new `.test_results/` directory: work every cluster it reports. The turn ends when `-Status` prints `0 open id(s)` and every changed behaviour's tags pass in every package the job edited, or at a valid B1–B4 blocker with its four-part proof.
 
 ### Step 6: Report
 
@@ -93,15 +92,14 @@ Original issues: {E} errors, {F} failures in {C} clusters, {W} warnings — {R} 
 Root cause {n}: {file:line in package} — {what was wrong} — covers {package: cluster #ids}
 Fixed: {file:line} — {what changed} — {package / cluster #id / warning category}   (one line each)
 Verification: per package — originally-failing tests {PASS/FAIL}; warnings resolved {N}/{total}; tags {list} {PASS/FAIL} ({pass}/{total})
-Reaches (not run): {packages outside SCOPE and tags the change touches, or "none"}
-Unresolved (if any): {package: cluster/warning} — {reason; for a cause outside SCOPE: package, file:line, evidence}
+Reaches (not run): {packages the change reaches that the job neither edited nor ran, with the tags, or "none"}
+Unresolved (if any): {package: cluster/warning} — {reason}
 ```
 
 ## Anti-Patterns
 
-All playbook anti-patterns apply, with the cross-package ones narrowed to `{SCOPE}`. Plus:
+All playbook anti-patterns apply, except the single-repo ones (no cross-package fixes, no findings about other repos, no tests in other packages), which this skill lifts. Plus:
 
 - **NO fixing the same defect once per run** — a shared root cause gets one fix at its source, and the downstream clusters are verified, not patched.
 - **NO symptom patches downstream** — a test in a downstream package that fails because of an upstream defect is never "fixed" by loosening the downstream test or adding a guard.
-- **NO packages outside `{SCOPE}`** — no edits, no tests, no findings files; they go in `Unresolved` or `Reaches (not run)`.
 - **NO sweeps assembled from several `-Tag` calls** to dodge the per-run limits; a tag set that is too broad means the tags are wrong.
