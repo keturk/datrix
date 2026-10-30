@@ -1,0 +1,25 @@
+// A third-party provider the blog service calls over HTTP. A post, put or patch
+// endpoint sends its first non-path parameter as the whole JSON body (`review`
+// sends the ReviewRequest itself); every other parameter travels in the query
+// string under its declared name.
+extern service hostdemo.ModerationProvider('config/moderation-provider.dcfg') : version('1.0.0') {
+    struct ReviewRequest {
+        String title;
+        String body;
+    }
+
+    struct ReviewVerdict {
+        Boolean approved;
+        String reason;
+    }
+
+    rest_api ModerationAPI : basePath('/v1') {
+        @path('/reviews')
+        post review(ReviewRequest request, String locale) -> ReviewVerdict;
+
+        @path('/reviews/{reviewId}')
+        get verdict(String reviewId, Boolean detailed) -> ReviewVerdict;
+    }
+
+    auth : apiKey(header: 'X-Api-Key');
+}

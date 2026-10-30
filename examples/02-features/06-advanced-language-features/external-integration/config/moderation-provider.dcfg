@@ -1,0 +1,46 @@
+config extern hostdemo.ModerationProvider {
+  profile test as "test" {
+    deployment = "external";
+    url = "https://moderation.example.com/api";
+    timeout = "5s";
+    retry {
+      maxAttempts = 3;
+      backoff = "exponential";
+    }
+    auth {
+      type = "apiKey";
+      header = "X-Api-Key";
+      secret = "moderation_provider_api_key";
+    }
+  }
+
+  profile development as "dev" {
+    deployment = "external";
+    url = "https://moderation.example.com/api";
+    timeout = "5s";
+    retry {
+      maxAttempts = 3;
+      backoff = "exponential";
+    }
+    auth {
+      type = "apiKey";
+      header = "X-Api-Key";
+      secret = "moderation_provider_api_key";
+    }
+  }
+
+  profile production as "prod" {
+    deployment = "external";
+    url = "https://moderation.example.com/api";
+    timeout = "5s";
+    retry {
+      maxAttempts = 3;
+      backoff = "exponential";
+    }
+    auth {
+      type = "apiKey";
+      header = "X-Api-Key";
+      secret = "moderation_provider_api_key";
+    }
+  }
+}

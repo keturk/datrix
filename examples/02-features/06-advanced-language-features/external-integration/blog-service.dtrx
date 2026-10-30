@@ -1,6 +1,23 @@
 
 service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), description('blog posts and comments') {
     discovery { }
+    uses ModerationProvider;
+
+    // Asks the external moderation provider whether a post may be published.
+    fn moderationApproves(String title, String body) -> Boolean {
+        let ReviewVerdict verdict = ModerationProvider.ModerationAPI.post.review(
+            ReviewRequest { title: title, body: body },
+            locale: "en"
+        );
+        return verdict.approved;
+    }
+
+    // Reads back a verdict the provider recorded earlier.
+    fn recordedApproval(String reviewId) -> Boolean {
+        let ReviewVerdict verdict = ModerationProvider.ModerationAPI.get.verdict(reviewId, detailed: false);
+        return verdict.approved;
+    }
+
     rdbms blogDb {
 
         entity Post extends BaseEntity {

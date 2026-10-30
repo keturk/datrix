@@ -153,6 +153,13 @@
     serviceCredentialOps {
       tokenExpirySkewSeconds = 30;
     }
+    // The API key the external moderation provider accepts from this service.
+    secrets {
+      secret moderation_provider_api_key {
+        required = true;
+        purpose = "API key the moderation provider accepts from the blog service.";
+      }
+    }
   }
 
   profile test as "test" extends base {

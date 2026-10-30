@@ -17,6 +17,10 @@ For local Docker Compose profiles, the generated stack owns the service dependen
 - Elasticsearch on `9200`.
 - MinIO API on `9000` for buckets `hostdemo-blog` and `hostdemo-user`.
 
+## External Provider
+
+`moderation-provider.dtrx` declares `hostdemo.ModerationProvider`, a third-party HTTP API the blog service `uses` and calls from its `moderationApproves` and `recordedApproval` functions. Its URL, timeout, retry policy and API key live in `config/moderation-provider.dcfg`; the key itself is the `moderation_provider_api_key` secret the blog service declares. `post review(ReviewRequest request, String locale)` sends the `ReviewRequest` as the whole JSON body and `locale` in the query string, the same way a `rest_api` route with that signature reads them.
+
 ## Commands
 
 From this directory:

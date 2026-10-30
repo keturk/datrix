@@ -559,6 +559,27 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         folder ebooks : path('ebooks/'), allowed(['application/pdf', 'application/epub+zip']), maxSize('50mb')
     }
 
+    // Service-level functions open transaction blocks the same way as API helpers:
+    // called on its own, recordRenewal's block is a unit of work of its own.
+    fn recordRenewal(UUID checkoutId) -> Void {
+        transaction(catalog, isolation: serializable) {
+            let Checkout checkout = catalog.Checkout.findOrFail(checkoutId);
+            checkout.renewals = checkout.renewals + 1;
+            checkout.save();
+        }
+    }
+
+    // Called inside this block, recordRenewal's block joins it: the book and its
+    // checkout commit together, or neither does.
+    fn renewCheckout(UUID bookId, UUID checkoutId) -> Void {
+        transaction(catalog, serialize: "book-renewals", isolation: serializable) {
+            let Book book = catalog.Book.findOrFail(bookId);
+            book.renewalCount = book.renewalCount + 1;
+            book.save();
+            recordRenewal(checkoutId);
+        }
+    }
+
     // REST API block - generates CRUD endpoints and custom routes
     rest_api BookServiceAPI : basePath("/api/v1") {
         // 'resource' auto-generates standard CRUD endpoints
@@ -582,6 +603,44 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             }
 
             return results;
+        }
+
+        // A function with its own transaction runs as a unit of work when it is called on
+        // its own. Called from inside another transaction, its block joins the caller's unit:
+        // it opens nothing and commits nothing, and a failure rolls the whole unit back.
+        fn recordReturn(UUID checkoutId) -> Void {
+            transaction(catalog, isolation: serializable) {
+                let Checkout checkout = catalog.Checkout.findOrFail(checkoutId);
+                checkout.returnDate = DateTime.now();
+                checkout.save();
+            }
+        }
+
+        // The caller's transaction declares the isolation level of every block it reaches
+        // through calls: a joined block runs at the level its unit opened with (TXN002).
+        fn returnBook(UUID bookId, UUID checkoutId) -> Void {
+            transaction(catalog, serialize: "book-returns", isolation: serializable) {
+                let Book book = catalog.Book.findOrFail(bookId);
+                book.status = BookStatus.Available;
+                book.save();
+                recordReturn(checkoutId);
+            }
+        }
+
+        // Returns a book through the helpers: the book and its checkout change in one unit.
+        @path('/checkouts/:checkoutId/return')
+        post(UUID checkoutId) : auth(required, providers: [member]) -> catalog.Checkout {
+            let Checkout checkout = catalog.Checkout.findOrFail(checkoutId);
+            returnBook(checkout.bookId, checkoutId);
+            return catalog.Checkout.findOrFail(checkoutId);
+        }
+
+        // Renews a checkout through the service functions, in one unit like a return.
+        @path('/checkouts/:checkoutId/renew')
+        post(UUID checkoutId) : auth(required, providers: [member]) -> catalog.Checkout {
+            let Checkout checkout = catalog.Checkout.findOrFail(checkoutId);
+            renewCheckout(checkout.bookId, checkoutId);
+            return catalog.Checkout.findOrFail(checkoutId);
         }
 
         // @rateLimit throttles requests per time window to prevent abuse
