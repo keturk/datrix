@@ -344,6 +344,7 @@
     replace nosql docdb {
       engine = "mongodb";
       flavor = "cosmos-db";
+      engineVersion = "6.0";
       database = "product_analytics";
       // Reviews and browsing analytics are read per product, so the product
       // id is the shard key on every collection in this block.

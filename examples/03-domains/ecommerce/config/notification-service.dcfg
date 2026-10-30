@@ -115,6 +115,9 @@
       push {
         provider = "fcm";
       }
+      emailTemplates {
+        orderConfirmation ="Your order {{ orderNumber }} ({{ orderId }}) is confirmed.";
+      }
     }
   }
 

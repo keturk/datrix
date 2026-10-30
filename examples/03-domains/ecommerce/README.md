@@ -80,7 +80,9 @@ components); the public Site is self-contained.
   `integrations.push`.
 - **Hosting.** The compose profiles serve the Storefront on port 4200 and Admin on 4300; the
   `aws`, `azure` and `azureVm` profiles serve them at `shop.` and `admin.` custom domains and
-  sign the Storefront's mobile release with handles the operator supplies.
+  sign the Storefront's mobile release with handles the operator supplies. Both Azure profiles
+  deploy to `eastus`, a region Azure Static Web Apps is not offered in, so each declares
+  `staticWebAppLocation = "eastus2"` for the web bundles.
 - **Tests.** The Storefront's three `test(...)` blocks generate one Vitest spec on Angular and
   one widget test on Flutter each.
 - **A prerendered public site.** [`site-app.dtrx`](site-app.dtrx) declares

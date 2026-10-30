@@ -101,6 +101,13 @@
         }
       }
     }
+    integrations {
+      emailTemplates {
+        appointmentConfirmation = "Hello {{ patientName }}, your {{ type }} appointment with {{ providerName }} is booked for {{ scheduledAt }}.";
+        appointmentCancellation = "Hello {{ patientName }}, your appointment with {{ providerName }} on {{ scheduledAt }} has been cancelled.";
+        appointmentReminder = "Hello {{ patientName }}, this is a reminder of your appointment with {{ providerName }} tomorrow at {{ scheduledAt }}.";
+      }
+    }
     httpSecurity {
       allowedHosts = ["appointment-service.example.com", "localhost"];
       corsOrigins = ["https://app.example.com"];

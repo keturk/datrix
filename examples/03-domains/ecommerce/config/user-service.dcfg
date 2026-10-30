@@ -89,6 +89,12 @@
         }
       }
     }
+    integrations {
+      emailTemplates {
+        emailVerification = "Hi {{ fullName }}, confirm your email address with this code: {{ token }}";
+        passwordReset = "Hi {{ fullName }}, reset your password with this code: {{ token }}";
+      }
+    }
     httpSecurity {
       allowedHosts = ["user-service.example.com", "localhost"];
       corsOrigins = ["https://app.example.com"];

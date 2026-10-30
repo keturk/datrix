@@ -719,7 +719,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
                         data: {
                             patientName: patient.fullName,
                             providerName: appointment.providerName,
-                            scheduledAt: appointment.scheduledAt,
+                            scheduledAt: appointment.scheduledAt.format('YYYY-MM-DD HH:mm'),
                             location: appointment.location,
                             type: appointment.type
                         }
@@ -748,7 +748,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
                         data: {
                             patientName: patient.fullName,
                             providerName: appointment.providerName,
-                            scheduledAt: appointment.scheduledAt,
+                            scheduledAt: appointment.scheduledAt.format('YYYY-MM-DD HH:mm'),
                             reason: appointment.cancellationReason
                         }
 
@@ -794,7 +794,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
                             data: {
                                 patientName: patient.fullName,
                                 providerName: appointment.providerName,
-                                scheduledAt: appointment.scheduledAt,
+                                scheduledAt: appointment.scheduledAt.format('YYYY-MM-DD HH:mm'),
                                 location: appointment.location
                             }
 

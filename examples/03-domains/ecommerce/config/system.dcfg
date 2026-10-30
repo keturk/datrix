@@ -478,6 +478,11 @@ config system library.System {
     region = "eastus";
     platforms {
       azure {
+        // eastus cannot host an Azure Static Web App, so the storefront and
+        // site bundles (web.domain) are hosted from eastus2; the static
+        // sites are served globally, so their region need not match the
+        // backend's.
+        staticWebAppLocation = "eastus2";
         appServicePlanSku = "P1v3";
         appServicePlanCapacity = 1;
         pythonVersion = "3.12";
@@ -626,6 +631,10 @@ config system library.System {
     region = "eastus";
     platforms {
       azureVm {
+        // eastus cannot host an Azure Static Web App, so the storefront and
+        // site bundles (web.domain) are hosted from eastus2; the static
+        // sites are served globally, so their region need not match the VM's.
+        staticWebAppLocation = "eastus2";
         vmSize = "Standard_D4as_v5";
         osImage = "Ubuntu 24.04 LTS";
         dataDisk {
