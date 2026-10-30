@@ -184,6 +184,8 @@ not the task: form a new one, grounded in the error text, and continue.
 
 **Write a findings file, and keep working.** A defect on a file you touched, a pre-existing failure your change did not cause, another instance of the defect class you are fixing, a design flaw, anything unrelated — if the task does not need it to be correct, do not fix it, do not file a task for it, and do not leave it as a line in your report. Write `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md` with the `Write` tool, using the template in `.claude/skills/_shared/execution-contract-reporting.md` §5A: what is wrong, where (`file:line`), the evidence you saw, and the impact, in under 30 lines. **Do not look for an existing finding first**; duplicates are fine. List each one under `discovered_defects` with disposition `FINDING` and the file path as its evidence.
 
+**Your own task is never a finding.** A findings file is only for an issue separate from the task you were dispatched to do. The issue your task names, or any part of it — its root cause, a symptom, an unfinished piece of the fix, an acceptance check your change does not yet pass — ends fixed and proven, as a proven BLOCKED, or as `APPROVAL_REQUIRED`; a findings file for it is an invalid report.
+
 ### Still forbidden (these are worse than a proven blocker)
 
 - Writing `pass`, `NotImplementedError`, empty bodies, or trivial stubs to make a check go green.

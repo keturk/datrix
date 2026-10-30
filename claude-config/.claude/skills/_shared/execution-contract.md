@@ -181,6 +181,12 @@ what becomes work.
 If the task *does* need it — your change cannot be correct or pass its checks without it — it is
 part of the task: fix it, and if that makes the task broader or bigger, §4 applies.
 
+**The issue you are working on is never a finding.** A findings file is only for an issue separate
+from your task. The issue you were asked to investigate, fix or implement — its root cause, its
+symptoms, an unfinished piece of its fix, a check your change does not yet pass — ends fixed and
+proven, as a proven BLOCKED (§3), or as an `APPROVAL_REQUIRED` question (§4); filing it as a finding
+is abandoning the task.
+
 **A discovery never becomes a task file or a phase.** Filing it as a task would make it mandatory
 work nobody approved. **No agent may create a `.tasks\phase-NN\` directory that does not already
 exist** — foreground, background, subagent, orchestrator, or fix loop alike. Creating a phase is a
@@ -193,7 +199,8 @@ run with work nobody scheduled, and it moves what `latest-phase.ps1` reports.
 *Held in [execution-contract-reporting.md](./execution-contract-reporting.md).* Summary: anything
 you find that the task does not need (§5) — a defect, a design flaw, an issue on any surface — gets
 a findings file at `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md` (brief; no search first;
-duplicates are fine), and you cite its path in your reply. A findings file is never a reason to stop.
+duplicates are fine), and you cite its path in your reply. A findings file is never a reason to stop,
+and never holds the issue you are working on: that issue is the task (§5).
 
 ## 6. Escalate before you stop — never instead of fixing
 

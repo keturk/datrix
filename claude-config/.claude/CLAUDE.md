@@ -92,6 +92,10 @@ asked for (or the design doc / task file you were given). Do that, completely.
 unrelated to your task gets a **findings file** at `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md`.
 Just write it: **do not look for an existing one** (duplicates are fine; `/merge-findings`
 merges them), do not fix it, do not file a task. Cite its path in your reply and carry on.
+**A findings file is only for an issue separate from your task** — so it is not forgotten and does
+not distract you. The issue you were asked to investigate, fix or implement, or any part of it (root
+cause, symptom, unfinished piece of the fix, a check your change still fails), is never a finding:
+it ends fixed and proven, as a proven BLOCKED, or as an `APPROVAL_REQUIRED` question.
 Format: execution-contract-reporting.md §5A. **Exception — design work:** while working on
 designs, what you notice goes into a design instead, never a findings file (`.claude/docs/design-and-docs.md`).
 

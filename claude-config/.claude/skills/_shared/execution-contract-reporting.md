@@ -19,6 +19,16 @@ outcome. Write the file, then carry on with your own task. A findings file is ne
 stop, and it never replaces fixing a small defect on a surface you touched. That is still §5
 outcome 1.
 
+**Only for an issue separate from your task.** A findings file exists so that a separate issue you
+come across is not forgotten and does not pull you away from your task. It is never a place to put
+the issue you were asked to investigate, fix or implement, or any part of it: its root cause, a
+symptom of it, a piece of the fix you did not finish, a check your change does not yet pass, or a
+question about it. That issue is the task. It ends fixed and proven, as a proven BLOCKED (B1–B4), or
+as an `APPROVAL_REQUIRED` question when its correct fix is bigger than asked (§4) — never as a
+findings file. If the issue you were given turns out to need its own design, that is §4 too. Before
+you write a findings file, ask: *would fixing this be doing the task I was given?* If yes, it is not
+a finding; go fix it.
+
 **Where.** `d:\datrix\findings\`, one file per issue, named
 `YYYYMMDD-HHMMSS-<short-kebab-slug>.md` from the current local time (e.g.
 `20260927-141503-compose-env-key-never-supplied.md`). Get the time from the shell
