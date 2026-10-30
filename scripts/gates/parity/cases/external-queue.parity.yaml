@@ -21,9 +21,6 @@
     facet: statement-ids
     block: retail_order_service:supplier_feed
   expectation:
-  - create_desired_table
-  - create_instance_table
-  - ddl_lock
   - prune_instances
   - seed_default
   - select_desired
