@@ -57,7 +57,9 @@ Module: `datrix_scripts.visualize.schema_snapshot`; POSIX twin `visualize/schema
 Generates one OpenAPI 3.1 YAML per service — every `rest_api` block of the service in one document, so a
 multi-file service keeps every block's paths — and one AsyncAPI 3.0 YAML per service covering every
 pubsub block. Two blocks of one service declaring the same path and method (or the same topic) fail the
-run rather than overwrite each other. The application is loaded exactly as generation loads it (config
+run rather than overwrite each other. Each AsyncAPI operation is keyed by its channel and event —
+`<Topic>_publish<Event>` for a published event, `<Topic>_on<Event>` for a subscription handler, the topic being
+the one the subscription resolved to — so one event published or handled on two topics yields two operations. The application is loaded exactly as generation loads it (config
 resolution under `-Profile`, then semantic analysis with infrastructure configs resolved before the tree
 seals). Output is written next to the `.dtrx` source (e.g. `examples/.../docs/openapi/`); the script
 clears only `docs/openapi` and `docs/asyncapi` for the spec types it writes.
