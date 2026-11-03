@@ -101,6 +101,302 @@ not in a suite run. Exit 0 every profile analyzed, 1 a profile failed, 2 usage e
 Module: `datrix_scripts.dev.probe_fixture`; POSIX twin `dev\probe-fixture.sh` (`--path`, `--config-profile`,
 `--dbg`, `--self-test`): `bash dev/probe-fixture.sh --path <project dir>`.
 
+### `fixture-author.ps1`
+
+Authors a package's diagnostics fixtures from what the diagnostic catalog says they must prove: one
+provoking source per catalog variant. It loads the package's case session as its pytest session does and
+names no code, variant, family or language itself:
+
+- **Needs.** The target-check variants for the package whose session registers the target checks, every
+  other catalog variant for the rest, less the variants the package proves by a code test: the
+  `PROVEN_BY_CODE_TEST` mapping exactly one `test_*.py` under its `tests/` assigns (zero or several is
+  refused).
+- **Area plan.** A variant goes to the area of its code's family, lowercased; a code that ends analysis
+  (the analyzer's declared halting codes) to `<family>-halt`; an area holding a code read off seed documents
+  is a seeded project directory `<area>/system.dtrx`. Target-check variants go to one area, `targets`,
+  whose header declares `// @analysis targets` and names no language: the annotation reader makes it one
+  input per registered backend language.
+- **Scaffold.** `-Scaffold` copies the fixture corpus's `config/system.dcfg` and
+  `config/templates/datasources.dcfg` into the diagnostics directory and each seeded area's directory where
+  absent, never overwriting: a `.dcfg` import never leaves its project root. An area's `system` declaration
+  carries the owner that `system.dcfg` declares.
+- **Verification.** `-Verify` reads each planned area on disk (or the one `-Area` names) exactly as its
+  whole-analysis case reads it — the package's diagnostics fixtures collected once, the `analyze` stage and
+  the `diagnostic-codes` observer over variants — and prints what it reports and does not annotate (a
+  cascade) and what it annotates and does not report (not provoked), with the analyzer's output. Every
+  input of an area is analyzed (each profile it lists, and each language of the `targets` area), and a
+  variant some input does not report is listed with those inputs: one provoked under one language only
+  fails.
+- **Drafting.** With no action switch, each planned area not on disk (an area on disk is never drafted
+  over) is drafted with a local model (`LocalLlmPool.chat`, answers constrained to
+  `{"source", "configs": [{"path", "text"}]}`), one fragment per variant: the variant's catalog entry, its
+  service and configuration names, the old per-code fixture as an example only, the syntax-reference
+  sections sharing the most words with the entry (the whole reference exceeds a local model's window), the
+  annotation forms and the root's scaffold; every prompt part carrying a registered customer term is
+  withheld. A fragment is checked before it is written: a secret-looking string literal (a canonical UUID,
+  the shape a container database's `id` is declared as, excepted) queues the variant at once and nothing of
+  it is written; a path outside its own names, a `.dcfg` that does not parse, an annotation that cannot be
+  read or names another variant, an undocumented tag or a security code's `@expect` without its tag goes
+  back. The tool writes the header (`@tags error-messages` plus the security tags every code of the area
+  shares, `@reason`, `@analysis targets`, `@profiles`) and the `system` declaration, assembles
+  the fragments, and analyzes the area once per round; each diagnostic is matched to the `@expect` on its
+  line, so one firing elsewhere (a cascade) goes back to the fragment holding it with the instruction to
+  move the provoking construct into its own service or module, and an `@expect` that does not fire goes back
+  with what fired in the fragment. A profile an `@profile` names is listed in `@profiles` and appended to
+  each `.dcfg` the area reads as `profile <p> as "<p>" extends test {}`. After 4 rounds a variant still
+  failing is taken out and written to `.tmp\fixture-author\queue\<area>.md` with its last output and draft;
+  the area lands with the rest once its analysis reports exactly what it annotates. No local model stops
+  the run before anything is written.
+
+`fixture-author.ps1 needs [-Package <p>]` inventories what the tests of every package holding `tests/`
+(or the one named) read and need, as one input for writing shared fixtures:
+
+- **Inputs.** Each `tests/**/*.py` module is parsed once and never run. Its inputs are found with the
+  fixture budget gate's literal walk (`datrix_scripts.gates.ratchet.fixture_budget_gate`, imported): a
+  string naming a fixture file (a `/` join of string parts read whole), an inline `.dtrx`/`.dcfg`
+  literal, a `FIXTURE_SYSTEM_*` constant of `datrix_testing.fixture_names`, and a pair fixture a
+  `conftest.py` on the module's path registers with `FixturePairSpec` (the nearer conftest wins). A name
+  resolves to the fixture file ending with it nearest the module under the package's `tests/`, else under
+  the shared fixtures of `datrix-testing`; a name matching no file, two equally near, or one computed at
+  run time is kept with the reason. Three readers read whole trees rather than names (the formatter
+  corpus test, the semantic baseline, model-contract capture), each the shared fixture corpus besides
+  the package trees; each is a `tree` row, and a moved one stops the command.
+- **Needs.** A local model (`LocalLlmPool.chat`, answers constrained by a JSON schema, temperature 0)
+  reads each module with a test function, its source and the text of its inputs, every part through the
+  customer-term filter, and answers per test function with the declarations its assertions depend on:
+  `{"kind", "path", "facts"}`, `kind` a node class of `datrix_common.datrix_model` or `ConfigDecl`, and
+  `local` with the reason when the input cannot be shared (a syntax error, a missing file, a second
+  `system`, a variant that is the absence of a block). An unknown kind or a test name the module does not
+  define goes back once; failing again, the module is refused. Each kept answer is cached as it arrives,
+  by the sha256 of the request, under `.tmp\fixture-author\needs-cache\`, so an interrupted run keeps its
+  answers and a rerun on an unchanged tree asks nothing. Modules are asked in parallel, all in one context
+  window that holds the run's largest prompt and a resend: Ollama reloads a model for each window, and a
+  model that has been serving can hold off a reload until its keep-alive ends, past the request timeout.
+  The pool loads the model in that window before the first request (`LocalLlmPool.activate(context_window)`:
+  a model `/api/ps` shows at another window is unloaded first), so no request meets a reload. Each answer
+  is logged as it arrives (`needs <n>/<total> <module> (<k> tests): <state>`). An answer cut off at the
+  answer cap is not valid JSON, so a module of several test functions whose answer was is asked as two
+  requests for half of its tests each, and so on until each part fits; the parts are joined and kept as the
+  module's own answer. A declaration with no name of its own takes its enclosing declaration's qualified
+  name, then `.`, then its kind. No local model stops the command, with no fallback.
+- **Scope.** A need is a declaration, never a language or a platform: every package's tests are inventoried
+  alike, and a platform package's profile-level configuration facts are `facts` of its `ConfigDecl`
+  declarations. The command is read-only: it reads test modules and fixture text, executes neither, and
+  sends them only to the local model pool.
+- **Inventory.** `.tmp\fixture-author\needs.json` holds a `module` row per module found (its inputs and
+  tests) and a `tree` row per tree reader of the packages run, sorted by module path, keys sorted, written
+  as bytes: an unchanged tree gives an identical file. The module rows are read back from the bytes and
+  compared with the modules found; any found and not inventoried are named with why and nothing is
+  written.
+- **Summary.** Per package: modules, inputs read, declarations needed, distinct declaration paths and
+  local tests; then, per service-level block family, the union of declaration kinds under it. A
+  declaration belongs to the family of the nearest block declared in the same test whose path encloses its
+  own (itself when it is a block), named by the block class less `Block`, lowercased (`RdbmsBlock` is
+  `rdbms`). A service's identity and its REST, GraphQL and WebSocket APIs are no `Block` subclasses; they
+  open the families `identity` and `api`.
+
+Exit of `needs`: 0 written, 1 a module found is not inventoried (nothing is written), a tree reader moved
+or a test module cannot be parsed, 2 usage error or a tree the inventory reads is missing, 3 no local model
+can read (nothing is written).
+
+The shared fixture corpus is planned and checked from `needs.json` with no model:
+
+- **Plan** (`library_plan.py`). A test with a `local` reason is not placed. Every other test goes to the
+  corpus entry `library`, unless its package distributes `datrix.platforms` entry points: then to the
+  entry named by its sorted-first entry-point name (read from the installed entry points). A `System` or
+  `Application` declaration is the entry's system, whatever path the test spells. Its fact is a choice
+  when the key resolves on the analyzed `library` system to scalar values only and the value is one their
+  types can take (a text value is one word); where an entry's tests hold different values for one choice,
+  the value most hold stays and each test holding another moves, whole, to `<entry>-<key>-<value>`
+  (`<key>-<value>` off `library`). Each declaration goes to the family of the nearest enclosing block of
+  its test; one no block encloses to the sorted-first family of the blocks it encloses, else its test's
+  sorted-first family, else `core` (services holding no block). Per entry and family the declarations are
+  unioned by kind and path, facts sorted.
+- **Check** (`library_check.py`). Per entry, under every profile its system config declares: the entry
+  analyzes with no error diagnostic, and every `.dcfg` it reaches that declares profiles declares that one;
+  needed − provided = ∅, the provided set read off the analyzed `Application` (system, services, modules,
+  their members, the identity block and providers; a node's path is its owners' names and its own) and the
+  `.dcfg` files the entry reaches, resolved for the profile (by owner, `<kind>.<owner>` or file path). A
+  need is provided by a node whose class or a base class is its kind and whose path ends with its path; a
+  fact `<key> <value>` by such a node on which the key resolves (a typed key table for keys naming no
+  attribute, then the attribute or `is_` attribute of that name, compared without case, `_` or `-`; a dotted
+  key walks attributes) to a value whose text contains the value (`:p` and `{p}` route parameters equal, a
+  `%(name)s` placeholder any word; a bare key: a value present). A key resolving to nothing is unprovided.
+  A block family every service of the entry holds is reported: no control service lacks it.
+
+`fixture-author.ps1 library` drafts the corpus (`datrix-testing`'s `fixtures_data/corpus/`) to hold that plan
+(`library.py`, with what it sends and accepts in `library_drafts.py`):
+
+- **Units.** Each family is one unit, `services/<family>.dtrx` with the owner configs its services name,
+  holding the union of the family's needs over every entry reading it (each declaration once in the
+  corpus); each entry's system is another, the `system` declaration of `<entry>.dtrx` with the config it
+  names (`config/<entry>-system.dcfg` for a new entry). The tool owns the entry files: an entry includes
+  every family file holding its needs, a missing include added before its system declaration, and a
+  drafted system is written under a header and the includes.
+- **Rounds.** The run works on a staging copy of the corpus and checks every entry first; only units the
+  check finds lacking are asked: a need unprovided, an error naming the unit's files, an entry that does not
+  run (its system unit), or a family every service of an entry holds (the `core` unit adds a service holding
+  no block and no API, the control service). The model (`LocalLlmPool.chat`, answers constrained to
+  `{"source", "configs": [{"path", "text"}], "renames": [{"kind", "path", "to", "facts"}]}`) is sent the
+  unit's needs, its current files, the services declared elsewhere, the syntax-reference sections its needs'
+  words point to, the datasource templates, an existing family file as the shape to follow, and what the
+  check found; every part carrying a registered customer term is withheld. Every request is sent with one
+  context window per run, holding the widest unit's prompt, the last draft a resend carries back and its
+  answer, and an answer budget of the unit's current files and needs; a unit needing a window over 65,536
+  tokens is queued at once, never asked, since no request would hold it whole. A source answered as the
+  file's name rather than its text goes back. Each round asks every failing
+  unit at once (systems written first), writes what passes the read-only checks, appends to each written
+  config every profile its entries run that it lacks, and checks every entry once under every profile it
+  runs.
+- **Read-only checks.** A secret-looking string literal queues the unit at once and nothing of it is
+  written. A family source must parse alone and declare services, no system and no include; a system source
+  one system naming its config, no service and no include. A config lies under `config/` (never the
+  templates), parses, and is the unit's own (one its services name, or a new one no other unit writes; a
+  system unit writes its system config only); a service config imports `config/templates/datasources.dcfg`.
+  A rename moves facts of one of the unit's needs (none listed: the whole need) to a path no need and no
+  other rename holds; everything else goes back.
+- **Fail closed.** An entry that does not run, or runs with an error, checks no need: a family none of whose
+  entries runs clean is never passed, and waits (unasked unless an error names its files). After 4 rounds a
+  unit still failing is taken out, its files restored, and written to `.tmp\fixture-author\queue\library-<unit>.md`
+  with its needs, why and its last draft; the rest are checked again until every unit left passes. Only then
+  are the landed units' files, the entries they belong to and their renames
+  (`.tmp\fixture-author\renames.json`, read back by every later run) written to the corpus. No local model
+  stops the run before anything is written.
+
+Exit of `library`: 0 every unit landed or was provided, 1 a unit was queued or the inventory cannot be read,
+2 usage error (`-Package` or a diagnostics switch given, `needs.json` missing), 3 no local model can draft
+(nothing is written).
+
+`fixture-author.ps1 repoint -Package <p>` rewrites the test modules `needs.json` lists for the package so
+their tests read the corpus (`repoint.py`; its jobs, status, undo record and runner in `repoint_jobs.py`, what
+it sends and accepts in `repoint_drafts.py`):
+
+- **Jobs.** One per inventoried module. A module holding tests serves them: a test with no `local` reason
+  reads the entry the plan places it in, its needs with `renames.json` applied; a test with one keeps its
+  input in the package. A module holding no test serves the tests of the modules depending on it (every test
+  module under a `conftest.py`'s directory, every test module importing a helper), and their run proves it;
+  a helper no test module imports is queued unasked. Test modules go first, then helpers, then conftests.
+- **Done.** A module is done when every input it reads (as `needs` finds them) opens with the line
+  `// @local <reason>` (a name matching no committed file reads none) and, holding a test with no local
+  reason, it names `corpus_project` or `corpus_project_copy`: building its own project shares nothing. A
+  conftest or helper answers to its inputs only. A done module is skipped, and its queue file removed.
+- **Rounds.** The model (answers constrained to `{"module", "files": [{"path", "text"}]}`) is sent the
+  module, each test with its entry or local reason and its needs, the inputs it reads now, the entry files
+  naming what the tests need, and `renames.json`; a request carrying a registered customer term is never
+  sent and the module is queued. The rules: a shared test reads `corpus_project("<entry>")` and names the
+  service and block it reads, never the first service or a count across the system; an absence assertion
+  reads a control service of the same entry; a test writing into the project uses
+  `corpus_project_copy(tmp_path, "<entry>")`; a local input stays in the package opening with
+  `// @local <reason>` (a parsed fragment under `tests/fixtures/parser/<construct>.dtrx` or
+  `<syntax-error-kind>.dtrx.false`, config-model `.dcfg` text under `tests/fixtures/config-kinds/<kind>.dcfg`).
+  Each round asks every module left at once, then takes the answers one at a time.
+- **Judging.** A draft adding a secret-looking literal the module did not hold is queued at once and never
+  written. One that does not parse, writes a file outside the package's `tests/fixtures/`, writes no
+  fixture kind or a file without its `// @local` line, or replaces a file another module reads goes back.
+  Otherwise the module and its files are saved to `.tmp\fixture-author\undo\` and written; the rewrite is
+  kept only when every test it had stays, its assertion count (`assert` statements plus `pytest.raises`
+  blocks, by AST) has not fallen, it is done (above), and `test.ps1 <p> -Specific` over the modules that
+  prove it passes. Otherwise every file is written back from the undo copy byte for byte, never by a git
+  command, and the failure goes back. After 4 rounds a module still failing is written to
+  `.tmp\fixture-author\queue\repoint-<package>--<module>.md` with why and its last draft; a person finishes it
+  under the same rules and reruns the command, which finds it done. A run finding an undo record an
+  interrupted run left writes it back first.
+- **Status.** The run ends on the package's set comparison, computed from the code: inventoried − rewritten −
+  local, where local is a done module every test of which keeps a local input and that reads no corpus entry.
+
+Exit of `repoint`: 0 inventoried − rewritten − local is empty, 1 a module is not done or the inventory
+cannot be read, 2 usage error (no `-Package`, a diagnostics switch, `needs.json` missing), 3 no local model
+can rewrite (with none from the start, nothing is written).
+
+`fixture-author.ps1 repoint -Package <p> -Prune` deletes the package's fixture files nothing reads any more,
+once its queue is finished (`prune.py`; what is read in `prune_reads.py`):
+
+- **Refusal first.** A run finding an undo record an interrupted run left writes it back first. While
+  `.tmp\fixture-author\queue\repoint-<package>--*.md` holds a module the run is refused: a queued module still
+  reads the files it was not repointed off.
+- **Kept.** A fixture file (the budget gate's kinds under `tests/`) is kept when needs discovery, rerun over
+  the modules as they are now, names it (a name two files answer equally near keeps both; a conftest pair
+  fixture with a computed file name keeps every fixture); when it lies under a directory a module reads whole
+  (path expressions evaluated statically: `Path(__file__)` with `.parent`/`.parents[n]`, `/` joins, `Path(...)`
+  and `os.path.join` of constants and of path constants bound in the module or imported from the package or an
+  installed `datrix_*` module; a walk, a call argument, a computed or wildcard join, a return or an f-string
+  reads it whole); when it lies under `tests/fixtures/diagnostics/` (the case runner's harness tree); or when
+  a kept file reaches it (a `.dtrx`'s project as parsed, a `.dcfg`'s imports). A kept file that does not parse
+  keeps every fixture under its directory. A directory handed to `package_contracts`, `SemanticBaselineCorpus`
+  or `CaseSuite` is that reader's, judged by its own rule below.
+- **Judged.** Every other file is saved to `.tmp\fixture-author\undo\` and deleted. When a module hands the
+  package's `tests/` to `package_contracts`, every model the contract capture sampled before (the package's
+  `.dcfg` fixtures, then the shared corpus's) must still be sampled; a model losing its last sample refuses the
+  run, naming the model and the fixture its sample came from (its value goes into a corpus config). When the
+  package holds `tests/fixtures/semantic_baseline/manifest.json`, the manifest built after the deletions may
+  differ from the committed one only by the deleted files' keys leaving and the shared corpus entries' keys
+  arriving (`baseline_drift`); any other change refuses the run, naming each key. A refused run writes every
+  file back byte for byte, never by a git command, and leaves the manifest as it was.
+- **Banked.** An accepted run writes the regenerated manifest, removes the directories the deletions left
+  empty and, deleting or not, runs `fixture-budget-gate.ps1 -UpdateBaseline`, printing its report.
+
+Exit of `repoint -Prune`: 0 pruned and the budget banked, 1 refused, a census error or the baseline not
+tightened (the deletions stand; prune again once the gate's failure is fixed), 2 usage error (no `-Package`,
+`-Prune` with another kind).
+
+The self-test proves the needs and the plan on a planted catalog, the scaffold on a temporary root,
+verification on a planted area the real analyzer runs (a clean project with an unprovoked annotation, a
+cascade, and the same area annotated with exactly what it reports), and drafting over a loopback model
+server: of two variants one draft passes and one cascade is sent back and fixed; a secret-literal draft is
+queued and never written; no model exits 3 and writes nothing. For `needs`, on a planted package, every
+input form is found and resolved; answers are parsed per test, a cached rerun asks nothing, an unknown kind
+or test goes back once and is then refused; a run sends every request in one context window holding its
+largest prompt and a resend, the model is loaded once in that window before the first request, and each
+clean answer is cached before the resend; the inventory is written sorted with its summary and a rerun
+(cached or not) writes the same bytes; an inventory missing a found module is refused naming it and
+nothing is written; no model exits 3 and writes nothing; a non-package `-Package` is a usage error. On the
+real workspace, over a loopback model, every module found has its row and every tree reader its tree row.
+For the corpus plan, on planted needs: local tests are not placed, a platform package's test reads its
+platform's entry, a minority system choice splits its test off while prose moves nothing, and each
+declaration lands in its family. For the check, on copies of the corpus's `library` scenario under the real
+analyzer: the library provides its own declarations; an absent need, a fact not held and a key naming
+nothing are reported; an entry with an error diagnostic and an unknown entry fail; a family every service
+holds is reported until a control service lacking it is added. For `library`, over a loopback model on
+copies of the corpus under the real analyzer: a draft providing every need lands (its family file, config
+and the entry's include; needed − provided = ∅ and the control service added) after one request for the one
+lacking unit; a secret-literal draft is queued after one request and nothing is written; a draft still
+lacking a need is sent back with it each round and queued after the fourth, nothing written; a colliding
+need is renamed and recorded once a rename onto a needed path has gone back; a new entry gets its system,
+config and include (system first, then its family); a family whose entry never runs clean is queued
+unchecked and never asked; no model exits 3 and writes nothing; `-Package` and a missing inventory are
+refused. For `repoint`, over a loopback model on a planted package (its rewrites run by importing the
+planted module and calling its tests, since `test.ps1` runs workspace packages only; the production command
+is parsed with `test.ps1`'s own parser and proven a `-Specific` run): a rewrite reading `corpus_project` is
+kept, a local fragment moved to a `// @local` file is kept once its unmarked first draft has gone back, and
+inventoried − rewritten − local is empty; a rewrite dropping an assertion, one whose test fails and one
+building its own project are written back byte for byte and queued with why; a secret-literal rewrite is
+queued after one request and never written; an interrupted rewrite is written back (its new directory
+removed) and no model exits 3 and writes no queue; a conftest and a helper are proven by the modules under
+and importing them; the tool holds no git command; a missing `-Package` and a diagnostics switch are
+refused. For `repoint -Prune`, on planted workspaces with an empty shared corpus: the one file nothing reads
+is deleted with the directory it left empty, the files read by name, by a walk and through a system's config
+are kept, the semantic manifest is regenerated with only the deleted key gone and the budget is banked; a
+manifest whose kept fixture's hash differs refuses the run, as does a deletion taking a model's last
+contract sample (named with its fixture), and every file is written back byte for byte; a sample the corpus
+holds lets its file go; a queued module refuses the run with nothing deleted; an interrupted prune's undo
+record is written back first; `-Prune` with another kind or without `-Package` is refused; the prune holds
+no git command.
+Exit of `diagnostics`: 0 done, 1 a variant was queued, an area failed or the package's state refuses the
+run, 2 usage error, 3 no local model can draft.
+
+Module: `datrix_scripts.dev.fixture_author.cli` (the rules in `datrix_scripts.dev.fixture_author.diagnostics`,
+drafting in `drafting.py` and its prompt in `prompting.py`; the inventory's discovery in `needs.py`, its
+model reading in `needs_reading.py` and the command in `needs_command.py`; the corpus plan in
+`library_plan.py`, its check in `library_check.py`, their self-checks in `library_self_checks.py`; library
+drafting in `library.py` and `library_drafts.py`, its self-checks in `library_draft_self_checks.py`; repointing
+in `repoint.py`, `repoint_jobs.py` and `repoint_drafts.py`, its self-checks in `repoint_self_checks.py`; pruning
+in `prune.py` and `prune_reads.py`, its self-checks in `prune_self_checks.py`); POSIX twin
+`dev\fixture-author.sh` (`--kind`, `--package`, `--area`, `--plan`, `--scaffold`, `--verify`, `--prune`,
+`--local-machines`, `--llm-model`, `--llm-timeout`, `--dbg`, `--self-test`): `bash dev/fixture-author.sh
+--kind diagnostics --package datrix-semantic --plan`, `bash dev/fixture-author.sh --kind needs`,
+`bash dev/fixture-author.sh --kind library`, `bash dev/fixture-author.sh --kind repoint --package datrix-common`,
+`bash dev/fixture-author.sh --kind repoint --package datrix-common --prune`.
+
 ### `who-imports.ps1`
 
 Which runtime import chain first loads a module. It imports each `-Root` in a fresh interpreter with an
@@ -292,7 +588,15 @@ the once-per-file rule in `redirect-large-read.py` needs revisiting. The stop-ga
 
 **Spreading and failover:** a request goes to an idle ready server. While every ready server is busy, the
 next resident one is readied, so concurrent requests use every machine's resident model. The MCP tools
-never wait for a model to load: they use resident models only.
+never wait for a model to load: they use resident models only. A server that fails a request is dropped
+for the run, with one exception: a request that times out on a server which answered another request
+since it began is asked again once and the server stays (one slow prompt is not a dead server); a second
+timeout of the same request, a timeout on a server that answered nothing, and any other failure drop it.
+
+**Readiness timeouts:** only a cold load waits `--local-load-timeout-ms` (default 15 minutes). Renewing a
+model already held at the window asked for, and unloading one to change its window, load nothing and wait
+`LocalLlmSettings.renew_timeout_ms` (60 seconds); a timeout reads `got no answer within <n> s`, so a hung
+server shows itself in a minute with the limit it hit.
 
 **Residency:** because the hooks and MCP tools use resident models only, and a script loads an Ollama
 model only when no resident one is left, a machine whose Ollama holds nothing in memory takes no work in

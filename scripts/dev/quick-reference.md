@@ -60,6 +60,55 @@ Analyze a fixture project (`tests\fixtures\[projects\]<name>\`) the way a test d
 
 Parameters: `-Path` (required; the `.dtrx` or its directory), `-ConfigProfile <name,...>` (default `test`), `-Dbg`, `-SelfTest`
 
+### `dev\fixture-author.ps1`
+
+Author a package's diagnostics area fixtures from the diagnostic catalog: draft the areas with a local model, plan them, copy their scaffold, verify each area reports exactly what it annotates. Or inventory what every package's tests read and need (`needs`), and draft the shared fixture corpus to hold it (`library`).
+
+`needs` finds, statically, the inputs each `tests/**/*.py` module reads (fixture file names, inline `.dtrx`/`.dcfg` literals, `FIXTURE_SYSTEM_*` names, conftest pair fixtures) and has a local model say, per test function, the declarations its assertions depend on. It writes `.tmp\fixture-author\needs.json` (a working file, never committed): one `module` row per module found and one `tree` row per reader of a whole tree, sorted by module path, byte-identical on an unchanged tree (answers are cached under `.tmp\fixture-author\needs-cache\`). It writes only when every module found has its row, and prints per package the modules, inputs read, declarations needed, distinct paths and local tests, then the declaration kinds per block family.
+
+| Form | Command |
+|------|---------|
+| Inventory every package | `.\dev\fixture-author.ps1 needs` |
+| Inventory one package | `.\dev\fixture-author.ps1 needs -Package datrix-testing` |
+
+Exit of `needs`: 0 written, 1 a module found is not inventoried (its answer refused; nothing is written), a tree reader moved or a test module cannot be parsed, 2 usage error or a tree the inventory reads is missing, 3 no local model can read (nothing is written).
+
+`library` drafts the shared fixture corpus to hold what `needs.json` needs: per block family a local model writes or extends `services\<family>.dtrx` and its owner configs (importing the datasource templates), per new entry its system; each round analyzes every entry under every profile it runs, and a unit passes when needed − provided is empty and nothing errs. It works on a staging copy and writes only the units that pass. A draft holding a secret-looking literal is queued and never written; a unit still failing after 4 rounds goes to `.tmp\fixture-author\queue\library-<unit>.md`; a rename keeping two colliding needs apart is recorded in `.tmp\fixture-author\renames.json`.
+
+| Form | Command |
+|------|---------|
+| Draft the corpus library | `.\dev\fixture-author.ps1 library` |
+
+Exit of `library`: 0 every unit landed or was provided, 1 a unit was queued or the inventory cannot be read, 2 usage error (`-Package` or a diagnostics switch given, `needs.json` missing), 3 no local model can draft (nothing is written).
+
+`repoint` rewrites the test modules `needs.json` lists for `-Package` so their tests read the shared corpus: per module a local model is given the module, its needs, the corpus entry that provides them and `renames.json`. The module is saved to `.tmp\fixture-author\undo\` and written; the rewrite is kept only when every test and assertion (`assert` plus `pytest.raises` blocks) stays, the module reads no input but one opening with `// @local <reason>`, a module holding a test with no local reason names `corpus_project` or `corpus_project_copy`, and `test.ps1 <p> -Specific` over it (over the modules depending on a conftest or helper) passes. Otherwise it is written back byte for byte (never by git) and, after 4 rounds, queued in `.tmp\fixture-author\queue\repoint-<package>--<module>.md`; a secret-literal draft is queued and never written. A module finished by hand is found done on the next run. The run ends on inventoried − rewritten − local, computed from the code.
+
+| Form | Command |
+|------|---------|
+| Repoint one package | `.\dev\fixture-author.ps1 repoint -Package datrix-common` |
+| Delete what it no longer reads | `.\dev\fixture-author.ps1 repoint -Package datrix-common -Prune` |
+
+Exit of `repoint`: 0 inventoried − rewritten − local is empty, 1 a module is not done or the inventory cannot be read, 2 usage error (no `-Package`, a diagnostics switch, `needs.json` missing), 3 no local model can rewrite (with none from the start, nothing is written).
+
+`repoint -Prune` is refused while `.tmp\fixture-author\queue\` holds a module of the package. It deletes each fixture file under `tests/` nothing reads: not named by needs discovery rerun now, not under a directory a module reads whole, not in `tests/fixtures/diagnostics/`, not reached by a kept file (a kept file that does not parse keeps its directory). Each is saved to `.tmp\fixture-author\undo\` first; a deletion leaving a model with no contract sample (when a module calls `package_contracts`), or changing the package's semantic manifest other than by the deleted keys leaving and the corpus keys arriving, refuses the run and every file is written back byte for byte. An accepted run writes the regenerated manifest and runs `fixture-budget-gate.ps1 -UpdateBaseline`. Exit: 0 pruned and banked, 1 refused or the baseline not tightened, 2 usage error.
+
+Drafting (no action switch) asks the model for one fragment per variant, analyzes the area once per round, and sends a cascade or a variant not provoked back, at most 4 rounds. A variant still failing is written to `.tmp\fixture-author\queue\<area>.md` with its last analysis output and draft, for a person to finish; a draft holding a secret-looking literal is queued and never written. An area on disk is never drafted over.
+
+Target-check variants (the package whose session registers the target checks) go to one area, `targets`, declaring `// @analysis targets` and naming no language: it is one input per registered backend language, and drafting and `-Verify` analyze every input, so a variant provoked under one language only is not provoked.
+
+| Form | Command |
+|------|---------|
+| Draft every absent area | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic` |
+| Draft one area | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Area svc` |
+| Needs and planned areas | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Plan` |
+| One area's variants | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Area svc -Plan` |
+| Copy the scaffold | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Scaffold` |
+| Verify one area | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Area svc -Verify` |
+
+Parameters: `-Kind diagnostics|library|needs` (required, positional), `-Package <name>` (required by `diagnostics`; `needs` defaults to every package holding `tests\`; `library` takes none), `-Area <area>` (default every planned area), at most one of `-Plan`, `-Scaffold`, `-Verify` (none drafts; `diagnostics` only), `-LocalMachines <host,...>`, `-LlmModel <model,...>`, `-LlmTimeout <seconds>` (default 300), `-Dbg`, `-SelfTest`
+
+Exit of `diagnostics`: 0 done, 1 a variant was queued, an area failed verification or the package's state refuses the run, 2 usage error, 3 no local model can draft (nothing is written).
+
 ### `dev\who-imports.ps1`
 
 Which runtime import chain first loads a module.
