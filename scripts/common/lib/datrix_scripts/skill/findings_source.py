@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datrix_scripts.skill.common import FENCE, markdown_sections, read_text
-from datrix_scripts.skill.findings import finding_files
+from datrix_scripts.skill.finding_inbox import inbox_markdown
 
 _CONSOLIDATED_NAME = re.compile(r"^consolidated-(\d{3})-([a-z0-9-]+)\.md$")
 _SECTION_NUMBER = re.compile(r"^\d+\.\s+")
@@ -115,4 +115,5 @@ def parse_source(path: Path) -> SourceFile:
 
 
 def load_sources(directory: Path) -> list[SourceFile]:
-    return [parse_source(path) for path in finding_files(directory)]
+    """Every findings file in ``directory`` and its area subfolders."""
+    return [parse_source(path) for path in inbox_markdown(directory)]

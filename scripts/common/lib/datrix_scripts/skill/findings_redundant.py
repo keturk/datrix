@@ -55,7 +55,7 @@ from datrix_scripts.skill.common import (
     section_body,
     string_list,
 )
-from datrix_scripts.skill.finding_inbox import inbox_markdown, referrers
+from datrix_scripts.skill.finding_inbox import referrers
 from datrix_scripts.skill.findings import check_consolidation, references, render_check
 
 LOG = logging.getLogger(__name__)
@@ -444,8 +444,7 @@ def delete_redundant(directory: Path, proposals: list[Proposal]) -> DeleteResult
         if problem:
             result.problems.append(f"{p.doomed}: {problem}")
     if chosen and not result.problems:
-        check = check_consolidation(directory, [directory / p.doomed for p in chosen], raw_may_remain=True,
-                                    scope=inbox_markdown(directory))
+        check = check_consolidation(directory, [directory / p.doomed for p in chosen], raw_may_remain=True)
         result.check_report = render_check(check)
         if not check.passed:
             result.problems.append("findings-check failed; nothing deleted.")

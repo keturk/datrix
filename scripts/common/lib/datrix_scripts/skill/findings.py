@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -36,6 +35,7 @@ from datrix_scripts.skill.common import (
     string_list,
     workspace_label,
 )
+from datrix_scripts.skill.finding_inbox import inbox_markdown
 
 LOG = logging.getLogger(__name__)
 
@@ -105,11 +105,6 @@ class FileExtraction:
     note: str = ""
 
 
-def finding_files(directory: Path) -> list[Path]:
-    """Every ``*.md`` directly in the findings folder, by name."""
-    return sorted(path for path in directory.glob("*.md") if path.is_file())
-
-
 def _normalized(reference: str) -> str:
     return reference.strip().strip("`").replace("\\", "/")
 
@@ -131,13 +126,14 @@ def _source_citation(given: str, source_citations: set[str]) -> str:
     return tails[0] if len(tails) == 1 else ""
 
 
-def snapshot_file(workspace: Path, path: Path) -> FindingsSnapshot:
-    return FindingsSnapshot(path.name, workspace_label(workspace, path), read_text(path))
+def snapshot_file(workspace: Path, directory: Path, path: Path) -> FindingsSnapshot:
+    """``path`` as it stands now, named by its path relative to the findings folder ``directory``."""
+    return FindingsSnapshot(_label(directory, path), workspace_label(workspace, path), read_text(path))
 
 
 def extract_file(workspace: Path, pool: LocalLlmPool, content: ContentFilter, path: Path) -> FileExtraction:
     """One file's atomic findings, with its citations checked against the file."""
-    return extract_snapshot(pool, content, snapshot_file(workspace, path))
+    return extract_snapshot(pool, content, snapshot_file(workspace, path.parent, path))
 
 
 def extract_snapshot(pool: LocalLlmPool, content: ContentFilter, snapshot: FindingsSnapshot) -> FileExtraction:
@@ -166,13 +162,14 @@ def extract_snapshot(pool: LocalLlmPool, content: ContentFilter, snapshot: Findi
 
 
 def build_index(workspace: Path, pool: LocalLlmPool, directory: Path) -> list[FileExtraction]:
-    """The atomic findings of every file in the folder (raw and consolidated alike).
+    """The atomic findings of every file in the folder and its area subfolders (raw and consolidated alike),
+    each named by its path relative to ``directory``.
 
     Every file is read before the first model call: the calls take minutes, and a file renamed or
     deleted meanwhile (a consolidation in progress) must not abort the index or mix two states of the
     folder into one."""
     content = ContentFilter(workspace)
-    snapshots = [snapshot_file(workspace, path) for path in finding_files(directory)]
+    snapshots = [snapshot_file(workspace, directory, path) for path in inbox_markdown(directory)]
     return parallel(snapshots, lambda snapshot: extract_snapshot(pool, content, snapshot))
 
 
@@ -223,18 +220,15 @@ def _label(directory: Path, path: Path) -> str:
     return resolved.relative_to(root).as_posix() if resolved.is_relative_to(root) else path.name
 
 
-def check_consolidation(directory: Path, delete: list[Path], raw_may_remain: bool = False,
-                        scope: Sequence[Path] | None = None) -> ConsolidationCheck:
+def check_consolidation(directory: Path, delete: list[Path], raw_may_remain: bool = False) -> ConsolidationCheck:
     """Would deleting ``delete`` lose a citation, leave a dangling pointer, or leave a raw file behind?
 
     ``raw_may_remain`` is for /merge-findings, which collapses duplicates into one surviving raw file and
     leaves every distinct finding where it is: raw files left behind are then the expected result.
-    ``scope`` is every findings file that may carry what is deleted (default: the ``*.md`` directly in
-    ``directory``); pass the inbox's files when its findings lie in area subfolders. Files are named in the
+    Every ``*.md`` in ``directory`` and its area subfolders may carry what is deleted. Files are named in the
     result by their path relative to ``directory``."""
     doomed = {path.resolve() for path in delete}
-    candidates = finding_files(directory) if scope is None else list(scope)
-    remaining = [path for path in candidates if path.resolve() not in doomed]
+    remaining = [path for path in inbox_markdown(directory) if path.resolve() not in doomed]
     texts = {_label(directory, path): read_text(path) for path in remaining}
     kept_refs: set[str] = set().union(*(references(text) for text in texts.values())) if texts else set()
     result = ConsolidationCheck()

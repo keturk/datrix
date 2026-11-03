@@ -260,6 +260,29 @@ def check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_cit
         assert passed.passed, passed
 
 
+def check_findings_tools_read_the_area_subfolders_and_name_files_by_relative_path() -> None:
+    with _workspace() as root:
+        folder = root / "findings"
+        loose = write_file(folder / "20261001-000000-loose.md", "# Loose\n\nAt `a/b.py:1`.\n")
+        nested = write_file(folder / "aws/20261001-000001-nested.md", "# Nested\n\nAt `a/c.py:2`.\n")
+        merged = write_file(folder / "kernel/consolidated-001-theme.md",
+                            "# Theme\n\n## 1. Nested\n\nAt `a/c.py:2`.\n")
+        lost = check_consolidation(folder, [nested, loose], raw_may_remain=True)
+        assert lost.lost == {"20261001-000000-loose.md": ["a/b.py:1"]}, lost.lost
+        passed = check_consolidation(folder, [nested], raw_may_remain=True)
+        assert passed.passed, passed
+        strict = check_consolidation(folder, [merged])
+        assert not strict.lost and strict.raw_left == [
+            "20261001-000000-loose.md", "aws/20261001-000001-nested.md"], strict
+        assert [s.name for s in load_sources(folder)] == [loose.name, nested.name, merged.name]
+        reply = json.dumps({"findings": [{"title": "T", "seam": "s", "packages": [], "defect": "d",
+                                          "citations": []}]})
+        with LoopbackOllama(answering(reply)) as server:
+            extractions = build_index(root, _pool(server), folder)
+        assert sorted(e.source for e in extractions) == [
+            "20261001-000000-loose.md", "aws/20261001-000001-nested.md", "kernel/consolidated-001-theme.md"]
+
+
 def check_findings_parse_repairs_mojibake_and_nests_raw_headings() -> None:
     with _workspace() as root:
         raw = write_file(root / "findings/20261001-000000-m.md",
@@ -1158,6 +1181,7 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_never_send_a_registered_customer_term,
     check_findings_check_refuses_a_lost_citation_and_a_dangling_related_pointer,
     check_findings_check_keep_raw_allows_a_surviving_raw_file_but_not_a_lost_citation,
+    check_findings_tools_read_the_area_subfolders_and_name_files_by_relative_path,
     check_findings_parse_repairs_mojibake_and_nests_raw_headings,
     check_findings_redundant_proposes_only_what_a_checked_same_verdict_and_the_citations_prove,
     check_findings_redundant_delete_proves_every_condition_before_it_removes_a_file,

@@ -8,7 +8,7 @@ the wrapper's parameters and runs it in-process.
 Commands:
     context-digest     --phase N                 the implementers' shared-context digest (code index)
     readiness          --phase N                 readiness-audit evidence (exact checks + model leads)
-    findings-index     [--dir D]                 atomic-finding index of the findings inbox (model, checked)
+    findings-index     [--dir D]                 atomic-finding index of the inbox and its subfolders (model, checked)
     findings-check     --delete F... [--dir D] [--keep-raw]
                                                  would deleting F lose a citation? (exact)
     findings-redundant [--dir D] [--no-model]    findings files another file already covers: plan JSON +
@@ -219,8 +219,8 @@ def cmd_findings_check(args: argparse.Namespace) -> int:
     delete = [Path(spec) if Path(spec).is_absolute() else directory / spec for spec in args.delete]
     missing = [str(path) for path in delete if not path.is_file()]
     if missing:
-        raise AssistError(f"Not files in the findings folder: {', '.join(missing)}. Pass the names of files "
-                          "you are about to delete.")
+        raise AssistError(f"Not files in the findings folder: {', '.join(missing)}. Pass the paths of files "
+                          "you are about to delete, absolute or relative to the folder (aws/<name>.md).")
     result = check_consolidation(directory, delete, raw_may_remain=args.keep_raw)
     print(render_check(result), end="")
     return EXIT_OK if result.passed else EXIT_CHECK_FAILED
@@ -411,7 +411,8 @@ def cmd_design_close(args: argparse.Namespace) -> int:
     files = [Path(spec) if Path(spec).is_absolute() else directory / spec for spec in args.finding]
     missing = [str(path) for path in files if not path.is_file()]
     if missing:
-        raise AssistError(f"Not files: {', '.join(missing)}. Pass the names of consolidated files in {directory}.")
+        raise AssistError(f"Not files: {', '.join(missing)}. Pass consolidated files, absolute or relative "
+                          f"to {directory} (kernel/<name>.md).")
     result = close_findings(workspace, _design_dir(workspace, args.design_dir), files, set(args.fixed), args.apply)
     print(render_close(result, args.apply), end="")
     return EXIT_OK if result.passed else EXIT_CHECK_FAILED
@@ -469,7 +470,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--dir", help="Findings folder (default: <workspace>/findings)")
     sub = command("findings-check", cmd_findings_check, model=False)
     sub.add_argument("--dir", help="Findings folder (default: <workspace>/findings)")
-    sub.add_argument("--delete", nargs="+", action="extend", required=True, help="The files you are about to delete")
+    sub.add_argument("--delete", nargs="+", action="extend", required=True,
+                     help="The files you are about to delete (absolute, or relative to the folder: aws/<name>.md)")
     sub.add_argument("--keep-raw", action="store_true",
                      help="Raw files may remain (/merge-findings keeps every distinct finding in place)")
     sub = command("findings-redundant", cmd_findings_redundant, model=True)
