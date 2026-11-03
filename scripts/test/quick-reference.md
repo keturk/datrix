@@ -77,7 +77,7 @@ Parameters: `-TestPath` (positional 0), `-Project` (needed for relative paths an
 
 ## `test\cases.ps1`
 
-Authoring tool for declarative test cases (`tests/cases/<area>.cases.yaml`). Commands: `check`, `observe`, `new`, `migrate`, `accept`.
+Authoring tool for declarative test cases (`tests/cases/<area>.cases.yaml`). Commands: `check`, `observe`, `new`, `migrate`, `accept`. `check` is static (it runs no stage; seconds to a minute); verify a case's value with `.\test\test.ps1 <package> -Specific "tests/test_cases.py" -Keyword <case-id prefix>`, never with `check`.
 
 | Form | Command |
 |------|---------|
