@@ -1,0 +1,14 @@
+- id: client-forms.fixed-required-member-set-before-validation
+  tags:
+  - parity
+  - frontend-client
+  input: ecommerce
+  stage: parity
+  observer: client_forms
+  selector:
+    facet: submit
+    form: storefront.create-order
+  expectation:
+    fixed: items
+    set-before-validation: 'true'
+  reason: Every client target sends a form's fixed member from its expression, setting it at submit before the form validates, so a fixed required member is validated with the value its expression reads then and is never decoded from an incomplete form.

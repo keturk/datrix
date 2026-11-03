@@ -662,6 +662,28 @@ passing vacuously.
 Module: `datrix_scripts.gates.repo_hygiene.check_enum_value_literals`; POSIX twin options `--base-dir`,
 `--self-test`, `--show-files`, `--dbg`.
 
+## `modifier-vocabulary-gate.ps1`
+
+**Every declared modifier word has a reader.** `datrix_common.datrix_model.modifier_vocabulary` declares the
+closed set of words a field, a cache entry field or a relationship may carry after its `:`. Semantic analysis
+refuses any other word (`ENT013`, `REL013`) and the `Field`/`Relationship` readers refuse to be asked for an
+undeclared one, so no reader can ask for a word analysis never accepts. This gate holds the other direction:
+a declared word that nothing reads would pass analysis and be dropped by every target.
+
+It AST-scans every `datrix-*` package's `src/` tree, the vocabulary module excepted. A word counts as read
+when a module references a vocabulary constant naming it (a string constant, or a tuple/frozenset constant
+holding it such as `INPUT_TRANSFORM_MODIFIERS`; a collection holding a whole vocabulary is that vocabulary, not
+a reader), or passes it as a literal to `has_modifier(...)`/`get_modifier(...)` or compares it with a
+`<x>.name`. It imports the installed vocabulary, so it first brings the datrix packages current in the shared
+venv.
+
+**Self-test runs automatically, every invocation.** A planted vocabulary with unread words must report them,
+the same vocabulary read through both shapes must pass, and a planted whole-vocabulary collection must name no
+word. A run that discovers no package source fails rather than passing vacuously.
+
+Module: `datrix_scripts.gates.repo_hygiene.modifier_vocabulary_gate`; POSIX twin options `--base-dir`,
+`--self-test`, `--show-files`, `--dbg`.
+
 ## `check-handler-name-dedup.ps1`
 
 **Hard-zero gate: no `datrix-codegen-*` package may de-duplicate a handler name.** AST-scans every

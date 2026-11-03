@@ -167,6 +167,18 @@ No generator branches on a user enum's member values (`.get_value("X")`, `"X" in
 
 Parameters: `-BaseDir`, `-SelfTest`, `-ShowFiles`, `-Dbg`. Exit: 0 clean, 1 a violation, 2 usage / no package / failing self-test.
 
+## `gates\repo-hygiene\modifier-vocabulary-gate.ps1`
+
+Every word of the field and relationship modifier vocabularies (`datrix_common.datrix_model.modifier_vocabulary`) has a reader in some package's `src/`.
+
+| Form | Command |
+|------|---------|
+| Run | `.\gates\repo-hygiene\modifier-vocabulary-gate.ps1` |
+| Print each file scanned | `.\gates\repo-hygiene\modifier-vocabulary-gate.ps1 -ShowFiles` |
+| Self-test only | `.\gates\repo-hygiene\modifier-vocabulary-gate.ps1 -SelfTest` |
+
+Parameters: `-BaseDir`, `-SelfTest`, `-ShowFiles`, `-Dbg`. Exit: 0 every declared word read, 1 a declared word without a reader, 2 usage / no package / stale install / failing self-test.
+
 ## `gates\repo-hygiene\check-handler-name-dedup.ps1`
 
 No `datrix-codegen-*` package de-duplicates a REST handler name with a numeric-suffix loop. Hard zero, no exemption file.
