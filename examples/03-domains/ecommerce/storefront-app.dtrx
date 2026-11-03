@@ -188,17 +188,16 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
         view { form(CreateOrder); }
     }
 
-    // The bound struct is the submit endpoint's body type.
+    // The bound struct is the submit endpoint's body type. Its lines are the cart's: a
+    // fixed member, sent as the cart stands when the order is placed and never shown.
     form CreateOrder : submit(OrderService.OrderAPI.post.createOrder) {
-        fn prefill(CreateOrderRequest d) { d.items = cart; }
+        field items : fixed(cart);
         fn placed(UUID id, String orderNumber) {
             cart = [];
             pushNotice(Msg.orderPlaced(orderNumber: orderNumber).text);
             Ui.toast(Msg.orderPlaced(orderNumber: orderNumber));
             Nav.to(OrderDetail, id: id);
         }
-        onLoad(prefill(draft));
-        step items    { fields(auto) except [shippingAddress, billingAddress, idempotencyKey]; }
         step shipping { field shippingAddress; field billingAddress; }
         onSuccess(placed(result.id, result.orderNumber));
         onError(Ui.toast(Msg.orderFailed));

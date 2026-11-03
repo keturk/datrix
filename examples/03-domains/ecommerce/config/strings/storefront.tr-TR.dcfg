@@ -113,7 +113,6 @@ config strings ecommerce.Storefront locale "tr-TR" {
     empty.Catalog                            = "Henüz ürün yok";
     empty.Orders                             = "Henüz siparişiniz yok";
     empty.notices                            = "Yeni bildirim yok";
-    step.CreateOrder.items                   = "Ürünler";
     step.CreateOrder.shipping                = "Teslimat";
 
     field.Product.id                         = "Kimlik";

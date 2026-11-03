@@ -553,10 +553,6 @@ config system library.System {
           partitionCount = 4;
           maxThroughputUnits = 20;
         }
-        serviceBus {
-          lockDuration = "PT1M";
-          maxSizeMb = 1024;
-        }
         cosmos {
           consistencyLevel = "Session";
           capacityMode = "Provisioned";

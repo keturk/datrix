@@ -263,6 +263,12 @@
     alias env = "AZURE";
     alias resource = "azure";
 
+    // Consumers run inside the web app, not in separate compute: the service's
+    // pubsub alerts are recorded by the consumers, and only the web app
+    // exports application series, so a decoupled consumer's alerts could
+    // never fire.
+    runtime { consumers = "in-process"; }
+
     replicas = 2;
     scaling {
       replicas {
