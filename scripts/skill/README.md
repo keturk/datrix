@@ -66,18 +66,27 @@ the wrapper seam checks.
 starts.** The multi-finding form of `/implement-finding`. Per finding, in name order, one fresh headless
 `/implement-finding` session (via `datrix_scripts.skill.chain`, started with `--model`/`--effort`)
 checks the finding against the code and, when it still holds, fixes it (code, tagged test, targeted
-runs, docs, pointers from other findings). It ends `Finding fix: ALREADY RESOLVED`, `DONE` or
+runs, docs, pointers from other findings). It ends `Finding fix: ALREADY RESOLVED`, `DONE`, `UPDATED`
+(it fixed what needed no growth and rewrote the finding with what the rest needs; the finding stays,
+the related tests still run, and the script fails the finding if the file is unchanged or lacks the
+`- **Needs Jon:** <text>` line that takes a finding out of every later selection until `/discuss-finding`
+investigates it, settles the decision with Jon and removes the line) or
 `BLOCKED B<n>` and never deletes the finding itself. The script then runs `finding-close`: never while
 another findings file names the finding, and after `DONE` only when the tests *related* to what the
 session wrote pass — a proof the script runs itself, not a model's word (`datrix_scripts.skill.related_tests`).
 From the files the session wrote (read from the step's `.stream.jsonl`) it derives targeted `test.ps1`
-runs, never a whole suite: the test files the session wrote; the feature tags those tests carry, in every
-package of the edited packages' affected closure (`affected-set`) that has a test with one; and, when the
-reached packages include a plugin package (one declaring a `datrix.*` entry point, which the generation
-pipeline runs without importing), the `tests/e2e` tier of the package that owns `GenerationPipeline` and
-of each edited package. While any run fails, the script resumes the same session with the failing
-output (twice at most) and runs them again; a finding whose related runs still fail stays, and a run that
-could not take the package lock after five tries stops the finding without a repair. Output of every
+runs (`-Specific`, never a whole suite, never a feature-tag sweep): the test files the session wrote, and
+every other test file in any package that names a code name the session put into or took out of its source
+and test files (`related_references`: `snake_case` and `camelCase`/`PascalCase` words, `app_user` and `appUser`
+being one name; a name more than 25 test files mention selects none, and the rarest names are taken first up to
+40 files; the output lists the names left out). One run per package; packages run
+side by side (their `test.ps1` xdist workers sized by `proportional_worker_allotment` and admitted while they
+fit in the logical cores, as the affected gate does), one package's runs one after another, after a single
+package install check (`datrix_scripts.skill.related_parallel`). While any run fails, the script resumes the same session with the failing
+output and runs them again, as often as it takes: each round runs in a new Python process, so code a repair
+changed (the planner included) is what plans and judges the next round, and only a pass or a B1-B4 blocker
+the session proves ends the repairs. A run that could not take the package lock after five tries stops the
+finding without a repair. Output of every
 run: `<step>-related-<attempt>\related-NN.log` beside the step logs. When the session wrote no package
 source or test (the scripts tree hosts no test suite), its last foreground `test.ps1` or `*-gate.ps1`
 run must have passed instead (a gate proves code no `test.ps1` reaches), read from the stream log.
@@ -91,7 +100,7 @@ folder, or, without a folder, of every inbox folder in turn (refused with `-Coun
 `-Finding` files are worked as given, wherever
 they are, instead of the first `-Count`. A session ending `Finding fix: BLOCKED B<n>` stops that finding
 and the chain moves to the next. Step logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit code 2:
-no failure, but a session stopped for a decision only Jon can make.
+no failure, but a session stopped for a decision only Jon can make or left `UPDATED` finding.
 
 The selection and the close run in-process through `datrix_scripts.skill.finding_inbox`, the code behind
 the `skill-assist.ps1` commands `finding-select` and `finding-close` (below); `/implement-finding` typed
@@ -141,7 +150,7 @@ The quick-reference lists each command with the skill phase it serves. What each
 | `findings-check --delete F... [--dir D] [--keep-raw]` | Exact: every `path:line` and backticked path of the files to delete appears in a remaining file; every `**Related:**` pointer resolves; no mojibake; no raw file left un-superseded (waived by `--keep-raw`, since a duplicate merge keeps every distinct raw file) |
 | `findings-redundant [--dir D] [--no-model]` | `findings-redundant.json` (the plan: per proposal the doomed file, its survivor file and section, the model's verdict and reason, the doomed file's hash, `delete`, notes, files that still name it) and `findings-redundant.md` (the review view). Exact: each subfolder of the inbox (the area folders `organize-findings.ps1` fills), then the inbox's loose files, is compared on its own, so a file is judged against the `*.md` directly in its own folder only, never another folder's; `--dir D` (absolute, or relative to the inbox, e.g. `python`) narrows the run to that one folder; files are named by their path under the inbox (`azure/<name>.md`); files are split into units (a raw file, or one `## N.` section of a theme file); a unit of a higher-ranked file (citations, then length, then earlier name) is a candidate survivor when it holds at least 90% of the file's keywords (the backticked names on its `- **Keywords:**` line; for a file without that line, the backticked spans and code-shaped names such as `snake_case`, `camelCase`, `XSV010` its text names); a file with fewer than 3 keywords is matched by shared words (a quarter) instead; only single-unit files can be doomed. A local model reads each pair and answers SAME / PARTIAL / DIFFERENT; SAME stands only with nothing unique to the doomed file and one quote of each file that occurs in it, and never when a line was withheld for a customer term. A proposal is `delete: true` only when the survivor cites everything the file cites. `--no-model` lists the candidate pairs unjudged |
 | `findings-redundant-delete [--plan P] [--dir D]` | Exact: deletes the plan's proposals still marked `delete: true`, and nothing at all unless each one's file is unchanged since it was judged (hash), its survivor exists and is not itself deleted and still cites everything the file cites, no other findings file anywhere under the folder names it, and `findings-check --keep-raw` passes for the whole set (its citations are looked up in every file under the folder); a plan path outside the folder is refused. Exit 0 deleted (or nothing marked); 2 a proof failed, each listed |
-| `finding-select [--count N] [--dir D]` | Exact: the first N (default 10) `*.md` findings files, one path per line. With `--dir` (absolute, or relative to `findings`) only that folder's files by name; without it the inbox's subfolders in turn (area order, then other names), the next only once the one before has no more, and last the inbox's own files |
+| `finding-select [--count N] [--dir D]` | Exact: the first N (default 10) `*.md` findings files without a `- **Needs Jon:**` line, one path per line. With `--dir` (absolute, or relative to `findings`) only that folder's files by name; without it the inbox's subfolders in turn (area order, then other names), the next only once the one before has no more, and last the inbox's own files |
 | `finding-close --finding F [--session-log L]` | Exact: deletes F unless another findings file still names it (in F's folder, or anywhere in the inbox when F lies there); with `L` (a step's `.stream.jsonl`), also unless the session ran no foreground `test.ps1` or `*-gate.ps1` (`-ListTags`, `-SelfTest` and `-HarnessSelfTest` runs do not count) or its last one did not pass (a non-zero exit; for `test.ps1`, a result reporting failed/erroring tests, or output piped through a filter, which hides the exit code, that kept no all-passed `Total: N \| Passed: N \| Failed: 0` summary line for each `test.ps1` call; for a gate, a `[GATE] <name> FAILED` verdict line, or no `[GATE] <name> PASSED exit=0` line for each gate call). Exit 0 deleted; 2 kept (the reasons are listed); 1 F does not exist |
 | `checklist --design PATH` | The design's requirements (id, sentence, surfaces, cited lines) drafted by a local model; an item whose quote is not at its lines is flagged; every requirement-bearing line (a decision id or must/never/always/shall/required/forbidden/fail closed/fail loud) that no item covers is listed |
 | `absorb-transfer --design PATH --target T...` | Per design section: PRESENT / PARTIAL / MISSING in the target docs (framework repos), with checked citations. A section copied line for line into a target is PRESENT by exact match with no model; every other section is sent only the target parts sharing the most terms with it. Each section also lists its numbers and words that appear nowhere in the targets (plain search); when the model says PRESENT, it is asked for other words for those terms (sent the design section only), the targets are searched for them, and PRESENT becomes PARTIAL while any term stays unfound (a term the model sets aside as filler, never a number, does not count). The report `.tmp/assist/transfer-<design>.md` is rewritten (marked IN PROGRESS) as each section is answered, and progress lines go to stderr |

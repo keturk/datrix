@@ -7,12 +7,14 @@
  The behaviour is datrix_scripts.tasks.complete. The task reference resolves to exactly one file
  (an absolute path, a path relative to the current directory or the workspace, else a unique file
  name or path suffix under a .tasks folder); its first heading must be "Task ..." or
- "<STATUS>: Task ...". This is the one way a task's status heading changes: the edit hooks refuse
- a Write/Edit that adds a COMPLETED heading to a task file.
+ "<STATUS>: Task ...". A task whose "## How Solved" carries a red flag phase status reads (BLOCKED,
+ partial, out of scope, workaround, dual path, not yet wired) is refused, naming each flag, and left
+ as it was. This is the one way a task's status heading changes: the edit hooks refuse a Write/Edit
+ that adds a COMPLETED heading to a task file.
 
  Exit codes:
    0 = marked, or already completed
-   1 = not found, ambiguous, not a task title, or not writable
+   1 = not found, ambiguous, not a task title, a red-flagged How Solved, or not writable
    2 = usage error
 
 .PARAMETER TaskFile

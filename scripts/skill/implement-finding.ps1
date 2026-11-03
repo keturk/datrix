@@ -10,15 +10,16 @@
     finding, in name order, one headless /implement-finding session on -Model ends with one line:
       Finding fix: ALREADY RESOLVED   the code no longer has the defect; nothing was changed
       Finding fix: DONE               fixed, with a tagged test and targeted test runs
+      Finding fix: UPDATED            fixed what needed no growth, rewrote the finding with what the rest needs
       Finding fix: BLOCKED B<n>       stopped with a B1-B4 proof; the finding stays for Jon
 
     The session never deletes the finding; the script does (datrix_scripts.skill.finding_inbox, the
     code behind skill-assist finding-close), not on a model's word: never while another findings
     file names it, and after DONE only when the tests related to what the session wrote pass. The
     script derives and runs those itself (datrix_scripts.skill.related_tests; targeted test.ps1 runs,
-    never a whole suite): the test files the session wrote, their feature tags in every package the
-    change reaches, and the tests/e2e tier when a plugin package is reached. While any fails it
-    resumes the session with the failures, twice at most. A session that wrote no package source or
+    never a whole suite): the test files the session wrote, and the other test files in any package
+    that name a code name the session changed. While any fails it resumes the session with the
+    failures, as often as it takes. A session that wrote no package source or
     test (the scripts tree hosts no test suite) is judged by its last foreground test.ps1 or
     *-gate.ps1 run in the step's stream log (a gate passes on its "[GATE] <name> PASSED exit=0"
     verdict line, and -SelfTest runs do not count). Each finding is closed before the next one starts.
@@ -27,8 +28,8 @@
 
     Exit codes: 0 every selected finding is deleted (or a passing -SelfTest); 1 a step ended in
     error, replied with no outcome line, a finding was left in place, or the findings could not be
-    selected; 2 no failure, but at least one session stopped for a decision only Jon can make, or a
-    command line the module cannot read.
+    selected; 2 no failure, but at least one session stopped for a decision only Jon can make or
+    rewrote its finding to say what it needs, or a command line the module cannot read.
 
 .PARAMETER Count
     How many findings files to take, first by name. Default: 10.

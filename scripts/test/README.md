@@ -576,8 +576,9 @@ per "Which packages a change reaches" in `.claude/skills/_shared/verification-st
 changed package does not make a package affected. Unless `-All`, one of `-Consumers` / `-NoConsumers` is
 required; without either the gate stops with a usage error listing the packages that import the changed
 ones. Every such importer not named is printed as `Excluded (…): …` and recorded as `excluded` in
-`affected-gate.json` and the completion row. The gate schedules `test.ps1 <pkg>` child processes
-longest-first under a `PYTEST_XDIST_AUTO_NUM_WORKERS` budget so concurrently running children never
+`affected-gate.json` and the completion row. The gate schedules `test.ps1 <pkg>` child processes — each
+started as `test.ps1`'s module, `python -m datrix_scripts.test.test <pkg>`, under the interpreter running the
+gate, never through PowerShell, so `affected-gate.sh` runs a real gate on a host without it — longest-first under a `PYTEST_XDIST_AUTO_NUM_WORKERS` budget so concurrently running children never
 oversubscribe the machine, and aggregates the final verdict by reusing `gate-verdict.ps1`'s own
 per-project evaluation — never reimplementing `index.json` parsing. It only SCHEDULES existing runners; it
 never duplicates `test.ps1`'s or `gate-verdict.ps1`'s own logic. `-Mypy` also type-checks the changed
@@ -624,7 +625,8 @@ refusal came before any component was compared). A CARRIED row: `verdict: "CARRI
 for `OVERALL`.
 
 **One install check per gate.** After its usage checks and before the carry decision, every non-`-SelfTest`
-invocation runs `scripts/common/venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled` once, the same check
+invocation runs `venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled`'s module (`python -m datrix_scripts.venv
+--ensure --ensure-packages --skip-if-installed`) once, the same check
 `test.ps1` uses (so the carry fingerprint's installed-distributions component is computed over the venv
 exactly as the children will find it — the check runs even when every package then carries). Every child is
 launched with `DATRIX_PACKAGES_ENSURED=1` and skips its own check. With `DATRIX_VENV_VERBOSE=1` set, the

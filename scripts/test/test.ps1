@@ -28,7 +28,9 @@
  Don't save test output to log files.
 
 .PARAMETER NoAutoInstall
- Disable automatic dependency installation (prompt instead).
+ Passed to each package's runner: a runner started without this run's install check verifies
+ the shared venv's installs without pip instead of installing what is stale. This run's own
+ install check runs first; set DATRIX_OFFLINE=1 to verify it without pip too.
 
 .PARAMETER Unit
  Run unit tests only.

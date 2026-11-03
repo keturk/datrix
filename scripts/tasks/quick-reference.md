@@ -17,7 +17,7 @@ Parameters: `-BaseDir` (position 0), `-Filter` (position 1), `-Dbg`, `-SelfTest`
 
 ## `tasks\complete.ps1`
 
-Mark a task's heading `# COMPLETED: Task ...`. Add the `## How Solved` section by hand.
+Mark a task's heading `# COMPLETED: Task ...`. Add the `## How Solved` section by hand, first: a How Solved that carries a red flag phase status reads (BLOCKED, partial, out of scope, workaround, dual path, not yet wired) is refused, naming each flag, and the file is left as it was. A task with no How Solved section is marked.
 
 | Form | Command |
 |------|---------|
@@ -25,7 +25,7 @@ Mark a task's heading `# COMPLETED: Task ...`. Add the `## How Solved` section b
 | Relative path | `.\tasks\complete.ps1 ".tasks\phase-05\task-05-01.md"` |
 | File name (searches every `.tasks/`) | `.\tasks\complete.ps1 "task-05-01.md"` |
 
-Parameters: `-TaskFile` (position 0, required), `-Dbg`, `-SelfTest`. Exit: 0 marked or already completed, 1 not found / ambiguous / not a task title / not writable, 2 usage error.
+Parameters: `-TaskFile` (position 0, required), `-Dbg`, `-SelfTest`. Exit: 0 marked or already completed, 1 not found / ambiguous / not a task title / red-flagged How Solved / not writable, 2 usage error.
 
 ## `tasks\completed.ps1`
 
