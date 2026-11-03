@@ -6,8 +6,8 @@ The module behind ``scripts/skill/implement-design.ps1`` (and its ``.sh`` twin),
 
   implement  /implement-design-direct, on its model, as several sessions: STOP AFTER: plan (the gate and
              the ledger), then UNIT: <id> for each unchecked ledger unit
-  verify     /verify-implementation, TASKS: none, FILES from the files supplement, on its model
-  absorb     /absorb-design, on its model
+  verify     /verify-implementation, TASKS: none, FILES from the files supplement, on claude-sonnet-5-5 at high
+  absorb     /absorb-design, continuing the session whose verify replied PROVEN (``Chain.absorb_design``)
 
 Every response re-reads the whole context, so what a step costs grows with the square of its length:
 one session over every unit of a design re-read about 270k tokens per response and compacted twice,
@@ -64,6 +64,8 @@ from datrix_scripts.skill.chain import (
     EXIT_FAILED,
     EXIT_NEEDS_JON,
     IMPLEMENT_TOOLS,
+    VERIFY_ABSORB_EFFORT,
+    VERIFY_ABSORB_MODEL,
     Chain,
     ChainOptions,
     ChainStopped,
@@ -518,9 +520,11 @@ def _check_a_dry_run_prints_the_implement_sessions_verify_and_absorb() -> None:
         ledger = ledger_path(workspace, design)
         proof = workspace / ".tmp" / "verify-proven-d.md"
         head = ["", "##### design 1 of 1: d.md"]
-        tail = ["", "=== step {n}-verify ===", "/verify-implementation", f"DESIGN: {design}", "TASKS: none",
-                f"FILES: the files listed in {files_supplement(ledger)}",
-                "", "=== step {m}-absorb ===", "/absorb-design", f"DOCUMENT: {design}", f"VERIFIED: {proof}"]
+        on = f"{VERIFY_ABSORB_MODEL}, {VERIFY_ABSORB_EFFORT}"
+        tail = ["", "=== step {n}-verify (" + on + ") ===", "/verify-implementation", f"DESIGN: {design}",
+                "TASKS: none", f"FILES: the files listed in {files_supplement(ledger)}",
+                "", "=== step {m}-absorb (" + on + ") ===", "/absorb-design", f"DOCUMENT: {design}",
+                f"VERIFIED: {proof}"]
 
         def session(number: int, name: str, option: str) -> list[str]:
             return ["", f"=== step {number:02d}-{name} ===", "/implement-design-direct", f"DOCUMENT: {design}",

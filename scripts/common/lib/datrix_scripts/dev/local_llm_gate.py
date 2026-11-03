@@ -17,6 +17,8 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
+import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -32,16 +34,32 @@ from datrix_scripts.local_llm import (
     OLLAMA_KEEP_ALIVE_INDEFINITE,
     OLLAMA_KEEP_ALIVE_UNLOAD,
     OLLAMA_LOAD_PREFERENCE,
+    ChatRequest,
     LocalCandidate,
     LocalHost,
     LocalLlmPool,
+    LocalLlmReply,
     LocalLlmSettings,
+    LocalLlmUnavailable,
     ollama_base_url,
     pin_models,
     unpin_models,
     unpinned_machine_lines,
 )
-from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, answering, closed_port, held_for
+from datrix_scripts.local_llm_loopback import (
+    HTTP_NOT_FOUND,
+    HTTP_OK,
+    LOOPBACK,
+    Chat,
+    ChatAnswer,
+    JsonResponder,
+    LoopbackJsonServer,
+    LoopbackOllama,
+    answering,
+    closed_port,
+    held_for,
+    held_for_thirty_minutes,
+)
 from datrix_scripts.local_llm_usage import GATE_USAGE_LOG, USAGE_LOG_VARIABLE
 from datrix_scripts.local_reading import (
     MAP_SYSTEM,
@@ -409,6 +427,181 @@ def check_status_names_each_machine_with_no_pinned_model() -> None:
 
 
 # ===========================================================================
+# readiness at the run's context window
+# ===========================================================================
+
+_RUN_WINDOW = 45056
+_OTHER_WINDOW = 32768
+
+
+def _readied(server: LoopbackOllama, context_window: int | None) -> list[dict[str, object]]:
+    """The /api/generate bodies the server received while a pool readied its model for a run."""
+    LocalLlmPool(_residency_settings(server.port), report=lambda _line: None).activate(context_window)
+    return server.generate_bodies
+
+
+def check_a_pool_readies_the_model_at_the_runs_window() -> None:
+    with LoopbackOllama(answering("ok"), (_PREFERRED,), context_length=_OTHER_WINDOW) as server:
+        unload, load = _readied(server, _RUN_WINDOW)
+        assert unload == {"model": _PREFERRED, "keep_alive": OLLAMA_KEEP_ALIVE_UNLOAD}, \
+            ("a model held at another window is unloaded before the load", unload)
+        assert load["options"] == {"num_ctx": _RUN_WINDOW}, ("the load carries the run's window", load)
+        assert server.context_length == _RUN_WINDOW, "the server now holds the run's window"
+    with LoopbackOllama(answering("ok"), (_PREFERRED,), context_length=_RUN_WINDOW) as server:
+        [load] = _readied(server, _RUN_WINDOW)
+        assert load["options"] == {"num_ctx": _RUN_WINDOW}, ("a model held at the window is not unloaded", load)
+    with LoopbackOllama(answering("ok"), (_PREFERRED,)) as server:
+        [load] = _readied(server, _RUN_WINDOW)
+        assert load["options"] == {"num_ctx": _RUN_WINDOW}, ("a window the server does not state is loaded", load)
+
+
+def check_a_pool_readied_without_a_window_neither_unloads_nor_names_one() -> None:
+    with LoopbackOllama(answering("ok"), (_PREFERRED,), context_length=_OTHER_WINDOW) as server:
+        [load] = _readied(server, None)
+        assert "options" not in load and server.context_length == _OTHER_WINDOW, (load, server.context_length)
+
+
+# ===========================================================================
+# a request that times out, and a readiness step that hangs
+# ===========================================================================
+
+# The pool waits _ASK_SECONDS for an answer (the shortest wait a request is given is one second);
+# a stalled chat is silent for _STALL_SECONDS, longer.
+_ASK_SECONDS = 1.0
+_STALL_SECONDS = 1.6
+_STALLED = "stall"
+_TIMEOUT_WAIT_SECONDS = 5.0
+
+
+def _stalls(times: int) -> ChatAnswer:
+    """An answer that stays silent past the pool's timeout for the first *times* chats asking ``_STALLED``."""
+    lock = threading.Lock()
+    asked = [0]
+
+    def answer(chat: Chat) -> str:
+        if chat.user == _STALLED:
+            with lock:
+                asked[0] += 1
+                stalled = asked[0] <= times
+            if stalled:
+                time.sleep(_STALL_SECONDS)
+        return "ok"
+
+    return answer
+
+
+def _timing_out_pool(server: LoopbackOllama, temp: str) -> LocalLlmPool:
+    settings = LocalLlmSettings(
+        machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=int(_ASK_SECONDS * 1000),
+        allow_load=False, ollama_port=server.port, usage_log=Path(temp) / "usage.jsonl", caller="gate")
+    return LocalLlmPool(settings, report=lambda _line: None)
+
+
+def _ask(user: str) -> ChatRequest:
+    return ChatRequest(system="s", user=user, temperature=0.0)
+
+
+def _asked_in_background(pool: LocalLlmPool, user: str) -> tuple[threading.Thread, list[LocalLlmReply | Exception]]:
+    """Start ``pool.chat`` for *user* on a thread; the list receives its reply, or the exception it raised."""
+    outcome: list[LocalLlmReply | Exception] = []
+
+    def run() -> None:
+        try:
+            outcome.append(pool.chat(_ask(user)))
+        except LocalLlmUnavailable as exc:
+            outcome.append(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    return thread, outcome
+
+
+def _wait_until_asked(server: LoopbackOllama, user: str) -> None:
+    deadline = time.monotonic() + _TIMEOUT_WAIT_SECONDS
+    while not any(chat.user == user for chat in server.chats):
+        assert time.monotonic() < deadline, f"the server was never asked '{user}'"
+        time.sleep(0.01)
+
+
+def check_a_timeout_on_a_server_that_answered_others_is_asked_again_not_dropped() -> None:
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp, LoopbackOllama(_stalls(1)) as server:
+        pool = _timing_out_pool(server, temp)
+        thread, outcome = _asked_in_background(pool, _STALLED)
+        _wait_until_asked(server, _STALLED)
+        assert pool.chat(_ask("quick")).text == "ok", "the server answers while the stalled request waits"
+        thread.join()
+        [reply] = outcome
+        assert isinstance(reply, LocalLlmReply) and reply.text == "ok", \
+            ("the timed-out request is asked again and answered", reply)
+        assert not pool.is_exhausted(), "a server that answered others is not dropped for one timeout"
+        assert [chat.user for chat in server.chats].count(_STALLED) == 2, [chat.user for chat in server.chats]
+
+
+def check_a_timeout_drops_a_server_that_answered_nothing_or_timed_out_twice() -> None:
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp, LoopbackOllama(_stalls(9)) as server:
+        thread, outcome = _asked_in_background(_timing_out_pool(server, temp), _STALLED)
+        thread.join()
+        [failure] = outcome
+        assert isinstance(failure, LocalLlmUnavailable), ("a silent server is dropped at its first timeout", failure)
+        assert [chat.user for chat in server.chats] == [_STALLED], "and the request is not asked of it again"
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp, LoopbackOllama(_stalls(2)) as server:
+        pool = _timing_out_pool(server, temp)
+        thread, outcome = _asked_in_background(pool, _STALLED)
+        _wait_until_asked(server, _STALLED)
+        pool.chat(_ask("quick"))
+        thread.join()
+        [failure] = outcome
+        assert isinstance(failure, LocalLlmUnavailable), ("a second timeout of one request drops the server", failure)
+        assert [chat.user for chat in server.chats].count(_STALLED) == 2, [chat.user for chat in server.chats]
+
+
+_RENEW_SECONDS = 1.0
+_HANG_SECONDS = 1.6
+_READINESS_LOAD_SECONDS = 5.0
+
+
+def _hanging_generate(held: bool) -> JsonResponder:
+    """A model server whose every /api/generate stays silent for ``_HANG_SECONDS``; the model is held or not."""
+
+    def respond(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
+        if method == "GET" and path == "/api/tags":
+            return HTTP_OK, {"models": [{"name": _PREFERRED, "capabilities": ["completion"]}]}
+        if method == "GET" and path == "/api/ps":
+            entries = [{"name": _PREFERRED, "expires_at": held_for_thirty_minutes(), "context_length": _RUN_WINDOW}]
+            return HTTP_OK, {"models": entries if held else []}
+        if method == "POST" and path == "/api/generate":
+            time.sleep(_HANG_SECONDS)
+            return HTTP_OK, {"model": _PREFERRED, "done": True}
+        return HTTP_NOT_FOUND, {"error": f"{method} {path}"}
+
+    return respond
+
+
+def _readiness_settings(port: int, *, allow_load: bool) -> LocalLlmSettings:
+    return LocalLlmSettings(
+        machines=(LOOPBACK,), models=(_PREFERRED,), reachable_timeout_ms=2000, ollama_port=port, allow_load=allow_load,
+        renew_timeout_ms=int(_RENEW_SECONDS * 1000), load_timeout_ms=int(_READINESS_LOAD_SECONDS * 1000),
+        usage_log=Path("unused"), caller="gate")
+
+
+def check_a_hung_renewal_fails_at_the_renew_timeout_and_a_cold_load_does_not() -> None:
+    with LoopbackJsonServer(_hanging_generate(held=True)) as server:
+        pool = LocalLlmPool(_readiness_settings(server.port, allow_load=False), report=lambda _line: None)
+        started = time.monotonic()
+        try:
+            pool.activate(_RUN_WINDOW)
+        except LocalLlmUnavailable as exc:
+            assert "got no answer within 1 s" in str(exc), ("the failure names the limit it hit", str(exc))
+        else:
+            raise AssertionError("a held model whose renewal hangs was reported ready")
+        assert time.monotonic() - started < _HANG_SECONDS, "the renewal was cut at the renew timeout"
+    with LoopbackJsonServer(_hanging_generate(held=False)) as server:
+        pool = LocalLlmPool(_readiness_settings(server.port, allow_load=True), report=lambda _line: None)
+        assert pool.activate(_RUN_WINDOW).model == _PREFERRED, \
+            "a cold load slower than the renew timeout is still waited for"
+
+
+# ===========================================================================
 # harness
 # ===========================================================================
 
@@ -431,6 +624,11 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_pin_loads_the_preferred_model_with_an_indefinite_keep_alive,
     check_unpin_releases_only_indefinitely_resident_models,
     check_status_names_each_machine_with_no_pinned_model,
+    check_a_pool_readies_the_model_at_the_runs_window,
+    check_a_pool_readied_without_a_window_neither_unloads_nor_names_one,
+    check_a_timeout_on_a_server_that_answered_others_is_asked_again_not_dropped,
+    check_a_timeout_drops_a_server_that_answered_nothing_or_timed_out_twice,
+    check_a_hung_renewal_fails_at_the_renew_timeout_and_a_cold_load_does_not,
 ]
 
 

@@ -16,6 +16,7 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -210,9 +211,13 @@ def check_findings_index_reads_every_file_before_the_first_model_call() -> None:
         reply = json.dumps({"findings": [{"title": "T", "seam": "s", "packages": [], "defect": "d",
                                           "citations": []}]})
 
+        # The server answers each chat on its own thread: the lock lets exactly one answer rename the file.
+        renaming = threading.Lock()
+
         def rename_during_the_run(_chat: Chat) -> str:
-            if last.exists():
-                last.rename(folder / "renamed-mid-run.md")
+            with renaming:
+                if last.exists():
+                    last.rename(folder / "renamed-mid-run.md")
             return reply
 
         with LoopbackOllama(rename_during_the_run) as server:

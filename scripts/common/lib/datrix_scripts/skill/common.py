@@ -123,13 +123,24 @@ def _json_object(text: str) -> dict[str, object]:
     return parsed
 
 
-def ask_json(pool: LocalLlmPool, system: str, user: str, schema: dict[str, object]) -> dict[str, object]:
+def ask_json(
+    pool: LocalLlmPool,
+    system: str,
+    user: str,
+    schema: dict[str, object],
+    *,
+    temperature: float = JSON_TEMPERATURE,
+    max_tokens: int = JSON_MAX_TOKENS,
+    context_window: int | None = None,
+) -> dict[str, object]:
     """A JSON object answering ``user``, constrained by ``schema``; asked again once if it does not parse.
+
+    ``context_window`` left unset takes the model's own; a caller whose prompt may outgrow it sizes it.
 
     Raises NoModelAnswer when no attempt parses, and LocalLlmUnavailable when no server answers.
     """
-    request = ChatRequest(system=system, user=user, temperature=JSON_TEMPERATURE, max_tokens=JSON_MAX_TOKENS,
-                          json_schema=schema)
+    request = ChatRequest(system=system, user=user, temperature=temperature, max_tokens=max_tokens,
+                          context_window=context_window, json_schema=schema)
     failure = ""
     for _attempt in range(JSON_ATTEMPTS):
         reply = pool.chat(request)

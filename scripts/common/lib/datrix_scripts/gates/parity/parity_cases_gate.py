@@ -58,6 +58,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternalQueueControlCensus,
     IdiomOccurrence,
     RealizedClientForm,
+    RealizedExternalLinkScheme,
     RealizedRouteUrl,
     ResponseBodyWireField,
     RouteWireContract,
@@ -682,6 +683,9 @@ class _PlantedClientProbes:
 
     def route_url_builders(self, generated_root: Path) -> tuple[RealizedRouteUrl, ...]:
         return (RealizedRouteUrl("book-api.get_book", self._path, ("expand",), Path(_CANARY) / "route-url.src"),)
+
+    def external_link_schemes(self, generated_root: Path) -> tuple[RealizedExternalLinkScheme, ...]:
+        return (RealizedExternalLinkScheme("https", Path(_CANARY) / "external-link.src"),)
 
     def client_forms(self, generated_root: Path) -> tuple[RealizedClientForm, ...]:
         return (RealizedClientForm("library.lend", ("bookId",), True, Path(_CANARY) / "lend.src"),)

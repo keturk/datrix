@@ -122,6 +122,9 @@ OLLAMA_INDEFINITE_RESIDENCY_HORIZON = timedelta(days=100 * 365)
 
 DEFAULT_REACHABLE_TIMEOUT_MS = 3000
 DEFAULT_LOAD_TIMEOUT_MS = 900000
+# A step of readying a model that loads nothing (renewing a model already held at the
+# window asked for, or unloading one) answers in seconds; one that does not has hung.
+DEFAULT_RENEW_TIMEOUT_MS = 60000
 DEFAULT_GENERATE_TIMEOUT_MS = 180000
 
 MILLISECONDS_PER_SECOND = 1000
@@ -135,6 +138,10 @@ THINK_CLOSE_TAG = "</think>"
 
 class LocalLlmError(RuntimeError):
     """One local server failed one request; the pool fails over on it."""
+
+
+class LocalLlmTimeout(LocalLlmError):
+    """One request to a local server got no answer within its timeout."""
 
 
 class LocalLlmUnavailable(RuntimeError):
@@ -193,6 +200,7 @@ class LocalLlmSettings:
     models: tuple[str, ...] = ()
     reachable_timeout_ms: int = DEFAULT_REACHABLE_TIMEOUT_MS
     load_timeout_ms: int = DEFAULT_LOAD_TIMEOUT_MS
+    renew_timeout_ms: int = DEFAULT_RENEW_TIMEOUT_MS
     generate_timeout_ms: int = DEFAULT_GENERATE_TIMEOUT_MS
     # How long Ollama keeps a model loaded after a request; never sent where it would
     # shorten a residency the model already has (``ollama_keep_alive``).
@@ -313,6 +321,20 @@ def loaded_ollama_models(ps_response: object) -> dict[str, datetime]:
     }
 
 
+def loaded_context_lengths(ps_response: object) -> dict[str, int]:
+    """Map each model in an Ollama ``/api/ps`` response to the context window it was loaded with.
+
+    A model whose entry states no window is left out: its window is unknown, not zero.
+    """
+    if not isinstance(ps_response, dict) or not isinstance(ps_response.get("models"), list):
+        raise ValueError("expected a JSON object with a 'models' list")
+    return {
+        entry["name"]: entry["context_length"]
+        for entry in ps_response["models"]
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str) and isinstance(entry.get("context_length"), int)
+    }
+
+
 def strip_reasoning(text: str) -> str:
     """Remove inline reasoning: whole ``<think>`` blocks, then anything before a stray close tag."""
     cleaned = THINK_BLOCK_PATTERN.sub("", text)
@@ -415,14 +437,17 @@ def _post_json(uri: str, body: dict[str, object], timeout_ms: int, model: str) -
     Every failure is a LocalLlmError so the pool can fail over on it: URLError, a timeout,
     and a connection reset mid-read are all OSError, and an HTTP error's body carries the
     real cause (model not found, GPU out of memory) where str(exc) is only "HTTP Error 500".
+    A request that outlasts *timeout_ms* is the LocalLlmTimeout subclass: it says the server
+    was silent, not that it is down.
     """
     req = urllib.request.Request(
         uri,
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json; charset=utf-8"},
     )
+    timeout_seconds = max(1, timeout_ms / MILLISECONDS_PER_SECOND)
     try:
-        with urllib.request.urlopen(req, timeout=max(1, timeout_ms / MILLISECONDS_PER_SECOND)) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace").strip()
@@ -431,12 +456,23 @@ def _post_json(uri: str, body: dict[str, object], timeout_ms: int, model: str) -
             f"Server response: {detail or '(empty body)'}"
         ) from exc
     except OSError as exc:
+        if _is_timeout(exc):
+            raise LocalLlmTimeout(
+                f"Request to {uri} for model '{model}' got no answer within {timeout_seconds:g} s"
+            ) from exc
         raise LocalLlmError(f"Request to {uri} for model '{model}' failed: {exc}") from exc
     except ValueError as exc:
         raise LocalLlmError(f"{uri} returned a body that is not JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise LocalLlmError(f"{uri} returned JSON that is not an object for model '{model}'")
     return data
+
+
+def _is_timeout(exc: OSError) -> bool:
+    """Whether *exc* is a socket timeout, bare (while reading) or wrapped by urllib (while connecting)."""
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(exc.reason, TimeoutError)
+    return isinstance(exc, TimeoutError)
 
 
 def _messages(request: ChatRequest) -> list[dict[str, str]]:
@@ -503,7 +539,16 @@ def complete(candidate: LocalCandidate, request: ChatRequest, settings: LocalLlm
     return text
 
 
-def ready_candidate(candidate: LocalCandidate, settings: LocalLlmSettings) -> None:
+def _loaded_context_length(candidate: LocalCandidate, settings: LocalLlmSettings) -> int | None:
+    """The context window the server holds *candidate* with, or None when it states none."""
+    uri = f"{candidate.host.base_url}/api/ps"
+    try:
+        return loaded_context_lengths(_fetch_json(uri, settings.reachable_timeout_ms)).get(candidate.host.model)
+    except (OSError, ValueError) as exc:
+        raise LocalLlmError(f"Request to {uri} for model '{candidate.host.model}' failed: {exc}") from exc
+
+
+def ready_candidate(candidate: LocalCandidate, settings: LocalLlmSettings, context_window: int | None = None) -> None:
     """Prove the model can serve before it is handed work; raise LocalLlmError if not.
 
     Ollama loads on demand: a generate request with no prompt only loads the model (or
@@ -511,14 +556,32 @@ def ready_candidate(candidate: LocalCandidate, settings: LocalLlmSettings) -> No
     that once, under the load timeout, keeps a cold load from being charged against a
     generate call's timeout, and a model that cannot load (out of GPU memory) is caught
     here.
+
+    With *context_window* the model is loaded with that window, the one the requests that
+    follow carry. Ollama reloads a model whenever a request's window differs from the
+    loaded one, and the reload waits on the loaded runner, so a request that finds the model
+    at another window can wait past its timeout. A model held at another window is therefore
+    unloaded first, while no request of this run is on it.
+
+    Only a cold load is given ``load_timeout_ms``. Renewing a model already held at the
+    window asked for, and unloading one, load nothing and are given ``renew_timeout_ms``:
+    a server silent that long is hung, and the failure names the limit.
     """
     host = candidate.host
-    _post_json(
-        f"{host.base_url}/api/generate",
-        {"model": host.model, "keep_alive": ollama_keep_alive(candidate, settings, datetime.now(UTC))},
-        settings.load_timeout_ms,
-        host.model,
-    )
+    uri = f"{host.base_url}/api/generate"
+    body: dict[str, object] = {
+        "model": host.model, "keep_alive": ollama_keep_alive(candidate, settings, datetime.now(UTC))}
+    loads = not candidate.resident
+    if context_window is not None:
+        held = _loaded_context_length(candidate, settings) if candidate.resident else None
+        if held is not None and held != context_window:
+            _post_json(uri, {"model": host.model, "keep_alive": OLLAMA_KEEP_ALIVE_UNLOAD},
+                       settings.renew_timeout_ms, host.model)
+            loads = True
+        elif held is None:
+            loads = True
+        body["options"] = {"num_ctx": context_window}
+    _post_json(uri, body, settings.load_timeout_ms if loads else settings.renew_timeout_ms, host.model)
 
 
 # The keep_alive value that tells Ollama to unload a model now.
@@ -612,6 +675,10 @@ class LocalLlmPool:
     minutes), with the candidate marked as being readied so no second thread readies it
     too; a thread with nothing ready to use waits for that. A failed candidate is dropped
     once, however many threads fail on it.
+
+    A request that times out on a candidate which answered another request since it began
+    says nothing against the server: the request is asked again, once, and the candidate
+    stays. Any other failure, and a second timeout of the same request, drops it.
     """
 
     def __init__(self, settings: LocalLlmSettings, report: Callable[[str], None] = _report_to_stderr) -> None:
@@ -622,18 +689,23 @@ class LocalLlmPool:
         self._ready: set[LocalCandidate] = set()
         self._readying: set[LocalCandidate] = set()
         self._in_flight: dict[LocalCandidate, int] = {}
+        # When each candidate last answered a request (time.perf_counter()).
+        self._last_answered: dict[LocalCandidate, float] = {}
         self._last_failure = ""
 
     @property
     def settings(self) -> LocalLlmSettings:
         return self._settings
 
-    def activate(self) -> LocalHost:
+    def activate(self, context_window: int | None = None) -> LocalHost:
         """Discover (once) and ready a candidate; return it.
+
+        A candidate readied here is loaded with *context_window* when given (``ready_candidate``);
+        send the run's requests with the same window. A candidate already ready is not reloaded.
 
         Raises LocalLlmUnavailable when no candidate can serve.
         """
-        candidate = self._acquire()
+        candidate = self._acquire(context_window)
         self._release(candidate)
         return candidate.host
 
@@ -645,6 +717,7 @@ class LocalLlmPool:
     def chat(self, request: ChatRequest) -> LocalLlmReply:
         """Answer ``request`` from an eligible candidate, failing over until one answers."""
         prompt_chars = len(request.system) + len(request.user)
+        timed_out_before = False
         while True:
             try:
                 candidate = self._acquire()
@@ -656,12 +729,24 @@ class LocalLlmPool:
                 text = complete(candidate, request, self._settings)
             except LocalLlmError as exc:
                 self._record(candidate, OUTCOME_FAILED, prompt_chars, 0, time.perf_counter() - started, str(exc))
-                self._drop(candidate, str(exc))
+                if isinstance(exc, LocalLlmTimeout) and not timed_out_before and self._answered_since(candidate, started):
+                    timed_out_before = True
+                    self._report(f"Warning: {candidate.host.label()} timed out on one request but answered others; "
+                                 f"asking again: {exc}")
+                else:
+                    self._drop(candidate, str(exc))
                 continue
             finally:
                 self._release(candidate)
-            self._record(candidate, OUTCOME_OK, prompt_chars, len(text), time.perf_counter() - started, "")
+            finished = time.perf_counter()
+            with self._cond:
+                self._last_answered[candidate] = finished
+            self._record(candidate, OUTCOME_OK, prompt_chars, len(text), finished - started, "")
             return LocalLlmReply(text, candidate.host)
+
+    def _answered_since(self, candidate: LocalCandidate, moment: float) -> bool:
+        with self._cond:
+            return self._last_answered.get(candidate, moment) > moment
 
     def _record(self, candidate: LocalCandidate | None, outcome: str, prompt_chars: int, answer_chars: int,
                 seconds: float, error: str) -> None:
@@ -671,8 +756,9 @@ class LocalLlmPool:
             base_url=host.base_url, prompt_chars=prompt_chars, answer_chars=answer_chars,
             seconds=seconds, error=error))
 
-    def _acquire(self) -> LocalCandidate:
-        """An eligible candidate, readied, with one more request counted against it."""
+    def _acquire(self, context_window: int | None = None) -> LocalCandidate:
+        """An eligible candidate, readied (with *context_window* when given), with one more request counted
+        against it."""
         while True:
             with self._cond:
                 chosen, to_ready = self._choose_locked()
@@ -684,7 +770,7 @@ class LocalLlmPool:
                     self._cond.wait()
                     continue
                 self._readying.add(to_ready)
-            self._ready_outside_lock(to_ready)
+            self._ready_outside_lock(to_ready, context_window)
 
     def _choose_locked(self) -> tuple[LocalCandidate | None, LocalCandidate | None]:
         """(a ready candidate to use, None) or (None, a candidate to ready) or (None, None) to wait."""
@@ -713,10 +799,10 @@ class LocalLlmPool:
         best = min(_preference_rank(self._settings, c) for c in resident)
         return [c for c in resident if _preference_rank(self._settings, c) == best]
 
-    def _ready_outside_lock(self, candidate: LocalCandidate) -> None:
+    def _ready_outside_lock(self, candidate: LocalCandidate, context_window: int | None) -> None:
         self._report(self._readiness_line(candidate))
         try:
-            ready_candidate(candidate, self._settings)
+            ready_candidate(candidate, self._settings, context_window)
         except LocalLlmError as exc:
             self._report(f"Warning: {candidate.host.label()} cannot serve: {exc}")
             with self._cond:
@@ -751,8 +837,11 @@ class LocalLlmPool:
 
     def _readiness_line(self, candidate: LocalCandidate) -> str:
         verb = "Checking" if candidate.resident else "Loading"
-        limit_seconds = self._settings.load_timeout_ms // MILLISECONDS_PER_SECOND
-        return f"{verb} {candidate.host.label()} (up to {limit_seconds}s)..."
+        load_seconds = self._settings.load_timeout_ms // MILLISECONDS_PER_SECOND
+        if not candidate.resident:
+            return f"{verb} {candidate.host.label()} (up to {load_seconds}s)..."
+        renew_seconds = self._settings.renew_timeout_ms // MILLISECONDS_PER_SECOND
+        return f"{verb} {candidate.host.label()} (up to {renew_seconds}s; {load_seconds}s if it must reload)..."
 
     def _unavailable_message(self) -> str:
         searched = ", ".join(self._settings.machines)

@@ -68,6 +68,10 @@ VERDICT_PATTERN: Final = re.compile(r"Design conformance:\W*(PROVEN|INCOMPLETE)"
 PROOF_PREFIX: Final = "verify-proven-"
 PROVEN: Final = "PROVEN"
 INCOMPLETE: Final = "INCOMPLETE"
+# Verify and absorb run as one session on this model and effort: absorb continues the session whose verify
+# replied PROVEN, so it starts from the design and the code verify already read instead of reading them again.
+VERIFY_ABSORB_MODEL: Final = "claude-sonnet-5-5"
+VERIFY_ABSORB_EFFORT: Final = "high"
 REPLY_SEPARATOR: Final = "\n\n---\n\n"
 # A model name the CLI accepts: an alias (opus) or an id (claude-opus-5-5, claude-opus-5-5[1m]).
 MODEL_PATTERN: Final = re.compile(r"[A-Za-z0-9._\[\]-]+")
@@ -409,6 +413,8 @@ class Chain:
         self.run_dir = options.workspace.joinpath(*RUN_DIR_PARTS, datetime.now().strftime(RUN_DIR_FORMAT))
         self.session_id = ""
         self.steps: list[StepRow] = []
+        # The session in which verify replied PROVEN, by design: the session absorb continues.
+        self.proven_sessions: dict[Path, str] = {}
         self._number = 0
 
     @classmethod
@@ -427,7 +433,9 @@ class Chain:
         label = f"{self._number:02d}-{name}"
         window = self.options.auto_compact_window
         compact_note = f" [compacts at {window} tokens]" if window > 0 else ""
-        model_note = f" ({model}{f', {effort}' if effort else ''})" if model else ""
+        continued = f"continues session {resume_session}" if resume_session else ""
+        notes = ", ".join(note for note in (model, effort, continued) if note)
+        model_note = f" ({notes})" if notes else ""
         say("")
         say(f"=== step {label}{model_note}{compact_note} ===", ColorCodes.CYAN)
         stream_path = self.run_dir / f"{label}.stream.jsonl"
@@ -519,14 +527,14 @@ class Chain:
     def verify_design(self, prompt: str, design: Path, on_incomplete: Callable[[Path], None],
                       max_rounds: int = DEFAULT_MAX_ROUNDS) -> None:
         """Run /verify-implementation until it replies PROVEN, then save its replies to the design's proof
-        file. On INCOMPLETE its replies are saved to a report and *on_incomplete* runs with that path (the
-        step that implements again) before the next round; after *max_rounds* the chain stops with 1. A
-        reply with neither verdict stops it with 2."""
+        file and keep its session for absorb (``proven_sessions``). On INCOMPLETE its replies are saved to a
+        report and *on_incomplete* runs with that path (the step that implements again) before the next
+        round; after *max_rounds* the chain stops with 1. A reply with neither verdict stops it with 2."""
         proof = self.verify_proof_path(design)
         if proof.exists():
             proof.unlink()
         for round_number in range(1, max_rounds + 1):
-            row = self.step("verify", prompt)
+            row = self.step("verify", prompt, model=VERIFY_ABSORB_MODEL, effort=VERIFY_ABSORB_EFFORT)
             if row.dry_run:
                 return
             if row.is_error:
@@ -536,6 +544,7 @@ class Chain:
             if verdict == PROVEN:
                 proof.parent.mkdir(parents=True, exist_ok=True)
                 proof.write_text(REPLY_SEPARATOR.join(replies), encoding=_UTF8)
+                self.proven_sessions[design] = row.session_id
                 say(f"Verify: PROVEN (proof for absorb: {proof}).", ColorCodes.GREEN)
                 return
             if verdict != INCOMPLETE:
@@ -551,9 +560,10 @@ class Chain:
 
     def absorb_design(self, design: Path, *, keep_source: bool) -> None:
         """Run /absorb-design with VERIFIED set to the design's proof file, which a PROVEN verify wrote (in
-        this run or an earlier one). Without that file the chain stops with 1 before absorb runs: absorb
-        deletes the design only on that proof. Without *keep_source* the design must be gone afterwards; when
-        it is not, absorb stopped at one of its questions and the chain stops with 2."""
+        this run or an earlier one). When verify replied PROVEN in this run, absorb continues that session;
+        otherwise it starts a fresh one. Without the proof file the chain stops with 1 before absorb runs:
+        absorb deletes the design only on that proof. Without *keep_source* the design must be gone
+        afterwards; when it is not, absorb stopped at one of its questions and the chain stops with 2."""
         proof = self.verify_proof_path(design)
         if not self.options.dry_run:
             verdict = text_verdict(proof.read_text(encoding=_UTF8)) if proof.is_file() else ""
@@ -561,7 +571,9 @@ class Chain:
                 self.stop(EXIT_FAILED, f"No PROVEN verify reply for this design at {proof}, so absorb would not "
                                        "delete it. Rerun with -StartAt verify.")
         keep = "\nKEEP SOURCE: true" if keep_source else ""
-        row = self.step("absorb", f"/absorb-design\nDOCUMENT: {design}\nVERIFIED: {proof}{keep}")
+        row = self.step("absorb", f"/absorb-design\nDOCUMENT: {design}\nVERIFIED: {proof}{keep}",
+                        model=VERIFY_ABSORB_MODEL, effort=VERIFY_ABSORB_EFFORT,
+                        resume_session=self.proven_sessions.pop(design, ""))
         if row.dry_run:
             return
         if row.is_error:
@@ -744,11 +756,30 @@ def _check_a_dry_run_prints_the_steps_and_runs_none() -> None:
             row = chain.step("fix", "/implement-finding", model="claude-opus-5-5", effort="high")
         assert row.dry_run and not chain.steps and not chain.run_dir.exists(), (row, chain.steps)
     proof = workspace / ".tmp" / "verify-proven-d.md"
+    on = f"{VERIFY_ABSORB_MODEL}, {VERIFY_ABSORB_EFFORT}"
     assert printed.getvalue().splitlines() == [
-        "", "=== step 01-verify ===", "/verify-implementation", "DESIGN: d",
-        "", "=== step 02-absorb ===", "/absorb-design", f"DOCUMENT: {design}", f"VERIFIED: {proof}", "KEEP SOURCE: true",
+        "", f"=== step 01-verify ({on}) ===", "/verify-implementation", "DESIGN: d",
+        "", f"=== step 02-absorb ({on}) ===", "/absorb-design", f"DOCUMENT: {design}", f"VERIFIED: {proof}",
+        "KEEP SOURCE: true",
         "", "=== step 03-fix (claude-opus-5-5, high) ===", "/implement-finding",
     ], printed.getvalue()
+
+
+def _check_absorb_continues_the_proven_verify_session() -> None:
+    with TemporaryDirectory() as raw:
+        workspace = Path(raw)
+        design = workspace / "d.md"
+        chain = Chain(ChainOptions(workspace=workspace, dry_run=True, auto_compact_window=0), CLAUDE)
+        chain.proven_sessions[design] = _SESSION
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            chain.absorb_design(design, keep_source=True)
+            chain.absorb_design(design, keep_source=True)
+        on = f"{VERIFY_ABSORB_MODEL}, {VERIFY_ABSORB_EFFORT}"
+        headers = [line for line in printed.getvalue().splitlines() if line.startswith("=== step")]
+        assert headers == [f"=== step 01-absorb ({on}, continues session {_SESSION}) ===",
+                           f"=== step 02-absorb ({on}) ==="], headers
+        assert not chain.proven_sessions, chain.proven_sessions
 
 
 def _check_a_long_prompt_is_cut_on_the_console_and_kept_whole() -> None:
@@ -779,5 +810,6 @@ CHAIN_CHECKS: Final = (
     _check_session_replies_read_every_reply_of_the_transcript,
     _check_absorb_needs_a_proven_verify_reply,
     _check_a_dry_run_prints_the_steps_and_runs_none,
+    _check_absorb_continues_the_proven_verify_session,
     _check_a_long_prompt_is_cut_on_the_console_and_kept_whole,
 )

@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from datrix_scripts.local_llm import LocalLlmSettings
+
 LOOPBACK = "127.0.0.1"
 DEFAULT_MODEL = "gate-model"
 COMPLETION_CAPABILITIES: tuple[str, ...] = ("completion",)
@@ -36,6 +38,9 @@ COMPLETION_CAPABILITIES: tuple[str, ...] = ("completion",)
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
 HTTP_SERVER_ERROR = 500
+#: How long a check waits on its loopback server: a reachability probe, then an answer.
+LOOPBACK_REACHABLE_TIMEOUT_MS = 2000
+LOOPBACK_GENERATE_TIMEOUT_MS = 5000
 
 # (method, path, JSON body or None) -> (HTTP status, JSON payload)
 JsonResponder = Callable[[str, str, "dict[str, object] | None"], "tuple[int, object]"]
@@ -66,11 +71,15 @@ class LoopbackJsonServer:
                 recorder.append((method, self.path, body))
                 status, payload = respond(method, self.path, body)
                 data = json.dumps(payload).encode("utf-8")
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                except ConnectionError:
+                    # The client's timeout ran out before the answer: a check of that gives up on purpose.
+                    return
 
             def do_GET(self) -> None:  # noqa: N802 -- http.server's dispatch name
                 self._answer("GET")
@@ -157,7 +166,11 @@ class LoopbackOllama(LoopbackJsonServer):
         chat_seconds: float = 0.0,
         capabilities: tuple[str, ...] = COMPLETION_CAPABILITIES,
         expires_at: ExpiryText = held_for_thirty_minutes,
+        context_length: int | None = None,
     ) -> None:
+        # The context window the models are held with, as /api/ps states it; None when the server states none.
+        # A load or a chat that names a window (options.num_ctx) sets it; an unload clears it.
+        self.context_length = context_length
         self.chats: list[Chat] = []
         self.loads: list[str] = []
         # The body of every /api/generate request (a load, a renewal or an unload), in order.
@@ -174,6 +187,12 @@ class LoopbackOllama(LoopbackJsonServer):
         super().__enter__()
         return self
 
+    def settings(self, caller: str) -> LocalLlmSettings:
+        """Pool settings that reach this server alone, offering only the models it holds, recorded as *caller*."""
+        return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=LOOPBACK_REACHABLE_TIMEOUT_MS,
+                                generate_timeout_ms=LOOPBACK_GENERATE_TIMEOUT_MS, allow_load=False,
+                                ollama_port=self.port, caller=caller)
+
     def chats_for(self, model: str) -> list[Chat]:
         """The chats sent to ``model``, answered or failed."""
         return [chat for chat in self.chats if chat.model == model]
@@ -181,7 +200,19 @@ class LoopbackOllama(LoopbackJsonServer):
     def _resident_entry(self, model: str) -> dict[str, object]:
         """One ``/api/ps`` entry: the model, and when Ollama will unload it unless unstated."""
         expiry = self._expires_at()
-        return {"name": model} if expiry is None else {"name": model, "expires_at": expiry}
+        entry: dict[str, object] = {"name": model} if expiry is None else {"name": model, "expires_at": expiry}
+        if self.context_length is not None:
+            entry["context_length"] = self.context_length
+        return entry
+
+    def _note_window(self, body: dict[str, object]) -> None:
+        """Hold the models at the window a load or chat names, or at none after an unload."""
+        if body.get("keep_alive") == 0:
+            self.context_length = None
+            return
+        options = body.get("options")
+        if isinstance(options, dict) and isinstance(options.get("num_ctx"), int):
+            self.context_length = options["num_ctx"]
 
     def _respond(self, method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
         if method == "GET" and path == "/api/tags":
@@ -191,8 +222,10 @@ class LoopbackOllama(LoopbackJsonServer):
         if method == "POST" and path == "/api/generate" and body is not None:
             self.loads.append(str(body["model"]))
             self.generate_bodies.append(body)
+            self._note_window(body)
             return HTTP_OK, {"model": body["model"], "done": True}
         if method == "POST" and path == "/api/chat" and body is not None:
+            self._note_window(body)
             return self._respond_to_chat(_chat(body))
         return HTTP_NOT_FOUND, {"error": f"{method} {path} is not part of the loopback Ollama API"}
 

@@ -39,6 +39,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternalQueueControlModule,
     PublishedEventEnvelope,
     RealizedClientForm,
+    RealizedExternalLinkScheme,
     RealizedGatewayProblem,
     RealizedRouteUrl,
     ResponseBodyWireField,
@@ -634,6 +635,18 @@ def _offer_route_urls(result: object) -> Iterable[dict[str, SelectorValue]]:
 
 
 # ---------------------------------------------------------------------------
+# Client external-link readers: external_link_schemes
+# ---------------------------------------------------------------------------
+
+EXTERNAL_LINK_SCHEMES: Final[str] = "external_link_schemes"
+
+
+def _read_external_link_schemes(result: object, selector: Selector) -> Observation:
+    """The schemes the client's emitted external-link reader lets a user be sent to."""
+    return _set(scheme.scheme for scheme in _items(result, RealizedExternalLinkScheme, EXTERNAL_LINK_SCHEMES))
+
+
+# ---------------------------------------------------------------------------
 # Client forms: client_forms
 # ---------------------------------------------------------------------------
 
@@ -935,6 +948,16 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
             ),
         ),
         ProbeReadings(
+            EXTERNAL_LINK_SCHEMES,
+            ProbeArgument.CLIENT_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet("schemes", Shape.SET, summary="every URL scheme the client's external-link reader allows"),
+                    _read_external_link_schemes,
+                ),
+            ),
+        ),
+        ProbeReadings(
             CLIENT_FORMS,
             ProbeArgument.CLIENT_TREE,
             _facets(
@@ -1008,6 +1031,7 @@ __all__ = [
     "ENUM_KEY",
     "EVENT_ENVELOPES",
     "EXTERN_CLIENT_REQUESTS",
+    "EXTERNAL_LINK_SCHEMES",
     "EXTERNAL_QUEUE_CONTROLS",
     "HEADER_SET_FIXTURES",
     "PROBE_READINGS",
