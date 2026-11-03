@@ -363,10 +363,6 @@ config system credentials.System {
         functions {
           planSku = "Y1";
         }
-        serviceBus {
-          lockDuration = "PT1M";
-          maxSizeMb = 1024;
-        }
         keyVault {
           softDeleteRetentionDays = 30;
         }

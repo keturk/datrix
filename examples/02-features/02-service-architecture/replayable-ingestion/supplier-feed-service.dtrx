@@ -21,7 +21,7 @@
 service catalog.SupplierFeedService('config/supplier-feed-service.dcfg') : version('1.0.0'), description('Supplier catalog feed — replayable ingestion example') {
 
     identity {
-        provider _platform config('config/identity/_platform.dcfg') {
+        provider feedOperators config('config/identity/feed-operators.dcfg') {
         }
     }
 
@@ -34,10 +34,11 @@ service catalog.SupplierFeedService('config/supplier-feed-service.dcfg') : versi
 
     // Pub/sub block: storage-backed replayable topic.
     // `source(catalogArchive.batches)` binds the backing storage folder.
-    // `replayable` generates the replayCatalogFeed operator endpoint.
+    // `replayable(feedOperators)` generates the replayCatalogFeed and purgeCatalogFeed
+    // operator endpoints, admitting only callers of the machine provider feedOperators.
     // `replay schedule("0 3 * * *")` adds a nightly cron backfill job.
     pubsub feedBus {
-        topic CatalogFeed : source(catalogArchive.batches), replayable, replay schedule("0 3 * * *") {
+        topic CatalogFeed : source(catalogArchive.batches), replayable(feedOperators), replay schedule("0 3 * * *") {
             publish ProductBatchPublished(
                 StorageRef batch,
                 Int recordCount,

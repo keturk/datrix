@@ -101,7 +101,7 @@
       adminPassword = "identity_zitadel_admin_password";
       masterKey = "identity_zitadel_master_key";
       providers {
-        _platform {
+        feedOperators {
           project = "catalog-platform";
           clientId = "catalog-platform-app";
         }

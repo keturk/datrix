@@ -1,7 +1,8 @@
-// Platform-managed identity provider for '_platform'.
+// Platform-managed machine identity provider for 'feedOperators': the callers
+// allowed to replay and purge the CatalogFeed topic (replayable(feedOperators)).
 // mode = platformManaged: the generator resolves the target-native provider at
 // generation time (docker → Keycloak, Azure → Entra, AWS → Cognito).
-config identity _platform {
+config identity feedOperators {
   base {
     audience = "machine";
     mode = "platformManaged";
