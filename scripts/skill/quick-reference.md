@@ -6,7 +6,7 @@ Scripts for the agent skills under `.claude/skills/`. Each has a POSIX twin `.sh
 
 ## `skill\implement-design.ps1` and `skill\skill-chain.ps1`
 
-Run skills one after another as headless `claude -p` steps, each on its own skill's model and effort. `implement-design.ps1` runs plan → implement units → verify → absorb for one design; `skill-chain.ps1` runs any prompts in order and stops at the first error.
+Run skills one after another as headless `claude -p` steps, each on its own skill's model and effort. `implement-design.ps1` runs plan → implement units → verify → absorb for one design, with verify and absorb in one `claude-sonnet-5-5` session at `high` (absorb continues the session whose verify replied PROVEN; a run started at `absorb` opens a fresh one); `skill-chain.ps1` runs any prompts in order and stops at the first error.
 
 | Form | Command |
 |------|---------|

@@ -26,7 +26,10 @@ variable, when set, takes precedence over it. Needs the workspace trusted in `~/
 (`hasTrustDialogAccepted`), or headless runs ignore `settings.json`'s permissions.
 
 `implement-design.ps1` with `-Design` runs `/implement-design-direct` as a `STOP AFTER: plan` session,
-and one `UNIT: <id>` session per ledger unit → verify → absorb. `-StartAt`
+and one `UNIT: <id>` session per ledger unit → verify → absorb. Verify and absorb run as one session on
+`claude-sonnet-5-5` at `high` (`VERIFY_ABSORB_MODEL`, `VERIFY_ABSORB_EFFORT` in `chain.py`): absorb continues
+the session whose verify replied PROVEN, so it starts from the design and code verify already read; a run
+started at `absorb` has no such session and opens a fresh one. `-StartAt`
 starts at `implement`, `verify` or `absorb` (after `implement`, its ledger must exist). `-Resume` carries
 one session through every step instead of a fresh one per step. By default each agent message, tool call
 and refused tool call is printed as it happens; `-Quiet` shows only each step's prompt and summary.
