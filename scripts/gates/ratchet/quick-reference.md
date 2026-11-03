@@ -52,3 +52,16 @@ Decrease-only ceiling on test wall time from the newest full run's `timings.json
 | Seed the baseline from current offenders (hand-edit every `class` and `reason` before commit) | `.\gates\ratchet\slow-test-ratchet-gate.ps1 -Seed` |
 
 Parameters: `-SelfTest`, `-Seed`, `-Dbg`. Exit: 0 no un-baselined offender and no stale entry, 1 an offender / stale entry / missing full run / baseline grew relative to HEAD, 2 invalid baseline / untrusted git read / `-Seed` would grow the committed baseline.
+
+## `gates\ratchet\fixture-budget-gate.ps1`
+
+Count every package's `.dtrx`/`.dtrx.false`/`.dcfg`/`.dseed` fixture files and inline fixture literals, the duplicate copies and the cross-package fixture names, against the decrease-only `scripts/config/fixture-budget-baseline.json`; cap the shared `datrix-testing` fixtures at a fixed ceiling; fail a fixture corpus entry no package's `tests/` names in a `corpus_project("<scenario>")` call.
+
+| Form | Command |
+|------|---------|
+| Run | `.\gates\ratchet\fixture-budget-gate.ps1` |
+| List every counted file, literal site, duplicate group, shared name and corpus entry with its readers | `.\gates\ratchet\fixture-budget-gate.ps1 -ShowFiles` |
+| Freeze or tighten the baseline | `.\gates\ratchet\fixture-budget-gate.ps1 -UpdateBaseline` |
+| Other workspace root | `.\gates\ratchet\fixture-budget-gate.ps1 -BaseDir D:\datrix` |
+
+Parameters: `-ShowFiles`, `-BaseDir` (default: the workspace), `-UpdateBaseline`, `-SelfTest`, `-Dbg`. Exit: 0 every count at or below the baseline, the shared set within the ceiling and every corpus entry read, 1 a count above the baseline, the shared set above the ceiling or an unread corpus entry, 2 usage error / missing baseline / attempted baseline increase / unreadable or unparsable file / missing or ambiguous corpus / failed self-test.

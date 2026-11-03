@@ -1,7 +1,8 @@
 # Ratchet Gates
 
 Gates that pin a count and let it only move one way (or both ways only together with its pin):
-generated-file construction sites, out-of-table dependency decisions, capability gaps and slow tests.
+generated-file construction sites, out-of-table dependency decisions, capability gaps, slow tests and test
+fixtures.
 Repo-level validation **scripts**, not pytest suites. The commands,
 parameters and exit codes of each gate are in [quick-reference.md](quick-reference.md); this file holds
 what each pins and how it decides. The family overview is [../README.md](../README.md).
@@ -199,3 +200,60 @@ never produced a usable full run -- is reported under `missing_full_run` rather 
 Exit codes: 0 = no un-baselined offender and no stale entry, 1 = an offender, a stale entry, a missing
 full run, or a working-tree baseline that grew relative to HEAD, 2 = an invalid baseline, an untrusted
 git read, or `-Seed` would grow the baseline committed at HEAD.
+
+## `fixture-budget-gate.ps1`
+
+**A decrease-only budget on `.dtrx`/`.dcfg` test fixtures.** Without it every test adds its own fixture
+file or inline fixture text, and copies of one fixture spread across packages. Packages are every
+`datrix-*` directory with a `tests/` tree, discovered from disk. It counts fixtures; it does not police
+reads (`repo-hygiene/check-cross-package-fixture-reads.ps1` refuses a read into another package's
+`tests/`). It only scans the workspace, writing its own log and baseline. Per package it counts:
+
+- `fixture_files`: `*.dtrx`, `*.dtrx.false`, `*.dcfg` and `*.dseed` under `tests/`. The walk prunes `.git`, `node_modules`, `__pycache__`, `.test-output`, `.test_results` and `build`, and never enters a directory link.
+- `inline_literals`: string constants, and the joined constant parts of f-strings, in `tests/**/*.py`, `src/**/testkit/**/*.py` and `src/datrix_testing/**/*.py`, docstrings excluded, holding a `.dtrx` declaration line (`service`, `system`, `module`, `shared`, `app`, `extern service`, optionally `abstract`, then a name and `(`, `{` or `:`) together with a `{`, or a `.dcfg` header (`config service|system|shared|app <name> {`). A literal counts once for the package whose `tests/` or `src/` holds its module.
+
+Across every counted file, the shared fixtures included, it counts:
+
+- `duplicate_copies`: files whose normalized content equals another file's of the same kind, minus one per group. Normalized means comments removed (`//…` and `/*…*/`, and `#…` in `.dcfg` only; a marker inside a `"…"` string literal is content) and whitespace collapsed.
+- `cross_package_names`: base names present under `tests/` of two or more packages, `system.dtrx` excluded.
+- `shared_files`: the same file kinds under `datrix-testing/src/datrix_testing/fixtures_data/`, held to `SHARED_FIXTURE_CEILING` (120), defined once in the module. It is a cap, not a ratchet: the shared set grows while the package sets shrink. A missing shared directory is refused rather than counted as zero.
+
+Every count but `shared_files` is pinned in `scripts/config/fixture-budget-baseline.json` (keys
+`<package>:fixture_files`, `<package>:inline_literals`, `duplicate_copies`, `cross_package_names`) and
+compared through `datrix_scripts.count_ratchet` tighten-only: a rise fails, naming the package and the
+count, and a package the baseline does not name is pinned at zero. A missing baseline is refused, never
+read as empty. `-UpdateBaseline` is the bootstrap freeze when no baseline exists; afterwards it writes only
+when no count rises (a rise exits 2 with the baseline unchanged), and never past the shared ceiling. A
+file that cannot be read, or a test module that cannot be parsed, exits 2: it would otherwise escape the
+count. The output is one line per package and one per global count, each with its delta against the
+baseline; `-ShowFiles` adds every counted file, literal site, duplicate group and cross-package name.
+
+**Every corpus entry is read.** The fixture corpus (`datrix-testing/src/datrix_testing/fixtures_data/corpus/`)
+lists its scenarios by its own entry rule (`datrix_testing.corpus.corpus_scenarios`: `<scenario>.dtrx`, or
+`<scenario>/system.dtrx`). Each must be named by a module under some package's `tests/` as a string literal
+passed to `corpus_project(...)`, positionally or as `scenario=`, called by name or as an attribute. A
+read from `src/` or through a name computed at run time does not count. An entry no test reads exits 1,
+naming it (`entries − reads = ∅`), and `-UpdateBaseline` then writes nothing; a missing corpus root, or a
+scenario written in both entry forms, exits 2. `-ShowFiles` lists each entry with the modules reading it.
+
+Module: `datrix_scripts.gates.ratchet.fixture_budget_gate`; POSIX twin options `--show-files`,
+`--base-dir`, `--update-baseline`, `--self-test`, `--dbg`.
+
+**Self-test.** Each check plants a workspace in a temporary directory and runs the real census on it:
+every count (a)–(e) is found with its exact value; a skipped directory, a directory link and a non-fixture
+file are not counted; docstrings holding `.dtrx` text are not literals; a `//` inside a string and a `#`
+in a `.dtrx` file are content; a `system.dtrx` in two packages is not a cross-package name; a count above
+the baseline exits 1 naming the package and both counts, and `-UpdateBaseline` then refuses with the
+baseline unchanged; a fall is banked; a shared set above the ceiling exits 1; the corpus reads of a
+planted `tests/` module are found (a direct call and an attribute call with `scenario=`); a planted entry
+read only from `src/` and through a computed name exits 1 naming it, and `-UpdateBaseline` refuses; a
+missing baseline, a missing shared directory, a missing corpus root, an ambiguous corpus entry and an
+unparsable test module are refused. The checks run before every real
+scan (a failure exits 2); `-SelfTest` runs them alone after the harness self-test, then the wrapper seam
+check.
+
+Exit codes: 0 = every count at or below its baseline, the shared set within the ceiling and every corpus
+entry read (or a successful `-UpdateBaseline` or `-SelfTest`), 1 = a count above its baseline, the shared
+set above the ceiling, or a corpus entry no test reads, 2 = usage error, missing or malformed baseline, an
+attempted baseline increase, an unreadable or unparsable file, a missing shared fixture directory or
+corpus root, an ambiguous corpus entry, or a failed self-test.

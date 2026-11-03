@@ -1,0 +1,8 @@
+- id: external-links.allowed-schemes
+  tags: [parity, frontend-client, input-validation]
+  input: ecommerce
+  stage: parity
+  observer: external_link_schemes
+  selector: {facet: schemes}
+  expectation: [http, https]
+  reason: Every client target's external-link reader sends a user only to an http or https address, from the one scheme list the shared address rule defines -- a javascript, data or file address opens nothing on any target.
