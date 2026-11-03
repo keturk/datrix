@@ -43,7 +43,8 @@
       "Read(//d/g/theTourCard/**)",
       "Edit(/.claude/skills/implement-feature-request/**)",
       "Bash(ls -la \"D:/g/theTourCard/the-tour-card-platform/.deployment-logs/\" | tail -5; cat \"D:/g/theTourCard/the-tour-card-platform/.deployment-logs/staging-20261028-111653.log.issues\" | head -50)",
-      "Read(//d/g/theTourCard/the-tour-card-platform/.deployment-logs/**)"
+      "Read(//d/g/theTourCard/the-tour-card-platform/.deployment-logs/**)",
+      "mcp__datrix-code-index__outline"
     ],
     "additionalDirectories": [
       "C:\\Users\\KErca\\.claude",
