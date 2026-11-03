@@ -770,7 +770,7 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg') {
             ensure req.productId != null;
         }
         get getPrice(String productId) -> PricingResponse {
-            ensure productId != null;
+            ensure productId.length > 0;
         }
     }
 }
@@ -929,7 +929,7 @@ extern service pricing.PricingEngine('config/pricing-engine.dcfg')
     rest_api PricingAPI : basePath('/api/v1') {
         post calculatePrice(PricingRequest req) -> PricingResponse;
         get getPrice(String productId) -> PricingResponse {
-            ensure productId != null;
+            ensure productId.length > 0;
         }
     }
 

@@ -121,7 +121,13 @@ template httpClient(baseUrl, timeout = 30s, maxRetries = 3) {
 
 **Instance-specific vs reusable defaults:**
 - **Instance-specific data** (database names, hosts, bucket names, queue names, URLs) must be required parameters — no defaults
-- **Reusable policy values** (pool sizes, timeouts, retry limits, driver names) may have defaults
+- **Reusable policy values** (pool sizes, timeouts, retry limits) may have defaults
+
+An `rdbms` block's `database` is required and must name a database at load: an empty value or a
+`${VAR}` placeholder without an inline default (`${ORDERS_DB:-orders}`) is refused, and no
+generator or platform derives a name in its place. A block carries no driver: `asyncDriver` and
+`syncDriver` are refused as unknown keys, because the connection scheme is each language's fact
+for the engine's dialect.
 
 ### Profile-Indexed Defaults (`perProfile`)
 
@@ -901,7 +907,6 @@ rdbms:
     schema: orders
     poolSize: 40
     ssl: true
-    asyncDriver: postgresql+asyncpg
     healthCheckSql: SELECT 1
 cache:
   orderCache:

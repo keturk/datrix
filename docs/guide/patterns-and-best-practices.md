@@ -57,7 +57,7 @@ entity User extends BaseEntity {
 
 **Problem:** Need to delete records without losing data for auditing.
 
-**Solution:** Use the **builtin** `SoftDeletable` trait (opt-in with `with SoftDeletable`—do not redefine the trait). It supplies `deletedAt`, `deletedBy`, and a computed `isDeleted`. See [Architecture Overview — Builtin traits](../architecture/architecture/builtin-traits-enums.md#builtin-traits-and-enums).
+**Solution:** Use the **builtin** `SoftDeletable` trait (opt-in with `with SoftDeletable`—do not redefine the trait). It supplies `deletedAt`, `deletedBy`, and a computed `isDeleted`. A soft delete is an assignment of `deletedAt`; every target then stamps `deletedBy` with the audit principal (and clears it on a restore). See [Architecture Overview — Builtin traits](../architecture/architecture/builtin-traits-enums.md#builtin-traits-and-enums).
 
 ```datrix context=service
 rdbms db {
@@ -71,8 +71,8 @@ rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(db) {
     @path('/:id')
     delete(UUID id) : auth(required, providers: [identity]) -> Void {
         let Order order = Order.findOrFail(id);
+        // deletedBy is stamped with the caller's local user id when deletedAt changes
         order.deletedAt = DateTime.now();
-        order.deletedBy = Auth.subject;
         order.save();
     }
 

@@ -454,14 +454,20 @@ Datrix supports an ingestion pattern that decouples *acquiring* records from *lo
 **DSL syntax (storage-backed, replayable topic):**
 
 ```datrix context=service
+identity {
+    provider feedOperators config('config/identity/feed-operators.dcfg') {
+    }
+}
+
 storage catalogArchive {
     folder raw      : path('raw/');         // source payloads
     folder batches  : path('batches/');     // normalized record batches (system-of-record)
 }
 
 pubsub feedBus {
-    // `source(folder)` binds the backing storage; `replayable` generates the replay operator.
-    topic CatalogFeed : source(catalogArchive.batches), replayable {
+    // `source(folder)` binds the backing storage; `replayable(feedOperators)` generates the
+    // replay and purge operators, admitting only callers of the machine provider feedOperators.
+    topic CatalogFeed : source(catalogArchive.batches), replayable(feedOperators) {
         publish ProductBatchPublished(
             StorageRef batch,          // typed claim-check pointer (builtin value struct)
             Int recordCount,
@@ -484,7 +490,7 @@ pubsub feedBus {
 
 **Consumers of replayable topics must be idempotent (D43).** The dedup key is declared explicitly: the target entity marks its idempotency key with the `replayKey` field modifier (e.g. `String sku : unique, replayKey;`). Enforced at generation — a replayable-topic consumer must `.upsert` into a `replayKey` entity; a `.create()`, or a target entity without `replayKey`, fails generation with a diagnostic. Replay re-delivers, so idempotency is structural and declarative, not a runtime dedup.
 
-**Replay is an operator-triggered endpoint plus optional backfill job (D44).** `replayable` synthesizes a `replay{Topic}(range)` operator endpoint onto the owning service; `replay schedule("…")` additionally synthesizes a cron backfill job. Both are ordinary service nodes, so every platform generator (AWS/Azure/Docker) deploys them without special-casing. Replay is range-scoped by key prefix and/or timestamp window.
+**Replay is an operator-triggered endpoint plus optional backfill job (D44).** `replayable(<provider>, ...)` synthesizes a `replay{Topic}(range)` operator endpoint onto the owning service; `replay schedule("…")` additionally synthesizes a cron backfill job. The replay and purge operator endpoints are `auth(service)` routes admitting only callers of the machine identity providers the topic names; there is no implicit operator, and a topic naming none, an undeclared one or a non-machine one is refused at the topic (RPL007) with no operator endpoint generated. Both are ordinary service nodes, so every platform generator (AWS/Azure/Docker) deploys them without special-casing. Replay is range-scoped by key prefix and/or timestamp window.
 
 **Schema version is stamped per batch; cross-version replay fails fast (D45).** A consumer replaying an unsupported `schemaVersion` errors rather than coercing old records.
 

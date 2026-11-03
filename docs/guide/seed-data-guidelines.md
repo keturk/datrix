@@ -310,7 +310,7 @@ Services with CQRS `view` blocks maintain read-optimized projections normally up
 Services with `cache` blocks can optionally pre-warm caches after seeding:
 
 ```bash
-datrix seed --profile stg --warm-cache
+datrix seed --warm-cache
 ```
 
 This is generated as a separate maintenance phase, not part of the main idempotent seed flow.

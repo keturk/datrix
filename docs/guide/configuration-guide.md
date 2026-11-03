@@ -533,7 +533,7 @@ Order service uses templates for common config plus production overrides.
 
 ### Engine Defaults
 
-Fields like `port`, `docker_image`, `asyncDriver` are auto-injected based on engine choice:
+Fields like `port` and `docker_image` are auto-injected based on engine choice. A block states no driver: the connection scheme is each language's fact for the engine's dialect.
 
 ```yaml
 base:
@@ -542,7 +542,7 @@ base:
       engine: postgres          # Enough for test/dev!
       database: library_books
       poolSize: 20
-      # port, docker_image, asyncDriver, etc. auto-injected from engine defaults
+      # port, docker_image, etc. auto-injected from engine defaults
 
 production:
   rdbms:
@@ -967,7 +967,6 @@ test:
     password: ${POSTGRES_PASSWORD}      # Environment variable
     docker_image: postgres:16-alpine    # Docker image (for container platform)
     volume_path: ./data/postgres        # Volume mount path
-    async_driver: asyncpg              # Async driver: asyncpg
     health_check_sql: "SELECT 1"       # Health check SQL
 
   cache:
@@ -1027,14 +1026,10 @@ production:
 | `password` | String | Database password (use env vars) |
 | `docker_image` | String | Docker image for database |
 | `volume_path` | String | Volume mount path |
-| `async_driver` | String | Asynchronous driver |
 | `health_check_sql` | String | SQL for health checks |
 
-**Drivers by engine:**
-
-| Engine | Sync Drivers | Async Drivers |
-|--------|-------------|---------------|
-| `postgres` | `psycopg2`, `pg8000` | `asyncpg` |
+A block carries no driver key (`asyncDriver` and `syncDriver` are refused as unknown): each
+language derives its connection scheme from the engine's dialect.
 
 **Aurora capacity/reader fields:**
 
@@ -2145,7 +2140,7 @@ Without explicit configuration, these defaults apply:
 
 ### Resolved At Generation
 
-Which categories run is decided when a profile is generated, not when its seed job starts. The generated seed modules carry the code and rows of the categories their profile runs and nothing else (each module lists them in `SEED_CATEGORIES`), and compare no profile name at runtime. Generate the project for another profile to seed that profile's categories; the seed runners' `--profile` option names the profile in the log (a TypeScript runner refuses any profile but the one it was generated for) and selects nothing.
+Which categories run is decided when a profile is generated, not when its seed job starts. The generated seed modules carry the code and rows of the categories their profile runs and nothing else (each module lists them in `SEED_CATEGORIES`), and compare no profile name at runtime. Each generated seed runner records the profile it was generated for (`GENERATED_PROFILE`) and the categories it runs (`SEED_CATEGORIES`), and refuses to seed under any other profile name, on every language; `datrix seed` reads both from the runners and takes neither as an option. Generate the project for another profile to seed that profile's categories.
 
 ### Production Safety
 

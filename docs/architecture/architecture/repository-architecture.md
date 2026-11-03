@@ -154,7 +154,7 @@ Command-line interface for code generation and seed management
 
 **Responsibilities:**
 - **Pipeline orchestration** — owns `GenerationPipeline` (parse → analyze → generate → format → write), the full end-to-end orchestrator that coordinates parsing, semantic analysis, config resolution, generator execution, file writing, and post-processing hooks. Constructs `TreeSitterParser` and stdlib loader from `datrix-language` and injects them into the pipeline stages.
-- **Seed execution** — `datrix seed` command family: `--profile`, `--category`, `--dry-run`, `--reset` (non-prod), `--warm-cache`, `--rebuild-views`. Production safety: `datrix seed --profile prod` runs only reference data by default; baseline and volume categories are rejected unless overridden with `--force`.
+- **Seed execution** — `datrix seed` runs the generated seed runners, reading the profile and categories each was generated for (`GENERATED_PROFILE`, `SEED_CATEGORIES`): `--dry-run`, `--reset` (non-prod), `--force`, `--service`, `--anchor`. Production safety: a project generated for a production profile seeds only reference data by default; baseline and volume categories are rejected unless overridden with `--force`, and `--reset` is never allowed.
 - **Seed capture** — `datrix seed capture` reverse-engineers existing database state into `.dseed` declarations with tenant-scoped introspection, secret redaction, and natural-key inference.
 - Plugin discovery
 - Linting and formatting

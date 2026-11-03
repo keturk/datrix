@@ -33,6 +33,8 @@ Generators read what analysis recorded and never walk a body to learn it. The re
 | `datrix_common.datrix_model.reads` | `is_read(binder)`, `is_read_beyond_rethrow(clause)`, `assignment_writes_unread_local`, `outer_binder_use`, `binder_name`, `read_lambda_parameters` |
 | `datrix_codegen_common.algorithms.service_body_owners` | `entity_body_owners`, `realized_entity_body_owners`, `service_reached_functions` |
 | `datrix_codegen_common.transpiler.async_realization` | `AsyncRealization`, `callable_is_async`, `SYNCHRONOUS_REALIZATION`, `awaiting_builtin_calls` |
+| `datrix_codegen_common.algorithms.member_types` | `recorded_member_type(node)`, `recorded_local_type(node)`: the declared type of the field, parameter or `let` a read resolved to; `None` where analysis typed no receiver, never a guess |
+| `datrix_codegen_common.transpiler.base` | `recorded_literal_struct(node)`: the struct, or GraphQL API object type, an untyped object literal builds (`ObjectLiteralNode.expected_struct`); `None` where its position declares none |
 
 Every read is total: a node analysis did not resolve, or an owner that carries no facts, raises `GenerationError` rather than answering a default, because a reader that guessed would be a second resolver. A call site binds the function analysis resolved its target to, never a function found by spelling.
 

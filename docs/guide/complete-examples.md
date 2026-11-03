@@ -290,14 +290,15 @@ seed service ecommerce.BillingService {
 # Generate seed scripts for staging
 datrix generate --profile stg
 
-# Run seed scripts (reference + baseline for staging)
-datrix seed --profile stg
-
-# Production: reference data only (safe by default)
-datrix seed --profile prod --category reference
+# Run the seed runners: the categories staging runs (fixed when it was generated)
+datrix seed
 
 # Preview without executing
-datrix seed --profile dev --dry-run
+datrix seed --dry-run
+
+# Production: generate for prod; it seeds reference data only (safe by default)
+datrix generate --profile prod
+datrix seed
 ```
 
 For the full `.dseed` syntax and guidelines, see [Seed Data Guidelines](./seed-data-guidelines.md).
