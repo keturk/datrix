@@ -153,11 +153,15 @@ exits 2 before any scan result is reported. `-SelfTest` alone needs no project a
 
 `check-python-bytecode.ps1` fails when `.pyc`/`.pyo` files or `__pycache__` directories sit under a
 package's `src/` tree; it needs only the standard library, and runs with `PYTHONPYCACHEPREFIX` set, so
-the check itself writes no bytecode into any `src/`. `extra-parens.ps1` removes extraneous parentheses
+the check itself writes no bytecode into any `src/`. `-Remove` deletes what it lists, and nothing outside
+the scanned `src/` roots, then reports what is left (exit 0 when nothing is). Every start of the shared
+venv's interpreter writes its bytecode under `<workspace>\.pycache-verify` (the `.pth` file
+`common\venv.ps1 -Ensure` installs), so bytecode under `src/` came from another interpreter.
+`extra-parens.ps1` removes extraneous parentheses
 with Ruff rule `UP034` only, over named projects or `-All`. `Get-Help .\scan\<script>.ps1 -Full` lists
 each one's parameters.
 
-Module: `datrix_scripts.scan.check_python_bytecode` (`--base-dir`, `--project-dir`, `--self-test`) and
+Module: `datrix_scripts.scan.check_python_bytecode` (`--base-dir`, `--project-dir`, `--remove`, `--self-test`) and
 `datrix_scripts.scan.extra_parens` (`--projects`, `--all`, `--dry-run`, `--diff`, `--self-test`); POSIX
 twins `scan\check-python-bytecode.sh`, `scan\extra-parens.sh`
 (`bash scan/check-python-bytecode.sh --project-dir datrix-common`).

@@ -105,14 +105,15 @@ Parameters: `-ProjectDir` (positional, variadic), `-All`, `-Strict`, `-IncludeGe
 
 ### `scan\check-python-bytecode.ps1` and `scan\extra-parens.ps1`
 
-`check-python-bytecode.ps1`: fails on `.pyc`/`.pyo` files or `__pycache__` directories under a package's `src/`. `extra-parens.ps1`: removes extraneous parentheses (Ruff `UP034` only). `Get-Help .\scan\<script>.ps1 -Full` lists parameters.
+`check-python-bytecode.ps1`: fails on `.pyc`/`.pyo` files or `__pycache__` directories under a package's `src/`; `-Remove` deletes them (nothing outside the scanned `src/` roots) and exits 0 when none is left. The shared venv writes its bytecode under `<workspace>\.pycache-verify` whoever starts it (`common\venv.ps1 -Ensure` installs that setting), so bytecode under `src/` came from another interpreter. `extra-parens.ps1`: removes extraneous parentheses (Ruff `UP034` only). `Get-Help .\scan\<script>.ps1 -Full` lists parameters.
 
 | Form | Command |
 |------|---------|
 | Bytecode check | `.\scan\check-python-bytecode.ps1 -ProjectDir datrix-common` |
+| Delete bytecode under every `src/` | `.\scan\check-python-bytecode.ps1 -Remove` |
 | Preview paren fixes | `.\scan\extra-parens.ps1 -All -DryRun` |
 
-Parameters (options of the modules): bytecode `-BaseDir`, `-ProjectDir`, `-SelfTest`; parens `-Projects`, `-All`, `-DryRun`, `-Diff`, `-SelfTest`
+Parameters (options of the modules): bytecode `-BaseDir`, `-ProjectDir`, `-Remove`, `-SelfTest`; parens `-Projects`, `-All`, `-DryRun`, `-Diff`, `-SelfTest`
 
 ### `scan\ruff-checker.ps1`
 
