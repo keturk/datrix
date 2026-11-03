@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5-5
 effort: medium
-description: Merge the findings inbox at d:\datrix\findings in place — group every set of findings one fix session would tackle together (the same or SIMILAR issues — same defect, seam, fix site or defect class, or one shared remedy) into one file per theme, leaving no two similar files behind, carry every source's evidence and citations as numbered sections, delete the originals, and name every file NNNN-<area>-<slug>.md numbered contiguously in area order (python, typescript, clients, language, schema, seed, kernel, docker, aws, azure, component, tests, tooling, docs). Use when Jon asks to "merge findings", "dedupe the findings", "merge similar findings", or runs /merge-findings.
+description: Merge the findings inbox at d:\datrix\findings and its area subfolders in place — group every set of findings one fix session would tackle together (the same or SIMILAR issues — same defect, seam, fix site or defect class, or one shared remedy) into one file per theme, leaving no two similar files behind, carry every source's evidence and citations as numbered sections, delete the originals, and name every file NNNN-<area>-<slug>.md in its findings\<area>\ folder, numbered contiguously in area order (python, typescript, clients, language, schema, seed, kernel, docker, aws, azure, component, tests, tooling, docs). Use when Jon asks to "merge findings", "dedupe the findings", "merge similar findings", or runs /merge-findings.
 ---
 
 # Merge Findings
@@ -60,8 +60,13 @@ dispatches no subagents.
 
 ## Inputs
 
-Every `*.md` file directly in `d:\datrix\findings\`:
-`Get-ChildItem d:\datrix\findings -File -Filter *.md | Sort-Object Name`.
+Every `*.md` file in `d:\datrix\findings\` and in its area subfolders (`findings\<area>\`, one level,
+filled by `/organize-findings`), together, so a finding filed under one area is merged with a similar
+one filed under another:
+`Get-ChildItem d:\datrix\findings -Recurse -File -Filter *.md | Sort-Object FullName`.
+
+Name a file by its path under the inbox (`aws/20261031-202621-<slug>.md`, or just the name for a loose
+file); the scripts below take and print that form.
 
 - **Raw files** — `YYYYMMDD-HHMMSS-<slug>.md`, written by agents since the last run (§5A format).
 - **Merged files** — `NNNN-<area>-<slug>.md`, written by earlier runs: one theme, one numbered
@@ -70,7 +75,7 @@ Every `*.md` file directly in `d:\datrix\findings\`:
 - **Consolidated files** — `consolidated-NNN-<slug>.md` already in the folder: treat as
   merged files and rename them into the `NNNN-<area>-<slug>.md` scheme.
 
-If the folder holds fewer than two files, say so in one line and stop.
+If the inbox and its subfolders together hold fewer than two files, say so in one line and stop.
 
 ## Phase 1 — Index, then read everything
 
@@ -79,7 +84,8 @@ powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-inde
 ```
 
 `d:\datrix\.tmp\assist\findings-index.md` lists every atomic finding as
-`seam | packages | defect | source | citations`, sorted by seam. It is a lead, not a verdict. Exit 3
+`seam | packages | defect | source | citations`, sorted by seam, over the inbox and its subfolders
+(`source` is the path under the inbox). It is a lead, not a verdict. Exit 3
 means no local model answered: build the same index by hand from your reads.
 
 Then read every file **in full**. A title is not the issue. Decide from the text and its citations.
@@ -87,7 +93,9 @@ Then read every file **in full**. A title is not the issue. Decide from the text
 ## Phase 2 — Group and assign areas
 
 Write the groups down before editing: for each group, its files, the one-line theme, and its area.
-A file in no group still gets an area (it is renamed, not merged).
+A file in no group still gets an area (it is renamed, not merged). The folder a file lies in is where
+an earlier run or `/organize-findings` filed it, a lead and not a verdict: a group may draw from several
+folders, and its area is decided by the rule below, wherever its sources lie.
 
 Then check the ratio: files in vs files out. A run that leaves close to as many files as it started
 with has not merged — go back to the index, walk each area's singles, and find the group each
@@ -113,7 +121,9 @@ first, and a new area is a subject Jon can prioritise, never a bucket for "sever
 
 ## Phase 3 — Write each merged file
 
-One file per multi-source group, written with `Write` under a temporary number:
+One file per multi-source group, written with `Write` under a temporary number into its area's
+folder, `d:\datrix\findings\<area>\` (create the area folder when it does not exist yet; never a folder
+inside an area folder):
 
 ```markdown
 # <one-line statement of the theme — the root cause or defect class, not a symptom>
@@ -160,8 +170,9 @@ names. If a source carried one, describe the defect without it and say so in you
 
 ## Phase 3b — Sweep for what is still similar
 
-Re-read the title, opening paragraph and **Where** lines of every file now in the folder — merged
-files, singles, and existing merged files from earlier runs — and, for each pair in the same area or
+Re-read the title, opening paragraph and **Where** lines of every file now in the inbox and its
+subfolders — merged files, singles, and existing merged files from earlier runs — and, for each pair in
+the same area (whatever folder each lies in) or
 sharing a package, seam or fix site, ask the session question again. A theme written in Phase 3 is
 often the natural home of a single left alone in Phase 2, and two themes can turn out to be one.
 Merge every pair that qualifies (Phase 3 again, within the session size) until no pair does.
@@ -174,22 +185,27 @@ Run the check over every file you are about to delete (every source now carried 
 powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-check --keep-raw --delete <file> <file> ...
 ```
 
-Exit 0 means every `path:line` citation and backticked path of each file to delete appears in a
-remaining file, every `**Related:**` pointer resolves, and no remaining file carries mojibake. Exit
+Name each file by its path under the inbox (`aws/<name>.md`) or absolutely. Exit 0 means every
+`path:line` citation and backticked path of each file to delete appears in a remaining file anywhere in
+the inbox or its subfolders, every `**Related:**` pointer resolves, and no remaining file carries mojibake. Exit
 2 lists what fails — add the exact citation to the merged file, run it again. Also confirm by count
 that every source is a section of exactly one merged file.
 
 ## Phase 5 — Delete, then renumber
 
 1. Delete every merged-away source with `Remove-Item` once Phase 4 passes. Do not archive it.
-2. Rename every remaining file to `NNNN-<area>-<slug>.md`: four-digit numbers from `0001`,
-   contiguous, ordered by the area order above (within an area, merged themes before single
-   findings is fine). Rename through a temporary prefix so no rename collides with an existing name.
-3. Grep the folder for any old filename (`YYYYMMDD-HHMMSS-...md`, or a number that changed) and
-   repoint it.
+2. Rename every remaining file to `NNNN-<area>-<slug>.md` and move it into `findings\<area>\` for
+   its area, so a loose file and a file in the wrong area folder both end up in their area's folder:
+   four-digit numbers from `0001`, contiguous over the whole inbox (not per folder), ordered by the
+   area order above (within an area, merged themes before single findings is fine). Rename through a
+   temporary prefix so no rename collides with an existing name; a move never overwrites a file. An
+   area folder left empty stays.
+3. Grep the inbox and its subfolders (`Select-String -Path d:\datrix\findings\*.md,d:\datrix\findings\*\*.md`)
+   for any old filename (`YYYYMMDD-HHMMSS-...md`, or a number that changed) and repoint it.
 
 ## Report to Jon
 
-Short: files in, files out, how many merged themes and how many singles. One line per merged theme
+Short: files in, files out (both counted over the inbox and its subfolders), how many merged themes and
+how many singles. One line per merged theme
 (new name and how many sources). Then each single that shares an area with a theme, with its
 one-clause reason; conflicts flagged, redactions, and the Phase 4 exit code.

@@ -1,13 +1,13 @@
 ---
 model: claude-opus-5-5
 effort: high
-description: Turn the consolidated-NNN-*.md findings files in d:\datrix\findings into implementation-ready design documents in d:\datrix\design — numbered from 010 in steps of 10, each at most 100 lines, never referencing a later design, and consistent across every platform and every language the change reaches. Scripts and local models do the reading, grouping and checking; this skill writes the designs. Writes no findings files: whatever the work turns up goes into an existing design or a new one. Deletes each consolidated file once its content is in designs. Use when Jon asks to "turn the findings into designs", "consolidate to design", or runs /consolidate-to-design.
+description: Turn the consolidated-NNN-*.md findings files in d:\datrix\findings and its area subfolders into implementation-ready design documents in d:\datrix\design — numbered from 010 in steps of 10, each at most 100 lines, never referencing a later design, and consistent across every platform and every language the change reaches. Scripts and local models do the reading, grouping and checking; this skill writes the designs. Writes no findings files: whatever the work turns up goes into an existing design or a new one. Deletes each consolidated file once its content is in designs. Use when Jon asks to "turn the findings into designs", "consolidate to design", or runs /consolidate-to-design.
 ---
 
 # Consolidate to Design
 
-`consolidated-NNN-<slug>.md` files in the findings folder hold defects grouped by
-theme. This skill turns them into **designs** that `/implement-design-direct` can implement
+`consolidated-NNN-<slug>.md` files in the findings folder and its area subfolders
+(`findings\<area>\`) hold defects grouped by theme; the scripts below read them all. This skill turns them into **designs** that `/implement-design-direct` can implement
 without a question: one design per fix shape, in the order they must be built.
 
 It writes designs under `d:\datrix\design\` and deletes converted consolidated files, nothing
@@ -216,6 +216,9 @@ later-design pointers, each of which must be a pointer, never a premise.
 ```
 skill-assist.ps1 design-close --finding <consolidated file>... [--fixed C013.2 ...] [--apply]
 ```
+
+Name each consolidated file by its path under the findings folder (`kernel/consolidated-013-<slug>.md`)
+or absolutely.
 
 Deletes a consolidated file only when `design-check` has no error and every file path cited by each
 section (except the `--fixed` sections you proved already fixed with the cited lines) appears in a
