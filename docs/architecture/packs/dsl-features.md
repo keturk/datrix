@@ -4,7 +4,7 @@
 **Not for:** generation of the emitted code itself ([codegen-engine.md](./codegen-engine.md)).
 **Core map:** [architecture-cheat-sheet.md](../architecture-cheat-sheet.md)
 
-**Where DSL facts are tested.** A diagnostic is a `// @expect <CODE>.<variant>` annotation on the fixture line that provokes it; every catalog variant has a per-code fixture under `datrix-semantic/tests/fixtures/diagnostics/` (a census test holds that). A documented example is a `datrix` docs fence, parsed, and analyzed when it is a whole application. An annotation is a source comment, never published documentation.
+**Where DSL facts are tested.** A diagnostic is a `// @expect <CODE>.<variant>` annotation on the fixture line that provokes it; every catalog variant is annotated in a fixture under `datrix-semantic/tests/fixtures/diagnostics/` -- an area project `<area>.dtrx` holding the variants of its feature area, or an older per-code fixture `<CODE>.<variant>.dtrx` -- and a census test holds that (`datrix_testing.cases.annotations.diagnostic_variants`). A documented example is a `datrix` docs fence, parsed, and analyzed when it is a whole application. An annotation is a source comment, never published documentation.
 
 ## DSL Comment Preservation, Two-Channel Documentation
 

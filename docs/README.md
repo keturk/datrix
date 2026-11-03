@@ -37,6 +37,10 @@ See [`examples/README.md`](../examples/README.md) for structure, CLI usage, and 
 
 - [Guide index](guide/README.md) — Writing applications, configuration, patterns, and curated example links
 
+## Videos
+
+- [Making Videos with the Video Skills](videos/making-videos.md) — Narrated demos, app tours and spec-to-code walkthroughs of generated applications, made with Claude Code
+
 ---
 
 ## CLI
