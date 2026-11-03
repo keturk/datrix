@@ -203,6 +203,10 @@ _HANDOVER_SECTION: Final = (
     r"|next up"
     r"|what(?:'|’)?s (?:left|remaining|next)"
     r"|left to do"
+    r"|not (?:yet )?(?:done|finished|completed|fixed|merged|verified)"
+    r"|unfinished(?: work| items)?"
+    r"|outstanding(?: work| items)?"
+    r"|open (?:items|issues|work)"
     r"|to be (?:done|finished|completed)"
     r"|picking up (?:from )?here"
     r"|hand(?:ing)? ?over"
@@ -271,6 +275,79 @@ _PROOF_RE: Final = re.compile(
 def strip_quoted(text: str) -> str:
     """Blank out quoted and code spans so cited phrases are not read as speech."""
     return _QUOTED_SPAN_RE.sub(" ", text)
+
+
+# The reader's view of a reply: fenced code and quoted strings blanked, inline code kept. An
+# inline span is matched before a quote so a quote inside it (`--name="x"`) stays with it.
+_READER_SPAN_RE: Final = re.compile(
+    r"(?P<fenced>```.*?```)"
+    r"|(?P<inline>`[^`\n]*`)"
+    r"|(?P<quoted>\"[^\"\n]*\"|“[^”\n]*”)",
+    re.DOTALL,
+)
+
+
+def report_for_reader(text: str) -> str:
+    """The reply a second reader judges: fenced code and quoted strings blanked, inline code kept.
+
+    A sentence naming a setting or a file in inline code reads whole ("the shared settings file now
+    has `DATRIX_X`."), so the reader never judges a sentence with a hole in it. A verdict is still
+    checked against ``strip_quoted`` (``quote_stands``): a quote that leans on a code span cannot block.
+    """
+    return _READER_SPAN_RE.sub(lambda match: match.group("inline") or " ", text)
+
+
+_HOOK_FEEDBACK_PREFIX: Final = "Stop hook feedback"
+# Frames the harness writes as user-role text: a subagent hand-back, a background-task
+# notification, a system reminder. None is Jon speaking.
+HARNESS_FRAME_PREFIXES: Final = ("<agent-message", "<task-notification>", "<system-reminder>")
+
+
+def is_jon_speaking(blocks: list[dict[str, object]]) -> bool:
+    """Whether a user entry's content blocks are Jon's words: some text that is neither a Stop
+    hook's feedback nor a frame the harness wrote. A tool result is never Jon."""
+    texts = [str(block.get("text", "")).strip() for block in blocks if block.get("type") == "text"]
+    spoken = [text for text in texts if text]
+    return bool(spoken) and not all(
+        text.startswith(_HOOK_FEEDBACK_PREFIX) or text.startswith(HARNESS_FRAME_PREFIXES) for text in spoken
+    )
+
+
+def content_blocks(entry: dict[str, object]) -> list[dict[str, object]]:
+    """A transcript entry's message content as blocks (a string content is one text block)."""
+    message = entry.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
+
+
+def turn_edited_files(transcript_path: str, edit_tools: frozenset[str]) -> bool:
+    """Whether any tool call since Jon's last message is one of ``edit_tools``.
+
+    An unreadable transcript answers True: the caller then keeps every check it would run on a
+    turn that edited, never fewer."""
+    try:
+        with open(transcript_path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return True
+    edited = False
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        blocks = content_blocks(entry)
+        if entry.get("type") == "user" and is_jon_speaking(blocks):
+            edited = False
+            continue
+        edited = edited or any(
+            block.get("type") == "tool_use" and block.get("name") in edit_tools for block in blocks
+        )
+    return edited
 
 
 def carries_proof(text: str) -> bool:

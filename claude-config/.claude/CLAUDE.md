@@ -67,7 +67,8 @@ code and run it); why it failed; and the B1–B4 code.
 asked for (or the design doc / task file you were given). Do that, completely.
 - **Something you find that the task does not need** — a defect on a file you touched, a
   pre-existing failure your change did not cause, another instance of the defect you are fixing,
-  anything unrelated — is **not fixed**. It gets a findings file (below), and you carry on.
+  anything unrelated — is **not fixed**. A must-have gets a findings file (below), a
+  nice-to-have gets nothing, and you carry on.
 - **The task turns out bigger than estimated, or the correct fix needs broader changes** than the
   request states — more or different *behaviour* than it asks for (a capability, model field,
   phase or diagnostic its requirements do not need), or a measured size that is a multiple of
@@ -88,9 +89,12 @@ asked for (or the design doc / task file you were given). Do that, completely.
 - Never resolve it by shipping a smaller version instead: an unapproved expansion and a cut-down
   fix are both wrong. Approved work then follows every rule here.
 
-**Nothing you notice is dropped.** A defect the task does not need, a design flaw, or anything
-unrelated to your task gets a **findings file** at `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md`.
-Just write it: **do not look for an existing one** (duplicates are fine; `/merge-findings`
+**Nothing that must be fixed is dropped.** A must-have the task does not need — security, wrong or
+lost data, a shipped example that does not generate, a broken runtime, a red test or gate, a
+per-target behaviour difference (the six-point test is execution-contract-reporting.md §5A) —
+gets a **findings file** at `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md`. **A nice-to-have
+(dead code, tidiness, doc drift, lint, performance, a poorer diagnostic) gets no findings file,
+no fix and no mention; when unsure, file it.** Just write it: **do not look for an existing one** (duplicates are fine; `/merge-findings`
 merges them), do not fix it, do not file a task. Cite its path in your reply and carry on.
 **A findings file is only for an issue separate from your task** — so it is not forgotten and does
 not distract you. The issue you were asked to investigate, fix or implement, or any part of it (root
@@ -265,8 +269,8 @@ an unproven BLOCKED is the second worst.**
 **You can invoke these:** `/fix-issue`, `/fix-bug-report`, `/implement-feature-request`, `/fix-tests`, `/checkpoint-debug`,
 `/codegen-fix-loop`, `/operationalize-design`, `/task-orchestrator`, `/verify-design`, `/verify-implementation`,
 `/absorb-design`, `/commit-and-push`, `/add-script` (a new tool script: wrapper + `.sh` twin + `datrix_scripts` module),
-`/evaluate-generated`, `/evaluate-generated-service`, `/merge-findings`, `/delete-redundant-findings`, `/organize-findings`,
-`/consolidate-to-design`, `/implement-finding`, `/fix-cli`, `/fix-common`,
+`/evaluate-generated`, `/evaluate-generated-service`, `/merge-findings`, `/delete-redundant-findings`, `/organize-findings`, `/analyze-findings`,
+`/consolidate-to-design`, `/implement-finding`, `/discuss-finding`, `/fix-cli`, `/fix-common`,
 `/fix-extensions`, `/fix-language`, `/fix-rdbms-schema`, `/fix-semantic`, `/fix-testing`,
 `/fix-vscode`, `/fix-test-suites` (index.json runs; checks and fixes every related suite),
 `/fix-codegen-{angular,aws,azure,common,component,docker,flutter,kernel,python,sql,typescript,typescript-core}`.

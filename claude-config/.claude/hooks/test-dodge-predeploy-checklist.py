@@ -230,6 +230,10 @@ for label, command in [
     ("deploy verb after cd", "cd x && az deployment group create -g rg -f m.bicep"),
     ("deploy script via a shell wrapper", 'bash -c "powershell -File d:/x/deploy-staging.ps1"'),
     ("compose up with a file option", "docker compose -f a.yml up -d"),
+    ("a deploy script's POSIX twin through bash", "bash deploy-staging.sh"),
+    ("a deploy script's POSIX twin run directly", "./deploy-staging.sh"),
+    ("a deploy script after bash -c --", "bash -c -- 'powershell -File d:/x/deploy-staging.ps1'"),
+    ("a deploy script held in a variable", '$D "d:/x/deploy-staging.ps1"'),
 ]:
     code, err = run("guard-predeploy-analysis.py", predeploy_payload(command))
     check(f"predeploy/blocks {label}", code, BLOCK)
@@ -402,6 +406,33 @@ check(
     )[0],
     ALLOW,
 )
+
+# The shipped `tests-claimed-but-never-run` item names a RESULT, judged per sentence: a plan,
+# a proposed rule or a sentence saying no test ran is no claim; a past passing run is.
+with open(os.path.join(os.path.dirname(H), "checklists", "general.json"), encoding="utf-8") as f:
+    SHIPPED_TEST_CLAIM = next(item for item in json.load(f)["items"] if item["id"] == "tests-claimed-but-never-run")
+shipped = os.path.join(TMP, "shipped-test-claim")
+os.makedirs(shipped, exist_ok=True)
+with open(os.path.join(shipped, "general.json"), "w", encoding="utf-8") as f:
+    json.dump({"name": "general", "applies_to": {"always": True}, "items": [SHIPPED_TEST_CLAIM]}, f)
+for label, reply, want in [
+    ("a plan: after its targeted tests pass", "The script closes the finding after its targeted tests pass.", ALLOW),
+    ("a proposed rule naming test.ps1",
+     "A finding closes only when that session ran `test.ps1` and it exited 0, so the tests are green.", ALLOW),
+    ("no test has run, beside the word pass", "No test has run yet; the suite will pass once the fix lands.", ALLOW),
+    ("a dotted runner name does not split the sentence", "I edited `test.ps1` and the docs.", ALLOW),
+    ("All 12 tests passed.", "Jon, all 12 tests passed.", BLOCK),
+    ("tests passed with no failures", "The tests passed with no failures.", BLOCK),
+    ("a result in a later sentence", "I will run more later. The suite is green.", BLOCK),
+    ("`test.ps1` run reported green", "The `test.ps1 datrix-common -Tag x` run is green.", BLOCK),
+]:
+    reset_checklist_state()
+    code, _ = run(
+        "checklist.py",
+        {"session_id": SID, "transcript_path": transcript([("text", reply)], "claim.jsonl")},
+        env={"DATRIX_CHECKLIST_DIR": shipped},
+    )
+    check(f"checklist/shipped test claim: {label}", code, want)
 
 # Every item type, satisfied and unsatisfied: one single-item config per case.
 item_dir = os.path.join(TMP, "item-checklists")

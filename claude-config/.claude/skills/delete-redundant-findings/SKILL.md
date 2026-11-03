@@ -51,9 +51,9 @@ powershell -File "d:/datrix/datrix/scripts/skill/skill-assist.ps1" findings-redu
 ```
 
 **The inbox has area subfolders** (`organize-findings.ps1` sorts the loose files into
-`d:\datrix\findings\<area>\`). The command goes through the subfolders one at a time (then the
-inbox's own loose files) and compares the `*.md` of a folder with each other only, never with another
-folder's files: a duplicate is found inside `python`, not between `python` and `azure`. You pass no
+`d:\datrix\findings\<area>\`). The command reads every subfolder and the
+inbox's own loose files together and compares all their `*.md` with each other, across folders too:
+the same defect is often filed under two areas (`aws` and `tooling`, `schema` and `docs`). You pass no
 folder. Every file is named by its path under the inbox (`azure/0167-….md`) in the plan, the view and the
 delete step; a pointer in prose or in **Related:** names the file stem, as before. `--dir <folder>` (an
 area name such as `python`) narrows the run to that one folder. A full inbox has hundreds of pairs for the
@@ -64,10 +64,11 @@ It writes `d:\datrix\.tmp\assist\findings-redundant.json` (the plan) and `findin
 review view) and prints their paths with a one-line summary. Per file it works in three steps:
 
 1. **Units.** A raw file is one unit; a theme file (`## 1.`, `## 2.`, …) is one unit per section.
-2. **Candidates, exact.** A unit of a higher-ranked file is a candidate survivor when it holds at least
-   90% of the file's keywords, the backticked names on the file's `- **Keywords:**` line (a file without
-   that line is read for the names its text mentions; one with fewer than 3 names is matched by shared
-   words). Rank is citations,
+2. **Candidates, exact.** A unit of a higher-ranked file is a candidate survivor when it shares at least
+   half of the keywords of either one, or a third of their words. Keywords are the backticked names on
+   the file's `- **Keywords:**` line (a file without that line is read for the names its text mentions;
+   one with fewer than 3 names is matched by shared words alone). The test is wide on purpose: two
+   reports of one defect each name things the other lacks, and the model's verdict does the narrowing. Rank is citations,
    then length, then name (the earlier name survives a tie).
 3. **Verdict, model.** A local model reads both texts and answers SAME, PARTIAL or DIFFERENT. SAME
    stands only when the model lists nothing the doomed file has that the survivor lacks and quotes a
@@ -98,8 +99,10 @@ the survivor section named. Then:
 - **A proposal with `delete: false` that you confirm** → set `"delete": true` in the plan JSON with
   `Edit`. Only a file you have read both sides of.
 
-Pairs listed under *Looked alike, kept* need no reading unless the verdict looks wrong to you; a
-PARTIAL names what the survivor lacks, which is exactly why the file stays.
+Pairs listed under *Looked alike, kept* with DIFFERENT need no reading unless the verdict looks wrong to
+you. A PARTIAL or UNCLEAR pair whose reason says "the same defect" is a duplicate that carries a detail
+the survivor lacks: read both files, and when the detail is only a citation or a sentence, add it to the
+survivor and run Phase 1 again; a larger detail is a merge for `/merge-findings`.
 
 ## Phase 3 — Repoint what names a doomed file
 

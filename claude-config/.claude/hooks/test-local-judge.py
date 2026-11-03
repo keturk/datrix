@@ -72,20 +72,25 @@ class Verdict:
         return self.answer
 
 
-def transcript(assistant_text: str) -> str:
+def transcript(assistant_text: str, edit_tool: str = "") -> str:
+    """Jon's message, then (when ``edit_tool`` is named) one call of that tool, then the reply."""
     os.makedirs(os.path.dirname(TRANSCRIPT), exist_ok=True)
     with open(TRANSCRIPT, "w", encoding="utf-8") as handle:
         handle.write(json.dumps({"type": "user", "message": {"content": [
             {"type": "text", "text": "carry on with the task"}]}}) + "\n")
+        if edit_tool:
+            handle.write(json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "e1", "name": edit_tool, "input": {"file_path": "x.py"}}]}}) + "\n")
         handle.write(json.dumps({"type": "assistant", "message": {"content": [
             {"type": "text", "text": assistant_text}]}}) + "\n")
     return TRANSCRIPT
 
 
-def run(hook: str, text: str, port: int, *, active: bool = False, judge: str = "on") -> tuple[int, str]:
+def run(hook: str, text: str, port: int, *, active: bool = False, judge: str = "on",
+        edit_tool: str = "") -> tuple[int, str]:
     env = {**os.environ, "DATRIX_LOCAL_JUDGE_PORT": str(port), "DATRIX_LOCAL_JUDGE": judge,
            "DATRIX_LOCAL_LLM_USAGE_LOG": USAGE_LOG}
-    payload = {"session_id": SID, "transcript_path": transcript(text), "stop_hook_active": active}
+    payload = {"session_id": SID, "transcript_path": transcript(text, edit_tool), "stop_hook_active": active}
     process = subprocess.run([sys.executable, os.path.join(H, hook)], input=json.dumps(payload),
                              capture_output=True, text=True, env=env, timeout=60)
     return process.returncode, process.stderr
@@ -157,6 +162,35 @@ with LoopbackOllama(reply, ("judge-model",)) as server:
     check("DATRIX_LOCAL_JUDGE=off sends nothing", (code, len(server.chats) - before), (0, 0))
     code, _ = run(STOP, REWORDED_EXHAUSTION, closed_port())
     check("no model server: the stop proceeds", code, 0)
+
+    print("== the stop gate asks only what the turn can do, over the reply with inline code kept ==")
+    reply.set("expedient", EXPEDIENT_QUOTE)
+    for tool in ("Edit", "Write", "mcp__datrix-edit__edit_lines"):
+        clear_block_state()
+        code, _ = run(STOP, REWORDED_EXPEDIENT, server.port, edit_tool=tool)
+        check(f"a turn that called {tool} is asked the expedient family and blocked", code, 2)
+    clear_block_state()
+    before = len(server.chats)
+    code, _ = run(STOP, REWORDED_EXPEDIENT, server.port)
+    asked = server.chats[before].system if len(server.chats) > before else ""
+    check("a turn that edited nothing is never blocked as an expedient fix", code, 0)
+    check("  and is asked the exhaustion family only",
+          ("exhaustion" in asked, "expedient" in asked, "security" in asked), (True, False, False))
+    reply.set("clean", "")
+    recommendation = (
+        "Two options for the hook settings. (a) keep the per-session file, (b) move the switch into the "
+        "shared settings. I recommend (b): write each replacement from the code rather than from the old "
+        "notes, which is the larger change but the correct one. The change: the shared settings file now "
+        "has `DATRIX_NO_SUBAGENTS`. That makes it your call."
+    )
+    before = len(server.chats)
+    code, _ = run(STOP, recommendation, server.port)
+    sent = server.chats[before].user if len(server.chats) > before else ""
+    check("a recommendation turn with no edit is allowed", code, 0)
+    check("  the setting-precedence sentence reaches the reader whole",
+          "the shared settings file now has `DATRIX_NO_SUBAGENTS`." in sent, True)
+    check("  the 'write each replacement from the code' proposal reaches the reader whole",
+          "write each replacement from the code rather than from the old notes" in sent, True)
 
 clear_block_state()
 if os.path.isfile(USAGE_LOG):

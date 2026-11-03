@@ -80,6 +80,16 @@ check("the POSIX twin run directly", cmd("./mypy.sh --all"), BLOCK)
 check("the wrapper -All", cmd('powershell -File "d:/datrix/datrix/scripts/test/mypy.ps1" -All'), BLOCK)
 check("the wrapper's self-test switch turned off",
       cmd('powershell -File "d:/datrix/datrix/scripts/test/mypy.ps1" -SelfTest:$false datrix-common'), BLOCK)
+check("the wrapper held in a variable",
+      cmd('$T "d:/datrix/datrix/scripts/test/mypy.ps1" datrix-common', tool="PowerShell"), BLOCK)
+check("the wrapper behind a function the command defines",
+      cmd('tc() { bash "$1" "$2"; }; tc d:/datrix/datrix/scripts/test/mypy.sh datrix-cli'), BLOCK)
+check("the wrapper after bash -c --", cmd("bash -c -- 'bash d:/datrix/datrix/scripts/test/mypy.sh datrix-cli'"), BLOCK)
+check("affected-gate -Mypy held in a variable",
+      cmd('$G "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects datrix-cli -Mypy', tool="PowerShell"),
+      BLOCK)
+check("the variable-held wrapper's self-test alone is allowed",
+      cmd('$T "d:/datrix/datrix/scripts/test/mypy.ps1" -SelfTest', tool="PowerShell"), ALLOW)
 check("a self-test flag does not exempt bare mypy", cmd("mypy --self-test"), BLOCK)
 check("a self-test flag does not exempt -m mypy", cmd("python -m mypy --self-test"), BLOCK)
 check("a wrapper self-test does not vouch for a type-check chained after it",

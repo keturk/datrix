@@ -127,6 +127,22 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
         False,
         "a module whose name merely starts with datrix_scripts.dev.generate",
     ),
+    # ---- the per-project child module generates the default test set without --source ----
+    (f"{_PY} -m datrix_scripts.dev.generate_projects", True, "the child module with no --source"),
+    (f"{_PY} -m datrix_scripts.dev.generate_projects --language python", True, "the child, a language only"),
+    (f"{_PY} -m datrix_scripts.dev.generate_projects --source {_EXAMPLE}", False, "the child, one source"),
+    (f"{_PY} -m datrix_scripts.dev.generate_projects --source={_EXAMPLE}", False, "the child, --source="),
+    # ---- -NoSave / -VerboseOutput are banned on every test runner, in both spellings ----
+    ('powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common -Tag x -NoSave', True, "test.ps1 -NoSave"),
+    ("bash d:/datrix/datrix/scripts/test/test.sh datrix-common --tag x --no-save", True, "test.sh --no-save"),
+    ("bash d:/datrix/datrix/scripts/test/test.sh datrix-common --tag x --verbose-output", True, "test.sh --verbose-output"),
+    (f"{_PY} -m datrix_scripts.test.test datrix-common --tag x --no-save", True, "the runner module --no-save"),
+    ('grep -n NoSave d:/datrix/datrix/scripts/test/test.ps1', False, "reading test.ps1 for -NoSave runs nothing"),
+    (
+        'powershell -File "d:/datrix/datrix/scripts/metrics/coverage.ps1" datrix-common -VerboseOutput',
+        False,
+        "-VerboseOutput on another script is not the runner's",
+    ),
     (
         'bash "d:/datrix/datrix/scripts/dev/generate-test-rules.sh" --all',
         False,

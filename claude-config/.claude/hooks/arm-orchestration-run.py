@@ -35,6 +35,10 @@ accepted and known — a run resumed after a compaction, or continued with "keep
 is not armed until Jon names the skill again. Failing open there is strictly better than
 holding a planning run to work it was never asked to do.
 
+"Jon's own prompt" means his own words: each `<pasted_content …>` block in the prompt is
+blanked before the skill, the phases or a stop are read (`own_words`), so a pasted log that
+holds `/task-orchestrator` and `PHASE: 3` arms nothing and a pasted "stop the run" stops nothing.
+
 DISARMING is not left to the model — the Stop gate disarms itself only when
 phase-status.ps1 reports zero unresolved tasks, or when Jon says stop.
 
@@ -121,6 +125,20 @@ def _is_stop_directive(prompt: str) -> bool:
     return bool(_USER_STOP_RE.search(text))
 
 
+# Text Jon pasted into his message (a log, another session's transcript) is not his words:
+# a pasted skill-chain log holding `/task-orchestrator` and `PHASE: 3` once armed this gate
+# for a question-only turn. The harness wraps each paste in a block whose opening and closing
+# tags carry the same id; an unclosed block runs to the end of the prompt.
+_PASTED_BLOCK_RE: Final = re.compile(
+    r"<pasted_content(?P<attrs>[^>]*)>.*?(?:</pasted_content(?P=attrs)>|\Z)", re.DOTALL
+)
+
+
+def own_words(prompt: str) -> str:
+    """The prompt with every pasted block blanked: the only text that arms, phases or stops a run."""
+    return _PASTED_BLOCK_RE.sub(" ", prompt)
+
+
 def _state_path(session_id: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_-]", "_", session_id or "unknown")
     return os.path.join(_STATE_DIR, f"orchestration-run-{safe}.json")
@@ -164,7 +182,7 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)
 
-    prompt = data.get("prompt") or ""
+    prompt = own_words(data.get("prompt") or "")
     session_id = data.get("session_id") or ""
     path = _state_path(session_id)
 

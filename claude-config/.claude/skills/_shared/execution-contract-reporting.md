@@ -6,7 +6,7 @@ Part of the [execution contract](./execution-contract.md); section numbers are s
 
 ---
 
-## 5A. Findings files — nothing you notice is dropped
+## 5A. Findings files — nothing that must be fixed is dropped
 
 Some things you notice are not yours to fix now:
 
@@ -14,7 +14,35 @@ Some things you notice are not yours to fix now:
 - a design flaw, a wrong or risky pattern, or a gap in a doc, test, or tool;
 - a defect on a surface you did **not** touch, noticed in passing.
 
-Each one gets a **findings file**. Ignoring it, or mentioning it only in your reply, is not an
+**Only a must-have gets a findings file.** The inbox is for what has to be fixed, not for every
+tidier way the code could be. A noticed issue is a must-have when it is any one of:
+
+1. **Security.** A control missing, loosened or fail-open; clear-text or unverified connection
+   material; a grant wider than the principal reads; a credential substituted or defaulted; an
+   unchecked trust-boundary input; a guard or hook that misreads what it blocks. An emitted default
+   counts as much as framework code (§13).
+2. **Wrong or lost data.** A computed, stored or wire value, or a file set, that differs from what the
+   source declares; a run that deletes files it does not own; a declared field, clause or
+   precondition that nothing writes or enforces.
+3. **A shipped example or named product does not generate** (or does not compile or parse).
+4. **A broken runtime.** Generated output that cannot connect, start, authenticate, consume, renew a
+   lock or shut down, or that reports healthy while failing.
+5. **A red test, gate, guard or script on the live tree**, a test that cannot be collected, or a gate
+   that crashes before it checks.
+6. **A per-target behaviour difference** — the same `.dtrx` means something different on two
+   languages, platforms or client targets. (A missing capability with a counted `capability_gaps` row
+   is not this.)
+
+**A nice-to-have gets no file, no fix and no mention.** The product behaves correctly today and the
+issue only makes the code or the workflow tidier: dead code with no production caller; a fact
+written in a second place that agrees with its home today; documentation drift; lint and format
+findings; performance; a duplicate or poorly worded diagnostic; a late error that is still an
+error; fixture or test-quality hygiene; process notes; script robustness that blocks no gate. Do
+not write it down, do not fix it unless the task needs it, and do not list it in your report.
+Reading a nice-to-have as a must-have is cheap; the reverse is the costly mistake, so **when
+unsure, file it.** `/analyze-findings` applies the same test to the inbox.
+
+Each must-have gets a **findings file**. Ignoring it, or mentioning it only in your reply, is not an
 outcome. Write the file, then carry on with your own task. A findings file is never a reason to
 stop, and it never replaces fixing a small defect on a surface you touched. That is still §5
 outcome 1.

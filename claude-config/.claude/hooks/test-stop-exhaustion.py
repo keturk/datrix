@@ -72,6 +72,11 @@ check("'**Remaining after that:**' heading -> BLOCKED",
            "**Remaining after that:** build the image, port the PAT step."), 2)
 check("'Next up:' heading -> BLOCKED",
       gate("Fixed the parser defect.\n\nNext up: wire the release leg."), 2)
+check("'**Not done:**' heading -> BLOCKED",
+      gate("Merged the tooling files.\n\n"
+           "**Not done:**\n- The self-check pass was not re-run."), 2)
+check("'**Outstanding items:**' heading -> BLOCKED",
+      gate("Merged the tooling files.\n\n**Outstanding items:** rename the slugs."), 2)
 check("'to keep the repo in a clean state' -> BLOCKED",
       gate("Stopping here to keep the repo in a clean state."), 2)
 

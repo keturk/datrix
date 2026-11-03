@@ -5,13 +5,16 @@ this hook blocks the call and reminds Claude to read the category-specific
 quick-reference.md first. Claude must include the marker
 VERIFIED_AGAINST_QUICK_REFERENCE in the command description to proceed.
 
-It also hard-blocks two test-invocation anti-patterns globally (these cannot
-be overridden by the VERIFIED marker):
-  1. test.ps1 with -NoSave or -VerboseOutput. -VerboseOutput burns tokens for
-     no benefit; -NoSave hides the saved test progress/results. Agents must run
-     test.ps1 with neither flag.
+It also hard-blocks these anti-patterns globally (these cannot be overridden by
+the VERIFIED marker):
+  1. A test runner (test.ps1, test.sh, affected-gate or their modules) with
+     -NoSave or -VerboseOutput (--no-save, --verbose-output). -VerboseOutput burns
+     tokens for no benefit; -NoSave hides the saved test progress/results.
   2. Running pytest directly. All tests go through test.ps1 / test-single.ps1,
      which activate the shared venv and save timestamped results.
+  3. Group generation: generate.ps1 / generate.sh / `-m datrix_scripts.dev.generate`
+     with -All / -Domains / -TestSet, and `-m datrix_scripts.dev.generate_projects`
+     without --source (it then generates the whole default test set).
 
 Category quick-reference files:
   datrix/scripts/test/quick-reference.md
@@ -32,7 +35,8 @@ import json
 import re
 import sys
 
-from _command_shape import executable_text, invoked_scripts, segments
+from _command_shape import VIA_PYTHON_MODULE, executable_text, invoked_scripts, segments
+from _suite_invocation import FAMILY_TEST, invocations
 
 # Map script subfolder to its category quick-reference file
 _CATEGORY_MAP = {
@@ -48,10 +52,11 @@ _CATEGORY_MAP = {
 
 _SCRIPTS_BASE = "d:/datrix/datrix/scripts/"
 
-# Banned test.ps1 flags (lowercased). -VerboseOutput burns tokens; -NoSave
-# hides saved test progress. Neither is ever allowed, even with the
-# VERIFIED_AGAINST_QUICK_REFERENCE marker.
-_BANNED_TEST_FLAGS = ("-nosave", "-verboseoutput")
+# Banned test-runner flags (lowercased), in the wrapper's and the module's spelling.
+# -VerboseOutput burns tokens; -NoSave hides saved test progress. Neither is ever
+# allowed, even with the VERIFIED_AGAINST_QUICK_REFERENCE marker, on any runner of the
+# `test` family (`_suite_invocation.RUNNERS`: test.ps1, test.sh, affected-gate, their modules).
+_BANNED_TEST_FLAGS = ("-nosave", "-verboseoutput", "--no-save", "--verbose-output")
 
 # Direct pytest invocation (not wrapped in a .ps1 test script). Matches
 # `pytest ...`, `python -m pytest`, `py.test`, `python -m py.test` as a
@@ -74,12 +79,12 @@ _GROUP_GENERATION_MODULE_FLAGS = ("--all", "--domains", "--test-set")
 # and `generate-test-rules.ps1` (which legitimately take -All) never match.
 _GENERATE_SCRIPT = "generate.ps1"
 _GENERATE_TWIN = "generate.sh"
-# The module behind both wrappers, run directly: `-m` alone or closing a group of
-# the interpreter's argument-free flags (`-Im`, lowercased here), with or without
-# a space before the module name, as the interpreter accepts each.
-_GENERATE_MODULE_RE = re.compile(
-    r"(?:^|[\s;|&(])-[bdeiopqrsuvx]*m\s*datrix_scripts\.dev\.generate(?![\w.])"
-)
+# The module behind both wrappers, run directly (`python -m`, as `_command_shape` reads it).
+_GENERATE_MODULE = "datrix_scripts.dev.generate"
+# The child module `generate` runs per project: without `--source` it generates the
+# whole default test set, so it is group generation however it is reached.
+_GENERATE_CHILD_MODULE = "datrix_scripts.dev.generate_projects"
+_SOURCE_FLAG = "--source"
 _SCRIPTS_MARKER = "datrix/scripts/"
 
 
@@ -93,9 +98,33 @@ def _generate_runs(segment: str) -> tuple[bool, bool]:
     """Whether this statement executes `generate.ps1`, and whether it executes
     its module-flag forms (`generate.sh`, `-m datrix_scripts.dev.generate`) --
     run, not merely named."""
-    names = {script.path.rsplit("/", 1)[-1].lower() for script in invoked_scripts(segment)}
-    module_form = _GENERATE_TWIN in names or bool(_GENERATE_MODULE_RE.search(segment))
+    scripts = invoked_scripts(segment)
+    names = {script.path.rsplit("/", 1)[-1].lower() for script in scripts}
+    module_form = _GENERATE_TWIN in names or any(
+        script.via == VIA_PYTHON_MODULE and script.path.lower() == _GENERATE_MODULE for script in scripts
+    )
     return _GENERATE_SCRIPT in names, module_form
+
+
+def _group_child_runs(command: str) -> bool:
+    """True when the command runs the per-project child module with no `--source`."""
+    return any(
+        script.via == VIA_PYTHON_MODULE
+        and script.path.lower() == _GENERATE_CHILD_MODULE
+        and not any(arg == _SOURCE_FLAG or arg.startswith(f"{_SOURCE_FLAG}=") for arg in script.args)
+        for script in invoked_scripts(command)
+    )
+
+
+def _banned_test_flags(command: str) -> list[str]:
+    """The banned flags carried by any `test`-family runner the command executes."""
+    return [
+        flag
+        for run in invocations(command)
+        if run.family == FAMILY_TEST
+        for flag in _BANNED_TEST_FLAGS
+        if any(word.lower() == flag or word.lower().startswith(f"{flag}=") for word in run.args)
+    ]
 
 
 def _used_flags(text: str, flags: tuple[str, ...]) -> list[str]:
@@ -147,19 +176,19 @@ def main() -> None:
 
     # ── Hard bans (cannot be overridden by VERIFIED_AGAINST_QUICK_REFERENCE) ──
 
-    # 1. test.ps1 must never carry -NoSave or -VerboseOutput.
-    if "test.ps1" in normalized:
-        banned = [flag for flag in _BANNED_TEST_FLAGS if flag in normalized]
-        if banned:
-            _block(
-                "BLOCKED: test.ps1 must not be run with "
-                f"{' or '.join(banned)}.\n"
-                "-VerboseOutput burns tokens for no benefit, and -NoSave hides "
-                "the saved test progress/results.\n"
-                "Re-run test.ps1 with NEITHER flag — the default minimal output "
-                "plus the saved timestamped .test_results/ folder is what you "
-                "must use. Read index.json for the canonical result."
-            )
+    # 1. No test-runner invocation (test.ps1, test.sh, affected-gate, their modules)
+    #    may carry -NoSave or -VerboseOutput, in either spelling.
+    banned = _banned_test_flags(command)
+    if banned:
+        _block(
+            "BLOCKED: a test runner must not be run with "
+            f"{' or '.join(dict.fromkeys(banned))}.\n"
+            "-VerboseOutput burns tokens for no benefit, and -NoSave hides "
+            "the saved test progress/results.\n"
+            "Re-run test.ps1 with NEITHER flag — the default minimal output "
+            "plus the saved timestamped .test_results/ folder is what you "
+            "must use. Read index.json for the canonical result."
+        )
 
     # 2. Never run pytest directly — all tests go through test.ps1 /
     #    test-single.ps1 (which activate the shared venv and save results).
@@ -190,6 +219,14 @@ def main() -> None:
         _block(
             f"BLOCKED: generate.ps1 (generate.sh, datrix_scripts.dev.generate) must not be run with "
             f"{' or '.join(dict.fromkeys(used))}.\n"
+            "Regenerate only the affected project: "
+            '`generate.ps1 "d:/datrix/datrix/examples/{group}/{example}/system.dtrx" -L {language}`. '
+            "To prove a fix generalizes, write a test in the owning package."
+        )
+    if _group_child_runs(command):
+        _block(
+            f"BLOCKED: {_GENERATE_CHILD_MODULE} without {_SOURCE_FLAG} generates the whole default "
+            "test set (group generation).\n"
             "Regenerate only the affected project: "
             '`generate.ps1 "d:/datrix/datrix/examples/{group}/{example}/system.dtrx" -L {language}`. '
             "To prove a fix generalizes, write a test in the owning package."

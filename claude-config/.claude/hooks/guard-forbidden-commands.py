@@ -76,7 +76,15 @@ import shlex
 import sys
 from typing import Any, Final
 
-from _command_shape import executable_text, is_read_only, leading_token, segments
+from _command_shape import (
+    VIA_PYTHON_MODULE,
+    InvokedScript,
+    executable_text,
+    invoked_scripts,
+    is_read_only,
+    leading_token,
+    segments,
+)
 
 # Subcommands that always discard or rewrite working-tree / history state.
 _ALWAYS_BLOCKED = {
@@ -293,6 +301,7 @@ _WRAPPER_RE = re.compile(r"(?<![\w.-])(?:mypy\.(?:ps1|sh)|mypy(?:_check)?\.py)\b
 _WRAPPER_MODULE_RE = re.compile(
     r"(?<![\w.-])-m\s+datrix_scripts\.test\.mypy_check(?![\w.])", re.IGNORECASE
 )
+_WRAPPER_MODULE = "datrix_scripts.test.mypy_check"
 
 # What a wrapper or module run may carry and still launch no type-checker: its
 # self-test, which checks the wrapper seam and the command it would build over
@@ -459,6 +468,39 @@ def _check_type_checker(command: str) -> None:
                 "changed packages.",
                 _TYPE_CHECKER_TAIL,
             )
+
+    for invoked in invoked_scripts(command):
+        _check_invoked_type_checker(invoked)
+
+
+def _check_invoked_type_checker(invoked: InvokedScript) -> None:
+    """Block a type-checker reached in a shape the segment scan above cannot see.
+
+    `_command_shape.invoked_scripts` reads a wrapper run through an expansion or a function
+    the command defines (`$T .../mypy.ps1 pkg`), the word after `bash -c --`, and a module run
+    with `python -m` under any grouping of interpreter flags."""
+    name = invoked.path.rsplit("/", 1)[-1]
+    if invoked.via == VIA_PYTHON_MODULE:
+        if invoked.path.lower() in _TYPE_CHECKERS:
+            _block(f"BLOCKED: `-m {invoked.path}` runs a standalone type-checker.", _TYPE_CHECKER_TAIL)
+        if invoked.path.lower() == _WRAPPER_MODULE and not _is_self_test_run(list(invoked.args)):
+            _block(
+                f"BLOCKED: `-m {_WRAPPER_MODULE}` runs a standalone type-checker "
+                "(only its --self-test, alone, launches none).",
+                _TYPE_CHECKER_TAIL,
+            )
+        return
+    if _WRAPPER_RE.fullmatch(name) and not _is_self_test_run(list(invoked.args)):
+        _block(
+            f"BLOCKED: `{name}` runs a standalone type-checker (only its -SelfTest / --self-test, alone, "
+            "launches none).",
+            _TYPE_CHECKER_TAIL,
+        )
+    if _AFFECTED_GATE_RE.fullmatch(name) and any(_MYPY_SWITCH_RE.fullmatch(arg) for arg in invoked.args):
+        _block(
+            "BLOCKED: `affected-gate.ps1 -Mypy` / `affected-gate.sh --mypy` type-checks the changed packages.",
+            _TYPE_CHECKER_TAIL,
+        )
 
 
 # FAMILY 3 -- `pytest` invoked directly. `test.ps1` owns the interpreter, the selection

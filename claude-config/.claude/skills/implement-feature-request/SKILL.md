@@ -322,7 +322,7 @@ Resolved requests (absolute paths):
 
 End with exactly one line per request: `Feature request: IMPLEMENTED` · `Feature request: ALREADY AVAILABLE` · `Feature request: PARTIAL — {what remains and why}` · `Feature request: BLOCKED B<n>` (with the four-part proof above it) · `Feature request: APPROVAL_REQUIRED` (with the question above it).
 
-**Noticing other things.** A defect, gap or design flaw the capability does not need — another instance elsewhere, a pre-existing failure, an unrelated problem — gets a findings file (`d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md`, `execution-contract-reporting.md` §5A) and is not fixed here. Do not look for an existing one. Findings are neutral too: no product term.
+**Noticing other things.** A defect, gap or design flaw the capability does not need — another instance elsewhere, a pre-existing failure, an unrelated problem — gets a findings file when it is a must-have (a nice-to-have gets none; `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md`, `execution-contract-reporting.md` §5A) and is not fixed here. Do not look for an existing one. Findings are neutral too: no product term.
 
 ---
 

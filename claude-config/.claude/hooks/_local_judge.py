@@ -64,7 +64,7 @@ for _path in (_HOOKS_DIR, _SCRIPTS_LIB_DIR):
         sys.path.insert(0, _path)
 
 from _hook_log import append_record  # noqa: E402
-from _report_language import quote_stands, strip_quoted  # noqa: E402
+from _report_language import quote_stands, report_for_reader  # noqa: E402
 
 if TYPE_CHECKING:
     from datrix_scripts.local_llm import LocalLlmSettings
@@ -190,9 +190,23 @@ def _parse(answer: str, families: tuple[str, ...]) -> tuple[str, str, str]:
     return str(verdict), quote, str(confidence)
 
 
-def judge_report(text: str, gate: str, settings: LocalLlmSettings | None = None) -> Judgement:
-    """Ask a local model whether ``text`` does something ``gate`` refuses; clean unless it proves it."""
-    families = GATE_FAMILIES[gate]
+def stop_families(turn_edited: bool) -> tuple[str, ...]:
+    """The families the stop gate asks about: a turn that edited no file can report no fix, so it is
+    asked only whether it ends on context exhaustion."""
+    return GATE_FAMILIES[GATE_STOP] if turn_edited else (FAMILY_EXHAUSTION,)
+
+
+def judge_report(
+    text: str,
+    gate: str,
+    families: tuple[str, ...] | None = None,
+    settings: LocalLlmSettings | None = None,
+) -> Judgement:
+    """Ask a local model whether ``text`` does something ``gate`` refuses; clean unless it proves it.
+
+    ``families`` narrows the question to the families the turn can commit (``stop_families``); it
+    defaults to every family of ``gate`` and is never wider."""
+    families = tuple(family for family in (families or GATE_FAMILIES[gate]) if family in GATE_FAMILIES[gate])
     if os.environ.get(ENV_SWITCH, "").lower() == ENV_SWITCH_OFF or len(text.strip()) < MIN_JUDGED_CHARS:
         return CLEAN_JUDGEMENT
     try:
@@ -202,7 +216,7 @@ def judge_report(text: str, gate: str, settings: LocalLlmSettings | None = None)
     except ImportError as exc:
         _log({"gate": gate, "outcome": "unavailable", "detail": f"datrix_scripts.local_llm not importable: {exc}"})
         return CLEAN_JUDGEMENT
-    report = strip_quoted(text)[-MAX_JUDGED_CHARS:]
+    report = report_for_reader(text)[-MAX_JUDGED_CHARS:]
     request = ChatRequest(system=_system_prompt(families), user=report, temperature=0.0,
                           max_tokens=MAX_ANSWER_TOKENS, json_schema=_schema(families))
     started = time.perf_counter()

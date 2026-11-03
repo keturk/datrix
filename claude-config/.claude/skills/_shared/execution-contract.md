@@ -174,9 +174,11 @@ approved scope, not BLOCKED: the orchestrator re-dispatches it serially as soon 
 A defect, gap or oddity you discover while working is **not fixed** unless the task needs it fixed
 to be correct. That covers a defect on a file you touched, a failure your change did not cause,
 other instances of the defect class you are fixing, and anything unrelated to your task. Each one
-gets a findings file (§5A): just write it. Do not search the findings folder for a duplicate, do not
-fix it, do not file a task for it, and do not leave it only as a line in your report. Jon decides
-what becomes work.
+that is a must-have (§5A: security, wrong or lost data, a shipped example that does not generate, a
+broken runtime, a red test or gate, a per-target behaviour difference) gets a findings file (§5A):
+just write it. Do not search the findings folder for a duplicate, do not fix it, do not file a task
+for it, and do not leave it only as a line in your report. Jon decides what becomes work. A
+nice-to-have (dead code, tidiness, doc drift, lint, performance) gets no findings file.
 
 If the task *does* need it — your change cannot be correct or pass its checks without it — it is
 part of the task: fix it, and if that makes the task broader or bigger, §4 applies.
@@ -197,8 +199,8 @@ run with work nobody scheduled, and it moves what `latest-phase.ps1` reports.
 ## 5A. Findings files — nothing you notice is dropped
 
 *Held in [execution-contract-reporting.md](./execution-contract-reporting.md).* Summary: anything
-you find that the task does not need (§5) — a defect, a design flaw, an issue on any surface — gets
-a findings file at `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md` (brief; no search first;
+you find that the task does not need (§5) and that is a must-have — a defect, a design flaw, an
+issue on any surface; a nice-to-have gets none — gets a findings file at `d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md` (brief; no search first;
 duplicates are fine), and you cite its path in your reply. A findings file is never a reason to stop,
 and never holds the issue you are working on: that issue is the task (§5).
 

@@ -28,7 +28,7 @@ import sys
 
 from _command_shape import invoked_scripts, leading_token
 from _fixture_probe import PROBE_COMMAND, read_edits, unprobed
-from _suite_invocation import invocation_tails, runs_no_test
+from _suite_invocation import invocations, starts_tests
 
 _CHANGE_DIRECTORY: frozenset[str] = frozenset({"cd", "set-location", "pushd", "sl"})
 _RUNNER_NAMES: frozenset[str] = frozenset({"test-single.ps1", "test-single.sh"})
@@ -65,7 +65,7 @@ def statements(command: str) -> list[str]:
 
 def runs_a_test(command: str) -> bool:
     """True when the command executes a test runner that starts tests."""
-    if any(not runs_no_test(tail) for tail in invocation_tails(command)):
+    if any(starts_tests(run) for run in invocations(command)):
         return True
     return any(script.path.rsplit("/", 1)[-1].lower() in _RUNNER_NAMES for script in invoked_scripts(command))
 

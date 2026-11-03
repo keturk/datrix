@@ -259,7 +259,84 @@ _CASES: tuple[tuple[str, bool, str], ...] = (
     (f"bash -o pipefail {_TEST_SH} datrix-common --tag gateway", False, "test.sh: a shell value option before the script"),
     (f"grep -n list-tags {_TEST_SH}", False, "test.sh: reading the twin runs nothing"),
     (f"bash {_SINGLE_SH} tests/unit/a.py --project=datrix-common", False, "test-single.sh is not the runner"),
+    # ---- a flag is read as the shell binds it: an abbreviation is refused, :$false is off ----
+    (f"{_TEST} datrix-common -Al -Tag gateway", True, "-Al binds -All: refused as an abbreviation"),
+    (f"{_TEST} -Rer", True, "-Rer binds -Rerun: refused as an abbreviation"),
+    (f"{_TEST} datrix-common -Ta a,b,c,d,e", True, "-Ta binds -Tag, uncounted by the tag cap"),
+    (f"{_TEST} datrix-common -Spec tests/unit/a.py", True, "-Spec is refused, not guessed"),
+    (f"{_TEST} datrix-common -SelfTest:$false", True, "-SelfTest:$false runs the suite"),
+    (f"{_TEST} datrix-common -SelfTest", False, "-SelfTest runs no test"),
+    (f"{_TEST} datrix-common -SelfTest:$true", False, "-SelfTest:$true is the plain switch"),
+    (f"{_TEST} datrix-common -ListTags", False, "-ListTags runs no test"),
+    (f"{_TEST} datrix-common -Tag:gateway", False, "-Tag:value binds the tag"),
+    (f"{_TEST} datrix-common -Tag gateway -Verbose", False, "-Verbose is PowerShell's own, not -VerboseOutput"),
+    (f"bash {_TEST_SH} datrix-common --al", True, "test.sh: --al is refused, not read as --all"),
+    # ---- every runner of the table: the modules, coverage, test-gen, error-messages ----
+    ("python -m datrix_scripts.test.test --all", True, "the runner module run directly"),
+    ("python -m datrix_scripts.test.test datrix-common", True, "the runner module, a bare package"),
+    ("python -Im datrix_scripts.test.affected_gate --projects datrix-common", True, "affected-gate's module"),
+    ("python -m datrix_scripts.test_project datrix-common", True, "the per-package child module"),
+    ("python -m datrix_scripts.test.test datrix-common --tag gateway", False, "the runner module, targeted"),
+    ("python -m datrix_scripts.test.test --self-test", False, "the runner module's self-test"),
+    ('powershell -File "d:/datrix/datrix/scripts/metrics/coverage.ps1" datrix-common', True, "coverage runs the suite"),
+    ('powershell -File "d:/datrix/datrix/scripts/metrics/test-gen.ps1" datrix-common', True, "test-gen runs the suite"),
+    ("python -m datrix_scripts.metrics.coverage --projects datrix-common", True, "coverage's module"),
+    ('powershell -File "d:/datrix/datrix/scripts/metrics/coverage.ps1" -SelfTest', False, "coverage self-test"),
+    (
+        'powershell -File "d:/datrix/datrix/scripts/metrics/error-messages.ps1" datrix-common -Fix -Test',
+        True,
+        "error-messages -Test runs the suite after each fix",
+    ),
+    (
+        'powershell -File "d:/datrix/datrix/scripts/metrics/error-messages.ps1" datrix-common -Fix',
+        False,
+        "error-messages -Fix alone runs no test",
+    ),
+    (
+        'powershell -File "d:/datrix/datrix/scripts/metrics/error-messages.ps1" datrix-common -Fix -Tes',
+        True,
+        "error-messages -Tes binds -Test: refused as an abbreviation",
+    ),
+    # ---- the command shapes the reader resolves: `--` after -c, an expansion, a function ----
+    (f"bash -c -- '{_TEST} datrix-common'", True, "bash -c -- runs the word after --"),
+    ("bash -c -- 'echo x'", False, "bash -c -- echo runs no runner"),
+    ('$T "d:/datrix/datrix/scripts/test/affected-gate.ps1" -Projects datrix-common', True, "a variable as the executor"),
+    ('$T = "d:/datrix/datrix/scripts/test/test.ps1"', False, "assigning the runner path runs nothing"),
+    (
+        'run() { powershell -File "$1"; }; run d:/datrix/datrix/scripts/test/test.ps1 -All',
+        True,
+        "a function the command defines, wrapping the runner",
+    ),
+    ("$X = 1", False, "an assignment runs nothing"),
+    ("python -m json.tool x.json", False, "an unrelated module run"),
 )
+
+
+def _abbreviation_census() -> list[str]:
+    """Flags the guard reads - flags refused when abbreviated = empty: every strict prefix of every
+    guarded flag (that is not itself a guarded flag of the family) is refused, naming the full flag."""
+    sys.path.insert(0, str(_HOOK.parent))
+    from _suite_invocation import (
+        GUARDED_FLAGS,
+        PS_COMMON_PARAMETERS,
+        REFUSE_ABBREVIATION,
+        RUNNERS,
+        Invocation,
+        refusal,
+    )
+
+    missed: list[str] = []
+    for family, flags in GUARDED_FLAGS.items():
+        runner = next(name for name, owner in RUNNERS.items() if owner == family and name.endswith(".ps1"))
+        for flag in flags:
+            for length in range(1, len(flag)):
+                word = f"-{flag[:length].capitalize()}"
+                if flag[:length] in flags or flag[:length] in PS_COMMON_PARAMETERS:
+                    continue
+                refused = refusal(Invocation(runner, family, ("datrix-common", word)))
+                if refused is None or refused.kind != REFUSE_ABBREVIATION or f"-{flag}" not in refused.details[0]:
+                    missed.append(f"{runner} {word} (prefix of -{flag}) was not refused naming -{flag}")
+    return missed
 
 
 def _run(command: str, agent_id: str) -> int:
@@ -302,6 +379,10 @@ def main() -> int:
         if _AUDIT.exists():
             with open(_AUDIT, "r+b") as handle:
                 handle.truncate(audit_size)
+
+    census = _abbreviation_census()
+    failures.extend(census)
+    print(f"  [{'OK  ' if not census else 'FAIL'}] every strict prefix of every guarded flag is refused")
 
     print()
     if failures:

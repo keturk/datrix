@@ -38,7 +38,12 @@ WHICH SCRIPTS A COMMAND RUNS, AND WHETHER IT DEPLOYS
 which arguments" from the command's shape: a PowerShell host given `-File`,
 `-Command` or `-EncodedCommand`, a call/dot-source operator or a first token naming
 a `.ps1` or `.sh`, a shell host given a `.sh` (`bash test.sh pkg`; only the options
-before the script are the shell's), and a Python interpreter given a `.py`. The arguments are the words that
+before the script are the shell's), a Python interpreter given a `.py` or `-m <module>`
+(the module's dotted name is the `path`, `via` `VIA_PYTHON_MODULE`), and a statement
+headed by an expansion (`$T`, `${T}`, `$(…)`, a backtick span) or by a function the
+command defines, whose first `.ps1`/`.sh` word is taken as the script it runs
+(`VIA_EXPANSION`): what such a head holds cannot be read statically, so the reading
+falls toward the run. The arguments are the words that
 follow the script in the statement that runs it, so a guard that reads a script's
 flags (`_suite_invocation.py`) reads them from that statement alone. A path that
 only appears as an argument of another program (a `for` list, a `sed` operand, a
@@ -147,6 +152,11 @@ VIA_CALL: Final = "call"
 VIA_DIRECT: Final = "direct"
 VIA_PYTHON: Final = "python"
 VIA_SHELL: Final = "shell"
+#: `python -m <module>`: the `path` is the module's dotted name, not a file.
+VIA_PYTHON_MODULE: Final = "python-module"
+#: A statement headed by an expansion (`$T`, `$(…)`) or a function the command defines: the
+#: first `.ps1`/`.sh` word after it is the script it runs.
+VIA_EXPANSION: Final = "expansion"
 
 _POWERSHELL_HOSTS: Final = frozenset({"powershell", "pwsh"})
 _PYTHON_HOST_RE: Final = re.compile(r"^(?:python[\d.]*|py|.*python[\d.]*)$")
@@ -188,10 +198,23 @@ _PS_ENCODED_ALIASES: Final = frozenset({"e", "ec"})
 _PS_VALUE: Final = "value"
 _PS_SWITCH: Final = "switch"
 _PY_VALUE_OPTIONS: Final = frozenset({"-w", "-x"})
-_PY_STOP_OPTIONS: Final = frozenset({"-c", "-m"})
+#: `-c` / `-m`, alone or closing a group of the interpreter's argument-free flags (`-Im`), with the
+#: module name attached (`-mjson.tool`) or as the next word, as the interpreter accepts each.
+_PY_STOP_OPTION_RE: Final = re.compile(r"^-[bBdEhiIOPqRsSuvV]*(?P<option>[cm])(?P<attached>.*)$")
+#: A word that heads a statement and runs whatever its expansion holds: `$T`, `${T}`, `$(…)`,
+#: a backtick span.
+_EXPANSION_HEAD_RE: Final = re.compile(r"^(?:\$[{(]?[A-Za-z_]|`)")
+#: A PowerShell assignment operator after a `$name` head: `$T = "x.ps1"` assigns, it runs nothing.
+_ASSIGNMENT_OPERATOR_RE: Final = re.compile(r"^[-+*/%?]?=")
+#: A function defined in the command: `name() {` (POSIX) or `function name` (both shells).
+_FUNCTION_DEFINITION_RE: Final = re.compile(
+    r"(?:^|[\s;&|(])(?:function\s+([A-Za-z_][\w-]*)|([A-Za-z_][\w-]*)\s*\(\s*\)\s*\{)"
+)
+_SCRIPT_SUFFIXES: Final = (".ps1", ".sh")
 _MAX_DEPTH: Final = 6
 
-_DEPLOY_SCRIPT_RE: Final = re.compile(r"^(?:deploy[\w-]*|sync-staging)\.ps1$", re.IGNORECASE)
+#: A deploy wrapper or its POSIX twin.
+_DEPLOY_SCRIPT_RE: Final = re.compile(r"^(?:deploy[\w-]*|sync-staging)\.(?:ps1|sh)$", re.IGNORECASE)
 
 #: Deploy verbs, matched at the start of a segment (after environment
 #: assignments and command wrappers).
@@ -335,13 +358,30 @@ def _powershell_host(args: list[str], depth: int) -> list[InvokedScript]:
     return _scripts_in(run.text, depth + 1, VIA_POWERSHELL_COMMAND)
 
 
+def _python_option_stop(args: list[str], index: int) -> list[InvokedScript] | None:
+    """What a `-c`/`-m` option at `index` runs: `-c` text runs no script file, `-m` a module.
+
+    None when the word is not such an option."""
+    stop = _PY_STOP_OPTION_RE.match(args[index])
+    if stop is None:
+        return None
+    if stop.group("option") == "c":
+        return []
+    if stop.group("attached"):
+        return [InvokedScript(stop.group("attached"), VIA_PYTHON_MODULE, tuple(args[index + 1 :]))]
+    if index + 1 >= len(args):
+        return []
+    return [InvokedScript(args[index + 1], VIA_PYTHON_MODULE, tuple(args[index + 2 :]))]
+
+
 def _python_host(args: list[str]) -> list[InvokedScript]:
     index = 0
     while index < len(args):
         token = args[index]
         lowered = token.lower()
-        if lowered in _PY_STOP_OPTIONS:
-            return []
+        stopped = _python_option_stop(args, index)
+        if stopped is not None:
+            return stopped
         if lowered in _PY_VALUE_OPTIONS:
             index += 2
             continue
@@ -373,7 +413,11 @@ def _shell_operand(args: list[str]) -> tuple[int, bool]:
         if not arg.startswith(("-", "+")):
             return index, False
         if arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]:
-            return index + 1, True
+            # `bash -c -- 'cmd'`: the shell ends its options at `--` and runs the word after it.
+            command_index = index + 1
+            if command_index < len(args) and args[command_index] == _END_OF_OPTIONS:
+                command_index += 1
+            return command_index, True
         index += 1
     return index, False
 
@@ -426,14 +470,47 @@ def _start_process_tokens(args: list[str]) -> list[str]:
     return [file_path, *launched] if file_path else []
 
 
-def _segment_scripts(tokens: list[str], depth: int, via_command: str) -> list[InvokedScript]:
+def _defined_functions(command: str) -> frozenset[str]:
+    """Names of the functions the command defines (`name() {`, `function name`)."""
+    return frozenset(
+        (match.group(1) or match.group(2)).lower() for match in _FUNCTION_DEFINITION_RE.finditer(command)
+    )
+
+
+def _runs_expansion(tokens: list[str], functions: frozenset[str]) -> bool:
+    """True when the statement is headed by an expansion or a function the command defines.
+
+    Such a head runs whatever it holds, which no static read can name, so the first script word
+    after it is taken as the script it runs. A `$name` assigned to (`$T = "x.ps1"`) runs nothing.
+    """
+    first = tokens[0]
+    if first.lower() in functions:
+        return True
+    if not _EXPANSION_HEAD_RE.match(first) or "=" in first:
+        return False
+    return len(tokens) < 2 or not _ASSIGNMENT_OPERATOR_RE.match(tokens[1])
+
+
+def _expansion_scripts(tokens: list[str]) -> list[InvokedScript]:
+    for index, token in enumerate(tokens[1:], start=1):
+        path = _normalise_path(token)
+        if path.lower().endswith(_SCRIPT_SUFFIXES):
+            return [InvokedScript(path, VIA_EXPANSION, tuple(tokens[index + 1 :]))]
+    return []
+
+
+def _segment_scripts(
+    tokens: list[str], depth: int, via_command: str, functions: frozenset[str] = frozenset()
+) -> list[InvokedScript]:
     """Scripts one segment's tokens (wrappers already stripped) execute."""
     if not tokens:
         return []
     first = tokens[0]
     program = _program(first)
+    if _runs_expansion(tokens, functions):
+        return _expansion_scripts(tokens)
     if program == _START_PROCESS:
-        return _segment_scripts(_start_process_tokens(tokens[1:]), depth + 1, via_command)
+        return _segment_scripts(_start_process_tokens(tokens[1:]), depth + 1, via_command, functions)
     if first in _CALL_OPERATORS:
         rest = tokens[1:]
         return [InvokedScript(_normalise_path(rest[0]), VIA_CALL, tuple(rest[1:]))] if rest else []
@@ -447,7 +524,7 @@ def _segment_scripts(tokens: list[str], depth: int, via_command: str) -> list[In
         return scripts
     wrapped = _wrapped_command(program, tokens[1:])
     if wrapped is not None:
-        return _scripts_in(wrapped, depth + 1, via_command)
+        return _scripts_in(wrapped, depth + 1, via_command, functions)
     return []
 
 
@@ -523,15 +600,18 @@ def _without_comments(command: str) -> str:
     return "".join(kept)
 
 
-def _scripts_in(command: str, depth: int, via_command: str) -> list[InvokedScript]:
+def _scripts_in(
+    command: str, depth: int, via_command: str, functions: frozenset[str] = frozenset()
+) -> list[InvokedScript]:
     if depth > _MAX_DEPTH or not command.strip():
         return []
     command = _without_comments(_without_heredoc_data(command))
+    functions = functions | _defined_functions(command)
     found: list[InvokedScript] = []
     for tokens in _executable_segments(command):
-        found.extend(_segment_scripts(tokens, depth, via_command))
+        found.extend(_segment_scripts(tokens, depth, via_command, functions))
     for body in _substitutions(command):
-        found.extend(_scripts_in(body, depth + 1, via_command))
+        found.extend(_scripts_in(body, depth + 1, via_command, functions))
     return found
 
 

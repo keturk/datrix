@@ -210,11 +210,12 @@ JSON from pre_check phase with task metadata and confirmation that `can_parallel
      tokens and agent minutes, never human hours/days).
    - Anything you find that the task does not need (a defect on a file you touched, a
      pre-existing failure, another instance of the defect class, a violation you
-     happened to see) → write a findings file
+     happened to see) → a must-have gets a findings file
      (d:\datrix\findings\YYYYMMDD-HHMMSS-<slug>.md, template:
      .claude/skills/_shared/execution-contract-reporting.md §5A; do not look for an
-     existing one) and move on. It is not a fix and not a task.
-   Ask: does the task need this to be correct? If no, it is a findings file.
+     existing one) and you move on. It is not a fix and not a task. A nice-to-have
+     (dead code, tidiness, doc drift, lint, performance) gets no file.
+   Ask: does the task need this to be correct? If no, apply the §5A must-have test.
    ```
 
    **See the template file for:**

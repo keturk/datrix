@@ -32,10 +32,25 @@ def run(payload, env=None):
     return run_full(payload, env)[:2]
 
 
+# The hook runs as bare `python` (the hook entries in settings.json): an interpreter with no
+# `datrix_testing` installed. `-S` gives the child exactly that whichever interpreter starts this
+# file -- the shared venv's editable install of the test library lives in its site-packages -- so
+# every verdict below is the same under the system and the venv interpreter. The venv-backed checks
+# still reach the venv through the hook's own subprocess to its interpreter.
+HOOK_INTERPRETER = [sys.executable, "-S"]
+
+
 def run_full(payload, env=None):
-    p = subprocess.run([sys.executable, HOOK], input=json.dumps(payload), capture_output=True, text=True,
+    p = subprocess.run([*HOOK_INTERPRETER, HOOK], input=json.dumps(payload), capture_output=True, text=True,
                        env={**os.environ, **JUDGE_OFF, **(env or {})})
     return p.returncode, p.stderr, p.stdout
+
+
+def hook_interpreter_lacks_test_library() -> bool:
+    """The precondition of the "no test library" cases: the hook's interpreter cannot import it."""
+    probe = subprocess.run([*HOOK_INTERPRETER, "-c", "import datrix_testing"], capture_output=True, text=True,
+                           env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"})
+    return probe.returncode != 0
 
 
 def judged(port):
@@ -363,6 +378,7 @@ with Repo() as repo:
     print("== a test-shape check that cannot run is named, never silent ==")
     # The hook's own interpreter carries no datrix_testing, so a library root that does not exist
     # leaves every classifier unimportable; a venv interpreter that does not exist leaves every resolve.
+    check("the hook's interpreter (-S) cannot import datrix_testing", hook_interpreter_lacks_test_library(), True)
     no_library = {"DATRIX_CODESTD_TESTING_SRC": os.path.join(repo.root, "no-testing", "src")}
     add_literal = {"tool_name": "Edit", "tool_input": {"file_path": facts, "old_string": "    assert index == {}\n",
                                                        "new_string": "    assert index == {}\n" + literal}}

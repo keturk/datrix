@@ -58,6 +58,13 @@ ITEM TYPES (all mechanical)
   reply_has / reply_lacks         {pattern}          - the final assistant message
   command_ran / command_not_ran   {pattern}          - Bash/PowerShell that ran this session
 
+Any item may carry `only_if_reply` (a regex): the item is checked only when some
+SENTENCE of the reply matches it -- and, when the item also carries
+`unless_sentence` (a regex), does not match that. A sentence is a line or a run
+ended by `.`/`!`/`?`; code spans stay in their sentence as plain words. So "All 12
+tests passed." arms the test-run item and "once its tests pass" or "no test has
+run" does not.
+
 NOT A WEDGE
 -----------
 Per-session block cap, `stop_hook_active` short-circuit, and every error fails
@@ -109,6 +116,11 @@ _TRANSCRIPT_TAIL_BYTES: Final = 4 * 1024 * 1024
 _TRANSCRIPT_TYPES: Final = frozenset(
     {"reply_has", "reply_lacks", "command_ran", "command_not_ran"}
 )
+
+# A reply is judged one sentence at a time: a line, or a run ended by `.`, `!` or `?`.
+_SENTENCE_BREAK_RE: Final = re.compile(r"(?<=[.!?])\s+|\n+")
+_CODE_SPAN_RE: Final = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
+_CODE_PUNCTUATION_RE: Final = re.compile(r"[.!?\n]")
 
 
 def _safe(session_id: str) -> str:
@@ -232,14 +244,39 @@ def _newest_glob_age(pattern: str) -> float | None:
     return min(ages) if ages else None
 
 
+def reply_sentences(reply: str) -> list[str]:
+    """The reply's sentences, each line and each `.`/`!`/`?`-ended run its own.
+
+    A code span or fenced block is kept in its sentence as plain words: its backticks dropped and
+    its own `.`, `!`, `?` and newlines read as spaces, so `test.ps1` neither splits a sentence nor
+    stops naming a test run."""
+    flattened = _CODE_SPAN_RE.sub(
+        lambda match: _CODE_PUNCTUATION_RE.sub(" ", match.group(0).strip("`")), reply
+    )
+    return [part.strip() for part in _SENTENCE_BREAK_RE.split(flattened) if part.strip()]
+
+
+def _claim_made(item: dict[str, Any], reply: str) -> bool:
+    """Whether some sentence of the reply makes the item's claim: it matches `only_if_reply` and
+    not `unless_sentence` (the sentence states what will, would or must happen, or that no
+    test ran, rather than a result)."""
+    gate = item["only_if_reply"]
+    unless = item.get("unless_sentence")
+    return any(
+        re.search(gate, sentence) and not (isinstance(unless, str) and re.search(unless, sentence))
+        for sentence in reply_sentences(reply)
+    )
+
+
 def _evaluate(item: dict[str, Any], reply: str, commands: str) -> bool:
     """True when the item is satisfied. An unknown type is satisfied (fail open)."""
     # `only_if_reply` is what makes a checklist able to catch the highest-value
     # defect available to a mechanical checker: a CLAIM with no corresponding ACT.
     # "The suite is green" is unfalsifiable prose on its own; "the suite is green"
-    # in a session where no test command ever ran is a provable fabrication.
-    gate = item.get("only_if_reply")
-    if isinstance(gate, str) and not re.search(gate, reply):
+    # in a session where no test command ever ran is a provable fabrication. The
+    # claim is judged one sentence at a time, so a proposed rule or a plan ("once
+    # its tests pass") beside an unrelated word never reads as a report of a run.
+    if isinstance(item.get("only_if_reply"), str) and not _claim_made(item, reply):
         return True
 
     kind = item.get("type")

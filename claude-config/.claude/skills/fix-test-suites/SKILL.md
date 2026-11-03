@@ -6,7 +6,7 @@ effort: high
 
 # Fix Test Suites
 
-Diagnose and fix failures, errors, and warnings that show up in the structured test results (`index.json`) of one or more `datrix-*` packages, and in **every related test suite** the root causes reach, treating them all as one problem set. The supplied runs are where the job starts, never where it ends: no test suite is outside the job. Use it when a change in one package breaks tests in others, or when the same root cause surfaces in several runs.
+Diagnose and fix failures, errors, and warnings that show up in the structured test results (`index.json`) of one or more `datrix-*` packages, and in **every related test suite** the root causes reach, treating them all as one problem set. The supplied runs are where the job starts, not where it ends: any suite the job's changes or root causes reach is in the job. A suite is looked at only for failures **related** to this job (Step 1b); a failure the job's changes cannot have caused is not this job's, whoever owns it. Use it when a change in one package breaks tests in others, or when the same root cause surfaces in several runs.
 
 **Execute the shared playbook:** read `d:\datrix\.claude\skills\_shared\fix-package-playbook.md` and follow it, with the multi-package adjustments below. The playbook owns the index.json schema, the extraction scripts, the per-cluster investigation steps, the security and no-expedient-fix rules, and the abort conditions. This file only changes what the playbook scopes to one package.
 
@@ -30,7 +30,7 @@ Reject at once, naming the file, any path that does not exist, is not an `index.
 The playbook's single-repo scope is a standing order for `/fix-{suffix}` skills. It does not apply here: invoking `/fix-test-suites` lifts it for every Datrix package.
 
 - **Read, edit, and run tests in any Datrix package** the root causes lead to, whether or not it has a run in `{RUNS}`.
-- **Check and fix every related test suite**, not only the supplied ones (Step 1b). A related suite that fails joins `{RUNS}` and its failures are worked like the supplied ones; a related suite that is green is reported as checked.
+- **Check every related test suite for related failures**, not only the supplied ones (Step 1b). A failure there that is related to this job joins `{RUNS}` and is worked like the supplied ones; a suite with no related failure is reported as checked. A failure that is not related is left alone (Step 1b).
 - **Tests:** `-Specific` and `-Tag` runs only, at most 3 tags per run, `-Keyword` in one package only. Never a whole suite, a tier switch, `-All`, `-Rerun`, or `affected-gate.ps1`.
 - **Root cause in any other package** → fix it there, in the same job, and verify it with `-Specific` on that package's tests of the changed file. This replaces the playbook's "Cross-Project Root Cause" stop.
 - **Findings** for a defect the fixes do not need, in any package, still go to `d:\datrix\findings\` per the CLAUDE.md rule.
@@ -61,9 +61,10 @@ Then store the job's finish line: `test/failure-ledger.ps1 -Runs <the index.json
 The supplied runs do not bound the job. For every package in `{SCOPE}` and every package a fix edits, find the suites that can be affected and check them:
 
 - **Which:** the packages that depend on it and the packages it depends on (the architecture cheat sheet's package table, each `pyproject.toml`), plus every package whose tests reference a symbol, module or fixture named in the failing frames (`find_references`, `search`). A shared layer reaches every package that imports it.
-- **How:** use the package's newest `.test_results/test-results-*/index.json` when one exists and is recent enough to cover the changed code. Otherwise run its tests that reach the change: `-Specific` on the test files that reference the changed code, `-Tag` for the changed behaviour (`-ListTags`), at most 3 tags per run. Never a whole suite.
-- **Join the job:** a related suite with failures, errors or warnings is added to `{RUNS}` and goes through Step 2 with the rest. Store the ledger again with every run the job now holds (`failure-ledger.ps1 -Runs` replaces the stored list, so pass all of them).
-- **Repeat** whenever a fix edits a package not yet checked, or a new failure points at one. The set of related suites is closed only when no package in `{SCOPE}` or edited has an unchecked dependent or dependency.
+- **How:** run the tests of that package that reach the change yourself: `-Specific` on the test files that reference the changed code, `-Tag` for the changed behaviour (`-ListTags`), at most 3 tags per run. Never a whole suite. Never take over another session's `.test_results` run: it shows work another agent has in progress, not the effect of this job. A run that cannot take the package lock (`Could not acquire package lock`) means another agent is testing that package; wait for it and run again, do not read around it.
+- **Related means reached by this job.** A failing test is related only when its traceback frames, or the symbols and fixtures it names (`find_references`), reach a file this job edited or the root cause it is fixing. A failure that does not (it names code no edit of this job touches, or it appears in a suite another agent is changing) is not this job's: do not investigate it, fix it, loosen it or add it to the ledger. Write one findings file for it (id, frames, why unrelated) and carry on. A failure you cannot place either way is related until the frames prove otherwise.
+- **Join the job:** a suite with related failures, errors or warnings is added to `{RUNS}` and goes through Step 2 with the rest; only the related ids enter the ledger. Store the ledger again with every run the job now holds (`failure-ledger.ps1 -Runs` replaces the stored list, so pass all of them).
+- **Repeat** whenever a fix edits a package not yet checked, or a new related failure points at one. The set of related suites is closed only when no package in `{SCOPE}` or edited has an unchecked dependent or dependency.
 
 ### Step 2: Correlate across runs, then order the work
 

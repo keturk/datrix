@@ -26,10 +26,20 @@ or a tier sweep (`-Unit` / `-Integration` / `-E2E` / `-Fast` / `-Slow`).
 `affected-gate.ps1` schedules whole-suite `test.ps1` children, so every
 invocation of it is a whole-suite run too. The only shapes that start no test at
 all -- `affected-gate.ps1 -SelfTest` and `test.ps1 -ListTags` -- are allowed.
-`test.sh`, the runner's POSIX twin (`bash test.sh <pkg> --tag x`, `./test.sh`), is
-classified by the same rules over its `--kebab` flags. The classification lives in the sibling `_suite_invocation.py`, shared with the
-instruction-surface census that keeps agent-facing documents from prescribing a
-whole-suite form.
+`test.sh`, the runner's POSIX twin (`bash test.sh <pkg> --tag x`, `./test.sh`), and
+the modules behind both (`python -m datrix_scripts.test.test`) are classified by the
+same rules over their `--kebab` flags. `coverage` and `test-gen` (wrapper, twin or
+module) run each named package's whole suite unless given `-SelfTest`, and
+`error-messages` does with `-Test`; each is refused under the same rule.
+
+A flag word that is an abbreviation of a flag the guard reads (`-Al`, `-Ta`, `--li`)
+is refused with the full spelling: the shell binds it to whichever parameter it
+prefixes, so the guard never guesses. `-SelfTest:$false` turns the switch off and is
+read as no self-test at all.
+
+The runner table and the classification live in the sibling `_suite_invocation.py`
+(`RUNNERS`, `refusal`), shared with the instruction-surface census that keeps
+agent-facing documents from prescribing a whole-suite form.
 
 WHY A HARD BLOCK
 ----------------
@@ -58,34 +68,24 @@ from typing import Final
 
 from _hook_log import append_record
 from _suite_invocation import (
-    MAX_PACKAGES_PER_KEYWORD_RUN,
-    MAX_TAGS_PER_RUN,
-    has_keyword,
-    invocation_tails,
-    is_targeted,
-    packages,
-    runs_no_test,
-    tag_names,
+    REFUSE_ABBREVIATION,
+    REFUSE_SWEEP,
+    REFUSE_WHOLE_SUITE,
+    invocations,
+    refusal,
 )
 
 _SCRATCH_DIR: Final = "d:/datrix/.tmp"
 _AUDIT_PATH: Final = f"{_SCRATCH_DIR}/full-suite-audit.jsonl"
 
 
-def _sweep_reason(tail: str) -> str | None:
-    """Why a targeted-looking invocation is really a sweep, or None when it is not."""
-    tags = tag_names(tail)
-    if len(tags) > MAX_TAGS_PER_RUN:
-        return (
-            f"-Tag names {len(tags)} tags ({', '.join(tags)}); at most {MAX_TAGS_PER_RUN} per "
-            "run. Name only the tags of the behaviour you changed."
-        )
-    if has_keyword(tail) and len(packages(tail)) > MAX_PACKAGES_PER_KEYWORD_RUN:
-        return (
-            f"-Keyword across {len(packages(tail))} packages; a keyword selects by name fragment "
-            "inside ONE package. Across packages, use -Tag with the behaviour's tag."
-        )
-    return None
+def _block_abbreviations(words: list[str]) -> None:
+    sys.stderr.write(
+        "BLOCKED: a test-runner flag is abbreviated: " + ", ".join(words) + ".\n"
+        "The shell binds a shortened flag to whichever parameter it prefixes, so no guard can tell "
+        "what it runs. Write every flag in full."
+    )
+    sys.exit(2)
 
 
 def _block_sweep(reasons: list[str]) -> None:
@@ -130,17 +130,16 @@ def main() -> None:
     if not isinstance(command, str) or not command:
         sys.exit(0)
 
-    whole_suite_packages: list[str] = []
-    sweep_reasons: list[str] = []
-    for tail in invocation_tails(command):
-        if runs_no_test(tail):
-            continue
-        if is_targeted(tail):
-            reason = _sweep_reason(tail)
-            if reason is not None:
-                sweep_reasons.append(reason)
-            continue
-        whole_suite_packages.extend(packages(tail) or ["<unnamed>"])
+    found: dict[str, list[str]] = {REFUSE_ABBREVIATION: [], REFUSE_SWEEP: [], REFUSE_WHOLE_SUITE: []}
+    for run in invocations(command):
+        refused = refusal(run)
+        if refused is not None:
+            found[refused.kind].extend(refused.details)
+    whole_suite_packages = found[REFUSE_WHOLE_SUITE]
+    sweep_reasons = found[REFUSE_SWEEP]
+
+    if found[REFUSE_ABBREVIATION]:
+        _block_abbreviations(found[REFUSE_ABBREVIATION])
 
     if sweep_reasons and not whole_suite_packages:
         _audit(

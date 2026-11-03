@@ -5,9 +5,11 @@
    `.tmp/` are not ours and are left alone.
 
 2. A TASK IS COMPLETED BY `complete.ps1`, NEVER BY EDITING ITS HEADING. task-orchestration.md:
-   "Always use complete.ps1. Never edit the task heading directly -- Edit/Write bypass the
-   validation hook complete.ps1 enforces." The failure it prevents is real: a task was once
-   marked COMPLETED while its own `## How Solved` said `Status: BLOCKED`. An edit that ADDS a
+   "Always use complete.ps1. Never edit the task heading directly." `complete.ps1` resolves the
+   reference to one task file, checks its first heading is a task title, and refuses a task whose
+   `## How Solved` carries a red flag phase status reads (`task_metadata.HOW_SOLVED_REDFLAG_MARKERS`)
+   -- the failure this prevents is real: a task was once marked COMPLETED while its own
+   `## How Solved` said `Status: BLOCKED`. An edit that ADDS a
    `# COMPLETED: Task ...` heading to a task file is refused; editing the rest of the file, or
    a file that already carries the heading, is not.
 

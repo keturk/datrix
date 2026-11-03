@@ -110,6 +110,7 @@ from _local_judge import (  # noqa: E402
     FAMILY_SECURITY,
     GATE_STOP,
     judge_report,
+    stop_families,
 )
 from _report_language import (  # noqa: E402
     EXPEDIENT_REMEDY,
@@ -122,8 +123,10 @@ from _report_language import (  # noqa: E402
     find_security_downgrade,
     last_user_text,
     stop_reply,
+    turn_edited_files,
     user_asked_to_pause_or_report,
 )
+from _tool_names import EDIT_TOOLS  # noqa: E402
 
 _MAX_BLOCKS: Final = 6
 _STATE_DIR: Final = os.path.join(tempfile.gettempdir(), "datrix-stop-exhaustion")
@@ -207,7 +210,11 @@ def main() -> None:
     if not exhaustion and not handover and not downgrade and not expedient:
         # The patterns found nothing. A local model gets one read, never on a stop that
         # is already continuing after a block, and blocks only with a quote that stands.
-        judged = CLEAN_JUDGEMENT if data.get("stop_hook_active") else judge_report(text, GATE_STOP)
+        # It is asked only what the turn can do: a turn that edited no file reports no fix.
+        families = stop_families(turn_edited_files(transcript, EDIT_TOOLS))
+        judged = (
+            CLEAN_JUDGEMENT if data.get("stop_hook_active") else judge_report(text, GATE_STOP, families)
+        )
         if not judged.flagged:
             _clear(state)
             sys.exit(0)

@@ -6,8 +6,11 @@ or whenever you are about to mark a task COMPLETED, file a task, or close a phas
 ## Completing a task
 
 **Always use `complete.ps1`.** Never edit the task heading directly — Edit/Write bypass
-the validation hook `complete.ps1` enforces. Read `datrix/scripts/tasks/quick-reference.md`
-for the exact invocation before calling any task script.
+the validation `complete.ps1` performs: the reference must resolve to one task file whose first
+heading is a task title, and a `## How Solved` carrying a red flag (BLOCKED, partial, out of
+scope, workaround, dual path, not yet wired — the markers phase status reads) is refused with each
+flag named. Read `datrix/scripts/tasks/quick-reference.md` for the exact invocation before calling
+any task script.
 
 **Timing.** In `/task-orchestrator` and `/execute-tasks-parallel` runs, mark a task
 COMPLETED only after the **wave's test gate passes**: the orchestrator runs, once, the union
