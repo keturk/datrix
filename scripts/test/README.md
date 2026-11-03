@@ -263,7 +263,7 @@ observer through a selector, and an expectation a person wrote. The package's on
 
 | Command | What it does |
 |---------|--------------|
-| `check` | Layout, schema (secret refusal included), registered stages and observers (an unregistered one names the packages registering it), inputs, selectors and expectation shapes, duplicate ids and facts, tags in the vocabulary, and every selector resolved on its input. Exit 1 on any problem |
+| `check` | Layout, schema (secret refusal included), registered stages and observers (an unregistered one names the packages registering it), inputs, selectors and expectation shapes, duplicate ids and facts, tags in the vocabulary, annotation and fence rules, catalog variant and security tag per fixture. Static: it runs no stage, so it takes seconds to a minute. Whether a selector resolves and its value matches is the test run's: `test.ps1 <pkg> -Specific "tests/test_cases.py" -Keyword <case-id prefix>`. Exit 1 on any problem |
 | `observe` | Run the stage, print the value with its shape and parsed context. Writes nothing |
 | `observe -At <file>:<line>` | What each annotation kind would observe on that fixture line: the diagnostics firing there (by variant), the code the package's `transpile` stage emits for the function declared there, the `lsp` hover and definition at the line's `$0` cursor; a kind that does not apply says why. Writes nothing |
 | `new` | Append a row you wrote; refused when it breaks the schema, repeats an id or fact, does not resolve, or while the approval gate is armed for the package. Omit `-Expectation` for an `absent` case |
