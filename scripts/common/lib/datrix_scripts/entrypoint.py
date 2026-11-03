@@ -10,8 +10,9 @@ module that has a wrapper checks both in its ``--self-test`` (``wrapper_problems
 * the wrapper and its twin are the templates rendered: text equal after substitution
   (``rendering_problems``);
 * the wrapper's parameters and the module's options are one set: every parameter's flag is an
-  option of the module's parser and every option is a parameter (``flag_problems``), so a
-  parameter renamed on one side fails the self-test instead of a user's run.
+  option of the module's parser and every option is a parameter, and the parser accepts no
+  abbreviation of one (``flag_problems``), so a parameter renamed on one side fails the self-test
+  instead of a user's run, and no shortened spelling reaches the module unseen.
 
 A module that names its wrapper in a message (a repair, a usage hint) words it with
 ``wrapper_command``: the ``.ps1`` and its PowerShell parameters on Windows, the ``.sh`` twin and the
@@ -169,10 +170,17 @@ def parser_flags(parser: argparse.ArgumentParser) -> frozenset[str]:
 
 
 def flag_problems(parameters: Iterable[str], parser: argparse.ArgumentParser) -> list[str]:
-    """Why the wrapper *parameters* and *parser*'s options are not one set; empty when they are."""
+    """Why the wrapper *parameters* and *parser*'s options are not one set, spelled exactly; empty when they are.
+
+    A parser that accepts an abbreviated option (argparse's default) takes `--al` as `--all`, a
+    spelling outside the set that no hook reading the command line can see."""
     passed = {kebab_flag(name): name for name in parameters}
     accepted = parser_flags(parser)
     problems = [
+        "the module's parser accepts abbreviated options (--al would be read as --all); build it with "
+        "allow_abbrev=False"
+    ] if parser.allow_abbrev else []
+    problems += [
         f"the wrapper parameter -{name} is passed as {flag}, which the module does not accept"
         for flag, name in sorted(passed.items()) if flag not in accepted
     ]
@@ -226,10 +234,14 @@ def self_test_problems() -> list[str]:
         found = bool(text_rendering_problems(wrapper_text, twin_text, module, ps1_template, sh_template))
         if found != drifts:
             failures.append(f"rendering check on {label}: reported drift={found}, expected {drifts}")
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(allow_abbrev=False)
     parser.add_argument("--self-test", action="store_true")
     if flag_problems(["SelfTest"], parser):
         failures.append(f"flag check reported drift on matching sets: {flag_problems(['SelfTest'], parser)}")
     if len(flag_problems(["SelfTest", "Extra"], parser)) != 1 or len(flag_problems([], parser)) != 1:
         failures.append("flag check missed a parameter the module lacks or an option the wrapper lacks")
+    abbreviating = argparse.ArgumentParser()
+    abbreviating.add_argument("--self-test", action="store_true")
+    if len(flag_problems(["SelfTest"], abbreviating)) != 1:
+        failures.append("flag check missed a parser that accepts abbreviated options")
     return failures

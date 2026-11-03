@@ -27,10 +27,11 @@ exactly the shape a false negative here would take).
 Every code fragment found is classified with `_suite_invocation.py` (the SAME
 module `guard-full-suite-runs.py` loads as a sibling) -- loaded here by path
 through `datrix_scripts.hook_modules.load_suite_invocation`, so the gate and
-the hook it audits share one definition. A fragment classified whole-suite (bare
-package, several packages, `-All`, `-Rerun`, a tier switch with none of
-`-Specific`/`-Keyword`/`-Tag`, or any `affected-gate.ps1` invocation other than
-`-SelfTest`) is a hit UNLESS an HTML comment
+the hook it audits share one definition. A fragment the hook would refuse (a
+`test.ps1` run of a bare package, several packages, `-All`, `-Rerun`, a tier switch
+with none of `-Specific`/`-Keyword`/`-Tag`; any `affected-gate.ps1` invocation other
+than `-SelfTest`; a `coverage`/`test-gen` run, or `error-messages -Test`; a sweep
+wearing a targeting flag; an abbreviated runner flag) is a hit UNLESS an HTML comment
 `<!-- forbidden-example -->` sits on the same line, or the line immediately
 before (for a fenced block: the line before the OPENING fence) -- the
 orchestrator's own "this is FORBIDDEN here" illustrative blocks are the
@@ -223,8 +224,8 @@ def extract_fragments(markdown_text: str) -> list[CodeFragment]:
 def classify_fragment(text: str, suite_invocation: ModuleType) -> list[str]:
     """Every whole-suite `test.ps1`/`affected-gate.ps1` invocation TAIL in one fragment.
 
-    Tails come from `_suite_invocation.invocation_tails` and whole-suite-ness from its
-    `runs_no_test`/`is_targeted` -- never a private regex here, so this gate and
+    Invocations come from `_suite_invocation.invocations` (its `RUNNERS` table) and the
+    verdict from its `refusal` -- never a private regex here, so this gate and
     `guard-full-suite-runs.py` share one notion of "whole-suite": whatever the hook
     blocks, this gate flags when a document prescribes it. A tail exists only where the
     fragment EXECUTES the runner (its statement starts with the script, a PowerShell
@@ -240,36 +241,17 @@ def classify_fragment(text: str, suite_invocation: ModuleType) -> list[str]:
     the tool's name in running text.
     """
     hits: list[str] = []
-    for tail in suite_invocation.invocation_tails(text):
+    for run in suite_invocation.invocations(text):
+        tail = run.tail
         if not tail.strip():
             continue
-        if suite_invocation.runs_no_test(tail):
-            continue
-        if suite_invocation.is_targeted(tail):
-            # A targeted form can still prescribe a SWEEP: a wide `-Tag` list, or a
-            # `-Keyword` spanning packages. The hook blocks those commands, so a
-            # document must not put them in an agent's hands either -- the
-            # "{every task's tags, comma-separated}" template in a quality-gate
-            # skill is exactly how one phase gate grew into a multi-hour sweep.
-            if _sweep_tail_reason(tail, suite_invocation) is not None:
-                hits.append(tail)
-            continue
-        hits.append(tail)
+        # The hook's own verdict: a whole-suite run of any runner in its table, a sweep
+        # wearing a targeting flag (a wide `-Tag` list, a `-Keyword` spanning packages --
+        # the "{every task's tags, comma-separated}" template in a quality-gate skill is
+        # exactly how one phase gate grew into a multi-hour sweep), or an abbreviated flag.
+        if suite_invocation.refusal(run) is not None:
+            hits.append(tail)
     return hits
-
-
-def _sweep_tail_reason(tail: str, suite_invocation: ModuleType) -> str | None:
-    """Why a targeted-looking tail prescribes a sweep, or None. Ceilings come from
-    the hook module, so the gate cannot drift from what the hook enforces."""
-    tags = suite_invocation.tag_names(tail)
-    if len(tags) > suite_invocation.MAX_TAGS_PER_RUN:
-        return f"-Tag names {len(tags)} tags"
-    if (
-        suite_invocation.has_keyword(tail)
-        and len(suite_invocation.packages(tail)) > suite_invocation.MAX_PACKAGES_PER_KEYWORD_RUN
-    ):
-        return "-Keyword across several packages"
-    return None
 
 
 def scan_file(path: Path, suite_invocation: ModuleType) -> ScanResult:
@@ -433,6 +415,30 @@ def _check_sweep_forms(root: Path, suite_invocation: ModuleType) -> str | None:
     return None
 
 
+def _check_runner_table_forms(root: Path, suite_invocation: ModuleType) -> str | None:
+    """Every runner of the hook's table is read: a coverage run, `error-messages -Test`, an
+    abbreviated `-All`, the module run directly; `error-messages -Fix` alone and a coverage
+    self-test run no suite."""
+    refused = (
+        'powershell -File "d:/datrix/datrix/scripts/metrics/coverage.ps1" datrix-common',
+        'powershell -File "d:/datrix/datrix/scripts/metrics/error-messages.ps1" datrix-common -Fix -Test',
+        'powershell -File "d:/datrix/datrix/scripts/test/test.ps1" datrix-common -Al -Tag gateway',
+        "python -m datrix_scripts.test.test --all",
+    )
+    allowed = (
+        'powershell -File "d:/datrix/datrix/scripts/metrics/error-messages.ps1" datrix-common -Fix',
+        'powershell -File "d:/datrix/datrix/scripts/metrics/coverage.ps1" -SelfTest',
+    )
+    blocks = "".join(f"```\n{form}\n```\n\n" for form in (*refused, *allowed))
+    result = scan_file(_write_fixture(root, "runners.md", f"# Example\n\n{blocks}"), suite_invocation)
+    if len(result.hits) != len(refused):
+        return (
+            f"self-test: the runner-table forms expected {len(refused)} hits, got "
+            f"{[hit.text for hit in result.hits]}"
+        )
+    return None
+
+
 def _check_inline_span_form(root: Path, suite_invocation: ModuleType) -> str | None:
     doc = _write_fixture(
         root,
@@ -507,6 +513,7 @@ _SELF_TEST_CHECKS = (
     _check_affected_gate_form,
     _check_tag_and_list_tags_forms,
     _check_sweep_forms,
+    _check_runner_table_forms,
     _check_inline_span_form,
     _check_bare_word_form,
     _check_line_citation_form,

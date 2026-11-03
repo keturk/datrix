@@ -4,7 +4,8 @@ A repo gate that audits what a hook enforces, or enforces the same ceiling, shar
 one definition instead of keeping a copy: the hooks run under the system interpreter from
 ``claude-config/.claude/hooks`` and are no installed distribution, so the module is loaded by
 path. A hooks module may import its siblings (``from _command_shape import ...``), so the hooks
-directory goes on ``sys.path`` (once) before the module executes.
+directory goes on ``sys.path`` (once) and the module is registered in ``sys.modules`` under its
+name before it executes.
 """
 
 from __future__ import annotations
@@ -48,7 +49,15 @@ def load_hook_module(name: str, hooks_dir: Path = HOOKS_DIR) -> ModuleType:
     if spec is None or spec.loader is None:
         raise HookModuleError(f"Could not build an import spec for {path}.")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Registered before it executes, as an import would be: a dataclass in the module resolves its
+    # annotations through ``sys.modules[cls.__module__]``, and a sibling importing it by name gets
+    # this same module rather than a second copy.
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
     return module
 
 

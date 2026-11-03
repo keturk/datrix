@@ -14,10 +14,14 @@ It is the one way a task's status heading changes: the edit hooks refuse a Write
 ``COMPLETED:`` heading to a task file. The task reference resolves to exactly one file (an absolute
 path, a path relative to the current directory or the workspace, else a unique file name or path
 suffix under a ``.tasks`` folder), and its first heading must be a task title (``Task ...`` or
-``<STATUS>: Task ...``); anything else is refused and the file is left as it was.
+``<STATUS>: Task ...``); anything else is refused and the file is left as it was. A task whose
+``## How Solved`` section carries a red flag phase status also reads
+(``task_metadata.HOW_SOLVED_REDFLAG_MARKERS``: BLOCKED, partial, out of scope, workaround, dual
+path, not yet wired) is refused too, naming each flag: a How Solved that reports a blocker or an
+unfinished fix is not a completed task. A task with no How Solved section is marked.
 
-Exit codes: 0 = marked or already completed; 1 = not found, ambiguous, not a task title or not
-writable; 2 = usage error.
+Exit codes: 0 = marked or already completed; 1 = not found, ambiguous, not a task title, a
+red-flagged How Solved or not writable; 2 = usage error.
 
 Usage:
     python -m datrix_scripts.tasks.complete --task-file <path-or-name> [--dbg]
@@ -37,6 +41,7 @@ from typing import Final
 from datrix_scripts.framework_repos import workspace_package_dirs
 from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, UsageError, expect_usage_error, write_files
 from datrix_scripts.paths import WORKSPACE_DIR
+from datrix_scripts.task_metadata import HOW_SOLVED_REDFLAG_MARKERS, parse_task_file
 from datrix_scripts.test.wrappers import TASKS_SCRIPTS_DIR, module_main, run_self_test
 
 logger = logging.getLogger(__name__)
@@ -140,6 +145,14 @@ def mark_task_complete(task_path: Path) -> bool:
     if not changed:
         print(f"Already completed: {task_path}")
         return False
+
+    redflags = parse_task_file(task_path).how_solved_redflags
+    if redflags:
+        raise ValueError(
+            f"Refused: the task's ## How Solved reports {', '.join(redflags)}. A task whose How Solved "
+            "reports a blocker, a partial result, a workaround, a dual path or work left out of scope is not "
+            "completed: finish the work, or leave the task open with its blocker proof."
+        )
 
     lines[heading_index] = f"{heading_prefix}{new_title}"
 
@@ -253,6 +266,38 @@ def _check_a_heading_that_is_not_a_task_title_is_refused() -> None:
     assert before == after, "a refused task file was changed"
 
 
+_RED_FLAG_HOW_SOLVED: Final = {
+    "BLOCKED": "Status: BLOCKED B1 MISSING_ACCESS -- the endpoint needs a credential.",
+    "partial": "The python half is done; this is a partial fix.",
+    "out of scope": "The typescript half was out of scope.",
+    "workaround": "A workaround keeps the old reader alive.",
+    "dual path": "Both readers stay: a dual path until the migration.",
+    "not yet wired": "The validator exists but is not yet wired into the pipeline.",
+}
+
+
+def _check_a_red_flagged_how_solved_is_refused_and_unchanged() -> None:
+    """Markers phase status evaluates - markers this refuses = empty; a clean How Solved is marked."""
+    assert set(_RED_FLAG_HOW_SOLVED) == {name for name, _ in HOW_SOLVED_REDFLAG_MARKERS}, \
+        "every red-flag marker phase status reads has a planted case here"
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        refused: list[str] = []
+        for number, (marker, line) in enumerate(_RED_FLAG_HOW_SOLVED.items(), start=10):
+            path = write_files(root, {_task_path("datrix-alpha", number, "flagged"):
+                                      f"# {_title(number, 'Flagged')}\n\n## How Solved\n\n{line}\n"})[0]
+            before = path.read_text(encoding="utf-8")
+            exit_code = complete(str(path), root)
+            if exit_code == EXIT_FAILED and path.read_text(encoding="utf-8") == before:
+                refused.append(marker)
+        clean = write_files(root, {_task_path("datrix-alpha", 30, "clean"):
+                                   f"# {_title(30, 'Clean')}\n\n## How Solved\n\nFixed at x.py:4; its test passes.\n"})[0]
+        clean_code = complete(str(clean), root)
+        clean_heading = clean.read_text(encoding="utf-8").splitlines()[0]
+    assert refused == list(_RED_FLAG_HOW_SOLVED), f"refused and left unchanged: {refused}"
+    assert clean_code == EXIT_OK and clean_heading == f"# {COMPLETED_PREFIX}{_title(30, 'Clean')}", clean_heading
+
+
 def _check_a_reference_resolves_to_exactly_one_task() -> None:
     with tempfile.TemporaryDirectory() as raw:
         root = Path(raw)
@@ -283,6 +328,7 @@ def _check_no_task_file_is_a_usage_error() -> None:
 _SELF_TEST_CHECKS: Final = (
     _check_task_headings_are_marked_and_nothing_else_changes,
     _check_a_heading_that_is_not_a_task_title_is_refused,
+    _check_a_red_flagged_how_solved_is_refused_and_unchanged,
     _check_a_reference_resolves_to_exactly_one_task,
     _check_no_task_file_is_a_usage_error,
 )

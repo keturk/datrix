@@ -9,7 +9,8 @@ SELECT
     The first N findings files. Given a folder (``--dir``: absolute, or relative to the inbox
     ``findings``), the ``*.md`` directly in it, by name. Given none, the inbox's area subfolders in
     turn (the areas of ``AREAS`` in order, then other subfolders by name, then the inbox's own loose files):
-    a folder is left for the next only once it holds no more.
+    a folder is left for the next only once it holds no more. A finding with a ``- **Needs Jon:** <text>``
+    line is skipped: its session wrote what it needs there, and deleting the line puts it back in turn.
 
 CLOSE
     Deletes the finding file, but not while another findings file names it -- in its folder, or anywhere in
@@ -95,13 +96,21 @@ class TestRun:
         return not self.failure
 
 
+_NEEDS_JON_LINE = re.compile(r"^- \*\*Needs Jon:\*\*[ \t]*\S", re.MULTILINE)
+
+
+def awaits_jon(finding: Path) -> bool:
+    """Whether ``finding`` carries a ``- **Needs Jon:** <text>`` line, which takes it out of the selection."""
+    return _NEEDS_JON_LINE.search(read_text(finding)) is not None
+
+
 def finding_files(directory: Path, count: int) -> list[Path]:
-    """The first ``count`` ``*.md`` files directly in ``directory``, by name."""
+    """The first ``count`` ``*.md`` files directly in ``directory``, by name, leaving out those that await Jon."""
     if not directory.is_dir():
         raise AssistError(f"Findings folder '{directory}' does not exist. Pass --dir with an existing folder.")
     if count < 1:
         raise AssistError(f"--count must be at least 1 (got {count}).")
-    return sorted(path for path in directory.glob("*.md") if path.is_file())[:count]
+    return [path for path in sorted(directory.glob("*.md")) if path.is_file() and not awaits_jon(path)][:count]
 
 
 def inbox_dir(workspace: Path) -> Path:

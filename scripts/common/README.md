@@ -89,7 +89,8 @@ $PSBoundParameters` and `exit $LASTEXITCODE`: each bound parameter is passed as 
 (`-SkipIfInstalled` → `--skip-if-installed`; a value as `--name=<value>`, an array as one
 `--name=<value>` per element; PowerShell's common parameters are not passed), in an argument vector,
 never a shell string, and the module's exit code is the wrapper's. The module is an `argparse` entry
-point whose options are exactly those flags. When the venv has no interpreter yet, the wrapper first
+point whose options are exactly those flags, spelled in full: its parser is built with
+`allow_abbrev=False`, so `--al` is refused rather than read as `--all`. When the venv has no interpreter yet, the wrapper first
 creates it (`python -m datrix_scripts.venv --ensure` under `DATRIX_PYTHON`, else the first of `py`,
 `python`, `python3` on `PATH`). The POSIX twin beside the wrapper, `<name>.sh`, is
 `templates/entrypoint.sh` with the module substituted; it passes its arguments through unchanged, so
@@ -97,8 +98,8 @@ on POSIX the module's own flags are typed (`bash common/venv.sh --help`).
 
 `datrix_scripts.entrypoint.wrapper_problems(wrapper, module, parser)` holds the seam, and every
 module with a wrapper calls it from its `--self-test`: the wrapper and its twin are the templates
-rendered, and the wrapper's parameters and the parser's options are one set (each first proven on
-planted drift).
+rendered, and the wrapper's parameters and the parser's options are one set that the parser accepts
+in no abbreviated spelling (each first proven on planted drift).
 
 `gates\repo-hygiene\thin-entrypoint-gate.ps1` holds the whole tree to that form: every `.ps1` under
 `datrix/scripts/` except the template is the template rendered, has its `.sh` twin, and carries at
@@ -279,10 +280,10 @@ interpreter yet; a module that imports the `datrix-*` packages first runs
 
 | Mode | Command | What it does |
 |------|---------|--------------|
-| **Ensure the venv** | `.\common\venv.ps1 -Ensure` | The workspace is complete (every required repository cloned), the venv exists (created if not) and its interpreter is built for this machine's CPU |
+| **Ensure the venv** | `.\common\venv.ps1 -Ensure` | The workspace is complete (every required repository cloned), the venv exists (created if not), its interpreter is built for this machine's CPU, and every start of it writes bytecode under `<workspace>\.pycache-verify` (below) |
 | **Ensure the installs** | `.\common\venv.ps1 -Ensure -EnsurePackages [-SkipIfInstalled \| -Force \| -Offline]` | Reinstall every stale package, then the `[dev]` extras, then the scripts group (details below) |
 | **Rebuild the venv** | `.\common\venv.ps1 -Recreate -EnsurePackages` | Build the venv afresh from a native base interpreter, then install everything |
-| **Install one package** | `.\common\venv.ps1 -InstallPackage datrix-cli [-NoDev]` | Editable install, with its `[dev]` extra unless `-NoDev` |
+| **Install one package** | `.\common\venv.ps1 -InstallPackage datrix-cli [-NoDev]` | Editable install, with its `[dev]` extra unless `-NoDev`. Only a name `-ListPackages` prints is accepted: a path or any other name is a usage error (exit 2) listing the valid names |
 | **Check the CLI** | `.\common\venv.ps1 -TestCommand` | `datrix --version` runs; on failure its output and exit code (or the missing executable) go to stderr and the exit code is 1 (`dev\generate.ps1` runs the same check, `datrix_scripts.venv.check_datrix_command`, after the plugin-discovery check) |
 | **Base interpreter** | `.\common\venv.ps1 -BaseInterpreter` | Print the interpreter a new venv would be built from |
 | **Install order** | `.\common\venv.ps1 -ListPackages` | Print the installable packages, one per line, in install order |
@@ -344,6 +345,22 @@ own directory (a relative `file:` spec resolves from the working directory), wit
 cache directories under `<workspace>\.tmp`. Install markers where editable installs are missing
 (an interrupted pip run) are removed first, so everything reinstalls; `~`-prefixed leftovers of
 interrupted pip runs are deleted from site-packages.
+
+**No other script runs pip.** This module is the only installer: a script that needs a package or
+tool the venv lacks refuses with `missing_declared_tool` (or `venv_repair()`), which names the
+manifest that declares it and this repair; it never installs into an interpreter by hand, outside the
+install lock and markers. A declared tool runs as `[sys.executable, "-m", <module>]` behind an
+`importlib.util.find_spec(<module>) is None` refusal. `test\shared-library-gate.ps1 -Only
+check_scripts_tree` (`check_scripts_tree_declared_tool_runs_name_the_venv_repair`) holds both rules.
+
+### Bytecode location
+
+`-Ensure` (and every venv it creates) writes `datrix-pycache.pth` into the venv's site-packages: one
+line that sets `sys.pycache_prefix` to `<workspace>\.pycache-verify` unless the launcher already set
+one. The wrappers export `PYTHONPYCACHEPREFIX` to the same directory, but an MCP server, an IDE or a
+hook starts the venv's interpreter without it; the `.pth` makes every start write its bytecode outside
+the packages' `src/`, where a stale file could keep a deleted module importable.
+`scan\check-python-bytecode.ps1` finds bytecode under `src/` (`-Remove` deletes it).
 
 ### Concurrent operation safety
 

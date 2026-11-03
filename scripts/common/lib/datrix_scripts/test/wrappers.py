@@ -62,7 +62,6 @@ RATCHET_GATES_DIR: Final = SCRIPTS_DIR / "gates" / "ratchet"
 PARITY_GATES_DIR: Final = SCRIPTS_DIR / "gates" / "parity"
 REPO_HYGIENE_GATES_DIR: Final = SCRIPTS_DIR / "gates" / "repo-hygiene"
 _SEAM_CHECK_NAME: Final = "wrapper_seam"
-_EXACT_SPELLING_CHECK_NAME: Final = "exact_option_spelling"
 _WINDOWS_PLATFORM: Final = "win32"
 _UTF8: Final = "utf-8"
 _REPLACE: Final = "replace"
@@ -204,17 +203,7 @@ def seam_checks(
         problems = wrapper_problems(folder / f"{wrapper}.ps1", module, parser)
         assert not problems, "\n".join(problems)
 
-    def check_exact_option_spelling() -> None:
-        assert not parser.allow_abbrev, (
-            f"{module}'s parser accepts abbreviated options (an option such as --al would be read as --all), "
-            "a spelling no hook reading the command line can see; expected argparse.ArgumentParser(..., "
-            "allow_abbrev=False)"
-        )
-
-    return [
-        NamedCheck(_SEAM_CHECK_NAME, check_wrapper_seam),
-        NamedCheck(_EXACT_SPELLING_CHECK_NAME, check_exact_option_spelling),
-    ]
+    return [NamedCheck(_SEAM_CHECK_NAME, check_wrapper_seam)]
 
 
 def self_test_check(name: str, self_test: Callable[[], bool]) -> NamedCheck:

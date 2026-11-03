@@ -9,7 +9,7 @@ is not affected. When the closure holds any package beyond the changed ones,
 the caller must say which of them the change reaches (``--consumers``) or that
 none does (``--no-consumers``); every closure member left out is printed and
 recorded as excluded, so a narrowed run is visible, never silent. Schedules
-`test.ps1 <pkg>` child processes longest-first, each with
+`python -m datrix_scripts.test.test <pkg>` child processes (``test.ps1``'s module) longest-first, each with
 a PYTEST_XDIST_AUTO_NUM_WORKERS allotment proportional to its share of the
 predicted CPU work, admitting a child only while the running children's
 allotments fit in the logical core count -- so they never oversubscribe the
@@ -51,6 +51,7 @@ import argparse
 import ast
 import copy
 import heapq
+import importlib.util
 import inspect
 import io
 import json
@@ -87,7 +88,6 @@ from datrix_scripts.paths import (
     WORKSPACE_DIR,
     resolve_output_path,
 )
-from datrix_scripts.powershell_ast import parse_scripts
 from datrix_scripts.status_tests import parse_timestamp_from_log_file
 from datrix_scripts.test import gate_verdict
 from datrix_scripts.test.test import (
@@ -162,15 +162,17 @@ _OVERALL_SELF_TEST_FAILED = "SELF_TEST_FAILED"
 _OVERALL_INSTALL_CHECK_FAILED = "INSTALL_CHECK_FAILED"
 _WALL_SECONDS_DECIMALS = 1
 
-#: The wrapper of the one install/repair implementation (``datrix_scripts.venv``)
-#: the gate and ``test.ps1`` both run -- never reimplemented here.
-_VENV_PS1_RELPATH = ("datrix", "scripts", "common", "venv.ps1")
+#: Every child is a module of the interpreter running the gate (the shared venv's), so the gate and its
+#: ``.sh`` twin start the same children on any host; the wrappers stay the entry points users type.
+#: ``datrix_scripts.venv`` is the one install/repair implementation the gate and ``test.ps1`` both run.
+_VENV_MODULE = "datrix_scripts.venv"
+_TEST_MODULE = "datrix_scripts.test.test"
+_MYPY_MODULE = "datrix_scripts.test.mypy_check"
 _XDIST_WORKERS_ENV = "PYTEST_XDIST_AUTO_NUM_WORKERS"
-_POWERSHELL_EXE = "powershell"
 #: The check ``test.ps1``'s module makes before its project loop (``datrix_scripts.venv.require_packages``):
 #: the venv, then its installs, reinstalling nothing that is current. ``PACKAGES_ENSURED_ENV`` (imported
 #: from that module) tells it, and ``test_project.py`` below it, that the gate already ran the check.
-_INSTALL_CHECK_SWITCHES = ("-Ensure", "-EnsurePackages", "-SkipIfInstalled")
+_INSTALL_CHECK_ARGS = ("--ensure", "--ensure-packages", "--skip-if-installed")
 
 
 class InstallCheckError(Exception):
@@ -993,48 +995,46 @@ def attributed_run_dir(test_results_dir: Path, reported_index_paths: list[str]) 
     return None
 
 
-def venv_script_path(workspace: Path) -> Path:
-    """The ``venv.ps1`` wrapper that runs the venv and install checks (``datrix_scripts.venv``)."""
-    return workspace.joinpath(*_VENV_PS1_RELPATH)
+def install_check_command() -> list[str]:
+    """The install check ``test.ps1``'s module makes (``datrix_scripts.venv.require_packages``), as a module
+    of the interpreter running the gate."""
+    return [sys.executable, "-m", _VENV_MODULE, *_INSTALL_CHECK_ARGS]
 
 
-def ensure_packages_installed_once(venv_script: Path) -> None:
+def ensure_packages_installed_once(command: Sequence[str]) -> None:
     """Verify (and repair) the shared venv's package installs ONCE for the gate.
 
     Every child is a ``test.ps1`` run against the one shared venv; each would
     otherwise spend its own install check (one import-check process over every
     package) on the same answer. This runs the same check ``test.ps1``'s runner
-    makes -- ``venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled``, through the
-    same wrapper, so the install/repair logic has one home. Each child is then
-    launched with ``DATRIX_PACKAGES_ENSURED=1`` (:func:`_child_environment`)
-    and skips its own check.
+    makes -- *command*, :func:`install_check_command` for a real gate, so the
+    install/repair logic has one home. Each child is then launched with
+    ``DATRIX_PACKAGES_ENSURED=1`` (:func:`_child_environment`) and skips its own check.
 
     Its output streams through: with ``DATRIX_VENV_VERBOSE=1`` the check's
     progress lines appear once, here, and in no child.
 
     Raises:
-        InstallCheckError: *venv_script* does not exist, or the check exited
+        InstallCheckError: *command* cannot start, or the check exited
             non-zero. Launching children against a venv that failed its check
             would only fail every child separately; the gate fails once, loud.
     """
-    if not venv_script.is_file():
+    shown = " ".join(command)
+    logger.info("install_check_started command=%s", shown)
+    try:
+        result = subprocess.run(list(command), check=False)
+    except OSError as exc:
         raise InstallCheckError(
-            f"The venv wrapper {venv_script} does not exist, so the package install check cannot run. "
-            f"Expected the workspace's datrix/scripts/common/venv.ps1; run the gate from the Datrix "
-            f"workspace it belongs to."
-        )
-    logger.info("install_check_started venv_script=%s", venv_script)
-    result = subprocess.run(
-        [_POWERSHELL_EXE, "-NoProfile", "-NonInteractive", "-File", str(venv_script), *_INSTALL_CHECK_SWITCHES],
-        check=False,
-    )
+            f"The package install check ({shown}) could not start: {exc}. Run the gate through "
+            f"test/affected-gate.ps1 (or its .sh twin), which starts it in the shared venv."
+        ) from exc
     if result.returncode != 0:
         raise InstallCheckError(
-            f"The package install check ({venv_script} {' '.join(_INSTALL_CHECK_SWITCHES)}) exited "
+            f"The package install check ({shown}) exited "
             f"{result.returncode} before any child was launched. Fix the venv/install error printed above "
             f"-- set DATRIX_VENV_VERBOSE=1 to see each package it checked -- then re-run the gate."
         )
-    logger.info("install_check_passed venv_script=%s", venv_script)
+    logger.info("install_check_passed command=%s", shown)
 
 
 def _child_environment(workers: int) -> dict[str, str]:
@@ -1046,8 +1046,8 @@ def _child_environment(workers: int) -> dict[str, str]:
     return env
 
 
-def _launch_child(workspace: Path, package: str, workers: int, dbg: bool) -> subprocess.Popen[str]:
-    """Launch `test.ps1 <package>` as a child process with a capped xdist
+def _launch_child(package: str, workers: int, dbg: bool) -> subprocess.Popen[str]:
+    """Launch ``test.ps1 <package>``'s module as a child process with a capped xdist
     worker budget. The child's stdout is relayed line by line to this
     process's stdout by a :class:`ChildOutputRelay` (never suppressed, so a
     hang is visible while it runs); its stderr streams through directly."""
@@ -1056,17 +1056,16 @@ def _launch_child(workspace: Path, package: str, workers: int, dbg: bool) -> sub
         "scheduling package=%s workers=%d PYTEST_XDIST_AUTO_NUM_WORKERS=%d",
         package, workers, workers,
     )
-    test_ps1 = workspace / "datrix" / "scripts" / "test" / "test.ps1"
-    args = ["powershell", "-File", str(test_ps1), package]
+    args = [sys.executable, "-m", _TEST_MODULE, package]
     if dbg:
-        args.append("-Dbg")
+        args.append(WRAPPER_DEBUG_FLAG)
     return subprocess.Popen(
         args, env=env, stdout=subprocess.PIPE, text=True, encoding="utf-8", errors="replace"
     )
 
 
-def _start_child(workspace: Path, package: str, workers: int, dbg: bool) -> RunningChild:
-    proc = _launch_child(workspace, package, workers, dbg)
+def _start_child(package: str, workers: int, dbg: bool) -> RunningChild:
+    proc = _launch_child(package, workers, dbg)
     if proc.stdout is None:
         raise UsageError(f"child for {package} was launched without a stdout pipe")
     return RunningChild(
@@ -1131,7 +1130,7 @@ def run_scheduled(
             sum(child.workers for child in running), len(running), allotment[pending[0]], logical_cores, max_concurrent
         ):
             package = pending.pop(0)
-            running.append(_start_child(workspace, package, allotment[package], dbg))
+            running.append(_start_child(package, allotment[package], dbg))
         finished = [child for child in running if child.process.poll() is not None]
         for child in finished:
             elapsed = time.monotonic() - child.started_at
@@ -1159,14 +1158,13 @@ def run_scheduled(
     return forced_red, produced_runs, wall_seconds
 
 
-def run_mypy_for_changed(workspace: Path, changed: list[str], max_concurrent: int, dbg: bool) -> bool:
-    """Run `mypy.ps1 <pkg>` for each CHANGED package (never the whole
+def run_mypy_for_changed(changed: list[str], max_concurrent: int, dbg: bool) -> bool:
+    """Run ``mypy.ps1 <pkg>``'s module for each CHANGED package (never the whole
     affected set), at most `max_concurrent` at once (:func:`mypy_concurrency`).
 
     Returns:
         True iff every changed package's mypy run exited 0.
     """
-    mypy_ps1 = workspace / "datrix" / "scripts" / "test" / "mypy.ps1"
     pending = list(changed)
     running: list[subprocess.Popen[bytes]] = []
     running_names: list[str] = []
@@ -1174,9 +1172,9 @@ def run_mypy_for_changed(workspace: Path, changed: list[str], max_concurrent: in
     while pending or running:
         while pending and len(running) < max_concurrent:
             package = pending.pop(0)
-            args = ["powershell", "-File", str(mypy_ps1), package]
+            args = [sys.executable, "-m", _MYPY_MODULE, package]
             if dbg:
-                args.append("-Dbg")
+                args.append(WRAPPER_DEBUG_FLAG)
             running.append(subprocess.Popen(args))
             running_names.append(package)
         still_running: list[subprocess.Popen[bytes]] = []
@@ -1442,7 +1440,7 @@ def _run(args: argparse.Namespace, workspace: Path, record: CompletionRecord) ->
     # Once per gate, before the carry decision and before any child: the carry
     # fingerprint's installed-distributions component is then computed over the
     # venv exactly as the children will find it, including after a repair.
-    ensure_packages_installed_once(venv_script_path(workspace))
+    ensure_packages_installed_once(install_check_command())
 
     carry_decisions = decide_carry(
         workspace, {name: testable[name] for name in affected}, enabled=not args.no_carry
@@ -1468,7 +1466,7 @@ def _run(args: argparse.Namespace, workspace: Path, record: CompletionRecord) ->
     mypy_ok = True
     if args.mypy:
         mypy_ok = run_mypy_for_changed(
-            workspace, changed, mypy_concurrency(args.max_concurrent, logical_cores), args.debug
+            changed, mypy_concurrency(args.max_concurrent, logical_cores), args.debug
         )
         if not mypy_ok:
             print("mypy: at least one changed package failed type-checking", file=sys.stderr)
@@ -2504,14 +2502,14 @@ def _check_completion_row_shares_the_guards_ts_type_and_is_distinguishable() -> 
 # ---------------------------------------------------------------------------
 # Install-once self-tests: the flag every child carries, the one upstream
 # check, and the readers that honour the flag -- checked against the real
-# test.ps1 module / test_project.py / venv.ps1, and the check's exit-code
-# wiring against real PowerShell processes over planted venv wrappers.
+# test.ps1 module / test_project.py / venv module, and the check's exit-code
+# wiring against real processes over planted install-check scripts.
 # ---------------------------------------------------------------------------
 
 _SELF_TEST_CHECK_PREFIX = "_check_"
 _TEST_PROJECT_NAME = "test_project.py"
-#: The venv wrapper's install switch the gate's own check passes.
-_INSTALL_CALL = "-EnsurePackages"
+#: The venv module's install option the gate's own check passes.
+_INSTALL_CALL = "--ensure-packages"
 #: The install check test.ps1's module may run only through ``ensure_packages``, which skips it when
 #: the caller set the flag.
 _RUNNER_INSTALL_CHECK = "require_packages"
@@ -2519,22 +2517,16 @@ _RUNNER_INSTALL_CHECK = "require_packages"
 #: environment, so a write would outlive the run in an in-process caller.
 _ENVIRON_WRITE_METHODS = frozenset({"update", "setdefault", "pop", "clear", "putenv", "unsetenv"})
 _ENSURED_MARKER = "packages-ensured.marker"
-_PLANTED_VENV_PARAMS = "param([switch]$Ensure, [switch]$EnsurePackages, [switch]$SkipIfInstalled)\n"
-_PLANTED_VENV_OK = _PLANTED_VENV_PARAMS + """
-if (-not ($Ensure -and $EnsurePackages -and $SkipIfInstalled)) { exit 1 }
-Set-Content -LiteralPath (Join-Path $PSScriptRoot 'packages-ensured.marker') -Value 'ensured'
-exit 0
-"""
-_PLANTED_VENV_PACKAGES_FAIL = _PLANTED_VENV_PARAMS + """
-exit 1
-"""
-_PLANTED_VENV_THROWS = _PLANTED_VENV_PARAMS + """
-throw 'self-test fixture: planted venv check failure (expected)'
-"""
-
-
-def _showcase_repo() -> Path:
-    return SHOWCASE_DIR
+#: The program names that would start a child through PowerShell, which a POSIX host lacks.
+_POWERSHELL_HOSTS = frozenset({"powershell", "powershell.exe", "pwsh", "pwsh.exe"})
+#: Planted install checks, run as ``[sys.executable, <script>, *_INSTALL_CHECK_ARGS]``.
+_PLANTED_INSTALL_OK = (
+    "import pathlib, sys\n"
+    "if sys.argv[1:] != ['--ensure', '--ensure-packages', '--skip-if-installed']:\n    sys.exit(1)\n"
+    "pathlib.Path(sys.argv[0]).with_name('packages-ensured.marker').write_text('ensured')\n"
+)
+_PLANTED_INSTALL_FAILS = "import sys\nsys.exit(1)\n"
+_PLANTED_INSTALL_RAISES = "raise RuntimeError('self-test fixture: planted install check failure (expected)')\n"
 
 
 def _is_environ(node: ast.expr) -> bool:
@@ -2637,9 +2629,10 @@ def _check_install_check_runs_once_before_carry_and_any_child() -> None:
     """Read from this module's own source: the install check is called
     exactly once in the whole module, from ``_run``, after its usage checks
     and before the carry decision and the scheduler; ``_gate`` (the gate-mode
-    run) returns for ``--self-test`` before ``_run_recorded`` can reach it. The check runs the
-    real workspace's venv.ps1, whose parameter block declares every switch the
-    gate passes."""
+    run) returns for ``--self-test`` before ``_run_recorded`` can reach it. Every child -- the install
+    check, each package's ``test.ps1`` module and each ``mypy.ps1`` module -- is a module of the
+    interpreter running the gate, whose parser accepts exactly the options the gate passes, and no
+    child starts through PowerShell, so the ``.sh`` twin runs a real gate on a host without it."""
     tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
     functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
     install_name = ensure_packages_installed_once.__name__
@@ -2682,50 +2675,64 @@ def _check_install_check_runs_once_before_carry_and_any_child() -> None:
         "_gate() must return for --self-test before _run_recorded, so a self-test runs no install check"
     )
 
-    venv_script = venv_script_path(WORKSPACE_DIR)
-    assert venv_script == _showcase_repo() / "scripts" / "common" / "venv.ps1", venv_script
-    wrapper = parse_scripts([venv_script])[venv_script.resolve()]
-    undeclared = [switch for switch in _INSTALL_CHECK_SWITCHES if not wrapper.declares(switch.lstrip("-"))]
-    assert not undeclared, f"{venv_script} no longer declares {undeclared}, which the gate's install check passes"
-    assert {_INSTALL_CALL, "-SkipIfInstalled"} <= set(_INSTALL_CHECK_SWITCHES), (
-        "the gate's install check must match test.ps1's require_packages check (-EnsurePackages -SkipIfInstalled)"
+    from datrix_scripts import venv
+    from datrix_scripts.test import mypy_check, test
+
+    command = install_check_command()
+    assert command[:3] == [sys.executable, "-m", venv.MODULE], command
+    install = venv.build_parser().parse_args(command[3:])
+    assert install.ensure and install.ensure_packages and install.skip_if_installed, (
+        f"the gate's install check must match test.ps1's require_packages check (--ensure --ensure-packages "
+        f"--skip-if-installed): {command}"
     )
+    assert _INSTALL_CALL in command, command
+    children = {_TEST_MODULE: test.build_parser(), _MYPY_MODULE: mypy_check.build_parser()}
+    for module, parser in children.items():
+        assert importlib.util.find_spec(module) is not None, f"the gate's child module {module} does not exist"
+        parsed = parser.parse_args(["datrix-common", WRAPPER_DEBUG_FLAG])
+        debug = vars(parsed).get("dbg") or vars(parsed).get("debug")
+        assert parsed.positional_projects == ["datrix-common"] and debug, (module, parsed)
+    powershell = sorted(
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, (ast.List, ast.Tuple)) and node.elts and isinstance(node.elts[0], ast.Constant)
+        and str(node.elts[0].value).lower() in _POWERSHELL_HOSTS
+    )
+    assert not powershell, f"the gate starts a child through PowerShell at lines {powershell}"
 
 
 def _check_install_check_passes_through_and_fails_loud() -> None:
-    """Real PowerShell processes over planted venv wrappers: a wrapper that
-    exits 0 passes, and it was run with -Ensure -EnsurePackages -SkipIfInstalled;
-    a wrapper that exits 1, one that throws, and a missing wrapper each raise
-    InstallCheckError -- never a silent pass."""
+    """Real processes over planted install checks: one that exits 0 passes, and it was run with
+    --ensure --ensure-packages --skip-if-installed; one that exits 1, one that raises, and an
+    interpreter that does not exist each raise InstallCheckError -- never a silent pass."""
     with tempfile.TemporaryDirectory(prefix="affected-gate-selftest-") as tmp:
         root = Path(tmp)
-        passing = root / "ok" / "venv.ps1"
+        passing = root / "ok" / "install_check.py"
         passing.parent.mkdir()
-        passing.write_text(_PLANTED_VENV_OK, encoding="utf-8")
-        ensure_packages_installed_once(passing)
+        passing.write_text(_PLANTED_INSTALL_OK, encoding="utf-8")
+        ensure_packages_installed_once([sys.executable, str(passing), *_INSTALL_CHECK_ARGS])
         assert (passing.parent / _ENSURED_MARKER).is_file(), (
-            "the install check passed without running venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled"
+            "the install check passed without running --ensure --ensure-packages --skip-if-installed"
         )
         failing = (
-            ("packages-fail", _PLANTED_VENV_PACKAGES_FAIL),
-            ("venv-throws", _PLANTED_VENV_THROWS),
+            ("packages-fail", _PLANTED_INSTALL_FAILS),
+            ("check-raises", _PLANTED_INSTALL_RAISES),
         )
         for name, source in failing:
-            script = root / name / "venv.ps1"
+            script = root / name / "install_check.py"
             script.parent.mkdir()
             script.write_text(source, encoding="utf-8")
             try:
-                ensure_packages_installed_once(script)
+                ensure_packages_installed_once([sys.executable, str(script), *_INSTALL_CHECK_ARGS])
             except InstallCheckError as exc:
-                assert str(script) in str(exc), f"the failure does not name the module it ran: {exc}"
+                assert str(script) in str(exc), f"the failure does not name the command it ran: {exc}"
             else:
                 raise AssertionError(f"a failing install check ({name}) did not raise InstallCheckError")
         try:
-            ensure_packages_installed_once(root / "absent" / "venv.ps1")
+            ensure_packages_installed_once([str(root / "absent" / "python"), *_INSTALL_CHECK_ARGS])
         except InstallCheckError as exc:
-            assert "does not exist" in str(exc), exc
+            assert "could not start" in str(exc), exc
         else:
-            raise AssertionError("a missing venv module did not raise InstallCheckError")
+            raise AssertionError("an install check that cannot start did not raise InstallCheckError")
 
 
 _SELF_TEST_CHECKS: list[NamedCheck] = [

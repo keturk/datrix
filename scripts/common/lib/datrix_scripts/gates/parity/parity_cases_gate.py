@@ -57,6 +57,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternClientRequest,
     ExternalQueueControlCensus,
     IdiomOccurrence,
+    RealizedClientForm,
     RealizedRouteUrl,
     ResponseBodyWireField,
     RouteWireContract,
@@ -674,13 +675,16 @@ def _planted(status_a: int, status_b: int, gaps: Mapping[str, frozenset[str]] | 
 
 
 class _PlantedClientProbes:
-    """A fixture client target whose URL builder declares one route."""
+    """A fixture client target whose URL builder declares one route and whose app one form."""
 
     def __init__(self, path: str) -> None:
         self._path = path
 
     def route_url_builders(self, generated_root: Path) -> tuple[RealizedRouteUrl, ...]:
         return (RealizedRouteUrl("book-api.get_book", self._path, ("expand",), Path(_CANARY) / "route-url.src"),)
+
+    def client_forms(self, generated_root: Path) -> tuple[RealizedClientForm, ...]:
+        return (RealizedClientForm("library.lend", ("bookId",), True, Path(_CANARY) / "lend.src"),)
 
 
 def _planted_client_class(probes: object) -> type:

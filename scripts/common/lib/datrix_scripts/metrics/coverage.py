@@ -47,6 +47,8 @@ EXIT_TOOL_MISSING: Final = 2
 COVERAGE_FORMATS: Final = ("term", "term-missing", "html", "xml")
 DEFAULT_FORMAT: Final = "term-missing"
 _PYTEST_COV_MODULE: Final = "pytest_cov"
+_PYTEST_MODULE: Final = "pytest"
+_COVERAGE_MODULE: Final = "coverage"
 _REPORT_TIMEOUT_SECONDS: Final = 30
 #: The package folder a namespace-style project keeps under ``src/``; coverage measures it when present.
 _NAMESPACE_SOURCE: Final = Path(PackageMarker.SRC.value) / "datrix"
@@ -94,7 +96,7 @@ def pytest_command(project_root: Path, options: CoverageOptions) -> list[str]:
     command = [
         sys.executable,
         "-m",
-        "pytest",
+        _PYTEST_MODULE,
         f"{PackageMarker.TESTS.value}/",
         f"--cov={coverage_source(project_root)}",
         f"--cov-report={options.report_format}",
@@ -129,7 +131,7 @@ def measured_detail(project_root: Path, fail_under: float, timeout_seconds: floa
     (the report printed no TOTAL line, did not finish within *timeout_seconds*, or could not start)."""
     try:
         report = subprocess.run(
-            [sys.executable, "-m", "coverage", "report"],
+            [sys.executable, "-m", _COVERAGE_MODULE, "report"],
             capture_output=True,
             text=True,
             cwd=str(project_root),
@@ -154,11 +156,16 @@ def require_measurable(project_root: Path) -> None:
     """Fail unless coverage can run on *project_root*.
 
     Raises:
-        NotMeasurableError: pytest-cov is not installed (2), or *project_root*, its src/ or its tests/ is
-            missing (1).
+        NotMeasurableError: pytest, pytest-cov or coverage is not installed (2), or *project_root*, its src/
+            or its tests/ is missing (1).
     """
+    if importlib.util.find_spec(_PYTEST_MODULE) is None:
+        raise NotMeasurableError(missing_declared_tool("pytest", PACKAGE_DEV_EXTRAS), EXIT_TOOL_MISSING)
     if importlib.util.find_spec(_PYTEST_COV_MODULE) is None:
         raise NotMeasurableError(missing_declared_tool("pytest-cov", PACKAGE_DEV_EXTRAS), EXIT_TOOL_MISSING)
+    if importlib.util.find_spec(_COVERAGE_MODULE) is None:
+        raise NotMeasurableError(missing_declared_tool("coverage (installed by pytest-cov)", PACKAGE_DEV_EXTRAS),
+                                 EXIT_TOOL_MISSING)
     if not project_root.is_dir():
         raise NotMeasurableError(f"Error: project root is not a directory: {project_root}", EXIT_FAILED)
     for marker in (PackageMarker.SRC, PackageMarker.TESTS):
@@ -175,11 +182,7 @@ def measure_project(project_root: Path, options: CoverageOptions, details: dict[
         print_stderr(str(exc))
         return exc.exit_code
     sys.stdout.flush()
-    try:
-        result = subprocess.run(pytest_command(project_root, options), cwd=str(project_root))
-    except FileNotFoundError as exc:
-        print_stderr(f"Error: could not run pytest: {exc}")
-        return EXIT_TOOL_MISSING
+    result = subprocess.run(pytest_command(project_root, options), cwd=str(project_root))
     details[project_root.name] = measured_detail(project_root, options.fail_under)
     return result.returncode
 

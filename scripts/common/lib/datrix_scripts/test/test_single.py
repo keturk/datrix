@@ -9,6 +9,7 @@ output, no xdist): the fix-one-verify-one loop of checkpoint debugging. The proj
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
 import os
 import re
@@ -30,6 +31,7 @@ MODULE: Final = "datrix_scripts.test.test_single"
 WRAPPER: Final = "test-single"
 PROJECT_PREFIX: Final = "datrix-"
 NODE_ID_SEPARATOR: Final = "::"
+_PYTEST_MODULE: Final = "pytest"
 _PROJECT_IN_PATH_RE: Final = re.compile(r"(datrix-[^/\\]+)")
 _RULE: Final = "─" * 60
 _WINDOWS: Final = os.name == "nt"
@@ -130,8 +132,11 @@ def usage_text(*, windows: bool = _WINDOWS) -> str:
 
 def run(args: argparse.Namespace) -> int:
     """Resolve the project and test path, run pytest there, print the verdict; pytest's exit code."""
-    from datrix_scripts.venv import require_packages
+    from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, missing_declared_tool, require_packages
 
+    if importlib.util.find_spec(_PYTEST_MODULE) is None:
+        print(missing_declared_tool("pytest", PACKAGE_DEV_EXTRAS), file=sys.stderr)
+        return EXIT_VIOLATION
     test_path = args.test_path or args.positional_test_path
     if not test_path and not args.keyword:
         print(usage_text())
@@ -152,7 +157,8 @@ def run(args: argparse.Namespace) -> int:
     print(f"Project: {project_root.name}")
     print(_RULE)
     print(flush=True)
-    returncode = subprocess.run([sys.executable, "-m", "pytest", *arguments], cwd=project_root, check=False).returncode
+    returncode = subprocess.run([sys.executable, "-m", _PYTEST_MODULE, *arguments], cwd=project_root,
+                                check=False).returncode
     print()
     print("PASSED" if returncode == 0 else f"FAILED (exit code: {returncode})")
     return returncode

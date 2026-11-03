@@ -82,6 +82,7 @@ MCP_CONFIG_FILE: Final = ".mcp.json"
 PROGRESS_TEXT_LIMIT: Final = 300
 PROGRESS_DETAIL_LIMIT: Final = 140
 TAIL_LINES: Final = 25
+PROMPT_PREVIEW_LINES: Final = 5
 # The one field of a tool call that says what it does, in the order it is looked for.
 TOOL_DETAIL_FIELDS: Final = ("description", "file_path", "notebook_path", "path", "pattern", "skill", "name",
                              "dotted_path", "topic", "question", "query", "paths", "files", "url", "command",
@@ -167,6 +168,16 @@ def tail_lines(text: str, count: int = TAIL_LINES) -> list[str]:
     """The last *count* lines of *text*."""
     lines = _LINE_BREAK.split(text)
     return lines[max(0, len(lines) - count):]
+
+
+def prompt_preview(prompt: str, prompt_path: Path) -> list[str]:
+    """The console lines for a step's *prompt*: all of it when it fits ``PROMPT_PREVIEW_LINES``, else its first
+    lines and where the full text was kept."""
+    lines = _LINE_BREAK.split(prompt)
+    if len(lines) <= PROMPT_PREVIEW_LINES:
+        return lines
+    hidden = len(lines) - PROMPT_PREVIEW_LINES
+    return [*lines[:PROMPT_PREVIEW_LINES], f"... ({hidden} more prompt lines; full prompt: {prompt_path})"]
 
 
 def _content(event: Event) -> list[Event]:
@@ -419,14 +430,18 @@ class Chain:
         model_note = f" ({model}{f', {effort}' if effort else ''})" if model else ""
         say("")
         say(f"=== step {label}{model_note}{compact_note} ===", ColorCodes.CYAN)
-        say(prompt)
         stream_path = self.run_dir / f"{label}.stream.jsonl"
         if self.options.dry_run:
+            say(prompt)
             return StepRow(label, False, "", "", "", "", 0, 0.0, 0.0, 0, stream_path, dry_run=True)
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        prompt_path = self.run_dir / f"{label}.prompt.txt"
+        prompt_path.write_text(prompt, encoding=_UTF8)
+        for line in prompt_preview(prompt, prompt_path):
+            say(line)
         options = replace(self.options, resume=True) if resume_session else self.options
         command = step_command(self.claude, options, session_id=resume_session or self.session_id, model=model,
                                effort=effort, tools=tools)
-        self.run_dir.mkdir(parents=True, exist_ok=True)
         error_path = self.run_dir / f"{label}.stderr.txt"
         started = time.monotonic()
         results = self._launch(command, prompt, stream_path, error_path)
@@ -736,6 +751,24 @@ def _check_a_dry_run_prints_the_steps_and_runs_none() -> None:
     ], printed.getvalue()
 
 
+def _check_a_long_prompt_is_cut_on_the_console_and_kept_whole() -> None:
+    path = Path("run") / "01-fix.prompt.txt"
+    short = "\n".join(f"line {number}" for number in range(PROMPT_PREVIEW_LINES))
+    assert prompt_preview(short, path) == short.splitlines(), "a prompt that fits is printed whole"
+    long = "\n".join(f"line {number}" for number in range(PROMPT_PREVIEW_LINES + 40))
+    shown = prompt_preview(long, path)
+    assert shown[:PROMPT_PREVIEW_LINES] == long.splitlines()[:PROMPT_PREVIEW_LINES], shown
+    assert shown[PROMPT_PREVIEW_LINES:] == [f"... (40 more prompt lines; full prompt: {path})"], shown
+    with TemporaryDirectory() as raw:
+        chain = Chain(ChainOptions(workspace=Path(raw), dry_run=False, auto_compact_window=0), "no-such-claude")
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed), contextlib.suppress(OSError):
+            chain.step("fix", long)
+        kept = chain.run_dir / "01-fix.prompt.txt"
+        assert kept.read_text(encoding=_UTF8) == long, "the full prompt is kept in the run folder"
+    assert "line 44" not in printed.getvalue(), printed.getvalue()
+
+
 #: The chain's checks, run by the ``--self-test`` of every module that runs a chain.
 CHAIN_CHECKS: Final = (
     _check_the_prompt_reaches_stdin_never_an_argument,
@@ -746,4 +779,5 @@ CHAIN_CHECKS: Final = (
     _check_session_replies_read_every_reply_of_the_transcript,
     _check_absorb_needs_a_proven_verify_reply,
     _check_a_dry_run_prints_the_steps_and_runs_none,
+    _check_a_long_prompt_is_cut_on_the_console_and_kept_whole,
 )

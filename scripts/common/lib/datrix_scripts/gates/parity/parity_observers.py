@@ -38,6 +38,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternalQueueControlCensus,
     ExternalQueueControlModule,
     PublishedEventEnvelope,
+    RealizedClientForm,
     RealizedGatewayProblem,
     RealizedRouteUrl,
     ResponseBodyWireField,
@@ -633,6 +634,45 @@ def _offer_route_urls(result: object) -> Iterable[dict[str, SelectorValue]]:
 
 
 # ---------------------------------------------------------------------------
+# Client forms: client_forms
+# ---------------------------------------------------------------------------
+
+CLIENT_FORMS: Final[str] = "client_forms"
+FORM_KEY: Final[str] = "form"
+#: How a reading joins a form's fixed member keys: in the order its submit sets them.
+_FIXED_KEY_SEPARATOR: Final[str] = ","
+
+
+def _client_forms(result: object) -> tuple[RealizedClientForm, ...]:
+    return _items(result, RealizedClientForm, CLIENT_FORMS)
+
+
+def _read_client_form(result: object, selector: Selector) -> Observation:
+    """The members one form sends without showing, in order, and whether its submit sets them
+    before it validates."""
+    wanted = _text(selector, FORM_KEY)
+    matches = [form for form in _client_forms(result) if form.form_key == wanted]
+    if len(matches) != 1:
+        raise SelectorError(f"form {wanted} is emitted {len(matches)} times")
+    form = matches[0]
+    return Observation(
+        Shape.MAPPING,
+        {
+            "fixed": _FIXED_KEY_SEPARATOR.join(form.fixed_keys),
+            "set-before-validation": stringify(form.fixed_before_validation),
+        },
+    )
+
+
+def _read_client_form_keys(result: object, selector: Selector) -> Observation:
+    return _set(form.form_key for form in _client_forms(result))
+
+
+def _offer_client_forms(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{FORM_KEY: form.form_key} for form in _client_forms(result)]
+
+
+# ---------------------------------------------------------------------------
 # Documentation text: documentation_surfaces
 # ---------------------------------------------------------------------------
 
@@ -895,6 +935,29 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
             ),
         ),
         ProbeReadings(
+            CLIENT_FORMS,
+            ProbeArgument.CLIENT_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "submit",
+                        Shape.MAPPING,
+                        (FORM_KEY,),
+                        summary=(
+                            "the members one form sends without showing, in the order its submit sets them, "
+                            "and whether it sets them before it validates"
+                        ),
+                    ),
+                    _read_client_form,
+                    _offer_client_forms,
+                ),
+                FacetReading(
+                    ParityFacet("forms", Shape.SET, summary="every form key (<app>.<form>, kebab case) the apps emit"),
+                    _read_client_form_keys,
+                ),
+            ),
+        ),
+        ProbeReadings(
             DOCUMENTATION_SURFACES,
             ProbeArgument.GENERATED_FILES,
             _facets(
@@ -939,6 +1002,7 @@ def observer_specs(example_names: Sequence[str]) -> dict[str, ParityObserver]:
 
 __all__ = [
     "BLOCK_KEY",
+    "CLIENT_FORMS",
     "DECLARED_EXCEPTION",
     "DOCUMENTATION_SURFACES",
     "ENUM_KEY",

@@ -6,14 +6,18 @@ that has a ``src/`` is scanned;
 a project name is resolved under the base directory, a rooted path is taken as given, and a ``src/``
 root outside the base directory is refused. The module behind ``scan/check-python-bytecode.ps1`` (and
 its ``.sh`` twin); it needs only the standard library, and the entrypoint runs it with
-``PYTHONPYCACHEPREFIX`` set, so the check itself writes no bytecode into any ``src/``.
+``PYTHONPYCACHEPREFIX`` set, so the check itself writes no bytecode into any ``src/``. Every other
+start of the shared venv's interpreter writes under ``<workspace>/.pycache-verify`` too (the ``.pth``
+file ``datrix_scripts.venv`` installs), so bytecode under ``src/`` comes from another interpreter;
+``--remove`` deletes what is listed, and nothing outside the scanned ``src/`` roots.
 
-Exit codes: 0 no bytecode, 1 bytecode found or a refusal (a missing base directory or ``src/``, a root
-outside the base directory).
+Exit codes: 0 no bytecode (left), 1 bytecode found or a refusal (a missing base directory or ``src/``, a
+root outside the base directory).
 
 Usage:
     python -m datrix_scripts.scan.check_python_bytecode
     python -m datrix_scripts.scan.check_python_bytecode --project-dir=datrix-common
+    python -m datrix_scripts.scan.check_python_bytecode --remove
     python -m datrix_scripts.scan.check_python_bytecode --self-test
 """
 
@@ -23,6 +27,7 @@ import argparse
 import contextlib
 import io
 import os
+import shutil
 import sys
 import tempfile
 from collections.abc import Sequence
@@ -95,14 +100,28 @@ def bytecode_artifacts(roots: Sequence[Path]) -> list[Path]:
     return sorted(found, key=lambda path: str(path).casefold())
 
 
-def check(base: Path, project_dirs: Sequence[str]) -> int:
-    """Report the bytecode under the selected ``src/`` roots of *base*; the exit code."""
+def remove_artifacts(artifacts: Sequence[Path]) -> None:
+    """Delete *artifacts* (as ``bytecode_artifacts`` listed them: a ``__pycache__`` before the files in it)."""
+    for path in artifacts:
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
+
+
+def check(base: Path, project_dirs: Sequence[str], *, remove: bool = False) -> int:
+    """Report the bytecode under the selected ``src/`` roots of *base*; the exit code. With *remove*,
+    delete what was listed (only under those roots) and report what is left."""
     try:
         roots = src_roots(base, project_dirs)
     except ScanRefused as refused:
         print(refused, file=sys.stderr)
         return EXIT_VIOLATION
     artifacts = bytecode_artifacts(roots)
+    if artifacts and remove:
+        remove_artifacts(artifacts)
+        print(f"Removed {len(artifacts)} Python bytecode artifact(s) under package src directories.")
+        artifacts = bytecode_artifacts(roots)
     if not artifacts:
         print("No Python bytecode found under package src directories.")
         return EXIT_PASS
@@ -110,7 +129,8 @@ def check(base: Path, project_dirs: Sequence[str]) -> int:
     for path in artifacts:
         print(f"  {path}")
     print()
-    print("Remove these artifacts or run Python with PYTHONPYCACHEPREFIX outside src.")
+    print("Remove them with -Remove. The shared venv writes its bytecode under <workspace>/.pycache-verify "
+          "(common/venv.ps1 -Ensure installs the setting), so an interpreter outside it wrote these.")
     return EXIT_VIOLATION
 
 
@@ -124,6 +144,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-dir", action="append", default=[],
                         help="A project name under the base directory, or a path, to check (repeatable). "
                              "Default: every datrix-* package (and datrix) with a src directory.")
+    parser.add_argument("--remove", action="store_true",
+                        help="Delete the listed bytecode (only under the scanned src directories), then report "
+                             "what is left.")
     parser.add_argument("--self-test", action="store_true",
                         help="Run only the self-test: planted bytecode is listed (exit 1), a clean tree passes, "
                              "a missing src directory and a root outside the base directory are refused, and "
@@ -132,12 +155,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _checked(base: Path, project_dirs: Sequence[str]) -> tuple[int, str]:
+def _checked(base: Path, project_dirs: Sequence[str], *, remove: bool = False) -> tuple[int, str]:
     """``check`` on *base*: the exit code and everything it printed."""
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
-        code = check(base, project_dirs)
+        code = check(base, project_dirs, remove=remove)
     return code, out.getvalue()
+
+
+def _check_remove_deletes_only_src_bytecode() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp).resolve()
+        write_files(base, {
+            "datrix-planted/src/planted/__pycache__/mod.cpython-314.pyc": "",
+            "datrix-planted/src/planted/stale.pyo": "",
+            "datrix-planted/src/planted/mod.py": "",
+            "datrix-planted/tests/__pycache__/test_mod.cpython-314.pyc": "",
+            ".pycache-verify/datrix-planted/src/planted/mod.cpython-314.pyc": "",
+        })
+        code, out = _checked(base, [], remove=True)
+        kept = sorted(path.relative_to(base).as_posix() for path in base.rglob("*") if path.is_file())
+    assert code == EXIT_PASS and "Removed 3" in out, f"-Remove must delete the src bytecode and pass; got {code}: {out!r}"
+    assert kept == [".pycache-verify/datrix-planted/src/planted/mod.cpython-314.pyc", "datrix-planted/src/planted/mod.py",
+                    "datrix-planted/tests/__pycache__/test_mod.cpython-314.pyc"], f"-Remove reached outside src: {kept}"
 
 
 def _check_planted_bytecode_is_listed() -> None:
@@ -184,9 +224,10 @@ def _run(args: argparse.Namespace) -> int:
             _check_a_clean_tree_passes,
             _check_a_missing_src_is_refused,
             _check_a_root_outside_the_base_is_refused,
+            _check_remove_deletes_only_src_bytecode,
         ]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SCAN_SCRIPTS_DIR)
-    return check(_full(args.base_dir), args.project_dir)
+    return check(_full(args.base_dir), args.project_dir, remove=args.remove)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

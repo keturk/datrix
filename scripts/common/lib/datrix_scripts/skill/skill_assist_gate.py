@@ -355,24 +355,23 @@ def check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_d
         assert delete_redundant(folder, proposals).deleted == [near.name] and not near.exists()
 
 
-def check_findings_redundant_compares_one_folder_only_and_names_files_by_relative_path() -> None:
+def check_findings_redundant_compares_the_folders_together_and_names_files_by_relative_path() -> None:
     with _workspace() as root:
         inbox = root / "findings"
         keep = write_file(inbox / "azure/20261001-000000-keep.md",
                           f"# Keep\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1` and `datrix-alpha/src/b.py:2`.\n")
-        write_file(inbox / "docker/20261001-000001-dup.md",
-                   f"# Dup\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1`.\n")
-        folders = [inbox / "azure", inbox / "docker", inbox / "tooling"]
-        with LoopbackOllama(_redundancy_reply) as server:
-            other = find_redundant(inbox, [inbox / "azure", inbox / "docker"], _pool(server), ContentFilter(root))
-        assert other.files == 2 and not other.proposals and not other.candidates, other
-        dup = write_file(inbox / "azure/20261001-000001-dup.md",
+        dup = write_file(inbox / "docker/20261001-000001-dup.md",
                          f"# Dup\n\n{_HEADER_QUOTE} at `datrix-alpha/src/a.py:1`.\n")
+        # Only the folders named are read: a duplicate whose original sits in an unnamed folder stays.
+        with LoopbackOllama(_redundancy_reply) as server:
+            narrow = find_redundant(inbox, [inbox / "docker"], _pool(server), ContentFilter(root))
+        assert narrow.files == 1 and not narrow.proposals and not narrow.candidates, narrow
         pointer = write_file(inbox / "tooling/20261001-000002-ref.md", f"# Ref\n\nSee {dup.stem}.\n")
+        folders = [inbox / "azure", inbox / "docker", inbox / "tooling"]
         with LoopbackOllama(_redundancy_reply) as server:
             proposals = find_redundant(inbox, folders, _pool(server), ContentFilter(root)).proposals
         assert [(p.doomed, p.survivor) for p in proposals] == [
-            ("azure/20261001-000001-dup.md", "azure/20261001-000000-keep.md")], proposals
+            ("docker/20261001-000001-dup.md", "azure/20261001-000000-keep.md")], proposals
         assert proposals[0].referrers == ["tooling/20261001-000002-ref.md"], proposals[0].referrers
         blocked = delete_redundant(inbox, proposals)
         assert not blocked.passed and "named by tooling/" in blocked.problems[0] and dup.exists(), blocked
@@ -382,22 +381,28 @@ def check_findings_redundant_compares_one_folder_only_and_names_files_by_relativ
         assert not escaped.passed and "outside the findings folder" in escaped.problems[0] and outside.exists()
         pointer.unlink()
         done = delete_redundant(inbox, proposals)
-        assert done.deleted == ["azure/20261001-000001-dup.md"] and not dup.exists() and keep.exists(), done
+        assert done.deleted == ["docker/20261001-000001-dup.md"] and not dup.exists() and keep.exists(), done
 
 
-def check_findings_redundant_candidates_need_the_survivor_to_hold_the_keywords_of_the_file() -> None:
+def check_findings_redundant_candidates_are_reports_that_share_half_the_keywords_or_a_third_of_the_words() -> None:
     with _workspace() as root:
         folder = root / "findings"
         write_file(folder / "20261001-000000-keep.md",
-                   "# Keep\n\nThe emitter drops `alpha_table`, `BetaThing` and `gamma_idx` at "
-                   "`datrix-alpha/src/a.py:1`, and also `delta_x` shows the same.\n")
-        write_file(folder / "20261001-000001-inside.md",
-                   "# Inside\n\nThe emitter drops `alpha_table`, `BetaThing` and `gamma_idx`.\n")
+                   "# Keep\n\nThe emitter drops `alpha_table`, `BetaThing`, `gamma_idx` and `delta_x` at "
+                   "`datrix-alpha/src/a.py:1`.\n")
+        # Half of its keywords are the original's, and it names two the original lacks.
+        write_file(folder / "20261001-000001-half.md",
+                   "# Half\n\nThe emitter drops `alpha_table` and `BetaThing`, also `zeta_q` and `eta_w`.\n")
+        # One of three keywords in common: a different report.
         write_file(folder / "20261001-000002-outside.md",
-                   "# Outside\n\nThe emitter drops `alpha_table`, `BetaThing` and `zeta_q`.\n")
+                   "# Outside\n\nThe loader reads `alpha_table`, `theta_u` and `iota_v` twice.\n")
+        # No keyword in common and only generic prose in common: a different report.
+        write_file(folder / "20261001-000003-words.md",
+                   "# Words\n\nThe emitter drops the table, the index and the column default. `kappa_a`, "
+                   "`lambda_b`, `mu_c`.\n")
         result = find_redundant(folder, [folder], None, None)
         pairs = sorted((k.file, k.other) for k in result.unjudged)
-        assert pairs == [("20261001-000001-inside.md", "20261001-000000-keep.md")], pairs
+        assert pairs == [("20261001-000001-half.md", "20261001-000000-keep.md")], pairs
         # A Keywords line is the file's keywords; the prose around it adds none.
         other = root / "findings/second"
         write_file(other / "20261001-000000-keep.md",
@@ -1157,8 +1162,8 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_findings_redundant_proposes_only_what_a_checked_same_verdict_and_the_citations_prove,
     check_findings_redundant_delete_proves_every_condition_before_it_removes_a_file,
     check_findings_redundant_pairs_by_text_but_never_deletes_what_the_survivor_does_not_cite,
-    check_findings_redundant_candidates_need_the_survivor_to_hold_the_keywords_of_the_file,
-    check_findings_redundant_compares_one_folder_only_and_names_files_by_relative_path,
+    check_findings_redundant_candidates_are_reports_that_share_half_the_keywords_or_a_third_of_the_words,
+    check_findings_redundant_compares_the_folders_together_and_names_files_by_relative_path,
     check_findings_redundant_commands_exit_with_the_assist_codes,
     check_implement_finding_selects_the_first_files_by_name,
     check_finding_select_and_close_work_the_inbox_subfolders,

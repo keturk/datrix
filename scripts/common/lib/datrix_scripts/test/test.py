@@ -559,7 +559,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--coverage", action="store_true", help="write coverage reports")
     parser.add_argument("--verbose-output", action="store_true", help="show the full test output")
     parser.add_argument("--no-save", action="store_true", help="save no run directory")
-    parser.add_argument("--no-auto-install", action="store_true", help="prompt instead of installing a missing dependency")
+    parser.add_argument("--no-auto-install", action="store_true",
+                        help="passed to each package's runner: one started without this run's install check "
+                             "verifies the installs without pip (set DATRIX_OFFLINE=1 for this run's own check)")
     for parameter, option, _ in TIERS:
         parser.add_argument(f"--{option.replace('_', '-')}", action="store_true", help=f"run only the {parameter} tier")
     parser.add_argument("--specific", default="", help="test files or node IDs, comma-separated, run in one session")

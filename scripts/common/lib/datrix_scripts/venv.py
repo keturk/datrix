@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import ctypes
+import io
 import json
 import os
 import re
@@ -47,7 +48,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -121,6 +122,10 @@ _SCRIPTS_PROJECT: Final = "datrix"
 _PYPROJECT: Final = "pyproject.toml"
 _PYVENV_CFG: Final = "pyvenv.cfg"
 _RETIRED_VENV_PREFIX: Final = ".venv.retired-"
+#: Where every start of the venv's interpreter writes bytecode (the wrappers' ``PYTHONPYCACHEPREFIX``
+#: names the same directory), and the ``.pth`` file that points ``sys.pycache_prefix`` there.
+PYCACHE_DIR_NAME: Final = ".pycache-verify"
+PYCACHE_PTH: Final = "datrix-pycache.pth"
 _CORRUPTED_PREFIX: Final = "~"
 #: Paths under a package's ``src`` that are not package source: tools and test runs write there.
 _NON_SOURCE_DIRS: Final = frozenset({"__pycache__", ".generated", ".pytest_cache", "tests"})
@@ -222,6 +227,10 @@ class VenvLayout:
     @property
     def temp_dir(self) -> Path:
         return self.workspace / _TEMP_DIR
+
+    @property
+    def pycache_prefix(self) -> Path:
+        return self.workspace / PYCACHE_DIR_NAME
 
     @property
     def scripts_project(self) -> Path:
@@ -712,8 +721,25 @@ def create_venv(layout: VenvLayout, *, force: bool) -> bool:
         )
         return False
     remove_retired_venvs(layout)
+    write_pycache_prefix(layout)
     _info("Virtual environment created successfully")
     return True
+
+
+def write_pycache_prefix(layout: VenvLayout) -> None:
+    """Make every start of the venv's interpreter write bytecode under ``layout.pycache_prefix``.
+
+    The wrappers export ``PYTHONPYCACHEPREFIX``, but an MCP server, an IDE or a hook starts the venv's
+    interpreter without it, and that run's bytecode lands beside the sources under ``src/``, where a
+    stale file can keep a deleted module importable. A ``.pth`` file in each site-packages directory
+    sets ``sys.pycache_prefix`` at startup unless the launcher already set one; it is rewritten only
+    when its content differs.
+    """
+    line = f"import sys; sys.pycache_prefix = sys.pycache_prefix or {str(layout.pycache_prefix)!r}\n"
+    for site_packages in layout.site_packages_dirs():
+        pth = site_packages / PYCACHE_PTH
+        if not pth.is_file() or pth.read_text(encoding="utf-8") != line:
+            pth.write_text(line, encoding="utf-8")
 
 
 def check_venv_architecture(layout: VenvLayout) -> bool:
@@ -746,7 +772,10 @@ def ensure_venv(layout: VenvLayout) -> bool:
         if not create_venv(layout, force=False):
             return False
         _info()
-    return check_venv_architecture(layout)
+    if not check_venv_architecture(layout):
+        return False
+    write_pycache_prefix(layout)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1191,14 +1220,25 @@ def _installed_after(layout: VenvLayout, package: str, pip_output: str) -> bool:
     if not layout.python.is_file():
         return False
     pip_succeeded = re.search(rf"Successfully installed.*{re.escape(package)}", pip_output) is not None
-    imported = _run([layout.python, "-c", f"import {module_name(package)}"])
-    if imported.returncode == 0:
+    if not unimportable_packages(layout, [package]):
         return True
     if pip_succeeded:
-        _info(f"Note: pip installed {package} but import test failed:")
-        _info(imported.stdout.rstrip())
+        _info(f"Note: pip installed {package} but its import check failed (above).")
         _info("Continuing since pip reported success.")
     return pip_succeeded
+
+
+def unknown_package_refusal(layout: VenvLayout, package: str) -> str:
+    """Why *package* is not one this venv installs; empty when it is.
+
+    Only a name from ``install_order_packages`` is installed: a path (``../elsewhere``, an absolute
+    directory) or any other name would build and import code from outside the workspace's set.
+    """
+    packages = install_order_packages(layout)
+    if package in packages:
+        return ""
+    return (f"Unknown package '{package}': the shared venv installs only the workspace packages, "
+            f"one of: {', '.join(packages)}.")
 
 
 def _report_install_failure(layout: VenvLayout, package: str, result: subprocess.CompletedProcess[str]) -> None:
@@ -1222,11 +1262,9 @@ def _report_install_failure(layout: VenvLayout, package: str, result: subprocess
 
 def _install_refusal(layout: VenvLayout, package: str) -> str:
     """Why *package* cannot be installed now; empty when it can."""
-    package_dir = layout.package_dir(package)
-    if not package_dir.is_dir():
-        return f"Package not found: {package_dir}"
-    if not (package_dir / _PYPROJECT).is_file():
-        return f"pyproject.toml not found in: {package_dir}"
+    unknown = unknown_package_refusal(layout, package)
+    if unknown:
+        return unknown
     if is_offline():
         return _offline_refusal()
     if not layout.python.is_file():
@@ -1435,14 +1473,14 @@ def ensure_packages_installed(layout: VenvLayout, *, force: bool, skip_if_instal
         return _install_all(layout, force=force)
 
 
-def require_packages(layout: VenvLayout = WORKSPACE_LAYOUT) -> bool:
+def require_packages(layout: VenvLayout = WORKSPACE_LAYOUT, *, offline: bool = False) -> bool:
     """The check a run that imports the datrix-* packages makes first: the venv is sound and every
     package is installed and current (``ensure_packages_installed`` in its skip-if-installed mode,
-    as ``common/venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled`` runs it). On failure prints why
-    and returns False."""
+    as ``common/venv.ps1 -Ensure -EnsurePackages -SkipIfInstalled`` runs it; with *offline*, verified
+    without pip). On failure prints why and returns False."""
     try:
         passed = ensure_venv(layout) and ensure_packages_installed(
-            layout, force=False, skip_if_installed=True, offline=False)
+            layout, force=False, skip_if_installed=True, offline=offline)
     except VenvError as exc:
         _error(str(exc))
         passed = False
@@ -1474,6 +1512,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--recreate, --ensure, --install-package, --ensure-packages, --test-command; "
             "a query (--base-interpreter, --list-packages, --self-test) runs alone."
         ),
+        allow_abbrev=False,
     )
     parser.add_argument("--ensure", action="store_true",
                         help="the workspace is complete and the venv exists (created if not) and is built for this CPU")
@@ -1553,6 +1592,9 @@ def main(argv: Sequence[str] | None = None, layout: VenvLayout = WORKSPACE_LAYOU
     try:
         if any(getattr(args, name) for name in _QUERIES):
             return _run_query(args, layout)
+        unknown = unknown_package_refusal(layout, args.install_package) if args.install_package else ""
+        if unknown:
+            parser.error(unknown)
         return _run_actions(args, layout)
     except VenvError as exc:
         _error(str(exc))
@@ -1782,6 +1824,44 @@ def _check_site_packages_upkeep() -> None:
         assert editable_installs_intact(layout), "an editable .pth naming datrix was not found"
 
 
+def _check_install_package_names() -> None:
+    with tempfile.TemporaryDirectory(prefix="venv-selftest-") as tmp:
+        layout = VenvLayout(Path(tmp) / "workspace")
+        _plant_package(layout.workspace, "datrix-planted")
+        _plant_package(Path(tmp), "elsewhere")
+        assert unknown_package_refusal(layout, "datrix-planted") == "", "a workspace package was refused"
+        for name in ("../elsewhere", str(Path(tmp) / "elsewhere"), "datrix-unknown"):
+            refusal = _install_refusal(layout, name)
+            assert refusal.startswith(f"Unknown package '{name}'") and "datrix-planted" in refusal, refusal
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                code = _raises(SystemExit, lambda name=name: main(["--install-package", name], layout))
+            assert code == "2" and "one of: datrix-planted" in stderr.getvalue(), (code, stderr.getvalue())
+
+
+def _check_pycache_prefix() -> None:
+    with tempfile.TemporaryDirectory(prefix="venv-selftest-") as tmp:
+        layout = VenvLayout(Path(tmp))
+        site_packages = layout.root / ("Lib/site-packages" if WINDOWS else "lib/python3.99/site-packages")
+        site_packages.mkdir(parents=True)
+        write_pycache_prefix(layout)
+        pth = site_packages / PYCACHE_PTH
+        _age(pth, 100)
+        written = pth.stat().st_mtime
+        write_pycache_prefix(layout)
+        assert pth.stat().st_mtime == written, "an unchanged .pth was rewritten"
+        probe = "import site, sys; site.addsitedir(sys.argv[1]); print(sys.pycache_prefix)"
+        env = {name: value for name, value in os.environ.items() if name != "PYTHONPYCACHEPREFIX"}
+        # -S: the probe's own site-packages (this venv's, holding its real .pth) is never read; only the planted one.
+        unset = subprocess.run([sys.executable, "-S", "-c", probe, str(site_packages)], capture_output=True,
+                               text=True, env=env, check=True)
+        assert unset.stdout.strip() == str(layout.pycache_prefix), f"the .pth set no prefix: {unset.stdout!r}"
+        launcher = str(Path(tmp) / "launcher-prefix")
+        kept = subprocess.run([sys.executable, "-S", "-c", probe, str(site_packages)], capture_output=True,
+                              text=True, env={**env, "PYTHONPYCACHEPREFIX": launcher}, check=True)
+        assert kept.stdout.strip() == launcher, f"the .pth replaced the launcher's prefix: {kept.stdout!r}"
+
+
 def _check_venv_bookkeeping() -> None:
     with tempfile.TemporaryDirectory(prefix="venv-selftest-") as tmp:
         layout = VenvLayout(Path(tmp))
@@ -1824,7 +1904,8 @@ def run_self_test() -> bool:
         _check_module_names, _check_executable_architectures, _check_required_python_version,
         _check_candidates_are_filtered, _check_base_interpreter_choice, _check_venv_base_interpreter,
         _check_package_lock, _check_reinstall_decisions, _check_import_verdict, _check_site_packages_upkeep,
-        _check_venv_bookkeeping, _check_command_line, _check_wrapper_seam,
+        _check_install_package_names, _check_pycache_prefix, _check_venv_bookkeeping, _check_command_line,
+        _check_wrapper_seam,
     ])
     passed = run_checks(checks, also_failing=(VenvError,))
     print()

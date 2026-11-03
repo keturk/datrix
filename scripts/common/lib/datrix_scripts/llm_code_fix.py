@@ -12,13 +12,19 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import importlib.util
 import logging
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, missing_declared_tool
+
 logger = logging.getLogger(__name__)
+
+_RUFF_MODULE = "ruff"
+_PYTEST_MODULE = "pytest"
 
 MAX_FIX_RETRIES = 3
 
@@ -246,13 +252,16 @@ def run_ruff_check(file_path: Path) -> tuple[bool, str]:
 
     A check that cannot run is a failed check: a rewrite is kept only when ruff
     actually passed it. Ruff reports a file it could not read as a warning and still
-    exits 0 ("All checks passed!"), so that warning is a failure here.
+    exits 0 ("All checks passed!"), so that warning is a failure here. A venv without ruff refuses
+    the whole run (``SystemExit``), naming the venv repair.
     """
+    if importlib.util.find_spec(_RUFF_MODULE) is None:
+        raise SystemExit(missing_declared_tool("ruff", PACKAGE_DEV_EXTRAS))
     if not file_path.is_file():
         return False, f"ruff check cannot run: {file_path} is not a file"
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "ruff", "check", "--select", "F821", str(file_path)],
+            [sys.executable, "-m", _RUFF_MODULE, "check", "--select", "F821", str(file_path)],
             capture_output=True,
             text=True,
             timeout=RUFF_TIMEOUT_SECONDS,
@@ -271,12 +280,15 @@ def run_pytest(project_root: Path) -> tuple[bool, str]:
     """Run pytest with fail-fast, no coverage. Returns (passed, output).
 
     A test run that cannot start or finish is a failed run: a rewrite is kept only
-    when the tests actually passed.
+    when the tests actually passed. A venv without pytest refuses the whole run (``SystemExit``),
+    naming the venv repair.
     """
+    if importlib.util.find_spec(_PYTEST_MODULE) is None:
+        raise SystemExit(missing_declared_tool("pytest", PACKAGE_DEV_EXTRAS))
     try:
         result = subprocess.run(
             [
-                sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short",
+                sys.executable, "-m", _PYTEST_MODULE, "tests/", "-x", "-q", "--tb=short",
                 "--no-cov", "--override-ini=addopts=",
             ],
             cwd=str(project_root),

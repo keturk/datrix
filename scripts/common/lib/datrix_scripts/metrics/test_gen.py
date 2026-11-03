@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import importlib.util
 import io
 import json
 import subprocess
@@ -57,6 +58,11 @@ from datrix_scripts.metrics.projects import (
 )
 from datrix_scripts.paths import WORKSPACE_DIR
 from datrix_scripts.test.wrappers import METRICS_SCRIPTS_DIR, module_main, run_self_test
+from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, missing_declared_tool
+
+_RUFF_MODULE: Final = "ruff"
+_PYTEST_MODULE: Final = "pytest"
+_PYTEST_COV_MODULE: Final = "pytest_cov"
 
 MODULE: Final = "datrix_scripts.metrics.test_gen"
 WRAPPER: Final = "test-gen"
@@ -157,26 +163,34 @@ class AddedTest:
     candidate: FunctionCandidate
 
 
+def _require_test_tools() -> None:
+    """Refuse the run, naming the venv repair, when this venv lacks a declared tool it runs."""
+    if importlib.util.find_spec(_RUFF_MODULE) is None:
+        raise SystemExit(missing_declared_tool("ruff", PACKAGE_DEV_EXTRAS))
+    if importlib.util.find_spec(_PYTEST_MODULE) is None:
+        raise SystemExit(missing_declared_tool("pytest", PACKAGE_DEV_EXTRAS))
+    if importlib.util.find_spec(_PYTEST_COV_MODULE) is None:
+        raise SystemExit(missing_declared_tool("pytest-cov", PACKAGE_DEV_EXTRAS))
+
+
 def _run_coverage_json(project_root: Path, report_path: Path) -> tuple[bool, str]:
+    _require_test_tools()
     cmd = [
         sys.executable,
         "-m",
-        "pytest",
+        _PYTEST_MODULE,
         "tests/",
         f"--cov={coverage_source(project_root)}",
         f"--cov-report=json:{report_path}",
         "--override-ini=addopts=",
         "-q",
     ]
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError as exc:
-        return False, f"pytest not found: {exc}"
+    result = subprocess.run(
+        cmd,
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+    )
 
     if result.returncode != 0:
         stderr = result.stderr.strip()
@@ -1056,39 +1070,32 @@ def _validate_generated_test(
             duplicate_names
         )
 
+    _require_test_tools()
     test_file_path.parent.mkdir(parents=True, exist_ok=True)
     test_file_path.write_text(generated_content, encoding="utf-8", newline="\n")
 
     ruff_fix_cmd = [
         sys.executable,
         "-m",
-        "ruff",
+        _RUFF_MODULE,
         "check",
         "--fix",
         str(test_file_path),
     ]
-    try:
-        subprocess.run(
-            ruff_fix_cmd,
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        test_file_path.unlink(missing_ok=True)
-        return False, "ruff fix failed: ruff not found in environment"
+    subprocess.run(
+        ruff_fix_cmd,
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+    )
 
-    ruff_cmd = [sys.executable, "-m", "ruff", "check", str(test_file_path)]
-    try:
-        ruff_result = subprocess.run(
-            ruff_cmd,
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        test_file_path.unlink(missing_ok=True)
-        return False, "ruff check failed: ruff not found in environment"
+    ruff_cmd = [sys.executable, "-m", _RUFF_MODULE, "check", str(test_file_path)]
+    ruff_result = subprocess.run(
+        ruff_cmd,
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+    )
     if ruff_result.returncode != 0:
         detail = ruff_result.stdout.strip() or ruff_result.stderr.strip()
         test_file_path.unlink(missing_ok=True)
@@ -1097,7 +1104,7 @@ def _validate_generated_test(
     pytest_cmd = [
         sys.executable,
         "-m",
-        "pytest",
+        _PYTEST_MODULE,
         str(test_file_path),
         "-x",
         "-q",
@@ -1119,7 +1126,7 @@ def _validate_generated_test(
     project_pytest_cmd = [
         sys.executable,
         "-m",
-        "pytest",
+        _PYTEST_MODULE,
         "tests/",
         "-x",
         "-q",

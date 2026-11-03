@@ -43,6 +43,7 @@ from datrix_scripts.selection_export import (
  read_selection,
  write_selection,
 )
+from datrix_scripts.skill.related_parallel import logical_cores
 from datrix_scripts.suite_stamp import (
  RUNNER_PLUGIN_MODULE,
  DeselectedEvidence,
@@ -56,7 +57,7 @@ from datrix_scripts.suite_stamp import (
  unstamped_recorder_environment,
  write_merged_timings,
 )
-from datrix_scripts.venv import get_venv_python
+from datrix_scripts.venv import PACKAGE_DEV_EXTRAS, get_venv_python, missing_declared_tool
 
 #: The marker expression each ``test.ps1`` tier switch selects. One table, read
 #: both where the expression is built and where a run's selection is recorded,
@@ -84,6 +85,8 @@ _COMPLETED_PYTEST_EXIT_CODES = frozenset({0, 1, 5})
 #: requested tag no collected test carries, or a tag set selecting the whole
 #: test tree) exits with.
 _PYTEST_USAGE_ERROR = 4
+#: The exit code of a run the shared venv cannot serve: a declared tool (pytest-xdist) is missing.
+EXIT_TOOL_MISSING = 2
 
 #: Commas inside a parametrized node id ("test_x.py::test_y[1,2]") are literal.
 _TARGET_SEPARATOR = re.compile(r",(?![^\[]*\])")
@@ -322,10 +325,6 @@ def plan_tag_run(
  execution = EXECUTION_SINGLE_PROCESS if single else EXECUTION_PARALLEL_SERIAL
  return TagRunPlan(execution=execution, items=tuple(items))
 
-
-def _machine_cpu_count() -> int:
- """``os.cpu_count()``; an undeterminable count is one CPU, as xdist's ``-n auto`` takes it."""
- return os.cpu_count() or 1
 
 
 @dataclass(frozen=True)
@@ -1036,7 +1035,7 @@ class TestRunner:
     return self._fail_closed_on_preflight(
      logger, preflight, _classify_selection(marker_expr, test_path, keyword_expr, tags),
     )
-   # Check for xdist and install if missing (inside logger context for output)
+   # Check for xdist (inside logger context for output)
    # Tests marked with @pytest.mark.serial will run in Phase 2 (serial execution)
    # Disable parallel execution for specific projects if needed
    disable_parallel_for_project = False # Can be set per-project if needed
@@ -1057,30 +1056,12 @@ class TestRunner:
     logger.write("Checking for pytest-xdist...")
     self.has_xdist = self._check_xdist_available(python_exe)
     logger.write(f"pytest-xdist available: {self.has_xdist}")
-   # Only attempt to install xdist if not running with coverage
-   # (since parallel execution is disabled with coverage anyway)
-   # Also skip if parallel execution is disabled for this specific project
+   # pytest-xdist is declared in every package's [dev] extra, so the shared venv holds it; a run that
+   # would go parallel without it refuses, naming the venv repair, and never installs it by hand.
    if not self.has_xdist and not coverage and not disable_parallel_for_project:
-    # Try to install pytest-xdist automatically
-    logger.write("pytest-xdist not found. Installing for parallel test execution...")
-    install_result = subprocess.run(
-     [python_exe, "-m", "pip", "install", "pytest-xdist>=3.0.0"],
-     cwd=self.config.project_root,
-     capture_output=True,
-     text=True,
-     check=False,
-    )
-    if install_result.returncode == 0:
-     # Re-check after installation
-     self.has_xdist = self._check_xdist_available(python_exe)
-     if self.has_xdist:
-      logger.write("pytest-xdist installed successfully. Parallel execution enabled.")
-     else:
-      logger.write_warning("Warning: pytest-xdist installation may have failed. Continuing without parallel execution.")
-    else:
-     logger.write_warning("Warning: Failed to install pytest-xdist. Continuing without parallel execution.")
-     if install_result.stderr:
-      logger.write_warning(f" Error: {install_result.stderr}")
+    logger.write_error(missing_declared_tool("pytest-xdist", PACKAGE_DEV_EXTRAS))
+    logger.write_console(colorize(f"[FAILED] {self.config.project_name}", ColorCodes.RED))
+    return EXIT_TOOL_MISSING
    if save_log:
     log_file = logger.get_log_path()
     logger.write(f"Test output will be saved to: {log_file}")
@@ -1153,7 +1134,7 @@ class TestRunner:
    if preflight is not None:
     tag_plan = plan_tag_run(
      preflight.selection,
-     cpu_count=_machine_cpu_count(),
+     cpu_count=logical_cores(),
      parallel_available=self.has_xdist and not coverage,
     )
     tag_files = write_tag_run_files(run_dir or self._unsaved_selection_dir(), tag_plan)

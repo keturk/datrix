@@ -1,5 +1,5 @@
-"""Run one /implement-finding session per findings file of the inbox, in turn. A session checks its finding
-against the code and fixes the defect when the code has it; this module deletes the finding on a passing proof.
+"""Run one /implement-finding session per findings file of the inbox, in turn. The session checks its finding
+against the code and repairs what is wrong there; this module deletes the finding after a passing proof.
 
 ``scripts/skill/implement-finding.ps1`` (and its ``.sh`` twin) runs this module, whose sessions are steps of
 ``datrix_scripts.skill.chain``. For each selected finding, in name order, one headless /implement-finding
@@ -7,13 +7,16 @@ session on ``--model`` ends with one line:
 
   Finding fix: ALREADY RESOLVED   the code no longer has the defect; nothing was changed
   Finding fix: DONE               fixed, with a tagged test and targeted test runs
+  Finding fix: UPDATED            fixed what needed no growth, rewrote the finding with what the rest needs
   Finding fix: BLOCKED B<n>       stopped with a B1-B4 proof; the finding stays for Jon
 
 The session never deletes the finding; this module does, through ``finding_inbox.close_finding`` in this
 process, not on a model's word: never while another findings file names it, and after DONE only when the
-tests related to what the session wrote pass. This module runs those itself (``skill.related_tests``: the
-tests the session wrote, their feature tags across the packages the change reaches, and the end-to-end tier
-when a plugin package is reached); while any fails it resumes the session with the failures, twice at most.
+tests related to what the session wrote pass. After UPDATED the finding stays, the same related tests run,
+and the finding file must differ from what the session was given and carry a ``- **Needs Jon:** <text>``
+line, which keeps later selections from taking it until Jon deletes the line. This module runs those itself (``skill.related_tests``: the
+tests the session wrote, and the other tests that name the code names it changed); while any fails it resumes the session with the failures, as often as it
+takes: only a pass or a B1-B4 blocker the session proves ends the repairs.
 When the session wrote no package source or test (the scripts tree hosts no test suite), its last foreground
 test.ps1 or ``*-gate.ps1`` run must have passed (read from the step's stream log). Each finding is closed
 before the next one starts. ``finding_inbox.select_findings`` selects the findings (the inbox's subfolders in turn, or the one given with ``--dir``), unless
@@ -21,7 +24,8 @@ before the next one starts. ``finding_inbox.select_findings`` selects the findin
 
 Exit codes: 0 every selected finding is deleted (or a passing self-test); 1 a step ended in error, replied
 with no outcome line, a finding was left in place, or the findings could not be selected; 2 no failure, but
-at least one session stopped for a decision only Jon can make, or a command line this module cannot read.
+at least one session stopped for a decision only Jon can make or rewrote its finding to say what it needs, or
+a command line this module cannot read.
 """
 
 from __future__ import annotations
@@ -64,13 +68,14 @@ from datrix_scripts.skill.finding_inbox import (
     EXIT_KEPT,
     EXIT_UNUSABLE,
     UNLIMITED,
+    awaits_jon,
     close_finding,
     inbox_dir,
 )
 from datrix_scripts.skill.finding_inbox import (
     select_findings as select_inbox,
 )
-from datrix_scripts.skill.related_tests import repair_prompt, verify_related
+from datrix_scripts.skill.related_tests import repair_prompt, verify_related_fresh
 from datrix_scripts.skill.related_tests_checks import (
     CHECKS as RELATED_CHECKS,
 )
@@ -81,12 +86,11 @@ MODULE: Final = "datrix_scripts.skill.implement_finding"
 WRAPPER: Final = "implement-finding"
 DEFAULT_MODEL: Final = "claude-opus-5-5"
 DEFAULT_EFFORT: Final = "high"
-OUTCOME_PATTERN: Final = re.compile(r"Finding fix:[ \t*_`]*(DONE|ALREADY RESOLVED|BLOCKED\W*(B[1-4]))")
+OUTCOME_PATTERN: Final = re.compile(r"Finding fix:[ \t*_`]*(DONE|UPDATED|ALREADY RESOLVED|BLOCKED\W*(B[1-4]))")
 ALREADY_RESOLVED: Final = "ALREADY RESOLVED"
+UPDATED: Final = "UPDATED"
 FAILED_PREFIX: Final = "FAILED"
 NEEDS_JON_PREFIX: Final = "NEEDS JON"
-# How often a fixed finding's session is resumed with the related tests that failed before the finding is kept.
-MAX_REPAIR_ROUNDS: Final = 2
 DRY_RUN_OUTCOME: Final = "dry run"
 ALREADY_GONE: Final = "already gone"
 FINDINGS_COLUMNS: Final = ("Finding", "Outcome")
@@ -140,8 +144,19 @@ def close(finding: Path, session_log: Path | None = None, inbox: Path | None = N
     return code
 
 
+def updated_verdict(finding: Path, given: bytes) -> str:
+    """The outcome of a session that replied UPDATED: the finding must differ from *given* (what the session was
+    handed) and carry the ``Needs Jon`` line that keeps later selections from taking it."""
+    if finding.read_bytes() == given:
+        return f"{FAILED_PREFIX}: replied UPDATED, but the finding is unchanged"
+    if not awaits_jon(finding):
+        return f"{FAILED_PREFIX}: replied UPDATED, but the finding has no '- **Needs Jon:**' line"
+    return f"{NEEDS_JON_PREFIX}: finding updated with what it needs"
+
+
 def resolve_finding(chain: Chain, finding: Path, model: str, effort: str) -> str:
     """One session checks and fixes *finding*; this module closes it. Its outcome."""
+    given = finding.read_bytes() if finding.is_file() else b""
     row = chain.step("fix", f"/implement-finding\nFINDING: {finding}\nCLOSE: script", model=model, effort=effort)
     if row.dry_run:
         return DRY_RUN_OUTCOME
@@ -162,6 +177,8 @@ def resolve_finding(chain: Chain, finding: Path, model: str, effort: str) -> str
     proof = prove_related(chain, row, model, effort)
     if proof.message:
         return f"{proof.message}; {resume}"
+    if outcome == UPDATED:
+        return f"{updated_verdict(finding, given)}; {resume}"
     session_log = None if proof.checked else row.stream_path
     if close(finding, session_log, inbox_dir(WORKSPACE_DIR)) == EXIT_DELETED:
         return "fixed and deleted"
@@ -178,12 +195,16 @@ class RelatedProof:
 
 
 def prove_related(chain: Chain, row: StepRow, model: str, effort: str) -> RelatedProof:
-    """Run the tests related to the files the session wrote (``related_tests``); while some fail, resume the
-    session with the failures, up to ``MAX_REPAIR_ROUNDS`` times, and run them again."""
+    """Run the tests related to the files the session wrote (``related_tests``), each round in a new process so
+    the code a repair changed is the code that plans and judges; while some fail, resume the session with the
+    failures and run them again. No round count ends it: only a pass, a session that ended in error, or a B1-B4
+    blocker the repair session proves."""
     streams = [row.stream_path]
-    for attempt in range(MAX_REPAIR_ROUNDS + 1):
+    attempt = 0
+    while True:
         try:
-            verdict = verify_related(chain.options.workspace, streams, chain.run_dir / f"{row.name}-related-{attempt}")
+            verdict = verify_related_fresh(chain.options.workspace, streams,
+                                           chain.run_dir / f"{row.name}-related-{attempt}")
         except AssistError as exc:
             return RelatedProof(f"{FAILED_PREFIX}: the related tests could not be planned: {exc}", True)
         if not verdict.selections:
@@ -193,8 +214,6 @@ def prove_related(chain: Chain, row: StepRow, model: str, effort: str) -> Relate
             say(f"    NOT PASSING {result.selection.describe()}", ColorCodes.RED)
         if verdict.passed:
             return RelatedProof("", True)
-        if attempt == MAX_REPAIR_ROUNDS:
-            return RelatedProof(f"{FAILED_PREFIX}: related tests still not passing after {MAX_REPAIR_ROUNDS} repairs", True)
         repair = chain.step("repair", repair_prompt(verdict), model=model, effort=effort, resume_session=row.session_id)
         if repair.is_error:
             return RelatedProof(f"{FAILED_PREFIX}: the repair session ended in error ({repair.subtype})", True)
@@ -202,7 +221,7 @@ def prove_related(chain: Chain, row: StepRow, model: str, effort: str) -> Relate
         if blocker:
             return RelatedProof(f"{NEEDS_JON_PREFIX}: the repair stopped {blocker}", True)
         streams.append(repair.stream_path)
-    return RelatedProof(f"{FAILED_PREFIX}: related tests were not proven", True)
+        attempt += 1
 
 
 def run_findings(chain: Chain, selected: Sequence[Path], *, model: str, effort: str) -> NoReturn:
@@ -258,6 +277,7 @@ def _check_the_outcome_is_the_last_finding_fix_line() -> None:
         ("Finding fix: **DONE**", ("DONE", "")),
         ("Finding fix: DONE\nlater\nFinding fix: `ALREADY RESOLVED`", (ALREADY_RESOLVED, "")),
         ("Finding fix: BLOCKED -- B3 (USER_FORBADE)", ("BLOCKED -- B3", "B3")),
+        ("Finding fix: UPDATED", (UPDATED, "")),
         ("Finding fix: BLOCKED B7", ("", "")),
         ("finding fix: DONE", ("", "")),
     )
@@ -296,7 +316,8 @@ def _check_the_subfolders_are_worked_in_turn_or_only_the_one_given() -> None:
         workspace = Path(raw)
         inbox = workspace / "findings"
         write_files(inbox, {"z-loose.md": "z\n", "docs/d1.md": "d1\n", "azure/a2.md": "a2 names d1\n",
-                            "azure/a1.md": "a1\n", "python/p1.md": "p1\n", "extra/e1.md": "e1\n"})
+                            "azure/a1.md": "a1\n", "python/p1.md": "p1\n", "extra/e1.md": "e1\n",
+                            "azure/a3.md": f"a3\n{_NEEDS_JON_TEXT}\n"})
         names = [path.relative_to(inbox).as_posix() for path in select_findings(workspace, [], 10, "")]
         assert names == ["python/p1.md", "azure/a1.md", "azure/a2.md", "docs/d1.md", "extra/e1.md", "z-loose.md"], names
         two = [path.relative_to(inbox).as_posix() for path in select_findings(workspace, [], 2, "")]
@@ -331,21 +352,23 @@ def _check_all_takes_every_finding_of_the_folder_and_refuses_a_count() -> None:
 
 
 _REPAIR_SESSION: Final = "5b0c4a8e-3a7f-4f43-9a0e-2f4f1f0f9c11"
-_STUB_RESULT: Final = ('{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"Finding fix: DONE",'
-                       f'"session_id":"{_REPAIR_SESSION}","total_cost_usd":0,"modelUsage":{{}},"permission_denials":[]}}')
+_STUB_RESULT: Final = ('{{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"{reply}",'
+                       f'"session_id":"{_REPAIR_SESSION}","total_cost_usd":0,"modelUsage":{{{{}}}},"permission_denials":[]}}}}')
 
 
-def _stub_claude(directory: Path, fixed_flag: Path | None) -> str:
-    """A real ``claude`` executable for a check: it reads the prompt, creates *fixed_flag* (the stub harness
-    passes once it exists) and prints one result event."""
+def _stub_claude(directory: Path, fixed_flag: Path | None, reply: str = "Finding fix: DONE",
+                 flag_text: str = "") -> str:
+    """A real ``claude`` executable for a check: it reads the prompt, writes *flag_text* (a blank line when empty)
+    to *fixed_flag* (the stub harness passes once it exists) and prints one result event whose text is *reply*."""
+    result = _STUB_RESULT.format(reply=reply)
     if os.name == "nt":
         script = directory / "claude.cmd"
-        flag_line = f'echo.>"{fixed_flag}"\n' if fixed_flag else ""
-        script.write_text(f"@echo off\nmore >nul\n{flag_line}echo {_STUB_RESULT}\n", encoding="utf-8")
+        flag_line = f'echo {flag_text or "."}>"{fixed_flag}"\n' if fixed_flag else ""
+        script.write_text(f"@echo off\nmore >nul\n{flag_line}echo {result}\n", encoding="utf-8")
     else:
         script = directory / "claude"
-        flag_line = f'echo > "{fixed_flag}"\n' if fixed_flag else ""
-        script.write_text(f"#!/bin/sh\ncat >/dev/null\n{flag_line}echo '{_STUB_RESULT}'\n", encoding="utf-8")
+        flag_line = f"echo '{flag_text}' > \"{fixed_flag}\"\n" if fixed_flag else ""
+        script.write_text(f"#!/bin/sh\ncat >/dev/null\n{flag_line}echo '{result}'\n", encoding="utf-8")
         script.chmod(0o755)
     return str(script)
 
@@ -362,7 +385,8 @@ def _fixed_session(root: Path) -> StepRow:
 
 def _proof_after_repairs(repairs_fix_it: bool) -> tuple[RelatedProof, int]:
     """prove_related over a workspace whose related runs fail until the stub session's repair creates the flag
-    (when *repairs_fix_it*); the proof and the number of repair steps run."""
+    (when *repairs_fix_it*; otherwise the repair replies with a blocker); the proof and the number of repair
+    steps run."""
     with TemporaryDirectory() as raw:
         root = Path(raw)
         write_workspace(root)
@@ -370,7 +394,8 @@ def _proof_after_repairs(repairs_fix_it: bool) -> tuple[RelatedProof, int]:
         write_stub_harness(root, "if (Test-Path \"$PSScriptRoot/fixed.flag\") { Write-Output 'Total: 1 | Passed: 1 | "
                                  "Failed: 0'; exit 0 }\nWrite-Output 'Total: 1 | Passed: 0 | Failed: 1'\nexit 1\n")
         chain = Chain(ChainOptions(workspace=root, auto_compact_window=0, quiet=True),
-                      _stub_claude(root, flag if repairs_fix_it else None))
+                      _stub_claude(root, flag if repairs_fix_it else None,
+                                   "Finding fix: DONE" if repairs_fix_it else "Finding fix: BLOCKED B2"))
         with contextlib.redirect_stdout(io.StringIO()):
             proof = prove_related(chain, _fixed_session(root), DEFAULT_MODEL, DEFAULT_EFFORT)
         return proof, len(chain.steps)
@@ -380,7 +405,33 @@ def _check_failing_related_runs_resume_the_session_until_they_pass() -> None:
     proof, repairs = _proof_after_repairs(repairs_fix_it=True)
     assert (proof, repairs) == (RelatedProof("", True), 1), (proof, repairs)
     proof, repairs = _proof_after_repairs(repairs_fix_it=False)
-    assert proof.checked and proof.message.startswith(FAILED_PREFIX) and repairs == MAX_REPAIR_ROUNDS, (proof, repairs)
+    assert proof.checked and proof.message.startswith(NEEDS_JON_PREFIX) and repairs == 1, (proof, repairs)
+
+
+_NEEDS_JON_TEXT: Final = "- **Needs Jon:** growth"
+
+
+def _updated_outcome(rewrite: str | None) -> str:
+    """resolve_finding over a stub session that replies UPDATED and, unless *rewrite* is None, overwrites the
+    finding with *rewrite* ('' leaves a blank line)."""
+    with TemporaryDirectory() as raw:
+        root = Path(raw)
+        write_workspace(root)
+        write_files(root / "findings", {"a.md": "premise\n"})
+        finding = root / "findings" / "a.md"
+        chain = Chain(ChainOptions(workspace=root, auto_compact_window=0, quiet=True),
+                      _stub_claude(root, None if rewrite is None else finding, "Finding fix: UPDATED", rewrite or ""))
+        with contextlib.redirect_stdout(io.StringIO()):
+            return resolve_finding(chain, finding, DEFAULT_MODEL, DEFAULT_EFFORT)
+
+
+def _check_an_updated_finding_stays_marked_and_must_have_changed() -> None:
+    marked = _updated_outcome(_NEEDS_JON_TEXT)
+    assert marked.startswith(NEEDS_JON_PREFIX), marked
+    unmarked = _updated_outcome("")
+    assert unmarked.startswith(FAILED_PREFIX) and "Needs Jon" in unmarked, unmarked
+    unchanged = _updated_outcome(None)
+    assert unchanged.startswith(FAILED_PREFIX) and "unchanged" in unchanged, unchanged
 
 
 def _check_a_dry_run_prints_every_session() -> None:
@@ -408,6 +459,7 @@ def _run(args: argparse.Namespace) -> int:
                   _check_the_subfolders_are_worked_in_turn_or_only_the_one_given,
                   _check_all_takes_every_finding_of_the_folder_and_refuses_a_count,
                   _check_failing_related_runs_resume_the_session_until_they_pass,
+                  _check_an_updated_finding_stays_marked_and_must_have_changed,
                   _check_a_dry_run_prints_every_session]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=SKILL_SCRIPTS_DIR)
 

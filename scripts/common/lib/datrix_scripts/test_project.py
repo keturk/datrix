@@ -6,11 +6,12 @@ Consolidated test runner that works for any Datrix repository.
 Usage (PYTHONPATH=scripts/common/lib; test.ps1 sets it):
  python -m datrix_scripts.test_project <project-name> [options]
  python -m datrix_scripts.test_project datrix-common --coverage --verbose
- python -m datrix_scripts.test_project datrix-language --no-auto-install # Prompt before installing
+ python -m datrix_scripts.test_project datrix-language --no-auto-install # Verify the installs, run no pip
 
 The script will automatically:
 - Find the project root directory
-- Automatically install missing dependencies (default behavior)
+- Run the shared venv's install check (every package and its [dev] extras, from the manifests) unless
+  test.ps1 already ran it; it never runs pip itself
 - Run tests excluding benchmark tests
 - Execute tests in parallel if pytest-xdist is available
 """
@@ -19,60 +20,27 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
-from datrix_scripts.dev_specs import installable_dev_specs  # noqa: E402
 from datrix_scripts.framework_repos import workspace_package_dirs  # noqa: E402
 from datrix_scripts.node_test_runner import run_node_suite  # noqa: E402
 from datrix_scripts.package_suites import SuiteKind, detect_suite_kind  # noqa: E402
 from datrix_scripts.paths import WORKSPACE_DIR  # noqa: E402
-from datrix_scripts.pyproject_deps import parse_package_name  # noqa: E402
 from datrix_scripts.test_runner import TIER_MARKER_EXPRESSIONS, TestConfig, TestRunner, split_tags  # noqa: E402
-from datrix_scripts.venv import get_venv_python, is_venv_active, venv_repair  # noqa: E402
+from datrix_scripts.venv import (  # noqa: E402
+ WORKSPACE_LAYOUT,
+ is_venv_active,
+ require_packages,
+ unknown_package_refusal,
+ venv_repair,
+)
 
 # Marker filters that SELECT a marked subset of tests. A suite with no marker
 # concept (a Node suite) has no such subset, and pytest's own convention is that
 # a marker matching nothing is not a failure -- TestRunner maps pytest's exit
 # code 5 to 0 for exactly this case.
 _SUBSET_MARKER_FLAGS: tuple[str, ...] = ("unit", "integration", "e2e", "slow")
-
-# Package name (as in pyproject) -> import name for dev deps we can import-check
-_DEV_PACKAGE_TO_IMPORT: dict[str, str] = {
- "pytest": "pytest",
- "pytest-cov": "pytest_cov",
- "pytest-xdist": "pytest_xdist",
-}
-
-
-def _get_dev_specs(project_root: Path) -> list[str]:
- """The [dev] extra specs of *project_root*, a workspace package named by bare name.
-
- See ``datrix_scripts.dev_specs``: a direct-URL spec to a sibling workspace
- package would replace its editable install with a frozen copy.
- """
- try:
-  return installable_dev_specs(project_root)
- except (OSError, ValueError, RuntimeError):
-  return []
-
-
-def _get_dev_imports_to_check(project_root: Path) -> list[str]:
- """
- Read [project.optional-dependencies].dev from pyproject.toml and return
- import names we can check (only known test packages).
- """
- imports: list[str] = []
- seen: set[str] = set()
- for spec in _get_dev_specs(project_root):
-  pkg = parse_package_name(spec)
-  if pkg in _DEV_PACKAGE_TO_IMPORT:
-   imp = _DEV_PACKAGE_TO_IMPORT[pkg]
-   if imp not in seen:
-    seen.add(imp)
-    imports.append(imp)
- return imports
 
 
 def find_project_root(project_name: str, datrix_root: Path) -> Path:
@@ -98,152 +66,6 @@ def find_project_root(project_name: str, datrix_root: Path) -> Path:
    f"Available projects: {', '.join(available)}"
   )
  return project_path
-
-
-def check_dev_dependencies(python_exe: str, project_root: Path) -> tuple[bool, bool]:
- """
- Check if dev dependencies declared by the project are installed.
-
- Only checks packages that the project lists in [project.optional-dependencies].dev
- and that we know how to import-check (e.g. pytest, pytest-cov, pytest-xdist).
- Projects that do not declare pytest-xdist (or other optional test deps) are not
- required to have them installed.
-
- Args:
- python_exe: Python executable to check
- project_root: Root directory of the project
-
- Returns:
- (needs_install, has_pyproject_dev) tuple
- - needs_install: True if any project-declared checkable dev deps are missing
- - has_pyproject_dev: True if pyproject.toml has [project.optional-dependencies].dev
- """
- pyproject_path = project_root / "pyproject.toml"
- has_pyproject_dev = False
- content = ""
- if pyproject_path.exists():
-  try:
-   content = pyproject_path.read_text(encoding="utf-8")
-   if "[project.optional-dependencies]" in content and "dev" in content:
-    has_pyproject_dev = True
-  except OSError:
-   pass
-
- # Only check dev deps that this project declares (not a fixed list for all projects)
- modules_to_check = _get_dev_imports_to_check(project_root)
-
- missing_count = 0
- for module_name in modules_to_check:
-  try:
-   result = subprocess.run(
-    [python_exe, "-c", f"import {module_name}"],
-    cwd=project_root,
-    capture_output=True,
-    check=False,
-   )
-   if result.returncode != 0:
-    missing_count += 1
-  except (subprocess.SubprocessError, FileNotFoundError):
-   missing_count += 1
-
- needs_install = missing_count > 0 and has_pyproject_dev
- return needs_install, has_pyproject_dev
-
-
-def _is_monorepo(project_root: Path) -> bool:
- """True if project_root is inside a datrix monorepo (has datrix-common, datrix-language, etc.)."""
- monorepo_root = project_root.parent
- if not monorepo_root.exists():
-  return False
- return any(
-  (monorepo_root / pkg).exists()
-  for pkg in ["datrix-common", "datrix-language", "datrix-common"]
- )
-
-
-def install_dev_dependencies(python_exe: str, project_root: Path, auto_install: bool = True) -> bool:
- """
- Install dev dependencies from pyproject.toml.
-
- In a monorepo, ensures the project is installed editable (--no-deps) then
- installs only the [dev] extra specs to avoid re-resolving main deps (e.g. datrix-common).
-
- Args:
- python_exe: Python executable to use for installation
- project_root: Root directory of the project
- auto_install: Whether to install automatically without prompting
-
- Returns:
- True if installation was successful or not needed
- """
- if not auto_install:
-  print("\nWould you like to install dev dependencies automatically? (y/N): ", end="", flush=True)
-  try:
-   response = input().strip().lower()
-   if response not in ("y", "yes"):
-    return False
-  except (EOFError, KeyboardInterrupt):
-   print("\nCancelled.", file=sys.stderr)
-   return False
-
- print(f"\nInstalling dev dependencies for {project_root.name}...")
- print(f"Using Python: {python_exe}")
-
- is_monorepo = _is_monorepo(project_root)
-
- if is_monorepo:
-  # Monorepo: avoid "pip install -e path[dev]" which can fail resolving datrix-common/datrix-language.
-  # 1) Ensure project is installed editable with --no-deps
-  check_cmd = [python_exe, "-m", "pip", "show", project_root.name]
-  check_result = subprocess.run(check_cmd, capture_output=True, text=True, check=False)
-  already_editable = (
-   check_result.returncode == 0
-   and ("Editable project location" in check_result.stdout or "-e" in check_result.stdout)
-  )
-  if not already_editable:
-   install_cmd = [
-    python_exe, "-m", "pip", "install", "-e", str(project_root), "--no-deps"
-   ]
-   result = subprocess.run(
-    install_cmd,
-    cwd=project_root,
-    capture_output=True,
-    text=True,
-   )
-   if result.returncode != 0:
-    print("ERROR: Failed to install project in editable mode", file=sys.stderr)
-    if result.stderr:
-     print(result.stderr, file=sys.stderr)
-    return False
-  # 2) Install only the [dev] extra specs (no re-resolve of main deps)
-  dev_specs = _get_dev_specs(project_root)
-  if not dev_specs:
-   print("No dev specs in pyproject.toml; skipping dev install.")
-   return True
-  install_cmd = [python_exe, "-m", "pip", "install", *dev_specs]
-  result = subprocess.run(
-   install_cmd,
-   cwd=project_root,
-   capture_output=True,
-   text=True,
-  )
- else:
-  # Standalone: full install with [dev] extra
-  install_cmd = [python_exe, "-m", "pip", "install", "-e", f"{project_root}[dev]"]
-  result = subprocess.run(
-   install_cmd,
-   cwd=project_root,
-   capture_output=True,
-   text=True,
-  )
-
- if result.returncode == 0:
-  print("Successfully installed dev dependencies!")
-  return True
- print("ERROR: Failed to install dev dependencies", file=sys.stderr)
- if result.stderr:
-  print(result.stderr, file=sys.stderr)
- return False
 
 
 def get_latest_test_result_status(project_root: Path) -> str | None:
@@ -383,7 +205,7 @@ def main() -> int:
 Examples:
  python -m datrix_scripts.test_project datrix-common
  python -m datrix_scripts.test_project datrix-language --coverage --verbose
- python -m datrix_scripts.test_project datrix-common --no-auto-install # Prompt before installing
+ python -m datrix_scripts.test_project datrix-common --no-auto-install # Verify the installs, run no pip
 
 Note: This script should be called from test.ps1, which handles virtual environment activation.
  """,
@@ -398,7 +220,7 @@ Note: This script should be called from test.ps1, which handles virtual environm
  parser.add_argument(
  "--no-auto-install",
  action="store_true",
- help="Disable automatic dependency installation (prompt instead)",
+ help="Verify the shared venv's installs without pip instead of installing what is stale",
  )
 
  # Test type filters (mutually exclusive)
@@ -491,42 +313,19 @@ Note: This script should be called from test.ps1, which handles virtual environm
  if suite_kind is SuiteKind.NODE:
   return run_node_project(args, project_root)
 
- # Get Python executable (use common venv at D:\\datrix\\.venv where all projects are installed in editable mode)
- python_exe = get_venv_python()
- if python_exe.exists():
-  if args.verbose:
-   print(f"Using Datrix common virtual environment: {python_exe}")
-   print(" (All projects are installed in editable mode in this venv)")
-  python_exe = str(python_exe)
- else:
-  # Fall back to current Python (should be from activated venv)
-  python_exe = sys.executable
-  if args.verbose:
-   print(f"Using current Python: {python_exe}")
-  if not os.environ.get("VIRTUAL_ENV"):
-   print("WARNING: No virtual environment detected. Consider setting up the Datrix venv at D:\\datrix\\.venv", file=sys.stderr)
-
- # When test.ps1 has already run the venv install check (venv.ps1 -EnsurePackages), skip per-project pip install -e to avoid concurrent installs.
- packages_ensured_by_caller = os.environ.get("DATRIX_PACKAGES_ENSURED") == "1"
-
- # Check for dev dependencies first (before other dependency checks). The caller that ensured
- # the packages already verified every package's [dev] extras, so no probe process starts then.
- if not packages_ensured_by_caller:
-  needs_dev_deps, _has_pyproject_dev = check_dev_dependencies(python_exe, project_root)
-  if needs_dev_deps:
-   print("Detected missing dev dependencies. Installing automatically...")
-   auto_install = not args.no_auto_install
-   if install_dev_dependencies(python_exe, project_root, auto_install=auto_install):
-    print("Dev dependencies installed successfully.")
-   else:
-    if not auto_install:
-     print(f"\nThe [dev] extras of {project_root.name} are missing from {python_exe}. Install them into the "
-           f"shared venv from the manifests with: {venv_repair()}", file=sys.stderr)
-    else:
-     print("ERROR: Failed to install dev dependencies", file=sys.stderr)
-    return 1
+ # The shared venv installs every package and its [dev] extras from the manifests, under its install
+ # lock; this run never installs by hand. test.ps1 runs that check first and says so
+ # (DATRIX_PACKAGES_ENSURED=1); a direct run makes it here, and --no-auto-install verifies without pip.
+ unknown = unknown_package_refusal(WORKSPACE_LAYOUT, project_root.name)
+ if unknown or project_root.parent.resolve() != WORKSPACE_LAYOUT.workspace.resolve():
+  print(f"ERROR: {project_root} is not a package of the shared venv. {unknown} "
+        f"Repair the venv with {venv_repair()}", file=sys.stderr)
+  return 1
+ if os.environ.get("DATRIX_PACKAGES_ENSURED") != "1":
+  if not require_packages(offline=args.no_auto_install):
+   return 1
  elif args.verbose:
-  print("Packages ensured by caller (test.ps1); skipping the per-project dev-dependency check.")
+  print("Packages ensured by caller (test.ps1); skipping the install check.")
 
  # TestConfig/TestRunner are imported at module scope (top of file); this module runs as
  # datrix_scripts.test_project, so the shared package is importable by construction.

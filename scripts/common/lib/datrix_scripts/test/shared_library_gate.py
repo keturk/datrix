@@ -2527,6 +2527,102 @@ def _console_script_launches(scripts_dir: Path, console_scripts: Mapping[str, st
     return found
 
 
+#: The one module that runs pip: the shared venv's installer, under its install lock and markers.
+_PIP_OWNER = "common/lib/datrix_scripts/venv.py"
+_PIP_MODULE = "pip"
+_FIND_SPEC = "find_spec"
+_SYS_EXECUTABLE = "sys.executable"
+_DEF_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
+#: A planted tree for ``_unguarded_module_runs``: only pip.py, silent.py and unguarded.py offend.
+_PLANTED_MODULE_RUNS: Mapping[str, str] = {
+    "unguarded.py": "import subprocess\nimport sys\nsubprocess.run([sys.executable, '-m', 'ruff', 'check'])\n",
+    "silent.py": "import importlib.util\nimport subprocess\nimport sys\ndef f() -> int:\n"
+                 "    if importlib.util.find_spec('ruff') is None:\n        return 1\n"
+                 "    return subprocess.run([sys.executable, '-m', 'ruff']).returncode\n",
+    "pip.py": "import subprocess\ndef f(python_exe: str) -> None:\n    subprocess.run([python_exe, '-m', 'pip', 'install', 'x'])\n",
+    "guarded.py": "import importlib.util\nimport subprocess\nimport sys\nfrom datrix_scripts.venv import missing_declared_tool\n"
+                  "RUFF = 'ruff'\ndef f() -> None:\n    if importlib.util.find_spec(RUFF) is None:\n"
+                  "        raise SystemExit(missing_declared_tool('ruff', 'x'))\n    subprocess.run([sys.executable, '-m', RUFF])\n",
+    "helper.py": "import importlib.util\nimport subprocess\nimport sys\nfrom datrix_scripts.venv import missing_declared_tool\n"
+                 "def missing() -> str:\n    return missing_declared_tool('pygount', 'x')\ndef f() -> None:\n"
+                 "    if importlib.util.find_spec('pygount') is None:\n        raise SystemExit(missing())\n"
+                 "    subprocess.run([sys.executable, '-m', 'pygount.command'])\n",
+    "stdlib.py": "import subprocess\nimport sys\nsubprocess.run([sys.executable, '-m', 'venv', 'x'])\n",
+}
+
+
+def _scopes(tree: ast.Module) -> Iterator[tuple[ast.AST, dict[str, ast.expr]]]:
+    """The module and each function of *tree*, with the names visible in it (its own over the module's)."""
+    module_bindings = _scope_bindings(tree)
+    for scope in [tree, *(node for node in ast.walk(tree) if isinstance(node, _FUNCTION_NODES))]:
+        yield scope, {**module_bindings, **_scope_bindings(scope)}
+
+
+def _module_runs(tree: ast.Module) -> Iterator[tuple[int, str, str]]:
+    """``(line, interpreter, module)`` for every argv literal ``[<interpreter>, "-m", <module>, ...]`` of *tree*."""
+    for scope, bindings in _scopes(tree):
+        for node in _own_nodes(scope):
+            if not (isinstance(node, (ast.List, ast.Tuple)) and len(node.elts) >= 3
+                    and _string_value(node.elts[1], bindings) == "-m"):
+                continue
+            module = _string_value(node.elts[2], bindings)
+            if module:
+                yield node.lineno, ast.unparse(node.elts[0]), module
+
+
+def _called_name(node: ast.AST) -> str:
+    return ast.unparse(node.func).rsplit(".", 1)[-1] if isinstance(node, ast.Call) else ""
+
+
+def _find_spec_guards(tree: ast.Module) -> set[str]:
+    """The modules *tree* refuses up front: an ``if`` whose test calls ``find_spec(<module>)`` and whose
+    body words the refusal with ``missing_declared_tool``, directly or through a function of *tree* that does."""
+    words = {_VENV_REFUSAL} | {
+        node.name for node in ast.walk(tree)
+        if isinstance(node, _DEF_NODES) and any(_called_name(inner) == _VENV_REFUSAL for inner in ast.walk(node))
+    }
+    guarded: set[str] = set()
+    for scope, bindings in _scopes(tree):
+        for node in _own_nodes(scope):
+            if not (isinstance(node, ast.If)
+                    and any(_called_name(inner) in words for stmt in node.body for inner in ast.walk(stmt))):
+                continue
+            guarded.update(_string_value(call.args[0], bindings) for call in ast.walk(node.test)
+                           if isinstance(call, ast.Call) and call.args and _called_name(call) == _FIND_SPEC)
+    guarded.discard("")
+    return guarded
+
+
+def _module_run_offence(interpreter: str, module: str, guarded: set[str], rel: str,
+                        distributions: Mapping[str, list[str]]) -> str:
+    """Why one module run of *rel* is outside the shared venv's repair; empty when it is not."""
+    parts = module.split(".")
+    if parts[0] == _PIP_MODULE:
+        return "" if rel == _PIP_OWNER else f"runs pip outside the shared venv's installer ({_PIP_OWNER})"
+    if interpreter != _SYS_EXECUTABLE or parts[0] in sys.stdlib_module_names or parts[0] not in distributions:
+        return ""
+    if not guarded.isdisjoint(".".join(parts[:end]) for end in range(1, len(parts) + 1)):
+        return ""
+    owners = ", ".join(sorted(set(distributions[parts[0]])))
+    return f"runs -m {module} with no find_spec refusal worded by {_VENV_REFUSAL} (distribution {owners})"
+
+
+def _unguarded_module_runs(scripts_dir: Path, distributions: Mapping[str, list[str]]) -> list[str]:
+    """Module runs of the scripts tree outside the shared venv's repair: pip run by any module but the
+    venv's installer, and an installed module run as ``sys.executable -m <module>`` with no ``find_spec``
+    refusal of it (or of a package above it) worded by ``missing_declared_tool``. Stdlib modules and
+    modules no installed distribution provides are not judged."""
+    found: list[str] = []
+    for path in _script_python_files(scripts_dir):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        rel = path.relative_to(scripts_dir).as_posix()
+        guarded = _find_spec_guards(tree)
+        offences = ((line, _module_run_offence(interpreter, module, guarded, rel, distributions))
+                    for line, interpreter, module in _module_runs(tree))
+        found.extend(f"{rel}:{line}: {offence}" for line, offence in offences if offence)
+    return found
+
+
 def _stdlib_import_fallbacks(scripts_dir: Path) -> list[str]:
     """``except ImportError`` handlers whose ``try`` body imports stdlib modules only."""
     return [
@@ -2790,10 +2886,11 @@ def check_scripts_tree_declared_tool_refusals_name_the_venv_repair() -> None:
 def check_scripts_tree_declared_tool_runs_name_the_venv_repair() -> None:
     """A declared tool run as a subprocess is the shared venv's copy, refused in the venv's words: no
     script shows its reader hand-worded ``pip install`` advice (printed, written, logged, raised or
-    exited with), which installs into whatever interpreter the reader has; and no script launches a
-    declared distribution by its console-script name, which runs whatever copy PATH finds first. The
-    tool runs as ``sys.executable -m <module>``, refused up front with ``missing_declared_tool`` when
-    ``importlib.util.find_spec`` finds no module. A planted tree is read exactly."""
+    exited with), which installs into whatever interpreter the reader has; no script launches a
+    declared distribution by its console-script name, which runs whatever copy PATH finds first; every
+    ``[sys.executable, "-m", <installed module>]`` run is refused up front with ``missing_declared_tool``
+    when ``importlib.util.find_spec`` finds no module (argv sites - guarded sites = the empty set); and no
+    script but the venv's installer runs pip. Planted trees are read exactly."""
     with TemporaryDirectory(prefix="scripts-tool-runs-") as tmp:
         planted = Path(tmp)
         write_files(planted / "metrics" / _LIB, {
@@ -2818,18 +2915,30 @@ def check_scripts_tree_declared_tool_runs_name_the_venv_repair() -> None:
                             "(distribution pygount)"], (
             f"the console-script census misread a planted tree (only launch.py launches by name): {launches}"
         )
+    with TemporaryDirectory(prefix="scripts-module-runs-") as tmp:
+        planted = Path(tmp)
+        write_files(planted / "metrics" / _LIB, _PLANTED_MODULE_RUNS)
+        unguarded = _unguarded_module_runs(planted, {"ruff": ["ruff"], "pygount": ["pygount"], "pip": ["pip"]})
+        assert unguarded == [
+            "metrics/lib/pip.py:3: runs pip outside the shared venv's installer (common/lib/datrix_scripts/venv.py)",
+            "metrics/lib/silent.py:7: runs -m ruff with no find_spec refusal worded by missing_declared_tool "
+            "(distribution ruff)",
+            "metrics/lib/unguarded.py:3: runs -m ruff with no find_spec refusal worded by missing_declared_tool "
+            "(distribution ruff)",
+        ], f"the module-run census misread a planted tree (only pip.py, silent.py and unguarded.py offend): {unguarded}"
     declared = _declared_distributions(WORKSPACE_DIR, SHOWCASE_DIR)
     console_scripts = _declared_console_scripts(declared)
     assert {"bandit", "datrix", "pygount", "vulture"} <= console_scripts.keys(), (
         f"the declared console scripts miss a declared tool the scripts run: {sorted(console_scripts)}. "
         "Repair the venv with common/venv.ps1 -EnsurePackages."
     )
-    offences = _hand_install_advice(_scripts_dir()) + _console_script_launches(_scripts_dir(), console_scripts)
+    offences = (_hand_install_advice(_scripts_dir()) + _console_script_launches(_scripts_dir(), console_scripts)
+                + _unguarded_module_runs(_scripts_dir(), importlib.metadata.packages_distributions()))
     assert not offences, (
         f"declared tools run outside the shared venv's repair: {offences}. Run the tool as "
         "[sys.executable, '-m', <module>], refuse up front when importlib.util.find_spec(<module>) is None "
         "with datrix_scripts.venv.missing_declared_tool(<distribution>, <declaring manifest constant>), and "
-        "word any other repair with datrix_scripts.venv.venv_repair()."
+        "word any other repair with datrix_scripts.venv.venv_repair(); only datrix_scripts.venv runs pip."
     )
 
 

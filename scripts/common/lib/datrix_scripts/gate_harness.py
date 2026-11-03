@@ -172,7 +172,7 @@ def gate_argument_parser(
     *,
     update_baseline: bool = False,
     debug_flag: str | None = DEBUG_FLAG,
-    allow_abbrev: bool = True,
+    allow_abbrev: bool = False,
     harness_self_test_flag: bool = True,
 ) -> argparse.ArgumentParser:
     """An argument parser carrying the shared gate flags.
@@ -186,7 +186,8 @@ def gate_argument_parser(
     when the wrapper declares no debug parameter (``args.debug`` is then False);
     *harness_self_test_flag* is False when the wrapper declares no ``-HarnessSelfTest``
     (``args.harness_self_test`` is then False, and the gate's ``--self-test`` runs the harness
-    self-test first); and *allow_abbrev* is False, so no abbreviated spelling reaches the module unseen.
+    self-test first). *allow_abbrev* defaults to False, so no abbreviated spelling reaches the module
+    unseen (`entrypoint.flag_problems` refuses a wrapper whose parser accepts one).
     """
     parser = argparse.ArgumentParser(description=description, allow_abbrev=allow_abbrev)
     if debug_flag is None:
@@ -242,7 +243,7 @@ def check_list_parser(
     description: str,
     *,
     debug_flag: str | None = DEBUG_FLAG,
-    allow_abbrev: bool = True,
+    allow_abbrev: bool = False,
     harness_self_test_flag: bool = True,
 ) -> argparse.ArgumentParser:
     """The parser of a gate that is a list of checks: the shared gate flags (see

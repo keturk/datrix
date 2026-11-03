@@ -30,6 +30,7 @@ import argparse
 import ast
 import contextlib
 import hashlib
+import importlib.util
 import io
 import subprocess
 import sys
@@ -40,6 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, write_files
 from datrix_scripts.llm_code_fix import (
     MAX_FIX_RETRIES,
     parse_code_response,
@@ -53,7 +55,6 @@ from datrix_scripts.llm_code_fix import (
 from datrix_scripts.llm_code_fix import (
     extract_file_context as _extract_file_context,
 )
-from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, write_files
 from datrix_scripts.local_llm import (
     ChatRequest,
     LocalLlmPool,
@@ -94,6 +95,7 @@ try:
 except ImportError as exc:
     raise SystemExit(missing_declared_tool("cognitive_complexity", SCRIPTS_DEPENDENCY_GROUP)) from exc
 
+_RUFF_MODULE: Final = "ruff"
 DEFAULT_MAX_COMPLEXITY = 15
 DEFAULT_IGNORE_DIRS = ("tests", "test", "__pycache__", ".git")
 DEFAULT_COMPLEXITY_LLM_NUM_PREDICT = 4096
@@ -524,13 +526,16 @@ def _normalize_replacement_block(source: str, target_indent: str) -> str:
 
 
 def _format_replacement_block_with_ruff(dedented_source: str) -> str:
-    """Best-effort Ruff formatting for a syntactically valid replacement fragment."""
+    """Ruff formatting for a replacement fragment; a fragment Ruff cannot format is returned as given.
+    A venv without Ruff refuses the run (``SystemExit``), naming the venv repair."""
+    if importlib.util.find_spec(_RUFF_MODULE) is None:
+        raise SystemExit(missing_declared_tool("ruff", PACKAGE_DEV_EXTRAS))
     try:
         result = subprocess.run(
             [
                 sys.executable,
                 "-m",
-                "ruff",
+                _RUFF_MODULE,
                 "format",
                 "--stdin-filename",
                 "complexity_fix_fragment.py",

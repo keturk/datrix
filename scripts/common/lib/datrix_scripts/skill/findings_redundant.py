@@ -2,18 +2,21 @@
 another file, and the deletion of the ones the skill confirms.
 
 FILES
-    The findings compared are the ``*.md`` directly in one folder at a time -- each area subfolder of the
-    inbox (the folders ``organize-findings.ps1`` fills), then the inbox's own loose files -- never across
-    folders: a file in ``python`` is judged against the other files of ``python`` only. A file is named by its path under the inbox,
-    ``azure/<name>.md``; pointers to it elsewhere name its stem. The deletion proofs (a pointer that would
-    dangle, a citation that would be lost) still read the whole inbox.
+    The findings compared are the ``*.md`` directly in the folders searched -- every area subfolder of the
+    inbox (the folders ``organize-findings.ps1`` fills) and the inbox's own loose files, or the one folder
+    ``--dir`` names -- all taken together: a duplicate is often filed under another area than its original.
+    A file is named by its path under the inbox, ``azure/<name>.md``; pointers to it elsewhere name its
+    stem. The deletion proofs (a pointer that would dangle, a citation that would be lost) read the whole
+    inbox.
 
 REDUNDANT (a lead, checked)
     A file is a candidate for deletion when it holds one finding (a raw file, or a theme file with at most
     one section) and another file's unit -- a raw file, or one ``## N.`` section of a theme file -- of higher
-    rank could state the same defect. A unit is a candidate survivor when it holds at least ``KEY_CONTAINMENT``
-    of the file's keywords (its citations, backticked spans and code-shaped names); a file with fewer than
-    ``MIN_KEYS`` keywords is matched by shared words instead. A local model then reads both
+    rank could state the same defect. A unit is a candidate survivor when it shares ``KEY_OVERLAP`` of the
+    keywords (citations, backticked spans and code-shaped names) of the file or of itself, or ``WORD_OVERLAP``
+    of their words; a file with fewer than ``MIN_KEYS`` keywords is matched by shared words alone. The
+    candidate test is deliberately wide -- two reports of one defect each name things the other lacks -- and
+    only selects what the model reads. A local model then reads both
     texts and answers SAME, PARTIAL or DIFFERENT; SAME stands only when the model lists nothing the doomed file
     has that the survivor lacks, and quotes one line of each file that really occurs in that file. Everything
     else stays. A proposal is marked for deletion only when the survivor also cites everything the doomed file
@@ -64,8 +67,11 @@ VERDICT_UNCLEAR = "UNCLEAR"
 _VERDICTS = (VERDICT_SAME, VERDICT_PARTIAL, VERDICT_DIFFERENT)
 
 SURVIVORS_PER_FILE = 3
+# A model that quotes a line the file does not hold, or gives no verdict, is asked again before the pair is UNCLEAR.
+JUDGE_ATTEMPTS = 3
 LEXICAL_THRESHOLD = 0.25
-KEY_CONTAINMENT = 0.9
+KEY_OVERLAP = 0.5
+WORD_OVERLAP = 0.35
 MIN_KEYS = 3
 MIN_WORD_CHARS = 4
 SECTION_LEVEL = 2
@@ -94,7 +100,9 @@ JUDGE_SYSTEM = (
     "-- each claim, symptom, impact, location and suggested direction -- is also in SECOND. Answer PARTIAL when "
     "it is the same defect but FIRST carries something SECOND lacks: list each such thing in unique_in_first. "
     "Answer DIFFERENT for a different defect, even on the same seam, package or fix site. Quote one line of "
-    "FIRST and one line of SECOND that show the match, copied exactly and without line numbers. Use only what "
+    "FIRST and one line of SECOND that show the match, copied exactly and without line numbers. When and how a "
+    "file was found (timestamp, the session or run that found it), its Kind, Area or Severity label, its title "
+    "wording and a line number that moved are provenance, not content: they never make a pair PARTIAL. Use only what "
     "the files say. Lines are numbered 'N| text'; never copy the numbers.")
 
 JUDGE_SCHEMA: dict[str, object] = {
@@ -261,17 +269,28 @@ def _ranked(files: list[FileUnits]) -> list[FileUnits]:
     return sorted(by_name, key=lambda f: (len(f.refs), len(f.text)))
 
 
+def _key_overlap(doomed: Unit, other: Unit) -> float:
+    """How much of the smaller keyword set the other unit shares, in either direction: two reports of one
+    defect each name things the other lacks, so containment one way alone misses them. A set under
+    ``MIN_KEYS`` names too little to say anything."""
+    if len(doomed.keys) < MIN_KEYS or len(other.keys) < MIN_KEYS:
+        return 0.0
+    return max(_containment(doomed.keys, other.keys), _containment(other.keys, doomed.keys))
+
+
 def _candidates(doomed: Unit, higher: list[FileUnits]) -> list[Unit]:
-    """The units of higher-ranked files that could say everything ``doomed`` says, nearest first. A file that
-    names at least ``MIN_KEYS`` keywords is matched by keyword containment: the survivor must hold
-    ``KEY_CONTAINMENT`` of them. A file with fewer keywords is matched by shared words."""
+    """The units of higher-ranked files that may report the same defect as ``doomed``, nearest first. A file
+    that names at least ``MIN_KEYS`` keywords is matched when a unit shares ``KEY_OVERLAP`` of the keywords of
+    either one, or ``WORD_OVERLAP`` of the words; a file with fewer keywords is matched by shared words alone.
+    This only selects what the model reads: SAME still needs the survivor to hold everything."""
     keyed = len(doomed.keys) >= MIN_KEYS
-    scored = [(_containment(doomed.keys, u.keys) if keyed else _similarity(doomed.words, u.words),
-               _similarity(doomed.words, u.words), u) for f in higher for u in f.units]
-    floor = KEY_CONTAINMENT if keyed else LEXICAL_THRESHOLD
-    near = [(score, words, u) for score, words, u in scored if score >= floor]
+    scored = [(_key_overlap(doomed, u), _similarity(doomed.words, u.words), u) for f in higher for u in f.units]
+    if keyed:
+        near = [row for row in scored if row[0] >= KEY_OVERLAP or row[1] >= WORD_OVERLAP]
+    else:
+        near = [row for row in scored if row[1] >= LEXICAL_THRESHOLD]
     near.sort(key=lambda row: (row[0], row[1]), reverse=True)
-    return [u for _score, _words_score, u in near[:SURVIVORS_PER_FILE]]
+    return [u for _keys, _words_score, u in near[:SURVIVORS_PER_FILE]]
 
 
 def _quote_in(quote: str, text: str) -> bool:
@@ -304,7 +323,10 @@ def judge(pool: LocalLlmPool, content: ContentFilter, doomed: Unit, survivor: Un
     first = content.section(doomed.label, doomed.text)
     second = content.section(survivor.label, survivor.text)
     prompt = "FIRST (candidate for deletion):\n" + section_body(first) + "\n\nSECOND (stays):\n" + section_body(second)
-    result = _check_answer(ask_json(pool, JUDGE_SYSTEM, prompt, JUDGE_SCHEMA), doomed, survivor)
+    for _attempt in range(JUDGE_ATTEMPTS):
+        result = _check_answer(ask_json(pool, JUDGE_SYSTEM, prompt, JUDGE_SCHEMA), doomed, survivor)
+        if result.verdict != VERDICT_UNCLEAR:
+            break
     withheld = tuple(note for note in (first.note, second.note) if note)
     if withheld and result.verdict == VERDICT_SAME:
         return Judgement(VERDICT_UNCLEAR, result.reason, withheld)
@@ -331,28 +353,20 @@ def _proposal(directory: Path, doomed: FileUnits, survivor: Unit, judgement: Jud
 
 def find_redundant(directory: Path, folders: list[Path], pool: LocalLlmPool | None,
                    content: ContentFilter | None) -> Redundancy:
-    """Every file that another file of the SAME folder already covers, folder by folder (``folders`` lie in
-    the inbox ``directory``); a file is never compared with a file of another folder. ``pool`` None lists
-    the candidates without a model."""
-    total = Redundancy()
+    """Every file that another file already covers, among the files of ``folders`` (which lie in the inbox
+    ``directory``) taken together: one defect is filed under whichever area its reporter was in, so a
+    duplicate often sits in another folder. ``pool`` None lists the candidates without a model."""
+    files: list[FileUnits] = []
     for folder in folders:
-        part = _find_in_folder(directory, folder, pool, content)
-        total.proposals += part.proposals
-        total.kept += part.kept
-        total.multi_section += part.multi_section
-        total.unjudged += part.unjudged
-        total.candidates += part.candidates
-        total.files += part.files
-    total.proposals.sort(key=lambda p: p.doomed)
-    return total
+        if not folder.resolve().is_relative_to(directory.resolve()):
+            raise AssistError(f"Folder '{folder}' is not inside the findings inbox '{directory}'.")
+        files += [file_units(_relative_name(directory, path), read_text(path)) for path in sorted(folder.glob("*.md"))
+                  if path.is_file()]
+    return _find_among(directory, files, pool, content)
 
 
-def _find_in_folder(directory: Path, folder: Path, pool: LocalLlmPool | None,
-                    content: ContentFilter | None) -> Redundancy:
-    if not folder.resolve().is_relative_to(directory.resolve()):
-        raise AssistError(f"Folder '{folder}' is not inside the findings inbox '{directory}'.")
-    files = [file_units(_relative_name(directory, path), read_text(path)) for path in sorted(folder.glob("*.md"))
-             if path.is_file()]
+def _find_among(directory: Path, files: list[FileUnits], pool: LocalLlmPool | None,
+                content: ContentFilter | None) -> Redundancy:
     ranked = _ranked(files)
     result = Redundancy(files=len(files))
     jobs: list[tuple[int, FileUnits, Unit]] = []
