@@ -163,6 +163,142 @@ drafting in `drafting.py` and its prompt in `prompting.py`, the self-test in `se
 `--local-machines`, `--llm-model`, `--llm-timeout`, `--dbg`, `--self-test`): `bash dev/fixture-author.sh
 --kind diagnostics --package datrix-semantic --plan`.
 
+### `fixture-dedupe.ps1`
+
+Keeps one copy of each duplicated test fixture. It builds the plan over every `datrix-*` package's `tests/`
+and the shared `datrix-testing` fixture set and lists it; with `-DryRun` nothing is written. Without it the
+plan is proven, written and recorded (below). No git command runs.
+
+- **One fixture.** Two fixture files are one when their normalized content is equal (the fixture budget
+  gate's `normalized`: comments outside string literals removed, whitespace collapsed) and every file each
+  names resolves to files that are one, recursively; a referenced file of no fixture kind (a `.csv`) is one
+  with another when its bytes are equal. Files of equal content whose references differ are listed as split
+  groups. Two inline literals (string constants the gate counts, each assigned to one name) are one when
+  their normalized text is equal; an f-string's text is not its value and joins no group.
+- **References.** An `include '<path>'` resolves against the including file's directory, and every path a
+  `.dseed` names against the `.dseed`'s directory. Any other path literal (a declaration's config path, a
+  `.dcfg` `import`, an asset path) resolves against the project root, the entry's directory: the nearest
+  directory, from the fixture's own up to its `tests/` root, under which it names a file. A literal naming
+  no file there (a route, a host) is no reference. A copy moved to `corpus/shared/<package>/tests/...` has
+  that directory as its `tests/` root, so a path naming no file in its own package names none in another
+  project of the corpus either.
+- **Placement.** A file group's copy is its sorted-first movable copy, moved to
+  `fixtures_data/corpus/shared/<package>/<path in the package>`; every other movable copy is deleted. A
+  literal group's copy is `corpus/shared/inline/<sorted-first module, without .py>/<NAME>.<kind>`, with the
+  dotted name of the class or function holding a literal bound inside one as one more directory (each test
+  function binding its own `source` places once), and each of its literals is rewritten to read it. A placement taken by another group or an existing file refuses
+  the group, its literals listed for a hand edit. Only the literals of one exact text read the shared file
+  (the group's largest class of equal texts holding an assigned literal); a literal of other text, or one
+  holding a carriage return (which `read_text` does not give back), is refused and stays as written.
+- **Kept in place.** A copy inside a directory read whole: one a test module's `glob`, `rglob`, `iterdir` or
+  `walk` call reaches on a fixture-path name (its receiver evaluated statically: `Path(__file__)` chains,
+  constants, imports, pytest fixtures returning one expression), every package's `tests/fixtures/diagnostics/`
+  (the diagnostics collector) and `tests/fixtures/cases/lsp-*/` (the language-server inputs). A copy already
+  in the shared set. A copy whose bytes differ from the copy that moves (normalized-equal only): deleting it
+  would change the bytes its readers read, so the copy that moves is the sorted-first of the group's largest
+  class of byte-equal copies. The lone movable copy of a group. Every copy of a `.dcfg` group whose placed text the
+  model-contract capture's secret screen flags: the would-be corpus (each placed text written, each moved
+  or deleted copy taken out of its package) is built in a temporary directory and `collect_samples` runs
+  over it with the real model set of each package holding `tests/test_model_contracts.py`, repeated without
+  the flagged groups until none of the moving ones is flagged.
+- **References follow their file.** The move map sends each moved copy to its shared place and each deleted
+  copy to its group's shared copy. Every fixture still in a tree (each moved copy at its shared place, every
+  file that stays) must name the file it named before at that file's new place. A reference that still does,
+  read by its rule from where its file now lies, stays as written; one that does not is rewritten to the
+  relative path of that place from its base: its file's directory for an `include` or a `.dseed` path, and
+  for a project-root path the project root moved with its file (as many levels above its new place as the
+  old root lay above its old place). Only an `include` and a declaration header's `.dcfg` config path
+  (`system Shop('config/system.dcfg')`, `provider p config('...')`) may leave their base; every other
+  reference (a `.dcfg` `import`, a seed path, an asset or content path) is confined to the project root by
+  its loader, so a rewrite leaving it cannot follow. Nor can one reaching another package's `tests/` (across
+  packages only the shared corpus is read), or one that, read back by its rule over the moved tree, lands
+  elsewhere. When a reference cannot follow, what it reads stays: the group of a moved reader moves
+  nothing, and a leaving copy a staying reader names is kept beside it. The plan is rebuilt with what the
+  screen flags and what the references hold until neither holds anything new.
+- **Test sites follow their copy.** Once the plan settles, every test module of every package (the modules whose
+  literals the budget gate counts: `tests/`, `src/**/testkit/`, `src/datrix_testing/`) is read and
+  each site reading a copy that leaves is rewritten to the one accessor,
+  `datrix_testing.corpus.shared_fixture("<path under shared/>")`: a path expression (`/` joins, `joinpath`,
+  `with_name`/`with_suffix`, `Path(...)`) the static evaluator follows to such a copy (a root joined with
+  string literals and constants, `fixture_names` ones included) becomes `shared_fixture("<package>/<path>")`;
+  a `FixturePairSpec` registered (`register_fixture_pairs`) or built (`build_spec_app`) with a fixtures
+  directory the evaluator follows has its `dtrx_filename` operand replaced by that call (an absolute path,
+  which `fixtures_dir / dtrx_filename` yields unchanged); each literal of a moving literal group becomes
+  `shared_fixture("inline/...").read_text(encoding="utf-8")`. A module gaining a call imports the accessor
+  after its last top-level import. Here the evaluator builds no installed class, so no constructor written
+  in a test module runs.
+- **Refused test sites.** A site is listed for a hand edit, and nothing is rewritten for it, when it reads
+  where a leaving copy lies (`.parent`, `.name`, `.with_suffix`, ...) rather than its bytes; when an
+  expression naming a leaving copy (a literal whose last segment is the copy's base name and, without `..`,
+  whose segments end its path, or a constant holding one) cannot be evaluated to an absolute path, or lies
+  in no path expression at all (a helper's argument, a parametrize value, an assertion) and is not the whole
+  value of a name bound once (that name's uses are the sites); when its pair spec is registered with no
+  fixtures directory the text shows; and when the module binds `shared_fixture` to something else. Texts
+  are matched against the copies leaving the module's own package; evaluated paths against every leaving
+  copy. A path expression names a copy by the trailing segments its text fixes (its last literals and text
+  constants, joined): `root() / "examples" / "system.dtrx"` names no copy whose path does not end in
+  `examples/system.dtrx`. Refused test sites do not fail the listing: each is a hand edit under the same proof.
+- **Refused.** A walk site whose directory cannot be evaluated is listed and fails the listing (exit 1):
+  the plan cannot prove which copies its read needs. Write its directory as a path the text shows. A
+  reference whose reader and file both stay but which a placed copy shadows (it reads back as another file)
+  is listed and fails the listing (exit 1) too.
+- **Proof.** Without `-DryRun` the write is proven over the planned tree before anything is written, and
+  again over the disk once it is. Every moved text equals each copy it replaces byte for byte once the
+  reference literals rewritten in it are mapped back (a rewritten staying fixture equals its old bytes the
+  same way; a moved literal's file reads back as its text); every fixture still in a tree names, in text
+  order, the files it named before at their new places, each a file there (consumed − produced = ∅); every
+  rewritten test module equals its old bytes once each replacement is mapped back and the accessor import
+  taken out, parses, imports the accessor, and each accessor call reads the bytes (or, for a literal, the
+  text) its old expression read. A failure before writing refuses with nothing written (exit 1); the
+  rewritten tests' accessor reading another corpus than the workspace's refuses too.
+- **Semantic baselines.** In each package holding a committed semantic-baseline manifest every entry is
+  analyzed before writing and hashed twice: as it is, and with each leaving copy's path dumped as its shared
+  copy's. An entry whose two hashes differ is translated; once written, it must hash as its translated dump,
+  and the drift (`baseline_drift`) is legal only as a deleted copy's key leaving, a shared corpus key
+  arriving and a translated key changing. The manifest written is the committed one with those changes only.
+- **Record and rollback.** Before writing, the bytes of every file it replaces are kept under
+  `<workspace>\.tmp\fixture-dedupe\<time>\old\`. It creates the shared files, rewrites the changed files,
+  deletes the copies and removes the directories their deletion empties. A failure once written, or an
+  error while writing, puts every file back from there and removes what the write created (exit 1). A run
+  that holds writes `record.json` beside it: old → new, the files created, changed and deleted, the proof's
+  counts, each package's translated, deleted and arriving baseline keys, and the test sites refused for a
+  hand edit.
+
+The self-test plants three packages, the shared set with its corpus, and a `datrix-common` whose model set
+is the installed one, and proves the reference rules, the static path evaluator, each group's placement and
+kept copies (a walked directory through a module constant and through a conftest fixture, the diagnostics
+collector, the shared set, a lone copy, a secret-flagged `.dcfg`), a group split by a differing include,
+the literal groups (an f-string and an unassigned literal left out, a colliding placement refused, a
+secret-flagged `.dcfg` literal kept), an unevaluable walk site failing the listing, a missing corpus refused,
+and that the listing writes nothing. For references it proves an include and a header config path of a
+moved copy, and a staying file's config path, rewritten to the shared copies (the moves written into the
+planted workspace and each rewritten path read back from disk to the same bytes), a reference that still
+resolves left alone, a confined import keeping the copy it reads and the moved reader that would reach it
+in a package keeping its group, and a shadowed reference failing the listing. For test sites it proves a
+`Path(__file__)` chain, a `joinpath` with a `fixture_names` constant, a string path holding
+`tests/fixtures`, a site read through `.read_text()`, a registered pair spec and a moving literal each
+rewritten to the accessor naming the copy's shared place (the rewritten module parsed, the import after the
+last import), a site reading a kept copy left alone, and a `.parent` read, a base name passed to a helper,
+a pair spec built with an unevaluable directory and a module binding `shared_fixture` itself each refused
+and listed while the listing passes and rewrites no module. A copy of other bytes is kept and a literal of
+other exact text refused. For the write it proves a planted run written and recorded (old → new as
+planned, each replaced file's old bytes kept, the moved copy's bytes, a rewritten include and test site, an
+emptied directory removed, the proof once written clean, the refused sites listed); a deleted copy edited
+after planning, and an accessor reading another corpus, each refused with nothing written; a reference
+whose file vanished after planning refused as consumed − produced; a swapped site argument, a changed
+shared copy and a changed literal file each named by the proof; on the installed corpus, a moved file's
+path changing an entry's hash only with the move mapped, and a changed, mistranslated or stray baseline
+key named; a rollback putting every byte and directory back; and that no module of the script can start
+a process.
+
+Module: `datrix_scripts.dev.fixture_dedupe.cli` (references in `references.py`, the path evaluator in
+`static_paths.py`, walked directories in `walks.py`, groups in `groups.py`, the screen in
+`secret_screen.py`, workspace paths in `layout.py`, placement in `plan.py`, references following their file
+in `follow.py`, test sites in `sites.py`, the listing in `listing.py`, the write set and its proof in
+`proof.py`, the semantic baselines in `baseline.py`, the write, rollback and record in `write.py`, the
+self-test in `self_checks.py`); POSIX twin `dev\fixture-dedupe.sh` (`--dry-run`, `--base-dir`, `--dbg`,
+`--self-test`): `bash dev/fixture-dedupe.sh --dry-run`.
+
 ### `who-imports.ps1`
 
 Which runtime import chain first loads a module. It imports each `-Root` in a fresh interpreter with an

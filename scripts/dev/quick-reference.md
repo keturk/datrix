@@ -81,6 +81,20 @@ Parameters: `-Kind diagnostics` (required, positional), `-Package <name>` (requi
 
 Exit of `diagnostics`: 0 done, 1 a variant was queued, an area failed verification or the package's state refuses the run, 2 usage error, 3 no local model can draft (nothing is written).
 
+### `dev\fixture-dedupe.ps1`
+
+Keep each duplicated test fixture (file or inline literal) once under the corpus's `shared/` directory. Lists its groups, the copy that moves, the copies deleted, the copies kept with their reason, each fixture reference rewritten to reach its file's shared place, and each test-module site rewritten to `shared_fixture(...)` or refused for a hand edit. Without `-DryRun` it proves the write over the planned tree, writes it, proves it again on disk with every semantic baseline's drift, and records it under `<workspace>\.tmp\fixture-dedupe\<time>\` (`record.json`, and each replaced file's old bytes); a failure once written puts every file back. No git command.
+
+| Form | Command |
+|------|---------|
+| List the plan | `.\dev\fixture-dedupe.ps1 -DryRun` |
+| List, prove, write and record | `.\dev\fixture-dedupe.ps1` |
+| Over another workspace root | `.\dev\fixture-dedupe.ps1 -DryRun -BaseDir <root>` |
+
+Parameters: `-DryRun`, `-BaseDir <root>` (default: the workspace), `-Dbg`, `-SelfTest`
+
+Exit: 0 listed (and, without `-DryRun`, written and proven), 1 a walk site cannot be evaluated, a staying reference is shadowed by a placed copy, or the write's proof fails (nothing written, or everything put back), 2 usage error / unreadable or unparsable file / missing corpus / a capture that cannot run / a semantic-baseline entry that cannot be analyzed.
+
 ### `dev\who-imports.ps1`
 
 Which runtime import chain first loads a module.
