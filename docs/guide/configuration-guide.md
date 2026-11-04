@@ -97,6 +97,7 @@ Each new surface lives in one of two config locations, chosen by ownership bound
 | **Per-Block Infrastructure Sizing** |  |  |  |  |
 | RDBMS connection pooling | `RdbmsConfig.poolSize` | H | block | `rdbms db { poolSize = 20; maxOverflow = 10; }` |
 | RDBMS SSL | `RdbmsConfig.ssl` | K | block | `rdbms db { ssl = true; }` |
+| RDBMS server CA (external server) | `RdbmsConfig.serverCa`, `RdbmsConfig.verifyHostName` | K | block | `rdbms db { flavor = external; ssl = true; serverCa = true; }` — the server is verified against the CA certificate the operator supplies as the block's `<block>_server_ca` secret, never against the system trust store; `verifyHostName = false` checks the chain alone and requires `serverCa = true`; both are refused unless the block is `external` with `ssl = true` |
 | RDBMS port (for pooled groups) | `ServerGroupSpec.port` | L | block | Added to pooled server-group sizing |
 | Cache pool sizing | `SearchConfig.replicasCount`, `SearchConfig.partitions` | G | block | `search idx { replicasCount = 3; partitions = 1; }` |
 | NoSQL sizing | `NosqlConfig.instance_count`, `NosqlConfig.engine_version` | L | block | `nosql catalog { instanceCount = 1; engineVersion = "5.0.0"; }` — `engineVersion` is required for a managed MongoDB-protocol store: the DocumentDB engine version, or a Cosmos DB for MongoDB account's server version (`3.6`, `4.0`, `4.2`, `5.0` or `6.0`; an omitted version is the platform's pick). A Cosmos DB NoSQL-API (`cosmosdb` engine) block has no server version and refuses it |
