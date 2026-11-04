@@ -32,7 +32,9 @@ you may not stop early.
 `APPROVAL_REQUIRED:` line and an advisor has not returned `ASK_JON` on this exact question since Jon's
 last message, **you are on the wrong rung — go back to rung 3.** `gate-decision-escalation.py` and
 `gate-agent-plan-stop.py` refuse it, reading the verdict from the advisor's tool result in the
-transcript, never from your own text.
+transcript, never from your own text. The one skill that skips the ladder is `/discuss-finding`: Jon
+asked for that discussion, so its questions go to him directly and both gates let them through
+(`_advisor.JON_DISCUSSION_SKILLS`).
 
 **Every agent may dispatch the advisor, subagents included.** It is the one exception to depth-one
 (`guard-no-nested-agents.py` lets `decision-advisor` through and nothing else): the advisor is a leaf

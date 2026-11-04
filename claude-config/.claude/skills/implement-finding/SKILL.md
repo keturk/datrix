@@ -1,5 +1,5 @@
 ---
-description: Work ONE findings file from d:\datrix\findings end to end in this session — check it against the current code, and when it still holds fix it, prove it with a tagged test and targeted runs, update the docs that describe it, and delete it through finding-close. Use when Jon asks to "implement a finding", "fix the next finding", or runs /implement-finding. To work through several findings, one fresh session each, Jon runs scripts/skill/implement-finding.ps1.
+description: Work ONE findings file from d:\datrix\findings end to end in this session — check it against the current code, and when it still holds fix it, prove it with a tagged test and targeted runs, update the docs that describe it, and delete it through finding-close. Use when Jon asks to "implement a finding", "fix the next finding", or runs /implement-finding. To work through several findings, one fresh session each and a batch of sessions side by side, Jon runs scripts/skill/implement-finding.ps1.
 ---
 
 # Implement Finding
@@ -53,8 +53,8 @@ Before your first edit, read the mandatory cores and the knowledge pack of each 
    at the seam (execution-contract §12). One test may prove several defects; say which.
 4. **Run only the tests of what you changed**, in the foreground (never `run_in_background`): the
    files you touched (`test.ps1 <pkg> -Specific`) and, under `CLOSE: script`, nothing else — the
-   script runs the feature tags in every package the change reaches (see below), so a tag or `e2e`
-   run of yours repeats it. Without `CLOSE: script`, also run the feature tags of the behaviour you
+   script runs the related tests itself once the batch has ended (see below), so a tag or `e2e` run
+   of yours repeats it. Without `CLOSE: script`, also run the feature tags of the behaviour you
    changed in every package it reaches (`-Tag`, at most 3 per run). Never a whole suite. Prefer not to
    pipe the output through a filter: a pipe hides `test.ps1`'s exit code, so a piped run counts only
    when its output still ends with `test.ps1`'s own `Total: N | Passed: N | Failed: 0` line for every
@@ -64,19 +64,24 @@ Before your first edit, read the mandatory cores and the knowledge pack of each 
    counts when its output keeps the gate's last line `[GATE] <name> PASSED exit=0` for every gate
    call. Your **last** `test.ps1` or gate run must pass: under `CLOSE: script` the script reads it
    from the session log and keeps the finding when it failed, never ran, or proved nothing.
-   **Your own runs are not the whole proof for package code.** Under `CLOSE: script`, after you
-   reply `DONE` the script derives the related tests from the files you wrote and runs them itself:
-   the test files you wrote, the feature tags they carry in every package your change reaches (the
-   affected closure), and the `tests/e2e` tier of the generation pipeline's package and of each
-   package you edited when a plugin package is reached. If any fails, the script resumes this
-   session with the output; fix the cause and reply again. Tag your tests with every behaviour the
-   change touches (a tag your tests lack is a related package the script never runs).
-   **Look at other suites only for failures your change can have caused.** A failing test is yours
-   only when its traceback frames, or the symbols and fixtures it names (`find_references`), reach a
-   file you wrote. One that does not belongs to whoever else is changing that suite: do not
-   investigate, fix or loosen it. Write a findings file for it and, when the script keeps resuming
-   you for it, reply `Finding fix: BLOCKED B4` with the failing ids and the frames that prove your
-   change is not in them. Never take over another session's `.test_results` run.
+   **Under `CLOSE: script` other finding sessions edit the same tree beside yours** (the script runs a
+   batch of them side by side). Their half-made edits can reach your runs, in a package they are
+   changing or one yours imports. A failure in your own run is yours only when its traceback frames,
+   or the symbols and fixtures it names (`find_references`), reach a file you wrote. One that does not
+   is another session's unfinished work: do not investigate, fix or loosen it, and write **no** findings
+   file for it (it may be gone when that session ends); say so in your reply and carry on — the
+   script's own runs judge it on the still tree. A run that dies with `Could not acquire package lock`
+   lost the venv install-check lock to another session's run and ran no test: run it again. Never take
+   over another session's `.test_results` run.
+   **Your own runs are not the whole proof for package code.** Under `CLOSE: script`, after every
+   session of the batch has replied, the script derives the related tests from the files you wrote and
+   runs them on the still tree: the test files you wrote, and the other test files of every package
+   that name the code you changed. If any fails, the script resumes this session with the output, and
+   no other session edits while you repair; fix the cause and reply again. A failure there that your
+   change cannot have caused (its frames and named symbols never reach a file you wrote) was red
+   before you or was broken by another session's finished fix: do not investigate, fix or loosen it;
+   write a findings file for it and reply `Finding fix: BLOCKED B4` with the failing ids and the
+   frames that prove your change is not in them.
 5. **Update the documentation** your change makes wrong, and every doc the finding names as stale —
    it must describe the behaviour the code now has. No design-doc or task reference and no customer
    term in a committed file. **Remove pointers to this finding** from other findings files (a

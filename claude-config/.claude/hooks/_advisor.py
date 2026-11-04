@@ -22,6 +22,12 @@ ignored, so no other subagent's report or pasted text can hand a question to Jon
 Jon can also forbid every subagent, the advisor included (his global instructions). He says so
 to the harness with `DATRIX_NO_SUBAGENTS=1` in his user settings' `env`; the advisor cannot be
 consulted then, so a question goes straight to him (`Verdict.ADVISOR_FORBIDDEN`).
+
+A skill whose purpose is to put a question to Jon is exempt too: `/discuss-finding` brings him a
+decision he asked to discuss, so its questions, a choice through `AskUserQuestion` or an open one
+in prose, go to him directly (`Verdict.JON_DISCUSSION`). The session is in such a discussion from
+the skill's invocation, typed or through the Skill tool, until another skill is invoked; Jon's
+plain follow-ups stay in it.
 """
 
 from __future__ import annotations
@@ -52,6 +58,16 @@ _TAG_RE: Final = {
 }
 NO_SUBAGENTS_ENV: Final = "DATRIX_NO_SUBAGENTS"
 
+#: Skills that exist to put a question to Jon; their questions skip the advisor.
+JON_DISCUSSION_SKILLS: Final = frozenset({"discuss-finding"})
+# A skill invocation as the transcript records it: Jon's typed command, or the expanded body the
+# harness writes for either form (a scoped skill's directory sits under its own `skills` folder).
+_INVOKED_SKILL_RE: Final = re.compile(
+    r"\A\s*(?:<command-message>[^<]*</command-message>\s*)?<command-name>/(?:[\w./-]+:)?(?P<typed>[\w-]+)</command-name>"
+    r"|\A\s*Base directory for this skill: [^\n]*[\\/]skills[\\/](?P<body>[\w-]+)\s*$",
+    re.MULTILINE,
+)
+
 
 class Verdict(Enum):
     """What the advisor said about the current question."""
@@ -60,6 +76,7 @@ class Verdict(Enum):
     NOT_ASK_JON = "not_ask_jon"
     UNREADABLE = "unreadable"
     ADVISOR_FORBIDDEN = "advisor_forbidden"
+    JON_DISCUSSION = "jon_discussion"
 
 
 def subagents_forbidden() -> bool:
@@ -152,13 +169,39 @@ def _entries(transcript_path: str) -> list[dict[str, object]] | None:
     return entries
 
 
+def _invoked_skill(entry: dict[str, object], blocks: list[dict[str, object]]) -> str | None:
+    """The skill a user entry invokes, or None when it invokes none."""
+    if entry.get("type") != "user":
+        return None
+    for block in blocks:
+        if block.get("type") != "text":
+            continue
+        match = _INVOKED_SKILL_RE.search(str(block.get("text", "")))
+        if match is not None:
+            return match.group("typed") or match.group("body")
+    return None
+
+
+def _in_jon_discussion(entries: list[dict[str, object]]) -> bool:
+    """Whether the latest skill invoked in the session is one that exists to ask Jon."""
+    discussing = False
+    for entry in entries:
+        skill = _invoked_skill(entry, content_blocks(entry))
+        if skill is not None:
+            discussing = skill in JON_DISCUSSION_SKILLS
+    return discussing
+
+
 def advisor_verdict(transcript_path: str) -> Verdict:
-    """ASK_JON when an advisor dispatched since Jon's last message returned `VERDICT: ASK_JON`."""
+    """ASK_JON when an advisor dispatched since Jon's last message returned `VERDICT: ASK_JON`;
+    JON_DISCUSSION when the session is in a skill that exists to ask Jon."""
     if subagents_forbidden():
         return Verdict.ADVISOR_FORBIDDEN
     entries = _entries(transcript_path)
     if entries is None:
         return Verdict.UNREADABLE
+    if _in_jon_discussion(entries):
+        return Verdict.JON_DISCUSSION
     dispatch_ids: set[str] = set()
     agent_ids: set[str] = set()
     frames: list[_Frame] = []

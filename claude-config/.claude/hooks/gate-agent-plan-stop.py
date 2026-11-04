@@ -18,6 +18,10 @@ recommendation, asking Jon only when the advisor returned `VERDICT: ASK_JON` (`_
 A question to Jon with no such verdict since Jon's last message is refused, whatever the plan
 says.
 
+A skill that exists to ask Jon (`/discuss-finding`, `_advisor.JON_DISCUSSION_SKILLS`) puts its
+questions to him directly: in such a session a reply that ends on a question, or carries an
+`APPROVAL_REQUIRED:` line, ends the turn with no advisor and whatever the plan says.
+
 Fails open: an unreadable payload or transcript, or `_MAX_BLOCKS` consecutive refusals in one
 session, lets the stop through so this hook can never wedge a session.
 
@@ -47,6 +51,11 @@ _TICKED_OR_NOT_RE: Final = re.compile(r"^\s*[-*]\s*\[[ xX]\]", re.MULTILINE)
 _EXIT_RE: Final = re.compile(
     r"^\s*Status:\s*(STOPPED_BY_JON|BLOCKED\s+B[1-4])\b", re.MULTILINE | re.IGNORECASE
 )
+
+
+def _ends_on_question(reply: str) -> bool:
+    """The reply's last words, markdown emphasis aside, are a question."""
+    return reply.rstrip().rstrip("*_").endswith("?")
 
 
 def _section(text: str, heading: str) -> str:
@@ -117,15 +126,19 @@ def main() -> None:
         sys.exit(0)
 
     session_id = data.get("session_id") or ""
-    if _APPROVAL_LINE_RE.search(strip_quoted(stop_reply(data))):
-        if advisor_verdict(str(data.get("transcript_path", ""))) is not Verdict.NOT_ASK_JON:
+    reply = strip_quoted(stop_reply(data))
+    asks_approval = bool(_APPROVAL_LINE_RE.search(reply))
+    if asks_approval or _ends_on_question(reply):
+        verdict = advisor_verdict(str(data.get("transcript_path", "")))
+        if verdict is Verdict.JON_DISCUSSION or (asks_approval and verdict is not Verdict.NOT_ASK_JON):
             _record_blocks(session_id, 0)
             sys.exit(0)
-        _refuse(
-            session_id,
-            "You may not end on a question to Jon yet: the decision advisor has not handed it to "
-            "him. " + ADVISOR_REMEDY,
-        )
+        if asks_approval:
+            _refuse(
+                session_id,
+                "You may not end on a question to Jon yet: the decision advisor has not handed it to "
+                "him. " + ADVISOR_REMEDY,
+            )
 
     path = plan.plan_path(session_id).replace("\\", "/")
     try:

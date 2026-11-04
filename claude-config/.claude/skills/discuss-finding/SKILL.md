@@ -11,7 +11,8 @@ skill is how the line goes: it brings Jon a decision that has already been inves
 the decision in the finding. It changes no code.
 
 **Jon asked for this discussion, so the question goes to Jon directly: do not dispatch the decision
-advisor for it.**
+advisor for it.** Both question gates let this skill's questions through: `AskUserQuestion`, or a
+reply whose last words are the question (end it on its question mark).
 
 ## How to invoke
 

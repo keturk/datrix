@@ -251,6 +251,55 @@ check("the switch does not lift the plan rule -> blocked",
       gate(UNFINISHED_PLAN, "Jon, the finding still holds.", transcript(jon("go")), no_subagents=True)[0],
       "block")
 
+print("a skill that exists to ask Jon asks him directly:")
+
+
+def typed_skill(name):
+    """Jon's typed invocation and the expanded body the harness writes after it."""
+    return [{"type": "user", "message": {"content": (
+                f"<command-message>{name}</command-message>\n<command-name>/{name}</command-name>\n"
+                "<command-args>findings/python/0001-x.md</command-args>")}},
+            skill_body(name)]
+
+
+def skill_body(name):
+    """The expanded body alone: the form a Skill tool invocation leaves."""
+    return {"type": "user", "isMeta": True, "message": {"content": [{"type": "text", "text": (
+        f"Base directory for this skill: d:\\datrix\\.claude\\skills\\{name}\n\n# {name}\n")}]}}
+
+
+OPEN_QUESTION = "Jon, the finding still holds.\n\nWhich of the three options do you want?"
+check("/discuss-finding, prose question, unticked plan, no advisor -> allowed",
+      gate(UNFINISHED_PLAN, OPEN_QUESTION, transcript(*typed_skill("discuss-finding")))[0], "allow")
+check("/discuss-finding, question in bold -> allowed",
+      gate(UNFINISHED_PLAN, "**Which option do you want?**",
+           transcript(*typed_skill("discuss-finding")))[0], "allow")
+check("/discuss-finding, APPROVAL_REQUIRED line, no advisor -> allowed",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY, transcript(*typed_skill("discuss-finding")))[0], "allow")
+check("/discuss-finding through the Skill tool -> allowed",
+      gate(UNFINISHED_PLAN, OPEN_QUESTION, transcript(jon("discuss the next finding"),
+                                                      skill_body("discuss-finding")))[0], "allow")
+check("scoped /discuss-finding typed -> allowed",
+      gate(UNFINISHED_PLAN, OPEN_QUESTION,
+           transcript(*typed_skill("datrix/claude-config:discuss-finding")))[0], "allow")
+check("Jon's plain follow-up stays in the discussion -> allowed",
+      gate(UNFINISHED_PLAN, OPEN_QUESTION,
+           transcript(*typed_skill("discuss-finding"), jon("why not option 2?")))[0], "allow")
+check("/discuss-finding, reply that asks nothing still needs the plan -> blocked",
+      gate(UNFINISHED_PLAN, "Jon, the finding still holds.",
+           transcript(*typed_skill("discuss-finding")))[0], "block")
+check("/discuss-finding, question only inside a fenced block -> blocked",
+      gate(UNFINISHED_PLAN, "Jon, the skill asks:\n```\nWhich option?\n```",
+           transcript(*typed_skill("discuss-finding")))[0], "block")
+check("another skill invoked after the discussion -> blocked",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY,
+           transcript(*typed_skill("discuss-finding"), *typed_skill("implement-finding")))[0], "block")
+check("/implement-finding prose question, unticked plan -> blocked",
+      gate(UNFINISHED_PLAN, OPEN_QUESTION, transcript(*typed_skill("implement-finding")))[0], "block")
+check("skill name only mentioned by Jon -> blocked",
+      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY,
+           transcript(jon("what does /discuss-finding do? see skills/discuss-finding")))[0], "block")
+
 print("keeps the other exits:")
 check("every step ticked and verified -> allowed", gate(FINISHED_PLAN, "Jon, done.")[0], "allow")
 check("Status: BLOCKED B1 -> allowed", gate(BLOCKED_PLAN, "Jon, blocked.")[0], "allow")

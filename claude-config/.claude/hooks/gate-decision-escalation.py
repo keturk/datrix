@@ -20,6 +20,8 @@ WHAT IS AND IS NOT BLOCKED
     transcript). Text in the question payload is not evidence: the verdict must be in an
     advisor's tool result.
   - An `APPROVAL_REQUIRED` question is a question like any other.
+  - A skill that exists to ask Jon (`/discuss-finding`, `_advisor.JON_DISCUSSION_SKILLS`) asks
+    him directly: in such a session the tool is allowed with no advisor.
   - `ExitPlanMode` is deliberately NOT gated: plan mode is Jon's own explicit choice,
     and blocking the exit from it would trap the agent before it could start working.
   - An unreadable transcript, or `_MAX_BLOCKS` refusals in one session, lets the tool

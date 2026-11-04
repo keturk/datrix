@@ -281,6 +281,27 @@ check("unreadable transcript fails open -> allowed", rc, 0)
 rc, _ = run("gate-decision-escalation.py", {"session_id": SID, "transcript_path": TRANSCRIPT,
             "tool_input": {"questions": [{"question": TYPING_Q}]}}, no_subagents=True)
 check("Jon forbade every subagent (advisor included), no advisor -> allowed", rc, 0)
+
+DISCUSS_TYPED = {"type": "user", "message": {"content": (
+    "<command-message>discuss-finding</command-message>\n<command-name>/discuss-finding</command-name>\n"
+    "<command-args>findings/python/0001-x.md</command-args>")}}
+
+
+def skill_body(name):
+    return {"type": "user", "isMeta": True, "message": {"content": [{"type": "text", "text": (
+        f"Base directory for this skill: d:\\datrix\\.claude\\skills\\{name}\n\n# {name}\n")}]}}
+
+
+rc, _ = ask(TYPING_Q, DISCUSS_TYPED, skill_body("discuss-finding"))
+check("/discuss-finding typed, no advisor -> allowed", rc, 0)
+rc, _ = ask(TYPING_Q, user_says("discuss the next finding"), skill_body("discuss-finding"))
+check("/discuss-finding through the Skill tool, no advisor -> allowed", rc, 0)
+rc, _ = ask(TYPING_Q, DISCUSS_TYPED, skill_body("discuss-finding"), user_says("why not option 2?"))
+check("Jon's plain follow-up stays in the discussion -> allowed", rc, 0)
+rc, _ = ask(TYPING_Q, DISCUSS_TYPED, skill_body("discuss-finding"), skill_body("implement-finding"))
+check("another skill invoked after the discussion -> DENIED", rc, 2)
+rc, _ = ask(TYPING_Q, user_says("what does /discuss-finding do?"))
+check("skill name only mentioned by Jon -> DENIED", rc, 2)
 if os.path.isfile(ASK_STATE):
     os.remove(ASK_STATE)
 

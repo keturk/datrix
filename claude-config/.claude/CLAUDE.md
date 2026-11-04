@@ -138,7 +138,8 @@ options, in one line, while it keeps working everything that does not depend on 
 stop gate and the `AskUserQuestion` gate refuse a question to Jon that no advisor handed over
 since his last message. Ladder: `_shared/decision-adjudication-protocol.md`. **Exception:** when
 Jon forbids subagents (`DATRIX_NO_SUBAGENTS=1` in his settings' `env`), no advisor is dispatched
-and the question goes straight to him; both gates honour the switch.
+and the question goes straight to him; both gates honour the switch. `/discuss-finding` exists to
+ask Jon, so its questions (`AskUserQuestion` or a reply ending on a question) go straight to him too.
 
 **Parallel waves.** An explicit `PARALLEL_WAVE: files are exclusive` dispatch whose fix needs a
 file outside its list returns `EXPANSION_REQUIRED` naming the files (a lock request inside
