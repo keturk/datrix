@@ -1,0 +1,51 @@
+- id: extern-graphql.mutation-posts-its-derived-document-and-is-never-repeated
+  tags:
+  - parity
+  - extern-service
+  input: external-integration
+  stage: parity
+  observer: extern_graphql_requests
+  selector:
+    facet: operation
+    client: ModerationProviderClient
+    method: reopen
+  expectation:
+    path: /graphql
+    document: 'mutation Reopen($reviewId: String!, $reason: String!) { reopen(reviewId: $reviewId, reason: $reason) { approved reason } }'
+    result-field: reopen
+    variables: reviewId,reason
+    repeated: never
+    reported-error: fails-before-data
+  reason: Every language posts the document derived from a GraphQL operation's signature; a mutation changes the provider's state, so no client repeats it, and a reported error fails the call before data is read.
+- id: extern-graphql.query-posts-its-derived-document-and-may-be-repeated
+  tags:
+  - parity
+  - extern-service
+  input: external-integration
+  stage: parity
+  observer: extern_graphql_requests
+  selector:
+    facet: operation
+    client: ModerationProviderClient
+    method: appeal
+  expectation:
+    path: /graphql
+    document: 'query Appeal($reviewId: String!) { appeal(reviewId: $reviewId) { approved reason } }'
+    result-field: appeal
+    variables: reviewId
+    repeated: after-retryable-status
+    reported-error: fails-before-data
+  reason: Every language posts the document derived from a GraphQL operation's signature; a query leaves the provider unchanged, so the client may repeat it after a retryable status, and a reported error fails the call before data is read.
+- id: extern-graphql.every-operation-is-a-client-method
+  tags:
+  - parity
+  - extern-service
+  input: external-integration
+  stage: parity
+  observer: extern_graphql_requests
+  selector:
+    facet: operations
+  expectation:
+  - ModerationProviderClient.appeal
+  - ModerationProviderClient.reopen
+  reason: Every operation an extern graphql_api declares is a method of the extern's generated client on every language.

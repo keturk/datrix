@@ -65,3 +65,17 @@ Count every package's `.dtrx`/`.dtrx.false`/`.dcfg`/`.dseed` fixture files and i
 | Other workspace root | `.\gates\ratchet\fixture-budget-gate.ps1 -BaseDir D:\datrix` |
 
 Parameters: `-ShowFiles`, `-BaseDir` (default: the workspace), `-UpdateBaseline`, `-SelfTest`, `-Dbg`. Exit: 0 every pinned count (`total_fixtures` included; `shared_files` is printed, not pinned) at or below the baseline and every corpus entry read, 1 a count above the baseline or an unread corpus entry, 2 usage error / missing baseline / attempted baseline increase / unreadable or unparsable file / missing or ambiguous corpus / failed self-test.
+
+## `gates\ratchet\type-hygiene-ratchet.ps1`
+
+Count `type_ignores`, `any_signatures` and `casts` per `datrix-*` package's `src/` tree against the decrease-only `scripts/config/type-hygiene-ratchet.json`; the type checker is never run.
+
+| Form | Command |
+|------|---------|
+| Run | `.\gates\ratchet\type-hygiene-ratchet.ps1` |
+| Report a rise, exit 0 | `.\gates\ratchet\type-hygiene-ratchet.ps1 -Warn` |
+| Print each file scanned | `.\gates\ratchet\type-hygiene-ratchet.ps1 -ShowFiles` |
+| Freeze or tighten the baseline | `.\gates\ratchet\type-hygiene-ratchet.ps1 -UpdateBaseline` |
+| Other workspace root | `.\gates\ratchet\type-hygiene-ratchet.ps1 -BaseDir D:\datrix` |
+
+Parameters: `-Warn`, `-ShowFiles`, `-BaseDir` (default: the workspace), `-UpdateBaseline`, `-SelfTest`, `-Dbg`. Exit: 0 every count at or below its baseline, 1 a count above it, 2 usage error / missing or malformed baseline / attempted baseline increase / unreadable or unparsable file / failed self-test.

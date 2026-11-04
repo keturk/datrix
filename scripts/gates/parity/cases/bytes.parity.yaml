@@ -1,0 +1,16 @@
+- id: bytes.advanced-types.declared-form-fields
+  tags: [parity, json-response, input-validation]
+  input: advanced-types
+  stage: parity
+  observer: bytes_json_fields
+  selector: {facet: declared-form-fields}
+  expectation: [coverThumbnail]
+  reason: A Bytes field in a JSON body is read and written as the one declared form, standard padded base64 text, on every language, each through its own declared reader and writer.
+- id: bytes.advanced-types.off-form-fields
+  tags: [parity, json-response, input-validation]
+  input: advanced-types
+  stage: parity
+  observer: bytes_json_fields
+  selector: {facet: off-form-fields}
+  expectation: []
+  reason: No Bytes body field lacks the declared reader or writer, so no language falls back to its framework's own byte form.

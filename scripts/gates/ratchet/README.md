@@ -1,8 +1,8 @@
 # Ratchet Gates
 
 Gates that pin a count and let it only move one way (or both ways only together with its pin):
-generated-file construction sites, out-of-table dependency decisions, capability gaps, slow tests and test
-fixtures.
+generated-file construction sites, out-of-table dependency decisions, capability gaps, slow tests, test
+fixtures and type-hygiene escape hatches.
 Repo-level validation **scripts**, not pytest suites. The commands,
 parameters and exit codes of each gate are in [quick-reference.md](quick-reference.md); this file holds
 what each pins and how it decides. The family overview is [../README.md](../README.md).
@@ -258,3 +258,44 @@ entry read (or a successful `-UpdateBaseline` or `-SelfTest`), 1 = a count above
 set above the ceiling, or a corpus entry no test reads, 2 = usage error, missing or malformed baseline, an
 attempted baseline increase, an unreadable or unparsable file, a missing shared fixture directory or
 corpus root, an ambiguous corpus entry, or a failed self-test.
+
+## `type-hygiene-ratchet.ps1`
+
+**A decrease-only ratchet on the escape hatches a type checker cannot see past.** Each one is an unchecked
+claim, and these counts can be read without running the type checker, which this gate never does. Packages
+are every `datrix-*` directory with a `src/` tree, discovered from disk; a package with no `.py` file
+counts 0. One pass over each `.py` file under `src/` counts, per package:
+
+- `type_ignores`: comment tokens (`tokenize`) matching `type:\s*ignore`, with or without a code list. Text inside a string is not a comment.
+- `any_signatures`: function definitions, sync or async, whose parameter (of any kind) or return annotation mentions `Any`: an `ast.Name` `Any` or an `ast.Attribute` ending in `.Any`, anywhere in the annotation. A string annotation is parsed first, at any depth. `Literal` arguments and `Annotated` metadata are data and are skipped. A function counts once however many mentions it holds.
+- `casts`: calls whose callee is `cast` or ends in `.cast`, with no import resolution.
+
+Each count is pinned in `scripts/config/type-hygiene-ratchet.json`, `{package: {type_ignores, any_signatures,
+casts}}`, and compared through `datrix_scripts.count_ratchet` tighten-only: a rise fails, naming the
+package, the count and its baseline, and a package the baseline does not name has a baseline of 0 for each
+count. A missing baseline, a baseline that is not valid JSON, or a package without exactly the three counts
+is refused, never read as empty. `-UpdateBaseline` is the bootstrap freeze when no baseline exists; afterwards
+it writes only when no count rises (a rise exits 2 with the baseline unchanged), and it never overwrites a
+malformed baseline. A burn-down lowers the counts and banks them with `-UpdateBaseline` in the same change.
+A file that cannot be read, decoded, tokenized or parsed, or a string annotation that is not a type
+expression, exits 2 naming the file: it would otherwise escape the count. The output is one line per package
+and a workspace total; `-ShowFiles` adds each file scanned, and `-Warn` reports a rise but exits 0.
+
+Module: `datrix_scripts.gates.ratchet.type_hygiene_ratchet`; POSIX twin options `--warn`, `--show-files`,
+`--base-dir`, `--update-baseline`, `--self-test`, `--dbg`.
+
+**Self-test, every invocation.** Each check plants a workspace in a temporary directory and runs the real
+census on it: a two-package tree gives exactly its planted counts (one `# type: ignore[attr-defined]`, one
+string annotation holding `Any`, one `typing.cast(...)`), with `tests/`, a directory without `src/` and a
+non-`datrix-*` directory never counted; every signature form counts once; `Literal` arguments and `Annotated`
+metadata do not count; a rise exits 1 naming the package, the count and both values, and `-Warn` reports it
+and exits 0; an equal count passes; `-UpdateBaseline` refuses a rise with the baseline byte-identical; a fall
+passes and is banked; a package missing from the baseline is pinned at 0; a missing or malformed baseline, an
+unparsable or undecodable source file, an unparsable annotation string and an empty workspace are refused. The
+checks run before every real scan (a failure exits 2); `-SelfTest` runs them alone after the harness
+self-test, then the wrapper seam check.
+
+Exit codes: 0 = every count at or below its baseline (or `-Warn`, a successful `-UpdateBaseline` or
+`-SelfTest`), 1 = a count above its baseline (or `-SelfTest` reports a failing check), 2 = usage error,
+missing or malformed baseline, an attempted baseline increase, an unreadable or unparsable file, or the
+automatic self-test step failing on a normal invocation.

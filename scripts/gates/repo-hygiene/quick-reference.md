@@ -307,6 +307,16 @@ A `datrix-codegen-*` function walks a model body only where `scripts/config/no_b
 
 Parameters: `-SelfTest`, `-Dbg`. Exit: 0 flagged set equals the allowlist, 1 an unlisted function / stale entry, 2 cannot judge (failing self-test, malformed allowlist, unparseable source).
 
+## `gates\repo-hygiene\input-source-census-gate.ps1`
+
+A run reads user input before generation only through `InputSource`: the modules of `datrix-common`, `datrix-language`, `datrix-semantic` and the CLI's parsing stage that read directly must equal the gate's exemption table.
+
+| Form | Command |
+|------|---------|
+| Run | `.\gates\repo-hygiene\input-source-census-gate.ps1` |
+
+Parameters: `-SelfTest`, `-Dbg`. Exit: 0 flagged modules equal the exemption table, 1 an unlisted module / stale row, 2 cannot judge (failing self-test, missing scanned root, unparseable source).
+
 ## `gates\repo-hygiene\no-import-registration-gate.ps1`
 
 Importing a framework module registers nothing: no import-time `*register*` call, no registration-only `noqa: F401` import. Hard zero.

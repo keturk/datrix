@@ -14,6 +14,14 @@
   selector: {facet: marker-lines, marker: Devanagari or emoji script}
   expectation: ['Devanagari or emoji script, joiners included: क्[U+200C]ष, 👩[U+200D]💻, ❤[U+FE0F].']
   reason: An enum value's doc text lands in a doc block on every language (the enum's docstring, the value's JSDoc block), spelled [U+HHHH] the same way.
+- id: documentation.doc-comments.enum-schema-description
+  tags: [parity, documentation, hidden-text]
+  input: doc-comments
+  stage: parity
+  observer: documentation_surfaces
+  selector: {facet: marker-lines, marker: The script a term is written in}
+  expectation: ['The script a term is written in, joiners included: क्<U+200C>ष, 👩<U+200D>💻, ❤<U+FE0F>.']
+  reason: An enum's published doc is the description of its schema component, a string literal on every language, so it decodes to the author's exact text.
 - id: documentation.doc-comments.endpoint-description
   tags: [parity, documentation, hidden-text]
   input: doc-comments

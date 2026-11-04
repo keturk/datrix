@@ -30,3 +30,31 @@
     body: ''
     query: detailed
   reason: 'Every language sends a get extern request with no body: its path variable fills the path and every other parameter is a query key.'
+- id: extern-clients.ensure-is-checked-before-the-request
+  tags:
+  - parity
+  - extern-service
+  - input-validation
+  input: external-integration
+  stage: parity
+  observer: extern_client_requests
+  selector:
+    facet: contract-check
+    client: ModerationProviderClient
+    method: review
+  expectation: checked-before-send
+  reason: 'Every language checks an extern endpoint''s ensure clauses over the call''s arguments before the request is sent, so a call that violates one never reaches the provider.'
+- id: extern-clients.no-ensure-means-no-check
+  tags:
+  - parity
+  - extern-service
+  - input-validation
+  input: external-integration
+  stage: parity
+  observer: extern_client_requests
+  selector:
+    facet: contract-check
+    client: ModerationProviderClient
+    method: verdict
+  expectation: unchecked
+  reason: 'An endpoint declaring no ensure clause gets no contract check on any language, which keeps the checked-before-send reading from holding vacuously.'

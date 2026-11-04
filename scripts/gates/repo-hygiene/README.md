@@ -1038,6 +1038,52 @@ source file that does not parse or cannot be read). It runs no generation and no
 Module: `datrix_scripts.gates.repo_hygiene.no_body_walk_gate`; POSIX twin options `--self-test`, `--dbg`.
 `-SelfTest` also runs the wrapper seam checks.
 
+## `input-source-census-gate.ps1`
+
+**A run reads user input before generation only through `InputSource`.** `datrix_common.fileops.input_source`
+is the one seam for `.dtrx` sources, `.dcfg` documents, seed files, content collections and UI assets, so a
+run can answer for what it read. A direct read in the analysis packages is a read the run cannot see.
+
+The gate parses every `*.py` under `datrix-common/src`, `datrix-language/src` and `datrix-semantic/src`, plus
+`datrix-cli/src/datrix_cli/pipeline/stages/parsing.py`, with Python `ast`, and leaves out
+`fileops/input_source.py`. It flags a call of builtin `open`; a `Path` method (`read_text`, `read_bytes`,
+`open`, `exists`, `is_file`, `is_dir`, `glob`, `rglob`, `iterdir`, `stat`) on any receiver that is not a known
+source; `os.listdir`, `os.scandir`, `os.walk`, `os.path.exists`, `os.path.isfile`, `os.path.isdir`; and the read
+helpers of `fileops/io.py`, `utils/transient_io.py` and `utils/hash.py` (`read_text_utf8`, `read_text_utf8_exact`,
+`load_json`, `read_text_with_retry`, `compute_file_hash`). Import aliases are followed.
+
+A receiver is a known source only when it is a name annotated `InputSource` (alone or with `None`, a parameter
+or a local), `self.<attr>` declared `InputSource` or assigned from a source, or `.input_source`. Receiver types
+are never inferred: every other receiver is reported, so the gate fails closed. A function that holds the
+application can write `source: InputSource = app.input_source`, or call `app.input_source` directly.
+
+The flagged modules must equal the exemption table, `EXEMPTIONS` in the module, exactly. An unlisted module
+fails (`UNLISTED path  path.read_text@12`), and so does a row that matches no flagged module (`STALE`). Each row
+states why the module may read directly:
+
+| Reason | Modules |
+|---|---|
+| toolchain resource | the `builtins/data` loaders, `image_pins.py` and `project/catalog.py` under `datrix_common/config`, `stdlib/catalog.py`, `transformers/node_types.py`, `builtins/loader.py`, `diagnostics/catalog.py` |
+| grammar build | `tree_sitter_datrix/build.py`, `tree_sitter_datrix/grammar_operators.py` |
+| language server | `lsp/*` |
+| read helper | `fileops/io.py`, `utils/transient_io.py`, `utils/hash.py` |
+| test-tag vocabulary | `testing/tag_vocabulary.py` |
+
+**Self-test runs automatically, every invocation.** An embedded source with one call of every flagged form
+(aliased imports, an unannotated receiver and a parameter hiding a source included) must flag exactly those,
+in order, and its clean twin nothing. A planted workspace must report its direct `read_text` in each scanned
+tree, pass the same read through `InputSource`, ignore the seam and a file outside the scan, and report one
+planted stale row and every missing root. It reads nothing of the real workspace.
+
+Exit code 2 = the gate cannot judge (a failed self-test, a missing scanned root, a source file that does not
+parse or cannot be read). It runs no generation and no tests.
+
+**Security posture.** The gate only reads files; it opens no network connection and changes nothing outside
+its own scratch folder under `.tmp`.
+
+Module: `datrix_scripts.gates.repo_hygiene.input_source_census_gate`; POSIX twin options `--self-test`, `--dbg`.
+`-SelfTest` also runs the wrapper seam checks.
+
 ## `no-import-registration-gate.ps1`
 
 **Importing a framework module registers nothing.** A registry filled as a side effect of importing a
