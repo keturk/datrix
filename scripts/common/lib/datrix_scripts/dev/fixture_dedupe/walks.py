@@ -5,7 +5,10 @@ Two sources:
 * a test-module site calling ``glob``, ``rglob``, ``iterdir`` or ``walk`` on a fixture-path name (the
   receiver's text, as written up to the ``.``, ends in ``FIXTURE_DIR``/``FIXTURES_DIR``, ``_FIXTURE``/
   ``_FIXTURES`` or ``fixtures_dir``, optionally followed by more name characters and a ``)``), or ``os.walk``
-  of one. Its receiver is evaluated statically (``static_paths``); one that cannot be is refused;
+  of one, or a ``datrix_testing.tenant_fixtures`` helper given one (each globs the directory it is handed).
+  Its receiver is evaluated statically (``static_paths``); one that cannot be is refused;
+* a ``shutil.copytree`` of a directory of the package's ``tests/`` that the module names statically: a path in
+  that copy leading out of the directory resolves to nothing;
 * the case collectors: every package's diagnostics fixtures (``datrix_testing.cases.annotations``) and its
   language-server inputs (``datrix_testing.cases.annotation_migrate``), each read whole.
 
@@ -23,13 +26,21 @@ from typing import Final
 
 from datrix_testing.cases.annotation_migrate import LSP_FIXTURE_PREFIX, LSP_FIXTURES
 from datrix_testing.cases.annotations import DIAGNOSTIC_FIXTURES
+from datrix_testing.tenant_fixtures import fixture_set_mismatch, negative_tenant_fixtures
 
-from datrix_scripts.dev.fixture_dedupe.static_paths import StaticEvaluator, UnevaluableError, enclosing_bindings
+from datrix_scripts.dev.fixture_dedupe.static_paths import (
+    ModuleScope,
+    StaticEvaluator,
+    UnevaluableError,
+    enclosing_bindings,
+)
 from datrix_scripts.framework_repos import PackageMarker
 from datrix_scripts.gates.ratchet.fixture_budget_gate import PYTHON_SUFFIX, parse_module, walk_files
 
 WALK_METHODS: Final = frozenset({"glob", "rglob", "iterdir", "walk"})
 _OS_WALK: Final = "walk"
+_COPY_TREE: Final = "copytree"
+_DIRECTORY_HELPERS: Final = frozenset({fixture_set_mismatch.__name__, negative_tenant_fixtures.__name__})
 _FIXTURE_ROOT_NAME: Final = re.compile(r"(FIXTURES?_DIR|_FIXTURES?|fixtures_dir)[A-Za-z_]*\)?$")
 DIAGNOSTICS_COLLECTOR: Final = "the diagnostics collector (datrix_testing.cases.annotations) reads it whole"
 SITE_READ: Final = "reads it whole"
@@ -91,6 +102,18 @@ def _text_before(lines: list[str], line: int, column: int) -> str:
     return lines[line - 1][:column] if 0 < line <= len(lines) else ""
 
 
+def _reads_first_argument_whole(function: ast.expr) -> bool:
+    """Whether a call of *function* reads the directory its first argument names whole."""
+    if isinstance(function, ast.Attribute):
+        return function.attr == _OS_WALK or function.attr in _DIRECTORY_HELPERS
+    return isinstance(function, ast.Name) and function.id in _DIRECTORY_HELPERS
+
+
+def _is_copy(function: ast.expr) -> bool:
+    """Whether a call of *function* copies the directory its first argument names to somewhere else."""
+    return isinstance(function, ast.Attribute) and function.attr == _COPY_TREE
+
+
 def _walk_receiver(call: ast.Call, lines: list[str]) -> ast.expr | None:
     """The receiver of *call* when it walks a fixture-path name, else ``None``."""
     function = call.func
@@ -98,12 +121,25 @@ def _walk_receiver(call: ast.Call, lines: list[str]) -> ast.expr | None:
         column = (function.end_col_offset or 0) - len(function.attr) - 1
         if _FIXTURE_ROOT_NAME.search(_text_before(lines, function.end_lineno, column)) is not None:
             return function.value
-    is_os_walk = isinstance(function, ast.Attribute) and function.attr == _OS_WALK
-    if is_os_walk and call.args and call.args[0].end_lineno is not None:
+    if _reads_first_argument_whole(function) and call.args and call.args[0].end_lineno is not None:
         argument = call.args[0]
         if _FIXTURE_ROOT_NAME.search(_text_before(lines, argument.end_lineno or 0, argument.end_col_offset or 0)):
             return argument
     return None
+
+
+def _copied_directory(
+    evaluator: StaticEvaluator, call: ast.Call, scope: ModuleScope, local: Mapping[str, ast.expr], tests_root: Path
+) -> Path | None:
+    """The directory of *tests_root* that *call* copies whole, else ``None``: a copy of a path the module does
+    not name statically (a parameter, a scratch directory) reads no fixture this plan can move."""
+    if not _is_copy(call.func) or not call.args:
+        return None
+    try:
+        directory = evaluator.path(call.args[0], scope, local)
+    except UnevaluableError:
+        return None
+    return directory if directory.resolve().is_relative_to(tests_root.resolve()) else None
 
 
 def _calls_with_locals(tree: ast.Module) -> Iterator[tuple[ast.Call, Mapping[str, ast.expr]]]:
@@ -128,6 +164,10 @@ def module_walks(
     walked: list[WalkedDirectory] = []
     refused: list[RefusedWalk] = []
     for call, local in _calls_with_locals(tree):
+        copied = _copied_directory(evaluator, call, scope, local, tests_root)
+        if copied is not None:
+            walked.append(WalkedDirectory(copied, SITE_READ, WalkSite(module, call.lineno, ast.unparse(call))))
+            continue
         receiver = _walk_receiver(call, lines)
         if receiver is None:
             continue

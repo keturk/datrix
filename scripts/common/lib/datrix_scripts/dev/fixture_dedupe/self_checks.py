@@ -126,6 +126,20 @@ _LINT_MODULE: Final = '''def test_lint(fixtures_dir):
 _UNKNOWN_WALK_MODULE: Final = '''def test_walk(project_FIXTURES):
     assert list(project_FIXTURES.iterdir())
 '''
+_HELPER_READ_MODULE: Final = '''from pathlib import Path
+
+from datrix_testing.tenant_fixtures import fixture_set_mismatch
+
+_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "tenancy"
+
+
+def test_on_disk() -> None:
+    assert fixture_set_mismatch(_FIXTURE_DIR, []) == []
+
+
+def test_planted(fixture_dir: Path) -> None:
+    assert fixture_set_mismatch(fixture_dir, []) == []
+'''
 _ALPHA_LITERALS: Final = f'''ORDERS = "service shop.Orders('orders.dcfg') {{\\n}}\\n"
 PUSH_CONFIG = """{_PUSH}"""
 
@@ -365,6 +379,26 @@ def _check_unevaluable_walk_site_refused_and_fails() -> None:
     assert "project_FIXTURES is bound by no" in output.getvalue(), "the refusal does not say why"
 
 
+def _check_helper_read_keeps_its_directory() -> None:
+    """A directory handed to a tenant-fixture helper is read whole; a tmp directory it is handed is no site."""
+    tenancy = "tenancy/system-no-tenant.dtrx"
+    copies = {
+        f"{package}/{tenancy}": "service shop.Tenancy('tenancy.dcfg') {\n}\n" for package in (_ALPHA, _BETA)
+    }
+    modules = {f"{name}/tests/test_tenancy.py": _HELPER_READ_MODULE for name in ("datrix-alpha", "datrix-beta")}
+    with _planted({**copies, **modules}) as root:
+        plan = _plan(root)
+        found = [p for p in plan.files if _rel(p.group.members[0].path, root) == f"{_ALPHA}/{tenancy}"]
+        assert len(found) == 1, f"the planted tenancy group is not one group: {found}"
+        placement = found[0]
+        assert placement.source is None, f"a copy read through the helper moves: {placement.source}"
+        assert placement.deleted == (), f"a copy read through the helper is deleted: {placement.deleted}"
+        kept = {_rel(copy.path, root) for copy in placement.kept}
+        assert kept == set(copies), f"kept copies: {kept}"
+        sites = {(_rel(walk.module, root), walk.reason) for walk in plan.walks.refused}
+        assert not plan.walks.refused, f"the helper's tmp directory argument was taken for a fixture site: {sites}"
+
+
 def _check_dry_run_lists_the_plan() -> None:
     with _planted() as root:
         output = io.StringIO()
@@ -402,9 +436,9 @@ def _check_references_resolve_by_their_rule() -> None:
     with _planted({f"{_ALPHA}/app/config/extra.dcfg": 'import "config/system.dcfg";\n'}) as root:
         tests = root / "datrix-alpha" / "tests"
         system = root / _ALPHA / "app" / "system.dtrx"
-        found = [(ref.literal, ref.rule, _rel(ref.target, root)) for ref in fixture_references(system, ".dtrx", tests)]
+        found = [(ref.literal, ref.rule, _rel(ref.target, root)) for ref in fixture_references(system, ".dtrx", tests, ())]
         nested = root / _ALPHA / "app" / "config" / "extra.dcfg"
-        imported = [(ref.rule, _rel(ref.target, root)) for ref in fixture_references(nested, ".dcfg", tests)]
+        imported = [(ref.rule, _rel(ref.target, root)) for ref in fixture_references(nested, ".dcfg", tests, ())]
         escaping = resolve_reference(system, "../../../../datrix-beta/tests/fixtures/area.dtrx", FILE_RULE, tests)
         route = resolve_reference(system, "/products/export.csv", PROJECT_RULE, tests)
     assert found == [
@@ -713,6 +747,43 @@ def _check_planted_run_writes_and_records() -> None:
     assert "semantic baselines proven in 0 package(s)" in output.getvalue(), output.getvalue()
 
 
+def _check_included_service_stays_with_its_entry() -> None:
+    """A service whose config path resolves from the entry including it stays beside that entry."""
+    service = "service shop.Push('config/push.dcfg') {\n}\n"
+    entries = {f"{package}/push/system.dtrx": f"include 'push.dtrx';\nsystem {name}('config/s.dcfg') {{\n}}\n"
+               for package, name in ((_ALPHA, "Alpha"), (_BETA, "Beta"))}
+    copies = {f"{package}/push/push.dtrx": service for package in (_ALPHA, _BETA)}
+    configs = {f"{package}/push/config/push.dcfg": "config service push {\n}\n" for package in (_ALPHA, _BETA)}
+    with _planted({**entries, **copies, **configs}) as root:
+        plan = _plan(root)
+        placement = next(p for p in plan.files if _rel(p.group.members[0].path, root) == f"{_ALPHA}/push/push.dtrx")
+        kept = {_rel(copy.path, root) for copy in placement.kept}
+        config = next(p for p in plan.files if _rel(p.group.members[0].path, root) == f"{_ALPHA}/push/config/push.dcfg")
+    assert placement.source is None and placement.deleted == (), f"an included service moves: {placement.source}"
+    assert kept == set(copies), f"kept copies: {kept}"
+    assert config.source is not None, "the service's own config lost its shared copy: only the service must stay"
+
+
+def _check_second_run_reads_what_the_first_rewrote() -> None:
+    """A reference the first run rewrote into the shared directory is a reference to the second."""
+    with _planted({**_SITES_PLANTED, **_BILLING_PLANTED}) as root:
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            first = write_run(root, corpus_root(root))
+            written = _tree_bytes(root)
+            plan = build_plan(root)
+            second = write_run(root, corpus_root(root))
+        into_shared = [
+            placed for placed, expected in plan.followed.expected.items()
+            if not placed.is_relative_to(shared_root(root)) and any(t.is_relative_to(shared_root(root)) for t in expected)
+        ]
+        again = _tree_bytes(root)
+    assert first == EXIT_PASS and second == EXIT_PASS, f"exits {first}, {second}:\n{output.getvalue()}"
+    assert into_shared, "no fixture staying in a package names a shared copy: the check proves nothing"
+    assert not plan.followed.moves, f"the second run moves more: {plan.followed.moves}"
+    assert again == written, "the second run changed the tree"
+
+
 def _check_mismatch_refused_and_nothing_written() -> None:
     with _planted() as root:
         plan = _plan(root)
@@ -884,6 +955,9 @@ CHECKS: Final[list[NamedCheck]] = named_checks(
         _check_reference_difference_splits_a_group,
         _check_literal_groups_placed,
         _check_unevaluable_walk_site_refused_and_fails,
+        _check_helper_read_keeps_its_directory,
+        _check_included_service_stays_with_its_entry,
+        _check_second_run_reads_what_the_first_rewrote,
         _check_references_follow_their_file,
         _check_reference_that_cannot_follow_holds_its_copy,
         _check_shadowed_reference_refused_and_fails,

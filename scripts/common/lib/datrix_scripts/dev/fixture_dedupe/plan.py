@@ -423,7 +423,7 @@ def build_plan(base_dir: Path) -> Plan:
     walks = find_walks(packages)
     every_file = [fixture for package in packages for fixture in fixture_files(package / PackageMarker.TESTS.value, package.name)]
     every_file.extend(fixture_files(shared_fixtures_dir(base_dir), SHARED_PACKAGE))
-    groups, splits = file_groups(every_file, TreeRoots(base_dir, packages))
+    groups, splits = file_groups(every_file, TreeRoots(base_dir, packages), (shared_root(base_dir),))
     literal_set = literal_groups(packages)
     screened = screened_packages(packages)
     holds = _Holds()

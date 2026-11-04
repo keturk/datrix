@@ -20,6 +20,10 @@ A reference cannot follow, and is refused, when:
 * the file's new place lies in a ``tests/`` tree other than its own: across packages only the shared
   corpus is read;
 * its rewritten path, read back by its rule over the moved tree, lands on another file or on none.
+
+An ``include`` is refused too when the file it names would leave its reader's directory while carrying a
+project-root path that resolves from the reader's directory today. The loader resolves that path against the
+entry's directory, not the included file's, so no rewrite in a copy several entries share can serve them all.
 """
 
 from __future__ import annotations
@@ -30,8 +34,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datrix_scripts.dev.fixture_dedupe.layout import TreeRoots, shared_root
-from datrix_scripts.dev.fixture_dedupe.references import Reference, fixture_references, resolve_reference
-from datrix_scripts.gates.ratchet.fixture_budget_gate import FixtureFile, FixtureScanError, read_fixture
+from datrix_scripts.dev.fixture_dedupe.references import (
+    FILE_RULE,
+    PROJECT_RULE,
+    Reference,
+    fixture_references,
+    resolve_reference,
+)
+from datrix_scripts.gates.ratchet.fixture_budget_gate import DTRX_KIND, FixtureFile, FixtureScanError, read_fixture
 
 
 @dataclass(frozen=True)
@@ -115,11 +125,29 @@ class _Follower:
 
     def follow_file(self, path: Path, kind: str, placed: Path) -> None:
         """Follow every reference of the fixture at *path*, which lies at *placed* once the copies move."""
-        references = fixture_references(path, kind, self._tree_root_of(path))
+        references = fixture_references(path, kind, self._tree_root_of(path), (self._shared,))
         self.expected[placed] = tuple(self._moves.get(reference.target, reference.target) for reference in references)
         for reference in references:
             self.read += 1
             self._follow(reference, placed)
+            self._hold_entry_root(reference, placed)
+
+    def _hold_entry_root(self, include: Reference, placed: Path) -> None:
+        """Refuse *include* when the file it names would leave its reader's directory (the reader lying at
+        *placed* once the copies move) while carrying a project-root path that resolves from that directory."""
+        included = include.target
+        landed = self._moves.get(included, included)
+        moved = landed != included or placed != include.source
+        if include.rule != FILE_RULE or included.suffix != DTRX_KIND or not moved or landed.parent == placed.parent:
+            return
+        for path in fixture_references(included, DTRX_KIND, self._tree_root_of(included), (self._shared,)):
+            if path.rule == PROJECT_RULE and Path(os.path.normpath(include.source.parent / path.literal)) == path.target:
+                reason = (
+                    f"{self._shown(included)} names '{path.literal}', which the loader resolves against the entry "
+                    f"including it at {self._shown(placed.parent)}, and the file would lie at {self._shown(landed)}"
+                )
+                self.refused.append(RefusedReference(include, placed, landed, reason))
+                return
 
     def _follow(self, reference: Reference, placed: Path) -> None:
         target = self._moves.get(reference.target, reference.target)

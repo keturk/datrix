@@ -275,6 +275,7 @@ def write_plan(plan: Plan, accessor_corpus: Path) -> int:
         _print_failures("Failures once written", failures)
         print(f"\nFAILED: the written tree differs from what its readers read; every file is put back (record {record}).")
         return EXIT_VIOLATION
+    record.mkdir(parents=True, exist_ok=True)
     (record / RECORD_FILE).write_text(json.dumps(_record(plan, write, (planned, written), baselines), indent=2), encoding="utf-8")
     print(
         f"\nWritten: {len(write.created)} created, {len(write.changed)} changed, {len(write.deleted)} deleted; "

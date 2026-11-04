@@ -132,13 +132,14 @@ def resolve_reference(
     return None
 
 
-def fixture_references(path: Path, kind: str, tree_root: Path) -> list[Reference]:
-    """The files the fixture at *path* (of *kind*, lying under *tree_root*) names, in text order."""
+def fixture_references(path: Path, kind: str, tree_root: Path, reach: Sequence[Path]) -> list[Reference]:
+    """The files the fixture at *path* (of *kind*, lying under *tree_root*) names, in text order, the
+    directories of *reach* included (a reference an earlier run rewrote into the shared directory)."""
     text = read_fixture(path)
     found: list[Reference] = []
     for offset, literal in string_lexemes(text, kind):
         rule = reference_rule(text, offset, kind)
-        resolution = resolve_reference(path, literal, rule, tree_root)
+        resolution = resolve_reference(path, literal, rule, tree_root, reach=reach)
         if resolution is not None:
             confined = reference_confined(text, offset, kind, literal)
             found.append(Reference(path, offset, literal, rule, resolution.target, resolution.base, confined))

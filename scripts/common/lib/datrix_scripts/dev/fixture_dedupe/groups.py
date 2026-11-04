@@ -88,8 +88,9 @@ class LiteralGroup:
 class FixtureIdentity:
     """The recursive identity of fixture files: equal keys are one fixture."""
 
-    def __init__(self, tree_root_of: Callable[[Path], Path]) -> None:
+    def __init__(self, tree_root_of: Callable[[Path], Path], reach: Sequence[Path]) -> None:
         self._tree_root_of = tree_root_of
+        self._reach = reach
         self._known: dict[Path, str] = {}
         self._chain: list[Path] = []
         self._cyclic = False
@@ -117,19 +118,20 @@ class FixtureIdentity:
             return hashlib.sha256(path.read_bytes()).hexdigest()
         kind = fixture_kind(path.name)
         parts = [kind, normalized(read_fixture(path), kind)]
-        for reference in fixture_references(path, kind, self._tree_root_of(path)):
+        for reference in fixture_references(path, kind, self._tree_root_of(path), self._reach):
             parts.append(f"{reference.rule}:{reference.literal}={self.key(reference.target)}")
         return hashlib.sha256(_SEPARATOR.join(parts).encode("utf-8", errors="surrogateescape")).hexdigest()
 
 
 def file_groups(
-    files: Sequence[FixtureFile], tree_root_of: Callable[[Path], Path]
+    files: Sequence[FixtureFile], tree_root_of: Callable[[Path], Path], reach: Sequence[Path]
 ) -> tuple[list[FileGroup], list[SplitGroup]]:
     """The groups of one fixture among *files*, and the normalized-equal groups their references split.
 
-    *tree_root_of* names the tree a file's project-root references resolve within.
+    *tree_root_of* names the tree a file's project-root references resolve within; *reach* the directories
+    a reference may also lead to.
     """
-    identity = FixtureIdentity(tree_root_of)
+    identity = FixtureIdentity(tree_root_of, reach)
     groups: list[FileGroup] = []
     splits: list[SplitGroup] = []
     for normal_group in duplicate_groups(files):
