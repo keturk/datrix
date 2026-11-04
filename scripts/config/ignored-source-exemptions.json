@@ -171,6 +171,13 @@
       "reason": "run and crash logs dropped at the repo root by build and test tooling (JVM hs_err/replay dumps among them). Scoped to the root: a .log file inside a source tree is a finding."
     },
     {
+      "repos": ["*"],
+      "gitignore": ".gitignore",
+      "pattern": "*.stackdump",
+      "path_glob": "**/*.stackdump",
+      "reason": "crash dumps the Cygwin/MSYS runtime writes as <program>.stackdump into the working directory of whichever process crashed (Git Bash's grep.exe among them). That directory can be any depth of a repo, and the runtime owns the suffix: no package authors a .stackdump file, so at any depth it is residue, never source."
+    },
+    {
       "repos": ["datrix"],
       "gitignore": ".gitignore",
       "pattern": "claude-config/.claude/hooks/.state/",

@@ -1,0 +1,102 @@
+{
+  "datrix-cli": {
+    "type_ignores": 34,
+    "any_signatures": 3,
+    "casts": 2
+  },
+  "datrix-codegen-angular": {
+    "type_ignores": 8,
+    "any_signatures": 0,
+    "casts": 0
+  },
+  "datrix-codegen-aws": {
+    "type_ignores": 7,
+    "any_signatures": 5,
+    "casts": 22
+  },
+  "datrix-codegen-azure": {
+    "type_ignores": 15,
+    "any_signatures": 21,
+    "casts": 25
+  },
+  "datrix-codegen-common": {
+    "type_ignores": 16,
+    "any_signatures": 11,
+    "casts": 70
+  },
+  "datrix-codegen-component": {
+    "type_ignores": 0,
+    "any_signatures": 0,
+    "casts": 0
+  },
+  "datrix-codegen-docker": {
+    "type_ignores": 7,
+    "any_signatures": 29,
+    "casts": 28
+  },
+  "datrix-codegen-flutter": {
+    "type_ignores": 8,
+    "any_signatures": 0,
+    "casts": 1
+  },
+  "datrix-codegen-kernel": {
+    "type_ignores": 26,
+    "any_signatures": 2,
+    "casts": 5
+  },
+  "datrix-codegen-python": {
+    "type_ignores": 87,
+    "any_signatures": 4,
+    "casts": 171
+  },
+  "datrix-codegen-sql": {
+    "type_ignores": 1,
+    "any_signatures": 0,
+    "casts": 0
+  },
+  "datrix-codegen-typescript": {
+    "type_ignores": 1,
+    "any_signatures": 9,
+    "casts": 32
+  },
+  "datrix-codegen-typescript-core": {
+    "type_ignores": 15,
+    "any_signatures": 0,
+    "casts": 41
+  },
+  "datrix-common": {
+    "type_ignores": 35,
+    "any_signatures": 111,
+    "casts": 15
+  },
+  "datrix-extensions": {
+    "type_ignores": 0,
+    "any_signatures": 0,
+    "casts": 0
+  },
+  "datrix-language": {
+    "type_ignores": 1,
+    "any_signatures": 1,
+    "casts": 44
+  },
+  "datrix-rdbms-schema": {
+    "type_ignores": 4,
+    "any_signatures": 0,
+    "casts": 0
+  },
+  "datrix-semantic": {
+    "type_ignores": 56,
+    "any_signatures": 0,
+    "casts": 14
+  },
+  "datrix-testing": {
+    "type_ignores": 5,
+    "any_signatures": 1,
+    "casts": 3
+  },
+  "datrix-vscode": {
+    "type_ignores": 0,
+    "any_signatures": 0,
+    "casts": 0
+  }
+}
