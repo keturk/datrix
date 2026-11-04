@@ -222,6 +222,28 @@ def mapped_back(text: str, rewrites: Sequence[Rewrite]) -> str:
     return "".join(pieces)
 
 
+def reference_rewrites(rewrites: Sequence[Rewrite]) -> dict[Path, dict[str, str]]:
+    """Each fixture *rewrites* rewrite, by its resolved path at its old place, mapped from each reference
+    as written to the text replacing it: what a semantic dump read before the move records instead of the
+    reference (``datrix_testing.semantic_baseline``, ``rewritten``).
+
+    Raises:
+        FixtureScanError: One reference text of a file is rewritten to two texts, so a dump of the node
+            holding it could not be translated.
+    """
+    texts: dict[Path, dict[str, str]] = {}
+    for rewrite in rewrites:
+        in_file = texts.setdefault(rewrite.reference.source.resolve(), {})
+        known = in_file.setdefault(rewrite.reference.literal, rewrite.literal)
+        if known != rewrite.literal:
+            raise FixtureScanError(
+                f"{rewrite.reference.source}: the reference {rewrite.reference.literal!r} is rewritten both to "
+                f"{known!r} and to {rewrite.literal!r}, so the semantic baseline cannot translate it. Fix: give the "
+                "two references their own text."
+            )
+    return texts
+
+
 def placed_text(source: Path, rewrites: Sequence[Rewrite]) -> str:
     """The text the fixture at *source* holds once those of *rewrites* written in it are applied."""
     return rewritten_text(read_fixture(source), [rewrite for rewrite in rewrites if rewrite.reference.source == source])

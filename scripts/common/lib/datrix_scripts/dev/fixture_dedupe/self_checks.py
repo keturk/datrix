@@ -25,8 +25,10 @@ from datrix_testing.parsing import register_installed_parsers
 from datrix_testing.semantic_baseline import SemanticBaselineCorpus
 
 from datrix_scripts.dev.fixture_dedupe.baseline import (
+    AS_IS,
     BaselineAfter,
     BaselineBefore,
+    Translation,
     baseline_failures,
     entry_hashes,
     updated_manifest,
@@ -39,7 +41,7 @@ from datrix_scripts.dev.fixture_dedupe.plan import (
     FOLLOW_REASON,
     LONE_COPY_REASON,
     READER_REASON,
-    SECRET_REASON,
+    SCREEN_REASON,
     SHARED_SET_REASON,
     TEXT_REASON,
     FilePlacement,
@@ -78,14 +80,21 @@ _GAMMA: Final = "datrix-gamma/tests/fixtures"
 _SHARED_SET: Final = "datrix-testing/src/datrix_testing/fixtures_data"
 _SHARED: Final = f"{_SHARED_SET}/corpus/shared"
 
-_CATALOG: Final = "service Catalog {\n}\n"
+_CATALOG: Final = "service shop.Catalog('catalog.dcfg') {\n}\n"
 _SYSTEM: Final = "include 'orders.dtrx';\nsystem Shop('config/system.dcfg') {\n}\n"
-_ORDERS: Final = "service Orders {\n}\n"
-_ORDERS_OTHER: Final = "service Orders {\n  limit = 1\n}\n"
-_SYSTEM_CONFIG: Final = "config system Shop {\n  profile test as \"test\" {\n  }\n}\n"
-_WALKED: Final = "service Walked {\n}\n"
-_RULE: Final = "service Rule {\n}\n"
-_AREA: Final = "service Area {\n}\n"
+_ORDERS: Final = "service shop.Orders('orders.dcfg') {\n}\n"
+_ORDERS_OTHER: Final = "service shop.Orders('orders.dcfg') {\n  struct Line {\n    String note;\n  }\n}\n"
+_DEPLOYMENT: Final = "  base {\n    deployment {\n      runtime = \"docker-compose\";\n      provider = \"local\";\n    }\n  }\n\n"
+_TEST_PROFILE: Final = "  profile test as \"test\" extends base {\n  }\n}\n"
+_SYSTEM_CONFIG: Final = f"config system Shop {{\n{_DEPLOYMENT}{_TEST_PROFILE}"
+# A service document missing its required port: the capture refuses it, a negative fixture.
+_NEGATIVE: Final = f"config service shop.Negative {{\n{_DEPLOYMENT}{_TEST_PROFILE}"
+_WALKED: Final = "service shop.Walked('walked.dcfg') {\n}\n"
+_RULE: Final = "service shop.Rule('rule.dcfg') {\n}\n"
+_AREA: Final = "service shop.Area('area.dcfg') {\n}\n"
+# Texts the formatter's corpus walk refuses: a partial source and a format template.
+_PARTIAL: Final = "service shop.Head('head.dcfg') {\n"
+_TEMPLATE: Final = "service shop.Template('template.dcfg') {{\n  {body}\n}}\n"
 # A value the capture's secret screen flags (a credential prefix), in a document a datrix-common model reads.
 _PUSH: Final = (
     "config app shop.PushApp {\n  base {\n    targets = [\"flutter\"];\n    appId = \"com.example.push\";\n"
@@ -117,7 +126,7 @@ _LINT_MODULE: Final = '''def test_lint(fixtures_dir):
 _UNKNOWN_WALK_MODULE: Final = '''def test_walk(project_FIXTURES):
     assert list(project_FIXTURES.iterdir())
 '''
-_ALPHA_LITERALS: Final = f'''ORDERS = "service Orders {{\\n  id: Int\\n}}\\n"
+_ALPHA_LITERALS: Final = f'''ORDERS = "service shop.Orders('orders.dcfg') {{\\n}}\\n"
 PUSH_CONFIG = """{_PUSH}"""
 
 
@@ -126,27 +135,27 @@ def check(text: str) -> str:
 
 
 def test_inline() -> None:
-    check("service Orders {{\\n  id: Int\\n}}\\n")
+    check("service shop.Orders('orders.dcfg') {{\\n}}\\n")
 '''
-_BETA_LITERALS: Final = f'''SVC: str = "service Orders {{\\n  id: Int\\n}}\\n"
+_BETA_LITERALS: Final = f'''SVC: str = "service shop.Orders('orders.dcfg') {{\\n}}\\n"
 PUSH_CONFIG = """{_PUSH}"""
 '''
 # SPACED is one fixture with ORDERS and SVC (equal normalized text) but not their exact text: it stays as written.
 _GAMMA_LITERALS: Final = '''NAME = "Orders"
-FORMATTED = f"service {NAME} {{\\n  id: Int\\n}}\\n"
-SPACED = "service   Orders {\\n  id: Int\\n}\\n"
+FORMATTED = f"service shop.{NAME}('orders.dcfg') {{\\n}}\\n"
+SPACED = "service   shop.Orders('orders.dcfg') {\\n}\\n"
 '''
-_ALPHA_COLLIDE: Final = 'X = "service Alpha {\\n}\\n"\nX = "service Beta {\\n}\\n"\n'
-_BETA_COLLIDE: Final = 'Y = "service Alpha {\\n}\\n"\nZ = "service Beta {\\n}\\n"\n'
+_ALPHA_COLLIDE: Final = '''X = "service shop.Alpha('alpha.dcfg') {\\n}\\n"\nX = "service shop.Beta('beta.dcfg') {\\n}\\n"\n'''
+_BETA_COLLIDE: Final = '''Y = "service shop.Alpha('alpha.dcfg') {\\n}\\n"\nZ = "service shop.Beta('beta.dcfg') {\\n}\\n"\n'''
 # Each test function binds its own `source`: one name, two texts, two placements.
 _ALPHA_SCOPED: Final = '''class TestScoped:
     def test_one(self) -> None:
-        source = "service One {\\n}\\n"
+        source = "service shop.One('one.dcfg') {\\n}\\n"
 
     def test_two(self) -> None:
-        source = "service Two {\\n}\\n"
+        source = "service shop.Two('two.dcfg') {\\n}\\n"
 '''
-_BETA_SCOPED: Final = 'ONE = "service One {\\n}\\n"\nTWO = "service Two {\\n}\\n"\n'
+_BETA_SCOPED: Final = '''ONE = "service shop.One('one.dcfg') {\\n}\\n"\nTWO = "service shop.Two('two.dcfg') {\\n}\\n"\n'''
 
 _PLANTED: Final[Mapping[str, str]] = {
     f"{_SHARED_SET}/corpus/shop.dtrx": "system Store {\n}\n",
@@ -174,6 +183,14 @@ _PLANTED: Final[Mapping[str, str]] = {
     f"{_ALPHA}/diagnostics/area.dtrx": _AREA,
     f"{_BETA}/area.dtrx": _AREA,
     f"{_GAMMA}/area.dtrx": _AREA,
+    f"{_ALPHA}/config/negative.dcfg": _NEGATIVE,
+    f"{_BETA}/config/negative.dcfg": _NEGATIVE,
+    "datrix-alpha/tests/test_negative.py": f'NEGATIVE_CONFIG = """{_NEGATIVE}"""\n',
+    "datrix-beta/tests/test_negative.py": f'NEGATIVE_CONFIG = """{_NEGATIVE}"""\n',
+    f"{_ALPHA}/fragment/head.dtrx": _PARTIAL,
+    f"{_BETA}/fragment/head.dtrx": _PARTIAL,
+    "datrix-alpha/tests/test_template.py": f'TEMPLATE = """{_TEMPLATE}"""\n',
+    "datrix-beta/tests/test_template.py": f'TEMPLATE = """{_TEMPLATE}"""\n',
     f"{_ALPHA}/config/push.dcfg": _PUSH,
     f"{_BETA}/config/push.dcfg": _PUSH,
     "datrix-alpha/tests/test_literals.py": _ALPHA_LITERALS,
@@ -191,8 +208,8 @@ _UNKNOWN_WALK: Final = "datrix-gamma/tests/test_unknown.py"
 # beta's and gamma's billing system is one fixture: it includes billing.dtrx and names config/pay.dcfg, each
 # one fixture with alpha's lib/ copy, which sorts first. The system moves to beta's shared place, so both of
 # its references must reach alpha's shared copies.
-_BILLING: Final = "service Billing {\n}\n"
-_PAY_CONFIG: Final = "config system Pay {\n  profile test as \"test\" {\n  }\n}\n"
+_BILLING: Final = "service shop.Billing('billing.dcfg') {\n}\n"
+_PAY_CONFIG: Final = f"config system Pay {{\n{_DEPLOYMENT}{_TEST_PROFILE}"
 _BILLING_SYSTEM: Final = "include 'billing.dtrx';\nsystem Pay('config/pay.dcfg') {\n}\n"
 _BILLING_PLANTED: Final[Mapping[str, str]] = {
     f"{_ALPHA}/lib/billing.dtrx": _BILLING,
@@ -211,9 +228,9 @@ _CONFINED_READER: Final = f"{_BETA}/billing/config/main.dcfg"
 _SHADOWED_READER: Final = f"{_SHARED}/datrix-beta/tests/fixtures/deep/sub/entry.dtrx"
 _SHADOWED_PLANTED: Final[Mapping[str, str]] = {
     _SHADOWED_READER: "system Deep('config/deep.dcfg') {\n}\n",
-    f"{_SHARED}/datrix-beta/tests/fixtures/deep/config/deep.dcfg": "config system Deep {\n  profile test as \"test\" {\n  }\n}\n",
-    f"{_BETA}/deep/sub/config/deep.dcfg": "config system Shadow {\n  profile test as \"test\" {\n  }\n}\n",
-    f"{_GAMMA}/deep/sub/config/deep.dcfg": "config system Shadow {\n  profile test as \"test\" {\n  }\n}\n",
+    f"{_SHARED}/datrix-beta/tests/fixtures/deep/config/deep.dcfg": f"config system Deep {{\n{_DEPLOYMENT}{_TEST_PROFILE}",
+    f"{_BETA}/deep/sub/config/deep.dcfg": f"config system Shadow {{\n{_DEPLOYMENT}{_TEST_PROFILE}",
+    f"{_GAMMA}/deep/sub/config/deep.dcfg": f"config system Shadow {{\n{_DEPLOYMENT}{_TEST_PROFILE}",
 }
 _TO_WORKSPACE: Final = "../../../.."
 
@@ -229,9 +246,11 @@ _EXPECTED_FILES: Final = [
      (f"{_GAMMA}/app/system.dtrx",), ()),
     (".dtrx", f"{_SHARED}/datrix-alpha/tests/fixtures/catalog.dtrx", f"{_ALPHA}/catalog.dtrx",
      (f"{_GAMMA}/catalog.dtrx",), ((f"{_SHARED_SET}/catalog.dtrx", SHARED_SET_REASON), (f"{_BETA}/catalog.dtrx", BYTES_REASON))),
-    (".dcfg", None, None, (), ((f"{_ALPHA}/config/push.dcfg", SECRET_REASON), (f"{_BETA}/config/push.dcfg", SECRET_REASON))),
+    (".dcfg", None, None, (), ((f"{_ALPHA}/config/negative.dcfg", SCREEN_REASON), (f"{_BETA}/config/negative.dcfg", SCREEN_REASON))),
+    (".dcfg", None, None, (), ((f"{_ALPHA}/config/push.dcfg", SCREEN_REASON), (f"{_BETA}/config/push.dcfg", SCREEN_REASON))),
     (".dtrx", f"{_SHARED}/datrix-beta/tests/fixtures/area.dtrx", f"{_BETA}/area.dtrx",
      (f"{_GAMMA}/area.dtrx",), ((f"{_ALPHA}/diagnostics/area.dtrx", DIAGNOSTICS_COLLECTOR),)),
+    (".dtrx", None, None, (), ((f"{_ALPHA}/fragment/head.dtrx", SCREEN_REASON), (f"{_BETA}/fragment/head.dtrx", SCREEN_REASON))),
     (".dtrx", None, None, (),
      ((f"{_GAMMA}/lint/rule.dtrx", f"datrix-gamma/tests/test_lint.py:2 {SITE_READ}"), (f"{_ALPHA}/rule.dtrx", LONE_COPY_REASON))),
     (".dtrx", f"{_SHARED}/datrix-alpha/tests/fixtures/walked.dtrx", f"{_ALPHA}/walked.dtrx",
@@ -311,7 +330,10 @@ def _check_literal_groups_placed() -> None:
         rewritten = [(_rel(site.module, root), site.name) for site in orders.rewritten]
         members = {site.name for site in orders.group.members}
         spaced = [(refused.site.name, refused.reason) for refused in orders.refused]
-        push = [p for p in plan.literals if p.group.kind == ".dcfg"]
+        push = [p for p in plan.literals if p.group.members[0].name == "PUSH_CONFIG"]
+        negative = [p for p in plan.literals if p.group.members[0].name == "NEGATIVE_CONFIG"]
+        template = [p for p in plan.literals if p.group.members[0].name == "TEMPLATE"]
+        head = [p for p in plan.files if _rel(p.group.members[0].path, root) == f"{_ALPHA}/fragment/head.dtrx"]
         collisions = [p for p in plan.literals if _rel(p.group.members[0].module, root) == "datrix-alpha/tests/test_collide.py"]
         scoped = sorted(
             _rel(p.target, root) or ""
@@ -323,7 +345,10 @@ def _check_literal_groups_placed() -> None:
     assert rewritten == [("datrix-alpha/tests/test_literals.py", "ORDERS"), ("datrix-beta/tests/test_literals.py", "SVC")], rewritten
     assert members == {"ORDERS", "SVC", "SPACED"}, f"an f-string or an unassigned literal joined the group: {members}"
     assert spaced == [("SPACED", TEXT_REASON)], f"a literal of other exact text is not refused: {spaced}"
-    assert len(push) == 1 and push[0].target is None and str(push[0].refusal).startswith(SECRET_REASON), push
+    assert len(push) == 1 and push[0].target is None and str(push[0].refusal).startswith(SCREEN_REASON), push
+    assert len(negative) == 1 and negative[0].target is None and "refused load" in str(negative[0].refusal), negative
+    assert len(template) == 1 and template[0].target is None and "formatter's walk refuses" in str(template[0].refusal), template
+    assert len(head) == 1 and head[0].target is None and "formatter's walk refuses" in str(head[0].refusal), head
     moved = [p for p in collisions if p.target is not None]
     refused = [p for p in collisions if p.target is None]
     assert len(moved) == 1 and len(refused) == 1, f"colliding placements: {collisions}"
@@ -356,7 +381,7 @@ def _check_dry_run_lists_the_plan() -> None:
         f"refuse  datrix-gamma/tests/test_literals.py:3 ({TEXT_REASON})",
         f"keep   {_SHARED_SET}/catalog.dtrx",
         "rewrite datrix-beta/tests/test_literals.py:1 SVC",
-        "Summary: file groups 8 (move 6, delete 7, keep 8)",
+        "Summary: file groups 10 (move 6, delete 7, keep 12)",
         f"rewrite {_BETA}/app/system.dtrx: 'config/system.dcfg' -> '{_TO_WORKSPACE}/{_SHARED}/datrix-alpha/",
         "References: rewritten 1, refused 0",
     ):
@@ -775,11 +800,19 @@ def _check_untranslated_hash_change_named() -> None:
     register_installed_parsers()
     corpus = SemanticBaselineCorpus(package_root=CORPUS_ROOT.parents[3])
     book = (CORPUS_ROOT / "services" / "book.dtrx").resolve()
-    to_shared = {book: CORPUS_ROOT.resolve() / "shared" / "datrix-alpha" / "book.dtrx"}
-    unrelated = {(CORPUS_ROOT / "absent.dtrx").resolve(): CORPUS_ROOT.resolve() / "shared" / "absent.dtrx"}
-    plain, translated, untouched = entry_hashes(CORPUS_ROOT / "library.dtrx", corpus, ({}, to_shared, unrelated))
+    library = (CORPUS_ROOT / "library.dtrx").resolve()
+    to_shared = Translation({book: CORPUS_ROOT.resolve() / "shared" / "datrix-alpha" / "book.dtrx"}, {})
+    unrelated = Translation({(CORPUS_ROOT / "absent.dtrx").resolve(): CORPUS_ROOT.resolve() / "shared" / "absent.dtrx"}, {})
+    header = Translation({}, {library: {"config/system.dcfg": "../config/system.dcfg"}})
+    include = Translation({}, {library: {"services/book.dtrx": "shared/book.dtrx"}})
+    other_file = Translation({}, {book: {"config/system.dcfg": "../config/system.dcfg"}})
+    plain, translated, untouched, by_header, by_include, by_other = entry_hashes(
+        library, corpus, (AS_IS, to_shared, unrelated, header, include, other_file)
+    )
     assert plain != translated, "an entry reaching a moved file hashes the same with the move mapped"
     assert plain == untouched, "an entry reaching no moved file changes its hash with the move mapped"
+    assert len({plain, by_header, by_include}) == 3, "a rewritten header config path or include is not dumped as its new text"
+    assert plain == by_other, "a reference text rewritten in another file changes the dump of this one"
     before = BaselineBefore(
         corpus, {"lib": plain, "other": "o1", "gone": "g1"}, {"lib": translated, "other": "o1", "gone": "g1"}, frozenset({"gone"})
     )
@@ -788,6 +821,9 @@ def _check_untranslated_hash_change_named() -> None:
     assert updated_manifest({"lib": plain, "other": "stale", "gone": "g1"}, before, legal) == {
         "lib": translated, "other": "stale", "shared/new.dtrx": "s1"
     }
+    assert updated_manifest({"lib": "drifted", "other": "o1", "gone": "g1"}, before, legal) == {
+        "lib": "drifted", "other": "o1", "shared/new.dtrx": "s1"
+    }, "a translated key whose committed hash was already stale takes its new hash: drift the move did not cause is banked"
     for after, named in (
         (BaselineAfter({"lib": translated, "other": "o2"}, frozenset()), "other: semantic output CHANGED"),
         (BaselineAfter({"lib": plain + "x", "other": "o1"}, frozenset()), "lib: hashes"),

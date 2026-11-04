@@ -1,11 +1,12 @@
-"""The model-contract capture's secret screen, run over the corpus as it would be once copies move.
+"""The model-contract capture's screen, run over the corpus as it would be once copies move.
 
 Capture loads every ``.dcfg`` under the corpus after a package's own, in each package holding
-``tests/test_model_contracts.py``, and raises on a secret finding. Before a ``.dcfg`` copy moves into the
-corpus, the screen builds the would-be state in a temporary directory -- the corpus with each placed text
-written at its shared path, and each such package's ``tests/`` without the copies the move deletes -- and
-runs ``collect_samples`` there with the package's real model set. A finding on a placed text names the
-group whose move would make that package's capture raise.
+``tests/test_model_contracts.py``: it raises on a secret finding, and the bundled corpus loads with no
+refused document. Before a ``.dcfg`` copy moves into the corpus, the screen builds the would-be state in a
+temporary directory -- the corpus with each placed text written at its shared path, and each such package's
+``tests/`` without the copies the move deletes -- and runs ``collect_samples`` there with the package's real
+model set. A secret finding or a refused load on a placed text names the group that must stay out of the
+corpus: a negative fixture or a fragment that loads as no document is read by its own tests, not by capture.
 """
 
 from __future__ import annotations
@@ -97,7 +98,7 @@ def _package_findings(package: Path, tests: Path, corpus: Path) -> list[str]:
     try:
         models = model_set(package)
         with _quiet_loaders():
-            return collect_samples(tests, models, corpus).secret_findings
+            capture = collect_samples(tests, models, corpus)
     except (ModelDiscoveryError, CaptureError, ParseError) as exc:
         # A ParseError escaping the capture is the parser itself failing to load (a refused document is
         # recorded by the capture, never raised): the capture cannot run.
@@ -105,12 +106,15 @@ def _package_findings(package: Path, tests: Path, corpus: Path) -> list[str]:
             f"the capture of {package.name} cannot run over the would-be corpus ({type(exc).__name__}: {exc}); "
             "without it no .dcfg copy is proven safe to move. Fix the package's capture first."
         ) from exc
+    # The load's error is not repeated: it names the temporary path and may quote the document.
+    refusals = [f"{refused.path}{_FINDING_PATH_END}refused load of profile {refused.profile})" for refused in capture.refused]
+    return [*capture.secret_findings, *refusals]
 
 
 def screen(
     corpus: Path, packages: Sequence[Path], placed: Sequence[PlacedText], removed: Set[Path]
 ) -> dict[str, list[str]]:
-    """The secret findings each placed group would raise in the capture of *packages*, by group key.
+    """The secret findings and refused loads each placed group would give the capture of *packages*, by group key.
 
     *corpus* is the corpus root, *placed* the texts written into it, *removed* the package copies deleted.
     A finding is reported with the placed text's corpus-relative path, never the temporary one.

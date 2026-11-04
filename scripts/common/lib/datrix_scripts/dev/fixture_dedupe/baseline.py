@@ -5,8 +5,10 @@ Each package holding a committed semantic-baseline manifest protects the semanti
 ways only, and the write is proven against them:
 
 * before writing, every entry is analyzed once and hashed twice: as it is, and with the path of every copy
-  that leaves its tree dumped as the path of the copy replacing it (``moved``). An entry whose two hashes
-  differ reaches a leaving copy: it is *translated*;
+  that leaves its tree dumped as the path of the copy replacing it (``moved``) and every reference the
+  write rewrites dumped as its new text (``rewritten``: an include's path, a header's config path, held by
+  a node located in the rewritten file). An entry whose two hashes differ reaches a leaving copy or a
+  rewritten reference: it is *translated*;
 * after writing, every entry is analyzed again. A translated entry that stays must hash as its translated
   dump, and the drift from the hashes before to the hashes after must be legal (``baseline_drift``): a
   deleted copy's key leaves, a shared corpus file's key arrives, a translated key's hash changes, and
@@ -90,9 +92,27 @@ def baseline_corpora(base_dir: Path, packages: Sequence[Path]) -> list[SemanticB
     return found
 
 
-def entry_hashes(path: Path, corpus: SemanticBaselineCorpus, moves: Sequence[Mapping[Path, Path]]) -> list[str]:
-    """The hash of the semantic output of *corpus*'s entry *path*, dumped once per move map of *moves* (each
-    a resolved old path mapped to its new path), the entry analyzed once.
+@dataclass(frozen=True)
+class Translation:
+    """How a dump read before a write records what the write changes.
+
+    Attributes:
+        moved: Each leaving copy's resolved old path mapped to the resolved path of the copy replacing it.
+        rewritten: Each fixture whose references the write rewrites, by its resolved old path, mapped from
+            each reference as written to the text replacing it.
+    """
+
+    moved: Mapping[Path, Path]
+    rewritten: Mapping[Path, Mapping[str, str]]
+
+
+#: A dump of the tree as it is.
+AS_IS: Translation = Translation(moved={}, rewritten={})
+
+
+def entry_hashes(path: Path, corpus: SemanticBaselineCorpus, translations: Sequence[Translation]) -> list[str]:
+    """The hash of the semantic output of *corpus*'s entry *path*, dumped once per translation of
+    *translations*, the entry analyzed once.
 
     Raises:
         BaselineError: The analysis or its dump raises.
@@ -100,7 +120,7 @@ def entry_hashes(path: Path, corpus: SemanticBaselineCorpus, moves: Sequence[Map
     key = fixture_key(path, corpus)
     try:
         result = analyze_fixture(path, corpus)
-        payloads = [analysis_payload(result, corpus, moved) for moved in moves]
+        payloads = [analysis_payload(result, corpus, one.moved, one.rewritten) for one in translations]
     except Exception as exc:
         raise BaselineError(
             f"{corpus.package_root.name}: semantic-baseline entry {key} cannot be analyzed and dumped "
@@ -111,20 +131,25 @@ def entry_hashes(path: Path, corpus: SemanticBaselineCorpus, moves: Sequence[Map
     return [hashes[str(index)] for index in range(len(payloads))]
 
 
-def hash_before(corpus: SemanticBaselineCorpus, moves: Mapping[Path, Path]) -> BaselineBefore:
+def hash_before(
+    corpus: SemanticBaselineCorpus, moves: Mapping[Path, Path], rewritten: Mapping[Path, Mapping[str, str]]
+) -> BaselineBefore:
     """*corpus*'s baseline before *moves* (each copy leaving a package tree, mapped to the copy replacing
-    it) is written.
+    it) and the reference rewrites *rewritten* (``follow.reference_rewrites``) are written.
 
     Raises:
         BaselineError: An entry cannot be analyzed.
     """
     register_installed_parsers()
-    moved = {old.resolve(): new.resolve() for old, new in moves.items()}
+    translation = Translation(
+        moved={old.resolve(): new.resolve() for old, new in moves.items()},
+        rewritten={source.resolve(): texts for source, texts in rewritten.items()},
+    )
     plain: dict[str, str] = {}
     translated: dict[str, str] = {}
     for path in enumerate_fixture_corpus(corpus):
         key = fixture_key(path, corpus)
-        plain[key], translated[key] = entry_hashes(path, corpus, ({}, moved))
+        plain[key], translated[key] = entry_hashes(path, corpus, (AS_IS, translation))
     package = corpus.package_root.resolve()
     deleted = frozenset(fixture_key(old, corpus) for old in moves if old.resolve().is_relative_to(package))
     return BaselineBefore(corpus, plain, translated, deleted)
@@ -142,7 +167,7 @@ def hash_after(corpus: SemanticBaselineCorpus) -> BaselineAfter:
     corpus_keys: set[str] = set()
     for path in enumerate_fixture_corpus(corpus):
         key = fixture_key(path, corpus)
-        (hashes[key],) = entry_hashes(path, corpus, ({},))
+        (hashes[key],) = entry_hashes(path, corpus, (AS_IS,))
         if path.resolve().is_relative_to(shared):
             corpus_keys.add(key)
     return BaselineAfter(hashes, frozenset(corpus_keys))
@@ -162,9 +187,19 @@ def baseline_failures(before: BaselineBefore, after: BaselineAfter) -> list[str]
 
 
 def updated_manifest(committed: Mapping[str, str], before: BaselineBefore, after: BaselineAfter) -> dict[str, str]:
-    """*committed* with the move's changes only: the deleted keys gone, each translated key it holds and each
-    arriving shared corpus key at its hash *after*."""
+    """*committed* with the move's changes only: the deleted keys gone, each translated key it holds at the hash
+    the tree gave before the write at its hash *after*, and each arriving shared corpus key at its hash *after*.
+
+    A translated key *committed* holds at another hash than the tree gave before the write keeps its committed
+    hash: its drift is not the move's, and taking its new hash would bank it unreviewed.
+    """
     manifest = {key: value for key, value in committed.items() if key not in before.deleted}
-    manifest.update({key: after.hashes[key] for key in before.translated if key in manifest and key in after.hashes})
+    manifest.update(
+        {
+            key: after.hashes[key]
+            for key in before.translated
+            if key in manifest and key in after.hashes and manifest[key] == before.plain[key]
+        }
+    )
     manifest.update({key: after.hashes[key] for key in after.corpus_keys if key not in manifest})
     return manifest

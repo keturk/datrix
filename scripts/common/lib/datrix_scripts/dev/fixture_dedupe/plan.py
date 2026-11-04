@@ -10,9 +10,11 @@ Kept in place:
 
 * a copy inside a directory a test or a case collector reads whole (``walks``);
 * a copy already in the shared ``datrix-testing`` fixture set: the shared accessors read it there;
-* every copy of a ``.dcfg`` group (file or literal) whose placed text the capture's secret screen flags in
-  a package that captures the corpus (``secret_screen``); the screen is rerun without the flagged groups
-  until it flags none of the groups that move;
+* every copy of a ``.dcfg`` group (file or literal) whose placed text the capture holds a secret finding
+  or a refused load for, in a package that captures the corpus (``secret_screen``); the screen is rerun
+  without the flagged groups until it flags none of the groups that move;
+* every copy of a ``.dtrx`` group (file or literal) whose placed text the formatter's corpus walk refuses
+  (``format_screen``): a template, a partial source or a deliberately broken text, rerun the same way;
 * every copy of a group whose moved copy names a file it could no longer reach from the shared place
   (``follow``), and a copy a fixture that stays names when that fixture could not reach the copy's shared
   place: deleting either would change what the reference reads. The plan is rebuilt with what the screen
@@ -39,7 +41,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
+from datrix_testing.corpus import INLINE_DIR
+
 from datrix_scripts.dev.fixture_dedupe.follow import FollowedReferences, follow_references
+from datrix_scripts.dev.fixture_dedupe.format_screen import format_findings
 from datrix_scripts.dev.fixture_dedupe.groups import (
     FileGroup,
     LiteralGroup,
@@ -60,6 +65,7 @@ from datrix_scripts.dev.fixture_dedupe.walks import RefusedWalk, Walks, find_wal
 from datrix_scripts.framework_repos import PackageMarker, workspace_package_dirs
 from datrix_scripts.gates.ratchet.fixture_budget_gate import (
     DCFG_KIND,
+    DTRX_KIND,
     SHARED_PACKAGE,
     FixtureFile,
     FixtureScanError,
@@ -67,9 +73,8 @@ from datrix_scripts.gates.ratchet.fixture_budget_gate import (
     read_fixture,
 )
 
-INLINE_DIR: Final = "inline"
 SHARED_SET_REASON: Final = "already in the shared datrix-testing fixture set, read there by its accessors"
-SECRET_REASON: Final = "the capture's secret screen flags its placed text"
+SCREEN_REASON: Final = "a screen of the corpus flags its placed text"
 LONE_COPY_REASON: Final = "the group's only movable copy: one copy is no duplicate to share"
 FOLLOW_REASON: Final = "a reference of its copy cannot follow it to the shared place"
 READER_REASON: Final = "a fixture that stays reads it and cannot reach the shared place"
@@ -303,18 +308,20 @@ def place_literal(base_dir: Path, group: LiteralGroup, flagged: str | None, take
     return LiteralPlacement(group, target, assigned[0], tuple(assigned), (*unassigned, *refused), None)
 
 
-def _placed_texts(base_dir: Path, files: Sequence[FilePlacement], literals: Sequence[LiteralPlacement]) -> list[PlacedText]:
-    """The ``.dcfg`` texts the plan writes into the corpus, keyed by group."""
+def _placed_texts(
+    base_dir: Path, files: Sequence[FilePlacement], literals: Sequence[LiteralPlacement], kind: str
+) -> list[PlacedText]:
+    """The texts of *kind* the plan writes into the corpus, keyed by group."""
     corpus = corpus_root(base_dir)
     placed = [
         PlacedText(file_key(placement.group), placement.target.relative_to(corpus), placement.source.read_bytes())
         for placement in files
-        if placement.group.kind == DCFG_KIND and placement.source is not None and placement.target is not None
+        if placement.group.kind == kind and placement.source is not None and placement.target is not None
     ]
     placed.extend(
         PlacedText(literal_key(placement.group), placement.target.relative_to(corpus), placement.source.text.encode("utf-8"))
         for placement in literals
-        if placement.group.kind == DCFG_KIND and placement.source is not None and placement.target is not None
+        if placement.group.kind == kind and placement.source is not None and placement.target is not None
     )
     return placed
 
@@ -424,10 +431,11 @@ def build_plan(base_dir: Path) -> Plan:
     while True:
         files, literals = _placements(base_dir, groups, literal_set, walks, holds)
         removed = frozenset(path for placement in files for path in _leaving(placement))
-        new = screen(corpus_root(base_dir), screened, _placed_texts(base_dir, files, literals), removed)
+        new = format_findings(_placed_texts(base_dir, files, literals, DTRX_KIND))
+        new.update(screen(corpus_root(base_dir), screened, _placed_texts(base_dir, files, literals, DCFG_KIND), removed))
         if new:
             findings.update(new)
-            holds.groups.update({key: f"{SECRET_REASON}: {'; '.join(found)}" for key, found in new.items()})
+            holds.groups.update({key: f"{SCREEN_REASON}: {'; '.join(found)}" for key, found in new.items()})
             continue
         followed = follow_references(base_dir, packages, every_file, move_map(files), moved_copies(files))
         if not _reference_holds(base_dir, followed, files, holds):

@@ -61,7 +61,10 @@ def _print_context(plan: Plan) -> None:
     report_step(f"Walk sites that cannot be evaluated ({len(plan.refused_walks)})")
     for refused in plan.refused_walks:
         print(f"  {_shown(refused.site.module, base_dir)}:{refused.site.line} {refused.site.text} ({refused.reason})")
-    report_step(f"Secret screen over the would-be corpus: {', '.join(plan.screened) or 'no package captures it'}")
+    report_step(
+        "Corpus screens over the would-be corpus: the formatter's walk, and the capture (secret findings, refused loads) "
+        f"of {', '.join(plan.screened) or 'no package'}"
+    )
     for key, findings in plan.screen_findings.items():
         print(f"  {key}: {len(findings)} finding(s)")
 

@@ -39,6 +39,7 @@ from datrix_scripts.dev.fixture_dedupe.baseline import (
     hash_before,
     updated_manifest,
 )
+from datrix_scripts.dev.fixture_dedupe.follow import reference_rewrites
 from datrix_scripts.dev.fixture_dedupe.layout import corpus_root
 from datrix_scripts.dev.fixture_dedupe.listing import list_plan
 from datrix_scripts.dev.fixture_dedupe.plan import Plan, build_plan
@@ -249,7 +250,10 @@ def write_plan(plan: Plan, accessor_corpus: Path) -> int:
     except WriteRefused as exc:
         print(f"\nFAILED: {exc}")
         return EXIT_VIOLATION
-    befores = [hash_before(corpus, plan.followed.moves) for corpus in baseline_corpora(plan.base_dir, plan.packages)]
+    rewritten = reference_rewrites(plan.followed.rewrites)
+    befores = [
+        hash_before(corpus, plan.followed.moves, rewritten) for corpus in baseline_corpora(plan.base_dir, plan.packages)
+    ]
     record = plan.base_dir / RECORD_DIR / datetime.now().strftime(_STAMP)
     held = {**old, **{before.corpus.manifest_path: before.corpus.manifest_path.read_bytes() for before in befores}}
     transaction = WriteTransaction(plan.base_dir, held, record)
