@@ -506,7 +506,7 @@ def load_diagnostics_session(root: Path) -> DiagnosticsSession:
     """
     from datrix_semantic.analyzer import analysis_halting_codes
     from datrix_semantic.diagnostics.report import CATALOG
-    from datrix_semantic.validators.error_codes import SEED_DOCUMENT_CODES
+    from datrix_semantic.seed_validation import SEED_DOCUMENT_CODES
     from datrix_testing.cases.package import load_package
     from datrix_testing.cases.stages import target_checks_registered
 
