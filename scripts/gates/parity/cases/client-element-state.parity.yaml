@@ -1,0 +1,51 @@
+- id: client-element-state.controls-hints-and-conditions
+  tags:
+  - parity
+  - frontend-client
+  input: ecommerce
+  stage: parity
+  observer: client_element_state
+  selector:
+    facet: state
+    owner: storefront.pages.product-detail
+  expectation:
+    disabled: '2'
+    placeholders: '0'
+    hints: '1'
+    busy: '0'
+    checked: '0'
+  reason: 'Every client target makes a control unavailable while its disabled(...) condition holds and attaches a hint(...) to its element, once per modifier written: the two quantity buttons and the add-to-cart button of one page, and nothing a target''s own framework markup adds.'
+- id: client-element-state.input-example
+  tags:
+  - parity
+  - frontend-client
+  input: ecommerce
+  stage: parity
+  observer: client_element_state
+  selector:
+    facet: state
+    owner: storefront.layouts.app-shell
+  expectation:
+    disabled: '0'
+    placeholders: '1'
+    hints: '0'
+    busy: '0'
+    checked: '1'
+  reason: Every client target shows a text-entry input's placeholder(...) example, here the search field of the application shell, and announces a menu item as checked or not checked from its checked(...) condition, here the mute switch of the notification menu, each once per modifier written and none on an element that declares none.
+- id: client-element-state.busy-control
+  tags:
+  - parity
+  - frontend-client
+  input: ecommerce
+  stage: parity
+  observer: client_element_state
+  selector:
+    facet: state
+    owner: storefront.pages.order-detail
+  expectation:
+    disabled: '0'
+    placeholders: '0'
+    hints: '0'
+    busy: '1'
+    checked: '0'
+  reason: Every client target shows a progress indicator on a button while its busy(...) condition holds, once per modifier written -- here the cancel button of one page -- and adds none to a control that declares none.

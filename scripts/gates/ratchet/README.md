@@ -216,14 +216,15 @@ Across every counted file, the shared fixtures included, it counts:
 
 - `duplicate_copies`: files whose normalized content equals another file's of the same kind, minus one per group. Normalized means comments removed (`//…` and `/*…*/`, and `#…` in `.dcfg` only; a marker inside a `"…"` string literal is content) and whitespace collapsed.
 - `cross_package_names`: base names present under `tests/` of two or more packages, `system.dtrx` excluded.
-- `shared_files`: the same file kinds under `datrix-testing/src/datrix_testing/fixtures_data/`, held to `SHARED_FIXTURE_CEILING` (120), defined once in the module. It is a cap, not a ratchet: the shared set grows while the package sets shrink. A missing shared directory is refused rather than counted as zero.
+- `shared_files`: the same file kinds under `datrix-testing/src/datrix_testing/fixtures_data/`. It is printed, not pinned: the shared set grows as copies move into it from the packages. A missing shared directory is refused rather than counted as zero.
+- `total_fixtures`: every package's `fixture_files` and `inline_literals` plus `shared_files`. Moving a fixture from a package into the shared set leaves it unchanged; deleting a duplicate copy lowers it; adding a fixture anywhere, the shared set included, raises it.
 
 Every count but `shared_files` is pinned in `scripts/config/fixture-budget-baseline.json` (keys
-`<package>:fixture_files`, `<package>:inline_literals`, `duplicate_copies`, `cross_package_names`) and
-compared through `datrix_scripts.count_ratchet` tighten-only: a rise fails, naming the package and the
-count, and a package the baseline does not name is pinned at zero. A missing baseline is refused, never
-read as empty. `-UpdateBaseline` is the bootstrap freeze when no baseline exists; afterwards it writes only
-when no count rises (a rise exits 2 with the baseline unchanged), and never past the shared ceiling. A
+`<package>:fixture_files`, `<package>:inline_literals`, `duplicate_copies`, `cross_package_names`,
+`total_fixtures`) and compared through `datrix_scripts.count_ratchet` tighten-only: a rise fails, naming
+the package and the count, and a package or count the baseline does not name is pinned at zero. A missing
+baseline is refused, never read as empty. `-UpdateBaseline` is the bootstrap freeze when no baseline
+exists; afterwards it writes only when no count rises (a rise exits 2 with the baseline unchanged). A
 file that cannot be read, or a test module that cannot be parsed, exits 2: it would otherwise escape the
 count. The output is one line per package and one per global count, each with its delta against the
 baseline; `-ShowFiles` adds every counted file, literal site, duplicate group and cross-package name.

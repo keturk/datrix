@@ -6,13 +6,14 @@
 .DESCRIPTION
  For every datrix-* package with a tests/ tree, counts its fixture files (.dtrx, .dtrx.false, .dcfg,
  .dseed under tests/) and its inline .dtrx/.dcfg string literals in test modules; across all counted
- files, counts the duplicate copies and the fixture names shared by two or more packages. Each count
- may only fall below scripts/config/fixture-budget-baseline.json. The shared fixtures under
- datrix-testing/src/datrix_testing/fixtures_data/ are held to a fixed ceiling instead.
+ files, counts the duplicate copies, the fixture names shared by two or more packages, and the total of
+ every package's fixtures plus the shared fixtures under datrix-testing/src/datrix_testing/fixtures_data/.
+ Each count may only fall below scripts/config/fixture-budget-baseline.json; the shared fixture count
+ alone is printed and not pinned.
 
  Exit codes:
-   0 = every count at or below its baseline and the shared set within the ceiling
-   1 = a count above its baseline, or the shared set above the ceiling
+   0 = every pinned count at or below its baseline and every corpus entry read
+   1 = a count above its baseline, or a corpus entry no test reads
    2 = usage error, missing baseline, attempted baseline increase, unreadable file, failed self-test
 
 .PARAMETER ShowFiles

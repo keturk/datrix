@@ -55,7 +55,7 @@ Parameters: `-SelfTest`, `-Seed`, `-Dbg`. Exit: 0 no un-baselined offender and n
 
 ## `gates\ratchet\fixture-budget-gate.ps1`
 
-Count every package's `.dtrx`/`.dtrx.false`/`.dcfg`/`.dseed` fixture files and inline fixture literals, the duplicate copies and the cross-package fixture names, against the decrease-only `scripts/config/fixture-budget-baseline.json`; cap the shared `datrix-testing` fixtures at a fixed ceiling; fail a fixture corpus entry no package's `tests/` names in a `corpus_project("<scenario>")` call.
+Count every package's `.dtrx`/`.dtrx.false`/`.dcfg`/`.dseed` fixture files and inline fixture literals, the duplicate copies and the cross-package fixture names, and their total (package files, inline literals and shared `datrix-testing` fixtures), against the decrease-only `scripts/config/fixture-budget-baseline.json`; fail a fixture corpus entry no package's `tests/` names in a `corpus_project("<scenario>")` call.
 
 | Form | Command |
 |------|---------|
@@ -64,4 +64,4 @@ Count every package's `.dtrx`/`.dtrx.false`/`.dcfg`/`.dseed` fixture files and i
 | Freeze or tighten the baseline | `.\gates\ratchet\fixture-budget-gate.ps1 -UpdateBaseline` |
 | Other workspace root | `.\gates\ratchet\fixture-budget-gate.ps1 -BaseDir D:\datrix` |
 
-Parameters: `-ShowFiles`, `-BaseDir` (default: the workspace), `-UpdateBaseline`, `-SelfTest`, `-Dbg`. Exit: 0 every count at or below the baseline, the shared set within the ceiling and every corpus entry read, 1 a count above the baseline, the shared set above the ceiling or an unread corpus entry, 2 usage error / missing baseline / attempted baseline increase / unreadable or unparsable file / missing or ambiguous corpus / failed self-test.
+Parameters: `-ShowFiles`, `-BaseDir` (default: the workspace), `-UpdateBaseline`, `-SelfTest`, `-Dbg`. Exit: 0 every pinned count (`total_fixtures` included; `shared_files` is printed, not pinned) at or below the baseline and every corpus entry read, 1 a count above the baseline or an unread corpus entry, 2 usage error / missing baseline / attempted baseline increase / unreadable or unparsable file / missing or ambiguous corpus / failed self-test.
