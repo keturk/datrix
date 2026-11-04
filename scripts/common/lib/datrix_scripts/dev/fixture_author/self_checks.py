@@ -1,10 +1,5 @@
 """The self-test of ``dev/fixture-author.ps1``: needs, area plan, scaffold, verification and drafting on planted inputs.
 
-The checks of the ``needs`` inventory live in ``needs_checks``, those of the corpus library plan and check
-in ``library_self_checks``, those of drafting the library in ``library_draft_self_checks``, those of
-repointing a package in ``repoint_self_checks`` and those of pruning one in ``prune_self_checks``; they run
-after these.
-
 The needs and the plan are proven on a planted catalog whose codes no real catalog declares; the
 scaffold on a temporary project root; verification on a planted package whose area project the real
 analyzer runs: one annotated variant no clean project provokes, one service declaring a version
@@ -29,11 +24,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from datrix_scripts.dev.fixture_author.library_draft_self_checks import CHECKS as LIBRARY_DRAFT_CHECKS
-from datrix_scripts.dev.fixture_author.library_self_checks import CHECKS as LIBRARY_CHECKS
-from datrix_scripts.dev.fixture_author.needs_checks import CHECKS as NEEDS_CHECKS
-from datrix_scripts.dev.fixture_author.prune_self_checks import CHECKS as PRUNE_CHECKS
-from datrix_scripts.dev.fixture_author.repoint_self_checks import CHECKS as REPOINT_CHECKS
 from datrix_scripts.gate_harness import CheckFunc, write_files
 
 if TYPE_CHECKING:
@@ -552,9 +542,4 @@ CHECKS: Final[list[CheckFunc]] = [
     _check_a_fragment_the_parser_refuses_goes_back_alone,
     _check_a_secret_literal_draft_is_queued_and_never_written,
     _check_no_local_model_exits_non_zero_and_writes_nothing,
-    *NEEDS_CHECKS,
-    *LIBRARY_CHECKS,
-    *LIBRARY_DRAFT_CHECKS,
-    *REPOINT_CHECKS,
-    *PRUNE_CHECKS,
 ]

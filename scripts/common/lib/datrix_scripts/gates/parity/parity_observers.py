@@ -39,6 +39,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternalQueueControlModule,
     PublishedEventEnvelope,
     RealizedClientForm,
+    RealizedElementState,
     RealizedExternalLinkScheme,
     RealizedGatewayProblem,
     RealizedRouteUrl,
@@ -686,6 +687,47 @@ def _offer_client_forms(result: object) -> Iterable[dict[str, SelectorValue]]:
 
 
 # ---------------------------------------------------------------------------
+# Client element state: client_element_state
+# ---------------------------------------------------------------------------
+
+CLIENT_ELEMENT_STATE: Final[str] = "client_element_state"
+OWNER_KEY: Final[str] = "owner"
+
+
+def _element_states(result: object) -> tuple[RealizedElementState, ...]:
+    return _items(result, RealizedElementState, CLIENT_ELEMENT_STATE)
+
+
+def _read_element_state(result: object, selector: Selector) -> Observation:
+    """How many controls one view owner makes unavailable, how many inputs show an example, how
+    many elements carry a hint, how many controls show their work running and how many menu items
+    mark the current choice."""
+    wanted = _text(selector, OWNER_KEY)
+    matches = [state for state in _element_states(result) if state.owner_key == wanted]
+    if len(matches) != 1:
+        raise SelectorError(f"view owner {wanted} is emitted {len(matches)} times")
+    state = matches[0]
+    return Observation(
+        Shape.MAPPING,
+        {
+            "disabled": stringify(state.disabled),
+            "placeholders": stringify(state.placeholders),
+            "hints": stringify(state.hints),
+            "busy": stringify(state.busy),
+            "checked": stringify(state.checked),
+        },
+    )
+
+
+def _read_element_state_owners(result: object, selector: Selector) -> Observation:
+    return _set(state.owner_key for state in _element_states(result))
+
+
+def _offer_element_states(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{OWNER_KEY: state.owner_key} for state in _element_states(result)]
+
+
+# ---------------------------------------------------------------------------
 # Documentation text: documentation_surfaces
 # ---------------------------------------------------------------------------
 
@@ -977,6 +1019,33 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
                 FacetReading(
                     ParityFacet("forms", Shape.SET, summary="every form key (<app>.<form>, kebab case) the apps emit"),
                     _read_client_form_keys,
+                ),
+            ),
+        ),
+        ProbeReadings(
+            CLIENT_ELEMENT_STATE,
+            ProbeArgument.CLIENT_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "state",
+                        Shape.MAPPING,
+                        (OWNER_KEY,),
+                        summary=(
+                            "how many controls one page, layout or component makes unavailable, how many "
+                            "inputs show an example and how many elements carry a hint"
+                        ),
+                    ),
+                    _read_element_state,
+                    _offer_element_states,
+                ),
+                FacetReading(
+                    ParityFacet(
+                        "owners",
+                        Shape.SET,
+                        summary="every view owner (<app>.<role>.<name>, kebab case) the apps emit",
+                    ),
+                    _read_element_state_owners,
                 ),
             ),
         ),

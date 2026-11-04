@@ -58,6 +58,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternalQueueControlCensus,
     IdiomOccurrence,
     RealizedClientForm,
+    RealizedElementState,
     RealizedExternalLinkScheme,
     RealizedRouteUrl,
     ResponseBodyWireField,
@@ -689,6 +690,9 @@ class _PlantedClientProbes:
 
     def client_forms(self, generated_root: Path) -> tuple[RealizedClientForm, ...]:
         return (RealizedClientForm("library.lend", ("bookId",), True, Path(_CANARY) / "lend.src"),)
+
+    def client_element_state(self, generated_root: Path) -> tuple[RealizedElementState, ...]:
+        return (RealizedElementState("library.pages.lend", 1, 0, 1, 1, 0, Path(_CANARY) / "lend-page.src"),)
 
 
 def _planted_client_class(probes: object) -> type:

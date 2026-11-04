@@ -21,9 +21,11 @@ Across every counted file it counts:
 ``cross_package_names``
     fixture base names present under ``tests/`` of two or more packages, ``system.dtrx`` excluded.
 ``shared_files``
-    the same file kinds under ``datrix-testing/src/datrix_testing/fixtures_data/``, held to the fixed
-    ceiling ``SHARED_FIXTURE_CEILING``. This one is a cap, not a ratchet: the shared set grows while
-    the package sets shrink.
+    the same file kinds under ``datrix-testing/src/datrix_testing/fixtures_data/``. Printed, not pinned:
+    the shared set grows as copies move into it from the packages.
+``total_fixtures``
+    every package's ``fixture_files`` and ``inline_literals`` plus ``shared_files``. Moving a fixture
+    into the shared set leaves it unchanged; deleting a copy lowers it.
 
 Every count but ``shared_files`` is pinned by ``scripts/config/fixture-budget-baseline.json`` and may
 only fall. A missing baseline is refused, never read as empty; ``--update-baseline`` freezes the first
@@ -35,9 +37,9 @@ the scenario's name as a string literal to ``corpus_project(...)``, positionally
 no test names fails the gate; a missing corpus root, or a scenario written in both entry forms, is refused.
 
 Exit codes:
-    0: every count at or below its baseline, ``shared_files`` within the ceiling and every corpus entry
-       read (or a successful ``--update-baseline`` or ``--self-test``).
-    1: a count above its baseline, ``shared_files`` above the ceiling, or a corpus entry no test reads.
+    0: every pinned count at or below its baseline and every corpus entry read (or a successful
+       ``--update-baseline`` or ``--self-test``).
+    1: a pinned count above its baseline, or a corpus entry no test reads.
     2: usage error, missing or malformed baseline, an attempted baseline increase, a file that cannot be
        read or parsed, a missing shared fixture directory or corpus root, an ambiguous corpus entry, or a
        failed self-test.
@@ -99,8 +101,6 @@ GATE: Final = "fixture-budget"
 MODULE: Final = "datrix_scripts.gates.ratchet.fixture_budget_gate"
 WRAPPER: Final = "fixture-budget-gate"
 
-SHARED_FIXTURE_CEILING: Final = 120
-
 BASELINE_TABLE: Final = "baseline"
 BASELINE_RELATIVE: Final = CONFIG_DIR.relative_to(WORKSPACE_DIR) / "fixture-budget-baseline.json"
 
@@ -117,6 +117,7 @@ PYTHON_SUFFIX: Final = ".py"
 # Longest suffix first, so ``x.dtrx.false`` is a ``.dtrx.false`` and never a ``.dtrx``.
 FIXTURE_KINDS: Final = (".dtrx.false", ".dtrx", ".dcfg", ".dseed")
 DCFG_KIND: Final = ".dcfg"
+DTRX_KIND: Final = ".dtrx"
 SKIPPED_DIRS: Final = frozenset({".git", "node_modules", "__pycache__", ".test-output", ".test_results", "build"})
 CROSS_NAME_EXEMPT: Final = frozenset({"system.dtrx"})
 
@@ -125,6 +126,7 @@ INLINE_LITERALS: Final = "inline_literals"
 DUPLICATE_COPIES: Final = "duplicate_copies"
 CROSS_PACKAGE_NAMES: Final = "cross_package_names"
 SHARED_FILES: Final = "shared_files"
+TOTAL_FIXTURES: Final = "total_fixtures"
 PACKAGE_KEY_SEPARATOR: Final = ":"
 
 _DTRX_DECLARATION: Final = re.compile(
@@ -132,8 +134,10 @@ _DTRX_DECLARATION: Final = re.compile(
     re.MULTILINE,
 )
 _DCFG_HEADER: Final = re.compile(r"^\s*config\s+(service|system|shared|app)\s+[A-Za-z_][\w.]*\s*\{", re.MULTILINE)
-# One lexeme at a time, a string literal first, so a ``//`` or ``#`` inside a string is never a comment.
-_STRING_LEXEME: Final = r'"(?:\\.|[^"\\\n])*"'
+# One lexeme at a time, a string literal (double- or single-quoted) first, so a ``//`` or ``#`` inside a
+# string is never a comment.
+_STRING_LEXEME: Final = r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\''
+_STRING_QUOTES: Final = ('"', "'")
 _DTRX_LEXEMES: Final = re.compile(rf"{_STRING_LEXEME}|//[^\n]*|/\*.*?\*/", re.DOTALL)
 _DCFG_LEXEMES: Final = re.compile(rf"{_STRING_LEXEME}|//[^\n]*|/\*.*?\*/|#[^\n]*", re.DOTALL)
 _WHITESPACE: Final = re.compile(r"\s+")
@@ -146,14 +150,17 @@ _FIXES: Final[Mapping[str, str]] = {
     DUPLICATE_COPIES: "delete the copy and read the file it duplicates (-ShowFiles lists each group)",
     CROSS_PACKAGE_NAMES: "read the shared datrix-testing fixture, or give the package's own fixture a name of its "
     "own (-ShowFiles lists each name and its packages)",
+    TOTAL_FIXTURES: "move the fixture into the shared datrix-testing set or read one already there, instead of "
+    "adding a fixture file or inline fixture text anywhere",
 }
 
 _BASELINE_COMMENT: Final = (
     "Fixture budget baseline. Per package: fixture_files (.dtrx, .dtrx.false, .dcfg, .dseed files under "
-    "tests/) and inline_literals (.dtrx/.dcfg string literals in test modules); globally: duplicate_copies "
-    "and cross_package_names. Every count may only fall: datrix/scripts/gates/ratchet/fixture-budget-gate.ps1 "
-    "fails a rise, and its -UpdateBaseline writes only when no count rises. shared_files is held to the "
-    "gate's fixed ceiling and is not pinned here."
+    "tests/) and inline_literals (.dtrx/.dcfg string literals in test modules); globally: duplicate_copies, "
+    "cross_package_names and total_fixtures (every package's fixture_files and inline_literals plus the "
+    "shared datrix-testing fixture files). Every count may only fall: "
+    "datrix/scripts/gates/ratchet/fixture-budget-gate.ps1 fails a rise, and its -UpdateBaseline writes only "
+    "when no count rises. shared_files is printed by the gate and is not pinned here."
 )
 
 
@@ -198,6 +205,11 @@ class Census:
             result[package_key(package, INLINE_LITERALS)] = len(self.literal_sites[package])
         result[DUPLICATE_COPIES] = sum(len(group) - 1 for group in self.duplicate_groups)
         result[CROSS_PACKAGE_NAMES] = len(self.cross_package_names)
+        result[TOTAL_FIXTURES] = (
+            sum(len(files) for files in self.package_files.values())
+            + sum(len(sites) for sites in self.literal_sites.values())
+            + len(self.shared_files)
+        )
         return result
 
 
@@ -247,10 +259,22 @@ def normalized(text: str, kind: str) -> str:
 
 def _keep_string_literal(match: re.Match[str]) -> str:
     lexeme = match.group(0)
-    return lexeme if lexeme.startswith('"') else " "
+    return lexeme if lexeme.startswith(_STRING_QUOTES) else " "
 
 
-def _read_fixture(path: Path) -> str:
+def string_lexemes(text: str, kind: str) -> list[tuple[int, str]]:
+    """``(offset, value)`` of every string literal of fixture *text* outside a comment, by the lexing
+    ``normalized`` uses: *offset* is where the value starts in *text* (after the opening quote), *value* the
+    characters between the quotes as written."""
+    lexemes = _DCFG_LEXEMES if kind == DCFG_KIND else _DTRX_LEXEMES
+    return [
+        (match.start() + 1, match.group(0)[1:-1])
+        for match in lexemes.finditer(text)
+        if match.group(0).startswith(_STRING_QUOTES)
+    ]
+
+
+def read_fixture(path: Path) -> str:
     """The fixture's text; undecodable bytes are kept (escaped), so equal bytes always compare equal."""
     try:
         return path.read_bytes().decode("utf-8", errors="surrogateescape")
@@ -265,7 +289,7 @@ def duplicate_groups(files: Sequence[FixtureFile]) -> list[list[FixtureFile]]:
     """The groups of two or more files of one kind whose normalized content is equal, in path order."""
     groups: dict[tuple[str, str], list[FixtureFile]] = defaultdict(list)
     for fixture in files:
-        groups[(fixture.kind, normalized(_read_fixture(fixture.path), fixture.kind))].append(fixture)
+        groups[(fixture.kind, normalized(read_fixture(fixture.path), fixture.kind))].append(fixture)
     found = [sorted(group, key=lambda fixture: fixture.path.as_posix()) for group in groups.values() if len(group) > 1]
     return sorted(found, key=lambda group: group[0].path.as_posix())
 
@@ -280,10 +304,19 @@ def cross_package_names(package_files: Mapping[str, Sequence[FixtureFile]]) -> d
     return {name: sorted(packages) for name, packages in sorted(owners.items()) if len(packages) > 1}
 
 
+def fixture_text_kind(text: str) -> str | None:
+    """The fixture kind a string literal's text is written in: ``.dcfg`` for a ``.dcfg`` header, ``.dtrx`` for
+    a ``.dtrx`` declaration line with a ``{``, else ``None`` (no fixture text)."""
+    if _DCFG_HEADER.search(text) is not None:
+        return DCFG_KIND
+    if "{" in text and _DTRX_DECLARATION.search(text) is not None:
+        return DTRX_KIND
+    return None
+
+
 def holds_fixture_text(text: str) -> bool:
     """Whether a string literal holds a ``.dtrx`` declaration line with a ``{``, or a ``.dcfg`` header."""
-    declares = "{" in text and _DTRX_DECLARATION.search(text) is not None
-    return declares or _DCFG_HEADER.search(text) is not None
+    return fixture_text_kind(text) is not None
 
 
 def _docstring_ids(tree: ast.Module) -> set[int]:
@@ -477,9 +510,9 @@ def _print_counts(census: Census, current: Mapping[str, int], baseline: Mapping[
         files = _count_text(FIXTURE_FILES, package_key(package, FIXTURE_FILES), current, baseline)
         literals = _count_text(INLINE_LITERALS, package_key(package, INLINE_LITERALS), current, baseline)
         print(f"  {package}: {files}, {literals}")
-    for key in (DUPLICATE_COPIES, CROSS_PACKAGE_NAMES):
+    for key in (DUPLICATE_COPIES, CROSS_PACKAGE_NAMES, TOTAL_FIXTURES):
         print(f"  {_count_text(key, key, current, baseline)}")
-    print(f"  {SHARED_FILES} {len(census.shared_files)} (ceiling {SHARED_FIXTURE_CEILING})")
+    print(f"  {SHARED_FILES} {len(census.shared_files)} (not pinned)")
     print(f"  corpus entries {len(census.scenarios)} ({len(unread_scenarios(census))} read by no test)")
 
 
@@ -494,18 +527,6 @@ def ratchet_failures(current: Mapping[str, int], baseline: Mapping[str, int]) ->
             "accepted."
         )
     return messages
-
-
-def ceiling_failures(census: Census) -> list[str]:
-    """The message for a shared fixture set above ``SHARED_FIXTURE_CEILING``, if it is."""
-    shared = len(census.shared_files)
-    if shared <= SHARED_FIXTURE_CEILING:
-        return []
-    return [
-        f"{SHARED_FILES} {shared} is above the ceiling {SHARED_FIXTURE_CEILING} "
-        f"({SHARED_PACKAGE}/{SHARED_FIXTURES_RELATIVE.as_posix()}). Fix: delete the shared fixtures no test "
-        "reads, or merge the duplicates (-ShowFiles lists each group)."
-    ]
 
 
 def unread_scenarios(census: Census) -> list[str]:
@@ -531,8 +552,8 @@ def _print_failures(failures: Sequence[str]) -> None:
 
 
 def _update_baseline(census: Census, current: Mapping[str, int], baseline_path: Path) -> int:
-    """Freeze the first baseline, or tighten an existing one; never write a rise, past the ceiling, or while a
-    corpus entry is read by no test."""
+    """Freeze the first baseline, or tighten an existing one; never write a rise, or while a corpus entry is
+    read by no test."""
     existing: dict[str, int] | None = None
     if baseline_path.exists():
         existing = load_counts_json(baseline_path, table_key=BASELINE_TABLE)
@@ -543,9 +564,9 @@ def _update_baseline(census: Census, current: Mapping[str, int], baseline_path: 
             _print_failures(rises)
             print("\n-UpdateBaseline only writes when no count rises; the baseline is unchanged.")
             return EXIT_USAGE
-    tree_failures = [*ceiling_failures(census), *unread_corpus_failures(census)]
-    if tree_failures:
-        _print_failures(tree_failures)
+    unread = unread_corpus_failures(census)
+    if unread:
+        _print_failures(unread)
         return EXIT_VIOLATION
     write_counts_json(baseline_path, current, comment=_BASELINE_COMMENT, table_key=BASELINE_TABLE)
     action = "Froze the first" if existing is None else "Tightened the"
@@ -576,7 +597,7 @@ def run_budget(base_dir: Path, *, update_baseline: bool, show_files: bool) -> in
         return EXIT_USAGE
     baseline = load_counts_json(baseline_path, table_key=BASELINE_TABLE)
     _print_counts(census, current, baseline)
-    failures = [*ratchet_failures(current, baseline), *ceiling_failures(census), *unread_corpus_failures(census)]
+    failures = [*ratchet_failures(current, baseline), *unread_corpus_failures(census)]
     if failures:
         _print_failures(failures)
         return EXIT_VIOLATION
@@ -649,6 +670,9 @@ _LINK_TARGET: Final = "outside"
 # The planted inline literals of test_inline.py (DTRX, DCFG and the f-string) and its docstring lines.
 _ALPHA_INLINE_LINES: Final = [4, 5, 12]
 _ALPHA_DOCSTRING_LINES: Final = frozenset({1, 10})
+# The planted total: 12 package fixture files, 5 inline literals (4 in datrix-alpha, 1 in datrix-testing), 3 shared.
+_PLANTED_TOTAL: Final = 20
+_MOVED_TO_SHARED: Final = 125
 
 
 @contextlib.contextmanager
@@ -723,6 +747,8 @@ def _check_duplicate_copies_counted() -> None:
 def _check_comment_markers_inside_strings_and_dtrx_hash_kept() -> None:
     urls = [normalized(f'service Links {{ base = "http://{host}" }}', ".dtrx") for host in ("alpha", "beta")]
     assert urls[0] != urls[1], f"a // inside a string literal was stripped as a comment: {urls}"
+    routes = [normalized(f"service Hooks {{ path = '/hooks//{name}' }}", ".dtrx") for name in ("stripe", "paypal")]
+    assert routes[0] != routes[1], f"a // inside a single-quoted string literal was stripped as a comment: {routes}"
     tags = [normalized(f"service Tag {{ color = 1 # {name} }}", ".dtrx") for name in ("red", "blue")]
     assert tags[0] != tags[1], f"a # was stripped from a .dtrx file: {tags}"
     assert normalized("a = 1 # note\n", DCFG_KIND) == "a = 1", "a # comment survived in a .dcfg file"
@@ -758,6 +784,10 @@ def _check_unread_corpus_entry_fails() -> None:
     with _planted_workspace() as root:
         frozen, _ = _quiet_budget(root, update_baseline=True)
         write_files(root, _UNREAD_ENTRY)
+        # The entry is also one more shared file: pin the baseline at the new tree so only the read rule can fail.
+        write_counts_json(
+            root / BASELINE_RELATIVE, take_census(root).counts(), comment=_BASELINE_COMMENT, table_key=BASELINE_TABLE
+        )
         code, output = _quiet_budget(root, update_baseline=False)
         refused, _ = _quiet_budget(root, update_baseline=True)
     assert frozen == EXIT_PASS, f"freezing the planted workspace must pass, got {frozen}"
@@ -820,20 +850,47 @@ def _check_fall_is_banked() -> None:
         baseline = load_counts_json(root / BASELINE_RELATIVE, table_key=BASELINE_TABLE)
     assert code == EXIT_PASS, f"-UpdateBaseline over a fall must exit {EXIT_PASS}, got {code}"
     assert baseline[package_key(_BETA, FIXTURE_FILES)] == 4, f"the fall was not banked: {baseline}"
+    assert baseline[TOTAL_FIXTURES] == _PLANTED_TOTAL - 1, f"the total's fall was not banked: {baseline}"
 
 
-def _check_shared_files_above_ceiling_fail() -> None:
-    extra = {
-        f"datrix-testing/src/datrix_testing/fixtures_data/extra-{index}.dtrx": f"service Extra{index} {{\n}}\n"
-        for index in range(SHARED_FIXTURE_CEILING + 1 - len(_SHARED_PLANTED))
-    }
+def _check_total_fixtures_counted() -> None:
+    with _planted_workspace() as root:
+        counts = take_census(root).counts()
+    assert counts[TOTAL_FIXTURES] == _PLANTED_TOTAL, f"total_fixtures: expected {_PLANTED_TOTAL}, got {counts}"
+    assert SHARED_FILES not in counts, f"shared_files must not be pinned: {counts}"
+
+
+def _check_total_fixtures_rise_fails() -> None:
+    added = {f"{SHARED_PACKAGE}/{SHARED_FIXTURES_RELATIVE.as_posix()}/added.dtrx": "service SharedAdded {\n}\n"}
     with _planted_workspace() as root:
         _quiet_budget(root, update_baseline=True)
-        write_files(root, extra)
+        write_files(root, added)
         code, output = _quiet_budget(root, update_baseline=False)
-    assert code == EXIT_VIOLATION, f"shared_files above the ceiling must exit {EXIT_VIOLATION}, got {code}"
-    assert f"shared_files {SHARED_FIXTURE_CEILING + 1} is above the ceiling" in output, f"not named: {output}"
-    assert "rose from baseline" not in output, f"only the ceiling may fail here: {output}"
+        refused, _ = _quiet_budget(root, update_baseline=True)
+        baseline = load_counts_json(root / BASELINE_RELATIVE, table_key=BASELINE_TABLE)
+    assert code == EXIT_VIOLATION, f"a rise of total_fixtures must exit {EXIT_VIOLATION}, got {code}"
+    rise = f"{TOTAL_FIXTURES} rose from baseline {_PLANTED_TOTAL} to {_PLANTED_TOTAL + 1}"
+    assert rise in output, f"the failure must name the total: {output}"
+    assert output.count("rose from baseline") == 1, f"only the total may rise for a new shared file: {output}"
+    assert refused == EXIT_USAGE, f"-UpdateBaseline over a rise of the total must exit {EXIT_USAGE}, got {refused}"
+    assert baseline[TOTAL_FIXTURES] == _PLANTED_TOTAL, "a refused -UpdateBaseline rewrote the total"
+
+
+def _check_package_fixtures_moved_to_shared_pass() -> None:
+    # More shared files than the whole planted tree holds, each moved out of a package, so the total holds.
+    moved = {f"orders-{index}.dtrx": f"service Moved{index} {{\n}}\n" for index in range(_MOVED_TO_SHARED)}
+    shared_dir = f"{SHARED_PACKAGE}/{SHARED_FIXTURES_RELATIVE.as_posix()}"
+    with _planted_workspace() as root:
+        write_files(root, {f"{_BETA}/tests/fixtures/moved/{name}": text for name, text in moved.items()})
+        frozen, _ = _quiet_budget(root, update_baseline=True)
+        shutil.rmtree(root / _BETA / "tests" / "fixtures" / "moved")
+        write_files(root, {f"{shared_dir}/moved/{name}": text for name, text in moved.items()})
+        code, output = _quiet_budget(root, update_baseline=False)
+        shared = len(take_census(root).shared_files)
+    assert frozen == EXIT_PASS, f"freezing the planted workspace must pass, got {frozen}"
+    assert shared == len(_SHARED_PLANTED) + _MOVED_TO_SHARED, f"the moved files must be shared files: {shared}"
+    assert code == EXIT_PASS, f"moving package fixtures into the shared set must exit {EXIT_PASS}, got {code}"
+    assert "rose from baseline" not in output, f"a move into the shared set raised a count: {output}"
 
 
 def _check_missing_shared_directory_refused() -> None:
@@ -875,7 +932,9 @@ _SELF_TEST_CHECKS: Final[list[NamedCheck]] = named_checks(
         _check_missing_baseline_refused,
         _check_count_above_baseline_fails,
         _check_fall_is_banked,
-        _check_shared_files_above_ceiling_fail,
+        _check_total_fixtures_counted,
+        _check_total_fixtures_rise_fails,
+        _check_package_fixtures_moved_to_shared_pass,
         _check_missing_shared_directory_refused,
         _check_unparsable_test_module_refused,
     ]
