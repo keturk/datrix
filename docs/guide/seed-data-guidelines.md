@@ -264,7 +264,7 @@ orderDb.Order table {
 
 Seed values reach the database only as bound parameters on every supported language. Every RDBMS seed table reaches the database through a statement that holds only dialect-quoted identifiers and named placeholders. Row values are bound by the database driver or ORM at run time — no seed value is ever written into SQL text.
 
-**Python typed-cell rules:** At generation time, Python converts each cell to its field's type. A cell on a column type with no plain binding — geometry, geography, binary, duration, struct, or collection — is rejected at generation time. For types with plain binding:
+**Python typed-cell rules:** At generation time, Python converts each cell to its field's type. A cell on a column type with no plain binding — geometry, geography, binary, duration, struct, set or map — is rejected at generation time. An `Array<T>` cell (a list literal such as `["read", "write"]`) is bound as one JSON text, the document its JSON column stores, with an enum element written as its stored label; on every language the elements come from one shared derivation. For types with plain binding:
 - `UUID` cells accept a UUID string (8-4-4-4-12 format)
 - `Decimal` and `Money` cells accept a string or number
 - `Date` cells use ISO date format (`YYYY-MM-DD`)
@@ -473,6 +473,7 @@ Capture rules:
 - Secrets and credential-like fields are redacted by default
 - Production capture is read-only and defaults to `--category reference`
 - Foreign keys are converted to `@ref()` or `@lookup()` where stable natural keys are available
+- An `Array<T>` column is written as its list literal (`["read", "write"]`, `[]` when empty), an enum element as the member it stores
 
 ---
 
