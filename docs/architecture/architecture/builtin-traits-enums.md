@@ -14,7 +14,7 @@ Datrix provides a catalog of **ten builtin traits** and **two builtin enums** th
 |-------|--------|---------|
 | **Activatable** | `Boolean isActive`, `DateTime? activatedAt`, `DateTime? deactivatedAt` | Enable/disable entities |
 | **Auditable** | `UUID? createdBy`, `UUID? updatedBy` | Track who created/modified: stamped by every target from the audit principal (the resolved local user id; null when none) |
-| **Publishable** | `DateTime? publishedAt`, `UUID? publishedBy`, `PublishStatus publishStatus` | Draft/publish workflow |
+| **Publishable** | `DateTime? publishedAt`, `UUID? publishedBy`, `PublishStatus publishStatus` | Draft/publish workflow: `publishedBy` is stamped by every target from the audit principal when `publishedAt` changes (null when cleared) |
 | **Schedulable** | `DateTime? scheduledFor`, `DateTime? executedAt`, `ScheduleStatus scheduleStatus` | Scheduled execution |
 | **Sluggable** | `String(200) slug : unique` | URL-friendly slugs |
 | **SoftDeletable** | `DateTime? deletedAt`, `UUID? deletedBy`, computed `isDeleted` | Soft deletion |

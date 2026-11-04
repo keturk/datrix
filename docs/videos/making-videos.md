@@ -94,7 +94,16 @@ your hands or your password.
 
    Only your Windows account can decrypt the file. The password is never written in plain text anywhere.
 5. **Run or point at a voice server and a checker server**: a Kokoro-FastAPI server (text to speech) and an
-   openai-whisper-asr-webservice server (speech to text). Both can run on another machine on the network.
+   openai-whisper-asr-webservice server (speech to text). Neither has authentication, so publish each on
+   loopback only, and give a GPU image the GPU (without `--gpus all` it runs on the CPU):
+
+   ```bash
+   docker run -d --name kokoro --gpus all -p 127.0.0.1:8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:<tag>
+   ```
+
+   When they run on another machine, reach them through an SSH tunnel rather than a port open to the network:
+   `ssh -N -L 8880:127.0.0.1:8880 -L 9000:127.0.0.1:9000 <user>@<server>`, and point the settings below at
+   `http://127.0.0.1:8880` and `http://127.0.0.1:9000`.
 6. **Write the machine settings**, `~/.claude/video-production/settings.json`:
 
    ```json
@@ -102,7 +111,7 @@ your hands or your password.
      "ffmpeg": "<FFmpeg folder>/bin/ffmpeg.exe", "ffprobe": "<FFmpeg folder>/bin/ffprobe.exe",
      "display": "<left>,<top>,1920,1080",
      "obs": { "url": "ws://127.0.0.1:4455", "passwordFile": "obs-websocket.dpapi" },
-     "tts": { "url": "http://<kokoro host>:8880" }, "stt": { "url": "http://<whisper host>:9000" } }
+     "tts": { "url": "http://127.0.0.1:8880" }, "stt": { "url": "http://127.0.0.1:9000" } }
    ```
 
    `display` is the recorded display's left, top, width and height in Windows' virtual desktop. A display left of or

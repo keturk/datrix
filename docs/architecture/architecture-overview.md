@@ -781,7 +781,7 @@ The design's seven end-state invariants (I1–I7) hold today as executable gates
 - The orchestrator pulled private attributes off generators with `getattr` (an untyped contract invisible to type-checking and plugin authors), plugin discovery ran through two separate paths with two caches and two error families, and correctness-dense god modules (manifest/retention writes, a multi-subcommand migrations module, a dual adapter/legacy migration orchestrator) concentrated the highest-risk logic
 
 **Result:**
-- The pipeline becomes an ordered registry of `Stage` objects with uniform timing, error wrapping, and declared skip conditions; `run()` reduces to walking the registry; the three termination semantics collapse to raise-or-complete plus one typed `EarlyExit` outcome; the no-op stage is deleted
+- The pipeline is a graph of declared `GenerationStage` nodes: each names the typed artifact keys it `requires` and `produces`, `topologically_sort_phases` derives the run order from those declarations, and one runner walks it with uniform timing, error wrapping, and declared skip conditions; the three termination semantics collapse to raise-or-complete plus one typed `EarlyExit` outcome; the no-op stage is deleted
 - Generators return a typed `GeneratorOutput` carrying what the side-channels smuggled (migration artifacts, prune prefixes, audit tracker, bootstrap consumption); the `getattr` probes are deleted and the contract appears in the plugin protocol. All plugin groups discover through one registry with one cache and one error family; the dead language-hooks entry group, the CLI-local scanner, and the descriptor-less platform default are removed (every platform plugin carries a real descriptor)
 - The retention/manifest logic extracts into a dedicated subsystem with its own unit suite landed before the move; the multi-subcommand modules split per subcommand; the migration orchestrator's legacy non-adapter paths are deleted once an audit confirms the adapter path is total, and it splits along its state/render/policy seams — no generation-layer module over 1,000 lines
 - **Rejected alternatives:** refactoring `run()` into smaller private methods (keeps string-literal stages and three termination shapes); documenting the `getattr` names as a convention (still invisible to type-checking); keeping the CLI-local scanner for locality (two caches is the defect); indefinite dual-path migration retention
@@ -1290,7 +1290,7 @@ and its source surface on every target. Entity-level published documentation, wh
 earlier carried three exemptions claiming no target defined a landing site for it, is
 realized on every target — the `json_schema_extra` description of each schema class (python), `@ApiSchema` on each DTO class (typescript) — each of which that
 target's own OpenAPI stack publishes as the description of every component the entity becomes (Create, Update, Response), the author's exact text. A struct's
-published documentation reaches its own component the same way, and its model's docstring stays source documentation. The same gate's
+published documentation reaches its own component the same way, and its model's docstring stays source documentation. An enum's reaches its component too: its schema hook assigns the description (python), and `enumSchema` carries it on every `@ApiProperty` naming the enum (typescript). The same gate's
 coverage census reports zero attached-but-unemitted runs on every target.
 
 ---

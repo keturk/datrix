@@ -75,8 +75,11 @@ An error the generated runtime raises names the logical target (the download ste
 - **Peer calls** fail with one typed error per language, `PeerCallError(service, route, status)` (`status` absent when the peer gave no response): python's `_microservice_helpers.py` sends every peer request through `_peer_send`, and TypeScript's `_microserviceHelpers.ts` translates each axios failure through `_peerCallError`. The status-failure log keeps the peer and route fields.
 - **Downloads** (python `_download_helpers.py`) fail with `DownloadError(step, attempts, status)`: the step is a checksum mismatch, a non-retryable status or exhausted retries.
 - **Health probes and tracing setup** log the error's class with the provider and a fixed reason.
+- **`Http` builtin calls** fail with `HttpCallError(method, status)` on every language; a webhook post that reaches no server fails with `HttpPostError`, and a status stays an answer.
+- **Dependency clients** fail with `DependencyCallError`, naming the dependency, the method and the status. Python translates in `make_request` (`DependencyTimeoutError` and `DependencyStatusError` are its subclasses, and retry and circuit-breaker decisions read them); TypeScript translates where the failure leaves `request`, since its policies classify the axios error. The answer's status and headers stay readable, so API-key verification still maps a store's refusal.
+- **HTTP API, ArcGIS and extern clients** fail with a generated error naming the integration, the operation and the status. An extern with an `errors` block uses its base error.
 
-Held per language by a census over the emitted helper modules (`test_runtime_errors_name_no_address.py` in `datrix-codegen-python` and `datrix-codegen-typescript`): raise/throw and log sites − sites free of an address and a library error's text = ∅, with a known-bad probe proving the census flags every shape.
+Held per language by a census over the emitted helper and client modules (`test_runtime_errors_name_no_address.py` in `datrix-codegen-python` and `datrix-codegen-typescript`): raise/throw and log sites − sites free of an address and a library error's text = ∅, and client sites − sites that translate the library's error = ∅, with a known-bad probe proving the census flags every shape.
 
 ## AWS Deployment
 
