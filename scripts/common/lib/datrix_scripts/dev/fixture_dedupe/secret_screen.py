@@ -10,13 +10,16 @@ group whose move would make that package's capture raise.
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import shutil
 import tempfile
-from collections.abc import Mapping, Sequence, Set
+from collections.abc import Iterator, Mapping, Sequence, Set
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from datrix_common.errors.parse import ParseError
 from datrix_testing.model_contracts.capture import CaptureError, collect_samples
 from datrix_testing.model_contracts.discovery import ModelDiscoveryError, model_set
 
@@ -28,6 +31,8 @@ MODEL_CONTRACTS_MODULE: Final = "test_model_contracts.py"
 _FINDING_PATH_END: Final = " ("
 _CORPUS_DIR: Final = "corpus"
 _TESTS_DIR: Final = "tests"
+#: The logger of the config loaders a capture runs (one INFO line per document resolved).
+_LOADER_LOGGER: Final = "datrix_common"
 
 
 class ScreenError(Exception):
@@ -75,11 +80,27 @@ def _write_corpus(corpus: Path, destination: Path, placed: Sequence[PlacedText])
     return written
 
 
+@contextlib.contextmanager
+def _quiet_loaders() -> Iterator[None]:
+    """The config loaders' per-document INFO lines held back during a capture, unless debug logging is on."""
+    loaders = logging.getLogger(_LOADER_LOGGER)
+    level = loaders.level
+    if logging.getLogger().getEffectiveLevel() > logging.DEBUG:
+        loaders.setLevel(logging.WARNING)
+    try:
+        yield
+    finally:
+        loaders.setLevel(level)
+
+
 def _package_findings(package: Path, tests: Path, corpus: Path) -> list[str]:
     try:
         models = model_set(package)
-        return collect_samples(tests, models, corpus).secret_findings
-    except (ModelDiscoveryError, CaptureError) as exc:
+        with _quiet_loaders():
+            return collect_samples(tests, models, corpus).secret_findings
+    except (ModelDiscoveryError, CaptureError, ParseError) as exc:
+        # A ParseError escaping the capture is the parser itself failing to load (a refused document is
+        # recorded by the capture, never raised): the capture cannot run.
         raise ScreenError(
             f"the capture of {package.name} cannot run over the would-be corpus ({type(exc).__name__}: {exc}); "
             "without it no .dcfg copy is proven safe to move. Fix the package's capture first."

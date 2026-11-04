@@ -966,7 +966,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _base_dir(raw: str) -> Path:
+def base_dir_option(raw: str) -> Path:
+    """The workspace root a ``-BaseDir`` value names (the workspace when empty).
+
+    Raises:
+        UsageError: It names no directory.
+    """
     base_dir = Path(raw).resolve() if raw else WORKSPACE_DIR
     if not base_dir.is_dir():
         raise UsageError(f"-BaseDir {base_dir} is not a directory. Expected the workspace root holding datrix-*.")
@@ -983,7 +988,7 @@ def _run(args: argparse.Namespace) -> int:
             wrapper=WRAPPER, module=MODULE, parser=build_parser(), folder=wrappers.RATCHET_GATES_DIR,
         )
         return EXIT_PASS if code == EXIT_PASS else EXIT_USAGE
-    base_dir = _base_dir(args.base_dir)
+    base_dir = base_dir_option(args.base_dir)
     report_step("Self-test: fixture budget census checks")
     if not run_checks(_SELF_TEST_CHECKS):
         print("\nERROR: self-test failed; the census is not trusted for a real scan. Fix the gate first.")

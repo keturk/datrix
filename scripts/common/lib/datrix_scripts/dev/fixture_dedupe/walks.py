@@ -24,7 +24,7 @@ from typing import Final
 from datrix_testing.cases.annotation_migrate import LSP_FIXTURE_PREFIX, LSP_FIXTURES
 from datrix_testing.cases.annotations import DIAGNOSTIC_FIXTURES
 
-from datrix_scripts.dev.fixture_dedupe.static_paths import StaticEvaluator, UnevaluableError, single_bindings
+from datrix_scripts.dev.fixture_dedupe.static_paths import StaticEvaluator, UnevaluableError, enclosing_bindings
 from datrix_scripts.framework_repos import PackageMarker
 from datrix_scripts.gates.ratchet.fixture_budget_gate import PYTHON_SUFFIX, parse_module, walk_files
 
@@ -32,7 +32,8 @@ WALK_METHODS: Final = frozenset({"glob", "rglob", "iterdir", "walk"})
 _OS_WALK: Final = "walk"
 _FIXTURE_ROOT_NAME: Final = re.compile(r"(FIXTURES?_DIR|_FIXTURES?|fixtures_dir)[A-Za-z_]*\)?$")
 DIAGNOSTICS_COLLECTOR: Final = "the diagnostics collector (datrix_testing.cases.annotations) reads it whole"
-LSP_COLLECTOR: Final = "the language-server inputs (datrix_testing.cases.annotation_migrate) live only here"
+SITE_READ: Final = "reads it whole"
+LSP_COLLECTOR: Final ="the language-server inputs (datrix_testing.cases.annotation_migrate) live only here"
 
 
 @dataclass(frozen=True)
@@ -52,10 +53,17 @@ class WalkSite:
 
 @dataclass(frozen=True)
 class WalkedDirectory:
-    """A directory read whole, and why: the site reading it or the collector."""
+    """A directory read whole, and why: the site reading it, or the collector's reason."""
 
     path: Path
     reason: str
+    site: WalkSite | None = None
+
+    def describe(self, base_dir: Path) -> str:
+        """Why the directory is read whole, its paths relative to *base_dir*."""
+        if self.site is None:
+            return self.reason
+        return f"{self.site.module.relative_to(base_dir).as_posix()}:{self.site.line} {self.reason}"
 
 
 @dataclass(frozen=True)
@@ -100,12 +108,7 @@ def _walk_receiver(call: ast.Call, lines: list[str]) -> ast.expr | None:
 
 def _calls_with_locals(tree: ast.Module) -> Iterator[tuple[ast.Call, Mapping[str, ast.expr]]]:
     """Every call of *tree*, with the single bindings of the function enclosing it (none at module level)."""
-    functions = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    enclosing: dict[int, Mapping[str, ast.expr]] = {}
-    for function in functions:
-        bindings = single_bindings(function.body)
-        for node in ast.walk(function):
-            enclosing[id(node)] = bindings
+    enclosing = enclosing_bindings(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             yield node, enclosing.get(id(node), {})
@@ -134,7 +137,7 @@ def module_walks(
         except UnevaluableError as exc:
             refused.append(RefusedWalk(site, str(exc)))
             continue
-        walked.append(WalkedDirectory(directory, f"{module.as_posix()}:{call.lineno} reads it whole"))
+        walked.append(WalkedDirectory(directory, SITE_READ, site))
     return walked, refused
 
 

@@ -34,10 +34,12 @@ _CONFTEST: Final = "conftest.py"
 _PYTHON_SUFFIX: Final = ".py"
 _PACKAGE_INIT: Final = "__init__.py"
 _FILE_NAME: Final = "__file__"
-_PATH_TYPES: Final = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
+PATH_TYPES: Final = frozenset({"Path", "PurePath", "PurePosixPath", "PureWindowsPath"})
 _PATH_ATTRIBUTES: Final = frozenset({"parent", "name", "stem", "suffix"})
 _NO_ARGUMENT_METHODS: Final = frozenset({"resolve", "absolute"})
 _ONE_ARGUMENT_METHODS: Final = frozenset({"with_name", "with_suffix"})
+#: The path methods that build a path from their receiver and their arguments.
+PATH_JOIN_METHODS: Final = frozenset({"joinpath", *_ONE_ARGUMENT_METHODS})
 _FIXTURE_DECORATOR: Final = "fixture"
 _STR_CALL: Final = "str"
 _MAX_DEPTH: Final = 64
@@ -109,6 +111,18 @@ def single_bindings(statements: Sequence[ast.stmt]) -> dict[str, ast.expr]:
     return {name: value for name, value in seen.items() if name not in rebound and value is not None}
 
 
+def enclosing_bindings(tree: ast.Module) -> dict[int, Mapping[str, ast.expr]]:
+    """``id`` of every node inside a function of *tree*, mapped to the single bindings of the innermost
+    function holding it (a node at module level has no entry)."""
+    enclosing: dict[int, Mapping[str, ast.expr]] = {}
+    for function in ast.walk(tree):
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bindings = single_bindings(function.body)
+            for node in ast.walk(function):
+                enclosing[id(node)] = bindings
+    return enclosing
+
+
 def module_scope(path: Path, tests_root: Path, tree: ast.Module) -> ModuleScope:
     """The scope of the module at *path* under *tests_root*, parsed as *tree*."""
     scope = ModuleScope(path=path, tests_root=tests_root, tree=tree)
@@ -157,10 +171,15 @@ def _fixture_function(tree: ast.Module, name: str) -> ast.FunctionDef | None:
 
 
 class StaticEvaluator:
-    """Evaluates path expressions of the test modules of one workspace; parsed scopes are kept."""
+    """Evaluates path expressions of the test modules of one workspace; parsed scopes are kept.
 
-    def __init__(self) -> None:
+    With *constructs* false, an installed class is never instantiated: a call building one is not followed,
+    so evaluating a name that is only looked at runs no constructor.
+    """
+
+    def __init__(self, *, constructs: bool = True) -> None:
         self._scopes: dict[Path, ModuleScope] = {}
+        self.constructs = constructs
 
     def scope(self, path: Path, tests_root: Path, tree: ast.Module | None = None) -> ModuleScope:
         """The scope of the module at *path* (parsed now unless *tree* is given)."""
@@ -199,13 +218,15 @@ class StaticEvaluator:
         """The value *name* holds in *scope* (``__file__``, a local or module binding, an import, a fixture)."""
         if name == _FILE_NAME:
             return scope.path
+        if depth > _MAX_DEPTH:
+            raise UnevaluableError(f"{name} is followed through more than {_MAX_DEPTH} names or imports (a cycle)")
         if name in local:
             return self.evaluate(local[name], scope, {}, depth)
         if name in scope.bindings:
             return self.evaluate(scope.bindings[name], scope, {}, depth)
         if name in scope.imports:
             module, level, attribute = scope.imports[name]
-            return self._imported(scope, module, level, attribute, depth)
+            return self._imported(scope, module, level, attribute, depth + 1)
         return self._fixture(name, scope, depth)
 
     def _imported(self, scope: ModuleScope, module: str, level: int, attribute: str, depth: int) -> Value:
@@ -379,7 +400,8 @@ def _path_method(base: PurePath, method: str, positional: Sequence[Value], node:
     raise UnevaluableError(f"{ast.unparse(node)} calls path method {method}, which is not followed")
 
 
-def _callee_name(function: ast.expr) -> str:
+def callee_name(function: ast.expr) -> str:
+    """The name a call's *function* is spelled with: its attribute, or its name (empty for anything else)."""
     if isinstance(function, ast.Attribute):
         return function.attr
     return function.id if isinstance(function, ast.Name) else ""
@@ -391,16 +413,18 @@ def _evaluate_call(
     assert isinstance(node, ast.Call)
     positional, named = _arguments(evaluator, node, scope, local, depth)
     function = node.func
-    callee = _callee_name(function)
-    if isinstance(function, ast.Attribute) and callee not in _PATH_TYPES:
+    callee = callee_name(function)
+    if isinstance(function, ast.Attribute) and callee not in PATH_TYPES:
         receiver = evaluator.evaluate(function.value, scope, local, depth)
         if isinstance(receiver, PurePath) and not named:
             return _path_method(receiver, function.attr, positional, node)
-    if callee in _PATH_TYPES and not named:
+    if callee in PATH_TYPES and not named:
         return Path(*[_text(value, node) for value in positional])
     if callee == _STR_CALL and len(positional) == 1 and not named:
         return _text(positional[0], node)
     target = evaluator.evaluate(function, scope, local, depth)
+    if isinstance(target, type) and not evaluator.constructs:
+        raise UnevaluableError(f"{ast.unparse(node)} builds an installed class, which this evaluation does not run")
     if isinstance(target, type):
         built: Value = target(*positional, **named)
         return built

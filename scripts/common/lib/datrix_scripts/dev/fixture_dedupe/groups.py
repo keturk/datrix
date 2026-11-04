@@ -16,7 +16,7 @@ from __future__ import annotations
 import ast
 import hashlib
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -66,6 +66,7 @@ class LiteralSite:
         column: Its column on that line.
         name: The one name it is assigned to (``NAME = "..."``), else ``None``.
         text: Its text.
+        scope: The dotted name of the class or function it lies in (``Test.test_x``); empty at module level.
     """
 
     module: Path
@@ -73,6 +74,7 @@ class LiteralSite:
     column: int
     name: str | None
     text: str
+    scope: str = ""
 
 
 @dataclass(frozen=True)
@@ -166,22 +168,33 @@ def module_literal_sites(module: Path) -> list[LiteralSite]:
     names = _assigned_names(tree)
     formatted = _formatted_parts(tree)
     sites: list[LiteralSite] = []
-    for node in ast.walk(tree):
+    for node, scope in _scoped_nodes(tree, ""):
         if not (isinstance(node, ast.Constant) and isinstance(node.value, str)) or id(node) in formatted:
             continue
         if (node.lineno, node.value) in counted:
-            sites.append(LiteralSite(module, node.lineno, node.col_offset, names.get(id(node)), node.value))
+            sites.append(LiteralSite(module, node.lineno, node.col_offset, names.get(id(node)), node.value, scope))
     return sorted(sites, key=lambda site: (site.line, site.column))
 
 
+def _scoped_nodes(node: ast.AST, scope: str) -> Iterator[tuple[ast.AST, str]]:
+    """Every node under *node*, with the dotted name of the innermost class or function holding it."""
+    for child in ast.iter_child_nodes(node):
+        yield child, scope
+        inner = scope
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            inner = f"{scope}.{child.name}" if scope else child.name
+        yield from _scoped_nodes(child, inner)
+
+
 def literal_groups(packages: Sequence[Path]) -> list[LiteralGroup]:
-    """The groups of equal inline fixture literals across the counted modules of *packages*."""
+    """The groups of equal inline fixture literals assigned to one name, across the counted modules of
+    *packages*. A literal assigned to no name is in no group: it names no fixture another site could share."""
     by_text: dict[tuple[str, str], list[LiteralSite]] = defaultdict(list)
     for package in packages:
         for module in literal_modules(package):
             for site in module_literal_sites(module):
                 kind = fixture_text_kind(site.text)
-                if kind is not None:
+                if kind is not None and site.name is not None:
                     by_text[(kind, normalized(site.text, kind))].append(site)
     groups = [
         LiteralGroup(kind, tuple(sorted(sites, key=lambda site: (site.module.as_posix(), site.line, site.column))))
