@@ -1,5 +1,5 @@
 {
-  "_comment": "Fixture budget baseline. Per package: fixture_files (.dtrx, .dtrx.false, .dcfg, .dseed files under tests/) and inline_literals (.dtrx/.dcfg string literals in test modules); globally: duplicate_copies and cross_package_names. Every count may only fall: datrix/scripts/gates/ratchet/fixture-budget-gate.ps1 fails a rise, and its -UpdateBaseline writes only when no count rises. shared_files is held to the gate's fixed ceiling and is not pinned here.",
+  "_comment": "Fixture budget baseline. Per package: fixture_files (.dtrx, .dtrx.false, .dcfg, .dseed files under tests/) and inline_literals (.dtrx/.dcfg string literals in test modules); globally: duplicate_copies, cross_package_names and total_fixtures (every package's fixture_files and inline_literals plus the shared datrix-testing fixture files). Every count may only fall: datrix/scripts/gates/ratchet/fixture-budget-gate.ps1 fails a rise, and its -UpdateBaseline writes only when no count rises. shared_files is printed by the gate and is not pinned here.",
   "baseline": {
     "cross_package_names": 292,
     "datrix-cli:fixture_files": 232,
@@ -40,6 +40,7 @@
     "datrix-semantic:inline_literals": 121,
     "datrix-testing:fixture_files": 34,
     "datrix-testing:inline_literals": 60,
-    "duplicate_copies": 415
+    "duplicate_copies": 415,
+    "total_fixtures": 4912
   }
 }
