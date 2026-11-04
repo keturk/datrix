@@ -471,7 +471,7 @@ service social.NotificationService('config/notification-service.dcfg') : version
         });
         notification.save();
         notification.markAsRead();
-        let DateTime firstReadAt = notification.readAt;
+        let DateTime? firstReadAt = notification.readAt;
         notification.markAsRead();
         assert notification.readAt == firstReadAt;
     }

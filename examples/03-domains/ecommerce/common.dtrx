@@ -49,7 +49,8 @@ module ecommerce.common {
 
         fn getDiscountPercent() -> Percentage {
             if (!hasDiscount()) return 0;
-            return ((compareAtPrice - price) / compareAtPrice) * 100;
+            let Money listPrice = compareAtPrice ?? price;
+            return ((listPrice - price) / listPrice) * 100;
         }
 
     }
