@@ -42,8 +42,8 @@ from datrix_scripts.git.resolve_pull import (
     parse_diff3,
     resolve_repo,
 )
-from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
-from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
+from datrix_scripts.local_llm import LocalLlmPool
+from datrix_scripts.local_llm_loopback import LoopbackOllama, answering
 from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from datrix_scripts.paths import WORKSPACE_DIR
 from datrix_scripts.test.wrappers import GIT_SCRIPTS_DIR, seam_checks
@@ -206,10 +206,8 @@ def check_diff3_parser_reads_two_and_three_sided_hunks() -> None:
 
 
 def _drafter(server: LoopbackOllama, repo: str) -> MergeDrafter:
-    settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                                allow_load=False, ollama_port=server.port, caller="gate")
     corpus = TermCorpus(frozenset({hash_term(_GATE_TERM)}), _MIN_TERM_LENGTH)
-    return MergeDrafter(LocalLlmPool(settings, report=lambda _line: None), corpus, {repo})
+    return MergeDrafter(LocalLlmPool(server.settings("gate"), report=lambda _line: None), corpus, {repo})
 
 
 def check_merge_draft_is_checked_against_both_sides() -> None:

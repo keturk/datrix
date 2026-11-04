@@ -51,10 +51,12 @@ from typing import Final, Protocol, TypeVar
 from datrix_codegen_kernel.dgen.registry_adapter import spec_domain_id
 from datrix_codegen_kernel.generation.discovery import get_language_plugin
 from datrix_codegen_kernel.parity.conformance_probes import (
+    BytesJsonField,
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
     ExternClientRequest,
+    ExternGraphqlRequest,
     ExternalQueueControlCensus,
     IdiomOccurrence,
     RealizedClientForm,
@@ -576,7 +578,13 @@ class _PlantedProbes:
     def extern_client_requests(self, generated_root: Path) -> tuple[ExternClientRequest, ...]:
         return ()
 
+    def extern_graphql_requests(self, generated_root: Path) -> tuple[ExternGraphqlRequest, ...]:
+        return ()
+
     def transaction_units(self, generated_root: Path) -> tuple[TransactionUnit, ...]:
+        return ()
+
+    def bytes_json_fields(self, generated_root: Path) -> tuple[BytesJsonField, ...]:
         return ()
 
 

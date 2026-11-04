@@ -26,6 +26,7 @@ import json
 import sys
 import tempfile
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
@@ -38,8 +39,7 @@ from datrix_scripts.gate_harness import (
     check_list_parser,
 )
 from datrix_scripts.gate_log import run_as_gate
-from datrix_scripts.local_llm import LocalLlmSettings
-from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama
+from datrix_scripts.local_llm_loopback import Chat, LoopbackOllama
 from datrix_scripts.review.canonical_modules import (
     build_canonical_modules_digest,
     check_cache_validity,
@@ -757,9 +757,7 @@ def _phase_review_exit(models: tuple[str, ...]) -> tuple[int, Path, bool]:
             "tier2": {"enabled": True, "mode": "phase-gate", "context_window": 65536},
             "paths": {"datrix_root": str(workspace), "review_artifacts": str(workspace / ".review")},
         }
-        settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, load_timeout_ms=5000,
-                                    generate_timeout_ms=5000, ollama_port=server.port,
-                                    usage_log=workspace / "usage.jsonl", caller="gate")
+        settings = replace(server.settings("gate"), usage_log=workspace / "usage.jsonl")
         args = argparse.Namespace(task=None, phase=_PHASE, verify=False, tier2=False, tier2_mode=None)
         code = run_review(args, config, LOCAL_REVIEWER_PROMPT, {}, settings)
         artifact = phase_artifact_path(config, _PHASE)

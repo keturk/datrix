@@ -150,9 +150,11 @@ def design_identifiers(design: Path) -> tuple[list[str], re.Pattern[str] | None]
     literals = [design.name, design.stem]
     lines = read_text(design).splitlines()
     title = next((_TITLE_PREFIX.sub("", line).strip() for line in lines if line.lstrip().startswith("# ")), "")
-    if len(title) >= MIN_TITLE_CHARS:
-        literals.append(title)
     match = _DESIGN_NUMBER.match(design.name)
+    # A title that is only the file name's slug names no document: it is the name of what the design built.
+    slug = _DESIGN_NUMBER.sub("", design.stem) if match else design.stem
+    if len(title) >= MIN_TITLE_CHARS and title.lower() != slug.lower():
+        literals.append(title)
     number = None
     if match:
         digits = match.group(1).lstrip("0") or "0"
@@ -183,11 +185,14 @@ def sibling_number(design: Path) -> re.Pattern[str] | None:
     """How another design of the folder names *design*: its number as the file name spells it (``090 D1``,
     ``090 §4``, ``090's gate``), the form the design series uses for each other. A source line citation
     (``builder.py:090``, ``:85-090``, ``:090-109``) is a line number, not the design, and neither is a size
-    limit (``under 090 lines``, or ``under 090`` at the end of a wrapped line)."""
+    limit (``under 090 lines``, or ``under 090`` at the end of a wrapped line), nor is a count (``the
+    largest at 090``)."""
     match = _DESIGN_NUMBER.match(design.name)
     if not match:
         return None
-    return re.compile(rf"(?<![\w.:])(?<!\d-)(?<!under ){re.escape(match.group(1))}(?![\w.]|-\d)(?!\s+lines\b)")
+    return re.compile(
+        rf"(?<![\w.:])(?<!\d-)(?<!under )(?<!\bat ){re.escape(match.group(1))}(?![\w.]|-\d)(?!\s+lines\b)"
+    )
 
 
 def _references_in(workspace: Path, path: Path, literals: list[str], number: re.Pattern[str] | None) -> list[Reference]:

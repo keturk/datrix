@@ -1,6 +1,6 @@
 """The exact half of /implement-finding: the skill-assist commands finding-select and finding-close
 (``datrix_scripts.skill.assist_cli``), which ``skill/implement-finding.ps1``
-(``datrix_scripts.skill.implement_finding``) runs around each fix session, one finding at a time.
+(``datrix_scripts.skill.implement_finding``) runs around each fix session.
 
 The skill decides whether a finding still holds and fixes it; this module decides nothing about the
 code. It does the parts that must not rest on a model's word:

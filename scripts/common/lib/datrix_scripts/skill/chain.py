@@ -29,6 +29,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -116,6 +117,8 @@ _BATCH_SAFE_FIX: Final = ("pass -Model as an alias or id of letters, digits, '.'
 
 Event = dict[str, object]
 Show = Callable[[str, str], None]
+# Held while one console line is printed, so the lines of steps running side by side never interleave.
+_OUTPUT_LOCK: Final = threading.Lock()
 
 
 class ChainStopped(Exception):
@@ -416,6 +419,7 @@ class Chain:
         # The session in which verify replied PROVEN, by design: the session absorb continues.
         self.proven_sessions: dict[Path, str] = {}
         self._number = 0
+        self._lock = threading.Lock()
 
     @classmethod
     def start(cls, options: ChainOptions) -> Chain:
@@ -423,59 +427,67 @@ class Chain:
         return cls(options, find_claude())
 
     def step(self, name: str, prompt: str, *, model: str = "", effort: str = "", tools: str = "",
-             resume_session: str = "") -> StepRow:
-        """Run *prompt* as one headless step and return its row. *model* and *effort* start the session on
-        that model and effort; a skill's own ``model:``/``effort:`` still applies while it runs, so they are
+             resume_session: str = "", concurrent: bool = False, subject: str = "") -> StepRow:
+        """Run *prompt* as one headless step and return its row. *subject* is what the step works on, printed in
+        its header as it starts. *model* and *effort* start the session on that model and effort; a skill's own
+        ``model:``/``effort:`` still applies while it runs, so they are
         for skills that declare none and leave the choice to the caller. *tools* limits the session to those
         built-in tools and the workspace's own MCP servers (``step_command``). *resume_session* continues that
-        earlier session of this chain, whatever ``options.resume`` says."""
-        self._number += 1
-        label = f"{self._number:02d}-{name}"
+        earlier session of this chain, whatever ``options.resume`` says. *concurrent* is for a step that runs
+        beside other steps of this chain, each in its own thread: every console line it prints starts with its
+        label. Steps may run side by side either way; the numbering and the rows stay whole."""
+        with self._lock:
+            self._number += 1
+            label = f"{self._number:02d}-{name}"
+        show = self._printer(label if concurrent else "")
         window = self.options.auto_compact_window
         compact_note = f" [compacts at {window} tokens]" if window > 0 else ""
         continued = f"continues session {resume_session}" if resume_session else ""
         notes = ", ".join(note for note in (model, effort, continued) if note)
         model_note = f" ({notes})" if notes else ""
-        say("")
-        say(f"=== step {label}{model_note}{compact_note} ===", ColorCodes.CYAN)
+        subject_note = f" {subject}" if subject else ""
+        show("", "")
+        show(f"=== step {label}{subject_note}{model_note}{compact_note} ===", ColorCodes.CYAN)
         stream_path = self.run_dir / f"{label}.stream.jsonl"
         if self.options.dry_run:
-            say(prompt)
+            show(prompt, "")
             return StepRow(label, False, "", "", "", "", 0, 0.0, 0.0, 0, stream_path, dry_run=True)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         prompt_path = self.run_dir / f"{label}.prompt.txt"
         prompt_path.write_text(prompt, encoding=_UTF8)
         for line in prompt_preview(prompt, prompt_path):
-            say(line)
+            show(line, "")
         options = replace(self.options, resume=True) if resume_session else self.options
         command = step_command(self.claude, options, session_id=resume_session or self.session_id, model=model,
                                effort=effort, tools=tools)
         error_path = self.run_dir / f"{label}.stderr.txt"
         started = time.monotonic()
-        results = self._launch(command, prompt, stream_path, error_path)
+        results = self._launch(command, prompt, stream_path, error_path, None if self.options.quiet else show)
         if not results:
-            say(f"Step {label} printed no result event (see {stream_path} and {error_path}).", ColorCodes.RED)
+            show(f"Step {label} printed no result event (see {stream_path} and {error_path}).", ColorCodes.RED)
             return StepRow(label, True, _NO_RESULT, "", "", "", 0, 0.0, 0.0, 0, stream_path, dry_run=False)
         result = results[-1]
         (self.run_dir / f"{label}.json").write_text(json.dumps(result, indent=_JSON_INDENT, ensure_ascii=False),
                                                     encoding=_UTF8)
         minutes = round((time.monotonic() - started) / _SECONDS_PER_MINUTE, _MINUTE_DIGITS)
         row = step_row(label, result, minutes, stream_path)
-        if row.session_id:
-            self.session_id = row.session_id
-        self.steps.append(row)
+        with self._lock:
+            if row.session_id:
+                self.session_id = row.session_id
+            self.steps.append(row)
         outcome = f"ERROR ({row.subtype})" if row.is_error else "done"
-        say(f"{label}: {outcome}; models {row.models}; {row.turns} turns; {number_text(minutes)} min; list cost "
-            f"{number_text(row.cost_usd)} USD; {row.denials} permission denial(s); session {row.session_id}",
-            ColorCodes.RED if row.is_error else ColorCodes.GREEN)
+        show(f"{label}: {outcome}; models {row.models}; {row.turns} turns; {number_text(minutes)} min; list cost "
+             f"{number_text(row.cost_usd)} USD; {row.denials} permission denial(s); session {row.session_id}",
+             ColorCodes.RED if row.is_error else ColorCodes.GREEN)
         return row
 
-    def _launch(self, command: list[str], prompt: str, stream_path: Path, error_path: Path) -> list[Event]:
-        """Run *command* in the workspace with *prompt* on stdin; keep its stream and stderr; the result events."""
+    def _launch(self, command: list[str], prompt: str, stream_path: Path, error_path: Path,
+                show: Show | None) -> list[Event]:
+        """Run *command* in the workspace with *prompt* on stdin; keep its stream and stderr, show its events through
+        *show* (``None``: quiet); the result events."""
         environment = dict(os.environ)
         if self.options.auto_compact_window > 0:
             environment[AUTO_COMPACT_WINDOW_VARIABLE] = str(self.options.auto_compact_window)
-        show = None if self.options.quiet else say
         with stream_path.open("w", encoding=_UTF8, newline="") as stream, error_path.open("wb") as errors, \
                 subprocess.Popen(command, cwd=self.options.workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                  stderr=errors, env=environment) as process:
@@ -485,6 +497,17 @@ class Chain:
             process.stdin.write(prompt.encode(_UTF8))
             process.stdin.close()
             return process_stream(_decoded(process.stdout), stream, show)
+
+    @staticmethod
+    def _printer(label: str) -> Show:
+        """A console printer whose lines never interleave with another thread's; each starts with ``[label]`` when
+        *label* is given, so the lines of steps running side by side say which step printed them."""
+
+        def show(text: str, color: str) -> None:
+            with _OUTPUT_LOCK:
+                say(f"[{label}] {text}" if label else text, color)
+
+        return show
 
     def summary(self) -> None:
         """Print every finished step as a table, with the run's log folder; nothing before the first step."""

@@ -390,16 +390,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def repair_prompt(verdict: RelatedVerdict) -> str:
     """What the fix session is told when related runs fail: the runs, their output, and that closing needs them green."""
-    lines = ["After your fix, the script ran the tests related to the files you wrote, and these did not pass. "
-             "The script keeps resuming this session until they all pass; only a B1-B4 blocker you prove ends it.",
+    lines = ["Every fix session of this batch has ended; the script then ran the tests related to the files you "
+             "wrote, and these did not pass. No other session edits while you repair, so each failure is the "
+             "finished tree's, never another session's half-made edit. The script keeps resuming this session "
+             "until they all pass; only a B1-B4 blocker you prove ends it.",
              "The finding is deleted only when every one of them passes, so make them pass: find each root cause "
              "(a failing test may assert the behaviour you changed, or fail on output your change now produces) "
              "and fix it there, in the package that owns it. Run only the failing selections again, in the "
              "foreground, and end with the usual 'Finding fix:' line. Work only the failures your change can "
              "have caused: a failing test whose traceback frames and named symbols never reach a file you wrote "
-             "belongs to another agent's work in that suite. Do not investigate, fix or loosen it; write a "
-             "findings file for it and reply 'Finding fix: BLOCKED B4' naming the failing ids and the frames that "
-             "show your change is not in them.", ""]
+             "was red before your change or was broken by another session's finished fix. Do not investigate, "
+             "fix or loosen it; write a findings file for it and reply 'Finding fix: BLOCKED B4' naming the "
+             "failing ids and the frames that show your change is not in them.", ""]
     for result in verdict.failures:
         lines += [f"## {result.selection.describe()}", f"({result.selection.reason})", result.tail, ""]
     return "\n".join(lines)

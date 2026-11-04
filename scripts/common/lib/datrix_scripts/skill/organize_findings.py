@@ -53,7 +53,7 @@ from datrix_scripts.local_llm import (
     add_wrapper_llm_arguments,
     wrapper_llm_settings,
 )
-from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
+from datrix_scripts.local_llm_loopback import LoopbackOllama, answering
 from datrix_scripts.logging_utils import ColorCodes, say
 from datrix_scripts.paths import WORKSPACE_DIR
 from datrix_scripts.skill.common import (
@@ -291,8 +291,7 @@ def _workspace() -> Iterator[Path]:
 
 
 def _model_settings(server: LoopbackOllama) -> LocalLlmSettings:
-    return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                            allow_load=False, ollama_port=server.port, caller=CALLER)
+    return server.settings(CALLER)
 
 
 def _check_a_name_states_its_area() -> None:

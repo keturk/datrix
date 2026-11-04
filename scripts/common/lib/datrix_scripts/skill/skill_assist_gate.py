@@ -27,8 +27,8 @@ from datrix_scripts.customer_domain_isolation import hash_term
 from datrix_scripts.evaluate_reports import render_project_quick_report, render_service_mechanical
 from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, CheckFunc, check_list_main, check_list_parser, write_file
 from datrix_scripts.gate_log import run_as_gate
-from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
-from datrix_scripts.local_llm_loopback import LOOPBACK, Chat, LoopbackOllama, answering
+from datrix_scripts.local_llm import LocalLlmPool
+from datrix_scripts.local_llm_loopback import Chat, LoopbackOllama, answering
 from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from datrix_scripts.local_reading import WITHHELD_LINE
 from datrix_scripts.paths import script_env
@@ -129,9 +129,7 @@ def _task(root: Path, number: int, *, depends: str = "None", review: tuple[str, 
 
 
 def _pool(server: LoopbackOllama) -> LocalLlmPool:
-    settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                                allow_load=False, ollama_port=server.port, caller="gate")
-    return LocalLlmPool(settings, report=lambda _line: None)
+    return LocalLlmPool(server.settings("gate"), report=lambda _line: None)
 
 
 # ===========================================================================
@@ -642,7 +640,8 @@ def check_absorb_references_find_name_number_and_title_but_not_task_folders() ->
                                                         "Keeps 042's gate.\nSee `builder.py:042-109`, "
                                                         "`b.py:042`, `c.py:30-042`.\n"
                                                         "Each design stays under 042 lines.\n"
-                                                        "Keep it under 042\nlines.\n")
+                                                        "Keep it under 042\nlines.\n"
+                                                        "`attr-defined` is the largest at 042 (across 14 packages).\n")
         found = {(r.file, r.line) for r in find_references(root, design, [])}
         assert found == {("datrix-alpha/docs/a.md", 1), ("datrix-alpha/docs/b.md", 1),
                          ("design/044-later-design.md", 2), ("design/044-later-design.md", 3)}, found

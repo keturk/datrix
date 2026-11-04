@@ -31,10 +31,12 @@ from dataclasses import dataclass
 from typing import Final, TypeVar
 
 from datrix_codegen_kernel.parity.conformance_probes import (
+    BytesJsonField,
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
     ExternClientRequest,
+    ExternGraphqlRequest,
     ExternalQueueControlCensus,
     ExternalQueueControlModule,
     PublishedEventEnvelope,
@@ -387,14 +389,19 @@ def _extern_request_label(request: ExternClientRequest) -> str:
     return f"{request.client}.{request.method}"
 
 
-def _read_extern_request(result: object, selector: Selector) -> Observation:
-    """The HTTP method one client method sends, the parameter sent as its whole body ('' for none),
-    and its query keys in order."""
+def _extern_request(result: object, selector: Selector) -> ExternClientRequest:
+    """The one request of the client method *selector* names."""
     client, method = _text(selector, CLIENT_KEY), _text(selector, METHOD_KEY)
     matches = [r for r in _extern_requests(result) if r.client == client and r.method == method]
     if len(matches) != 1:
         raise SelectorError(f"extern client method {client}.{method} has {len(matches)} requests; exactly one is read")
-    request = matches[0]
+    return matches[0]
+
+
+def _read_extern_request(result: object, selector: Selector) -> Observation:
+    """The HTTP method one client method sends, the parameter sent as its whole body ('' for none),
+    and its query keys in order."""
+    request = _extern_request(result, selector)
     return Observation(
         Shape.MAPPING,
         {
@@ -405,12 +412,85 @@ def _read_extern_request(result: object, selector: Selector) -> Observation:
     )
 
 
+def _read_extern_contract_check(result: object, selector: Selector) -> Observation:
+    """Whether one client method checks its ``ensure`` contract before it sends the request."""
+    checked = _extern_request(result, selector).contract_checked_before_send
+    return Observation(Shape.SCALAR, "checked-before-send" if checked else "unchecked")
+
+
 def _read_extern_requests(result: object, selector: Selector) -> Observation:
     return _set(_extern_request_label(request) for request in _extern_requests(result))
 
 
 def _offer_extern_requests(result: object) -> Iterable[dict[str, SelectorValue]]:
     return [{CLIENT_KEY: request.client, METHOD_KEY: request.method} for request in _extern_requests(result)]
+
+
+# ---------------------------------------------------------------------------
+# Extern GraphQL requests: extern_graphql_requests
+# ---------------------------------------------------------------------------
+
+EXTERN_GRAPHQL_REQUESTS: Final[str] = "extern_graphql_requests"
+
+
+def _extern_graphql_requests(result: object) -> tuple[ExternGraphqlRequest, ...]:
+    return _items(result, ExternGraphqlRequest, EXTERN_GRAPHQL_REQUESTS)
+
+
+def _read_extern_graphql_request(result: object, selector: Selector) -> Observation:
+    """The path, document and variable names one GraphQL client method posts, whether it may be
+    repeated, and whether a reported error fails the call before ``data`` is read."""
+    client, method = _text(selector, CLIENT_KEY), _text(selector, METHOD_KEY)
+    matches = [r for r in _extern_graphql_requests(result) if r.client == client and r.method == method]
+    if len(matches) != 1:
+        raise SelectorError(f"extern GraphQL method {client}.{method} has {len(matches)} requests; exactly one is read")
+    request = matches[0]
+    return Observation(
+        Shape.MAPPING,
+        {
+            "path": request.path,
+            "document": request.document,
+            "result-field": request.result_field,
+            "variables": _QUERY_KEY_SEPARATOR.join(request.variables),
+            "repeated": "after-retryable-status" if request.repeatable else "never",
+            "reported-error": "fails-before-data" if request.reported_error_fails_before_data else "unchecked",
+        },
+    )
+
+
+def _read_extern_graphql_requests(result: object, selector: Selector) -> Observation:
+    return _set(f"{request.client}.{request.method}" for request in _extern_graphql_requests(result))
+
+
+def _offer_extern_graphql_requests(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{CLIENT_KEY: request.client, METHOD_KEY: request.method} for request in _extern_graphql_requests(result)]
+
+
+# ---------------------------------------------------------------------------
+# Bytes fields: bytes_json_fields
+# ---------------------------------------------------------------------------
+
+BYTES_JSON_FIELDS: Final[str] = "bytes_json_fields"
+
+
+def _bytes_fields(result: object) -> tuple[BytesJsonField, ...]:
+    return _items(result, BytesJsonField, BYTES_JSON_FIELDS)
+
+
+def _read_declared_form_fields(result: object, selector: Selector) -> Observation:
+    return _set(
+        body_wire_name(item.field_name)
+        for item in _bytes_fields(result)
+        if item.reads_declared_form and item.writes_declared_form
+    )
+
+
+def _read_off_form_fields(result: object, selector: Selector) -> Observation:
+    return _set(
+        body_wire_name(item.field_name)
+        for item in _bytes_fields(result)
+        if not (item.reads_declared_form and item.writes_declared_form)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -906,8 +986,60 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
                     _offer_extern_requests,
                 ),
                 FacetReading(
+                    ParityFacet(
+                        "contract-check",
+                        Shape.SCALAR,
+                        (CLIENT_KEY, METHOD_KEY),
+                        summary="whether one extern client method checks its ensure contract before it sends",
+                    ),
+                    _read_extern_contract_check,
+                    _offer_extern_requests,
+                ),
+                FacetReading(
                     ParityFacet("requests", Shape.SET, summary="every extern client method, 'Client.method'"),
                     _read_extern_requests,
+                ),
+            ),
+        ),
+        ProbeReadings(
+            EXTERN_GRAPHQL_REQUESTS,
+            ProbeArgument.GENERATED_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "operation",
+                        Shape.MAPPING,
+                        (CLIENT_KEY, METHOD_KEY),
+                        summary="the path, document and variables one extern GraphQL method posts, its repeat rule and its reported-error rule",
+                    ),
+                    _read_extern_graphql_request,
+                    _offer_extern_graphql_requests,
+                ),
+                FacetReading(
+                    ParityFacet("operations", Shape.SET, summary="every extern GraphQL method, 'Client.method'"),
+                    _read_extern_graphql_requests,
+                ),
+            ),
+        ),
+        ProbeReadings(
+            BYTES_JSON_FIELDS,
+            ProbeArgument.GENERATED_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "declared-form-fields",
+                        Shape.SET,
+                        summary="the Bytes body fields read and written in the declared JSON form, by wire name",
+                    ),
+                    _read_declared_form_fields,
+                ),
+                FacetReading(
+                    ParityFacet(
+                        "off-form-fields",
+                        Shape.SET,
+                        summary="the Bytes body fields missing the declared reader or writer, by wire name",
+                    ),
+                    _read_off_form_fields,
                 ),
             ),
         ),
@@ -1096,10 +1228,12 @@ __all__ = [
     "BLOCK_KEY",
     "CLIENT_FORMS",
     "DECLARED_EXCEPTION",
+    "BYTES_JSON_FIELDS",
     "DOCUMENTATION_SURFACES",
     "ENUM_KEY",
     "EVENT_ENVELOPES",
     "EXTERN_CLIENT_REQUESTS",
+    "EXTERN_GRAPHQL_REQUESTS",
     "EXTERNAL_LINK_SCHEMES",
     "EXTERNAL_QUEUE_CONTROLS",
     "HEADER_SET_FIXTURES",

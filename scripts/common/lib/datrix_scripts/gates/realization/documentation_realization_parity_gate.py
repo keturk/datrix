@@ -86,10 +86,12 @@ from pathlib import Path
 from typing import Final
 
 from datrix_codegen_kernel.parity.conformance_probes import (
+    BytesJsonField,
     DocumentationSurfaces,
     EnumClassifierRender,
     EventEnvelopeCensus,
     ExternClientRequest,
+    ExternGraphqlRequest,
     ExternalQueueControlCensus,
     IdiomOccurrence,
     LanguageConformanceProbes,
@@ -1094,7 +1096,13 @@ class _FixtureDocumentationProbes:
     def extern_client_requests(self, generated_root: Path) -> tuple[ExternClientRequest, ...]:
         return ()
 
+    def extern_graphql_requests(self, generated_root: Path) -> tuple[ExternGraphqlRequest, ...]:
+        return ()
+
     def transaction_units(self, generated_root: Path) -> tuple[TransactionUnit, ...]:
+        return ()
+
+    def bytes_json_fields(self, generated_root: Path) -> tuple[BytesJsonField, ...]:
         return ()
 
 

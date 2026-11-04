@@ -33,7 +33,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from datrix_scripts.dev.code_index import MCP_SERVER_MODULE
-from datrix_scripts.dev.code_index_mcp import TOOLS, CodeIndexServer, serve
+from datrix_scripts.dev.code_index_mcp import TOOLS, CodeIndexServer
 from datrix_scripts.dev.code_scan import (
     VERDICT_DEAD,
     VERDICT_REFUTED,
@@ -94,8 +94,9 @@ from datrix_scripts.code_index.store import open_index
 from datrix_scripts.code_index.summaries import MIN_SUMMARY_LINES, summarize
 from datrix_scripts.code_index.usage import usage_report
 from datrix_scripts.metrics.dead_code_report import Finding
-from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
-from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
+from datrix_scripts.local_llm import LocalLlmPool
+from datrix_scripts.local_llm_loopback import LoopbackOllama, answering
+from datrix_scripts.mcp_stdio import serve
 from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, CheckFunc, check_list_main, check_list_parser, write_files
 from datrix_scripts.gate_log import run_as_gate
 from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
@@ -655,8 +656,7 @@ def check_summaries_are_stored_by_content_hash_and_searchable() -> None:
     with _workspace({"src/alpha_pkg/big.py": big}) as session, \
             LoopbackOllama(answering("Calibrates nebula telescopes for the fixture.")) as server:
         session.refresh()
-        settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                                    ollama_port=server.port)
+        settings = server.settings("gate")
         run = summarize(session.conn, session.workspace, session.config, LocalLlmPool(settings, report=lambda _: None),
                         workers=2, report=lambda _: None)
         prompts = [chat.user for chat in server.chats]

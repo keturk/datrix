@@ -41,8 +41,8 @@ from datrix_scripts.git.pre_review import (
     parse_model_findings,
     review,
 )
-from datrix_scripts.local_llm import LocalLlmPool, LocalLlmSettings
-from datrix_scripts.local_llm_loopback import LOOPBACK, LoopbackOllama, answering
+from datrix_scripts.local_llm import LocalLlmPool
+from datrix_scripts.local_llm_loopback import LoopbackOllama, answering
 from datrix_scripts.local_llm_usage import GATE_USAGE_LOG
 from datrix_scripts.test.wrappers import GIT_SCRIPTS_DIR, seam_checks
 
@@ -178,9 +178,8 @@ def check_model_review_is_advisory_and_skips_tests() -> None:
         workspace = Path(temp)
         repo = _repo(workspace, "alpha", {"src/mod.py": "A = 1\n"})
         write_files(repo, {"src/mod.py": "A = 1\nB = cfg.get('k') or 'd'\n", "tests/test_mod.py": "C = 1\n"})
-        settings = LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, generate_timeout_ms=5000,
-                                    ollama_port=server.port)
-        result = review(workspace, LocalLlmPool(settings, report=lambda _: None), workers=2, max_chars=4000)
+        result = review(workspace, LocalLlmPool(server.settings("gate"), report=lambda _: None), workers=2,
+                        max_chars=4000)
         prompts = [chat.user for chat in server.chats]
         assert [(f.file, f.line) for f in result.advisory] == [("alpha/src/mod.py", 2)], result.advisory
         assert not result.definite, result.definite

@@ -67,7 +67,7 @@ from datrix_scripts.gate_harness import (
 from datrix_scripts.gate_log import GATE_CHILD_ENV, gate_log_directory, verdict_line
 from datrix_scripts.run_log import MAX_CLAIM_ATTEMPTS, claim_run_log_file, run_log_base_name, run_log_segment
 from datrix_scripts.hook_modules import DIGEST_HOOK_MODULE, load_hook_module
-from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, SCRIPTS_DIR, SHOWCASE_DIR
+from datrix_scripts.paths import PACKAGE_DIR, PYTHONPATH_ROOT, SCRIPTS_DIR, SHOWCASE_DIR, script_env
 from datrix_scripts.venv import get_venv_python
 from datrix_scripts.test.run_complete import (
     _generated_projects,
@@ -138,6 +138,35 @@ def check_gate_harness_lets_a_non_assertion_error_propagate() -> None:
     except ValueError:
         return
     raise AssertionError("a ValueError raised inside a check was swallowed by run_checks")
+
+
+_LINE_BEFORE_CRASH: Final = "printed before the crash"
+_PLANTED_CRASH: Final = "ValueError: planted crash"
+_CRASHING_RUN_MAIN: Final = (
+    "import argparse\n"
+    "from datrix_scripts.gate_harness import run_main\n"
+    "def run(_args):\n"
+    f"    print({_LINE_BEFORE_CRASH!r})\n"
+    "    raise ValueError('planted crash')\n"
+    "run_main(lambda: argparse.Namespace(debug=False), run)\n"
+)
+
+
+def check_gate_harness_prints_a_crash_after_the_lines_before_it() -> None:
+    """A run's traceback reaches a shared pipe below the lines it printed, so the output's end names the
+    failure rather than the last passing line."""
+    process = subprocess.run(
+        [sys.executable, "-c", _CRASHING_RUN_MAIN],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=script_env(),
+        check=False,
+    )
+    assert process.returncode != 0, f"a crashed run must exit non-zero: {process.stdout!r}"
+    printed = process.stdout.find(_LINE_BEFORE_CRASH)
+    crash = process.stdout.find(_PLANTED_CRASH)
+    assert 0 <= printed < crash, f"the crash must follow what the run printed: {process.stdout!r}"
 
 
 def check_gate_harness_self_test_detects_a_failure() -> None:
@@ -775,6 +804,7 @@ def checks() -> list[NamedCheck]:
     module_checks = [
         check_gate_harness_reports_each_check_and_the_overall_verdict,
         check_gate_harness_lets_a_non_assertion_error_propagate,
+        check_gate_harness_prints_a_crash_after_the_lines_before_it,
         check_gate_harness_self_test_detects_a_failure,
         check_gate_harness_argument_parser_carries_the_shared_flags,
         check_gate_harness_writes_planted_files,

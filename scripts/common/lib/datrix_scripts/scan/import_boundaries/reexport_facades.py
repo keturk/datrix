@@ -802,11 +802,15 @@ def _compiled_dgen_references() -> Iterator[str]:
     DAL generator definitions of every discovered target carry, read from the
     compiled IR through the kernel's one walk of a domain's callables -- the
     ``.dal`` resources, ``@expand`` domains and Python-built definitions alike,
-    exactly as the executor sees them."""
+    exactly as the executor sees them. A target that declares no definitions
+    module (a platform that builds its output without DAL generator domains)
+    carries none."""
     from datrix_codegen_kernel.dgen import compiler, target_registry
     from datrix_codegen_kernel.dgen.domain_callables import domain_callables
 
     for target in sorted(target_registry.target_kind_map()):
+        if not target_registry.definition_modules_for(target):
+            continue
         for definition in compiler.target_definitions(target):
             for domain in definition.domains:
                 for _callable, reference in domain_callables(domain):
