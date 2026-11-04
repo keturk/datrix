@@ -1,7 +1,8 @@
 // A third-party provider the blog service calls over HTTP. A post, put or patch
 // endpoint sends its first non-path parameter as the whole JSON body (`review`
 // sends the ReviewRequest itself); every other parameter travels in the query
-// string under its declared name.
+// string under its declared name. An `ensure` is a precondition over the call's
+// arguments: the client checks it before the request is sent.
 extern service hostdemo.ModerationProvider('config/moderation-provider.dcfg') : version('1.0.0') {
     struct ReviewRequest {
         String title;
@@ -15,10 +16,20 @@ extern service hostdemo.ModerationProvider('config/moderation-provider.dcfg') : 
 
     rest_api ModerationAPI : basePath('/v1') {
         @path('/reviews')
-        post review(ReviewRequest request, String locale) -> ReviewVerdict;
+        post review(ReviewRequest request, String locale) -> ReviewVerdict {
+            ensure locale.length > 0;
+        }
 
         @path('/reviews/{reviewId}')
         get verdict(String reviewId, Boolean detailed) -> ReviewVerdict;
+    }
+
+    // Each operation is a client method posting the document derived from its
+    // signature. Only a query is repeated after a retryable status, and an error
+    // the response reports fails the call whatever data also came back.
+    graphql_api ModerationGraphAPI : basePath('/graphql') {
+        query appeal(String reviewId) -> ReviewVerdict?;
+        mutation reopen(String reviewId, String reason) -> ReviewVerdict;
     }
 
     auth : apiKey(header: 'X-Api-Key');

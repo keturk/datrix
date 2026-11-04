@@ -472,7 +472,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         // 'command' defines a write operation that mutates state and may dispatch events
         // References 'catalog.Book' to target the correct rdbms block
         command UpdateBookStatus(UUID bookId, BookStatus newStatus) -> catalog.Book {
-            let Book? book = catalog.Book.findById(bookId);
+            let Book book = catalog.Book.findOrFail(bookId);
             let BookStatus oldStatus = book.status;
             book.status = newStatus;
             book.save();

@@ -18,6 +18,12 @@ service hostdemo.BlogService('config/blog-service.dcfg') : version('1.0.0'), des
         return verdict.approved;
     }
 
+    // Reopens a review over the provider's GraphQL API.
+    fn reopenedApproval(String reviewId, String reason) -> Boolean {
+        let ReviewVerdict verdict = ModerationProvider.ModerationGraphAPI.mutation.reopen(reviewId, reason);
+        return verdict.approved;
+    }
+
     rdbms blogDb {
 
         entity Post extends BaseEntity {

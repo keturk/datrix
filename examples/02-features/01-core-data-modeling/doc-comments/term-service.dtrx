@@ -15,6 +15,7 @@ service glossary.TermService('config/term-service.dcfg') : version('1.0.0'), des
 
     discovery { }
 
+    /// The script a term is written in, joiners included: क्‌ष, 👩‍💻, ❤️.
     enum TermScript {
         /// Devanagari or emoji script, joiners included: क्‌ष, 👩‍💻, ❤️.
         Joined,
