@@ -1,13 +1,16 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Work through the first findings files of the inbox one at a time: one fresh session per finding
-    checks it against the code, fixes it when it still holds, and the script deletes it once proven.
+    Work through the first findings files of the inbox, a batch of sessions side by side: one fresh
+    session per finding checks it against the code, fixes it when it still holds, and the script
+    deletes it once proven.
 
 .DESCRIPTION
     The behaviour is datrix_scripts.skill.implement_finding, over the steps of
-    datrix_scripts.skill.chain. The multi-finding form of /implement-finding. For each selected
-    finding, in name order, one headless /implement-finding session on -Model ends with one line:
+    datrix_scripts.skill.chain. The multi-finding form of /implement-finding. The selected findings
+    are worked in batches of 4 (the inbox folders taken in turn, so a batch spans areas); the fix
+    sessions of a batch run side by side, each headless /implement-finding session on -Model ending
+    with one line:
       Finding fix: ALREADY RESOLVED   the code no longer has the defect; nothing was changed
       Finding fix: DONE               fixed, with a tagged test and targeted test runs
       Finding fix: UPDATED            fixed what needed no growth, rewrote the finding with what the rest needs
@@ -18,11 +21,17 @@
     file names it, and after DONE only when the tests related to what the session wrote pass. The
     script derives and runs those itself (datrix_scripts.skill.related_tests; targeted test.ps1 runs,
     never a whole suite): the test files the session wrote, and the other test files in any package
-    that name a code name the session changed. While any fails it resumes the session with the
-    failures, as often as it takes. A session that wrote no package source or
-    test (the scripts tree hosts no test suite) is judged by its last foreground test.ps1 or
-    *-gate.ps1 run in the step's stream log (a gate passes on its "[GATE] <name> PASSED exit=0"
-    verdict line, and -SelfTest runs do not count). Each finding is closed before the next one starts.
+    that name a code name the session changed. They run only once every fix session of the batch
+    has ended, so no session's half-made edits are judged; while any fails it resumes that session
+    with the failures, as often as it takes, and since a repair can break a session proved before
+    it, the sessions are proved again until a sweep needs no repair. A session that wrote no package
+    source or test (the scripts tree hosts no test suite) is judged by its last foreground test.ps1
+    or *-gate.ps1 run in the step's stream log (a gate passes on its "[GATE] <name> PASSED exit=0"
+    verdict line, and -SelfTest runs do not count). Every finding of a batch is closed before the
+    next batch starts.
+
+    Every fix and repair step prints the finding's absolute path in its header as it starts:
+      === step 01-fix D:\datrix\findings\kernel\<the finding>.md (claude-opus-5-5, high) ===
 
     Step logs: <workspace>\.tmp\skill-chain\<timestamp>\.
 

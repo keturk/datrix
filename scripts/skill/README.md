@@ -65,9 +65,13 @@ the wrapper seam checks.
 
 ## `implement-finding.ps1`
 
-**Drain the findings inbox one finding at a time: one session per finding, closed before the next
-starts.** The multi-finding form of `/implement-finding`. Per finding, in name order, one fresh headless
-`/implement-finding` session (via `datrix_scripts.skill.chain`, started with `--model`/`--effort`)
+**Drain the findings inbox: one session per finding, a batch of sessions side by side, each batch closed
+before the next starts.** The multi-finding form of `/implement-finding`. The selected findings are worked in
+batches of 4 (`BATCH_SIZE`), the inbox folders taken in turn (the first finding of each folder, then the second
+of each, ...) so the sessions of a batch work different areas where the selection allows. Per finding, one fresh
+headless `/implement-finding` session (via `datrix_scripts.skill.chain`, started with `--model`/`--effort`; the
+sessions of a batch run side by side, each console line prefixed with its step label, and every fix and repair
+step prints the finding's absolute path in its header as it starts)
 checks the finding against the code and, when it still holds, fixes it (code, tagged test, targeted
 runs, docs, pointers from other findings). It ends `Finding fix: ALREADY RESOLVED`, `DONE`, `UPDATED`
 (it fixed what needed no growth and rewrote the finding with what the rest needs; the finding stays,
@@ -85,12 +89,15 @@ being one name; a name more than 25 test files mention selects none, and the rar
 40 files; the output lists the names left out). One run per package; packages run
 side by side (their `test.ps1` xdist workers sized by `proportional_worker_allotment` and admitted while they
 fit in the logical cores, as the affected gate does), one package's runs one after another, after a single
-package install check (`datrix_scripts.skill.related_parallel`). While any run fails, the script resumes the same session with the failing
-output and runs them again, as often as it takes: each round runs in a new Python process, so code a repair
-changed (the planner included) is what plans and judges the next round, and only a pass or a B1-B4 blocker
-the session proves ends the repairs. A run that could not take the package lock after five tries stops the
-finding without a repair. Output of every
-run: `<step>-related-<attempt>\related-NN.log` beside the step logs. When the session wrote no package
+package install check (`datrix_scripts.skill.related_parallel`). These runs wait until every fix session of the
+batch has ended (`prove_batch`): while sessions edit side by side, a run would judge one session's change by
+another's half-made edits. On the still tree the sessions are proved in turn. While any of a session's runs fails,
+the script resumes that session with the failing output and runs them again, as often as it takes: each round runs
+in a new Python process, so code a repair changed (the planner included) is what plans and judges the next round,
+and only a pass or a B1-B4 blocker the session proves ends the repairs. Only the session being repaired edits then,
+but its repair can break a session proved before it, so the sessions are proved again until a sweep needs no repair.
+A run that could not take the package lock after five tries stops the finding without a repair. Output of every
+run: `<step>-related-<n>\related-NN.log` beside the step logs. When the session wrote no package
 source or test (the scripts tree hosts no test suite), its last foreground `test.ps1` or `*-gate.ps1`
 run must have passed instead (a gate proves code no `test.ps1` reaches), read from the stream log.
 
@@ -102,7 +109,7 @@ subfolder (absolute, or relative to `findings`). `-All` lifts the count cap: eve
 folder, or, without a folder, of every inbox folder in turn (refused with `-Count` or `-Finding`).
 `-Finding` files are worked as given, wherever
 they are, instead of the first `-Count`. A session ending `Finding fix: BLOCKED B<n>` stops that finding
-and the chain moves to the next. Step logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit code 2:
+and the batch goes on with the others. Step logs: `D:\datrix\.tmp\skill-chain\<timestamp>\`. Exit code 2:
 no failure, but a session stopped for a decision only Jon can make or left `UPDATED` finding.
 
 The selection and the close run in-process through `datrix_scripts.skill.finding_inbox`, the code behind
