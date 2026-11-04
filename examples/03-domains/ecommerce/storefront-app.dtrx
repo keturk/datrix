@@ -28,6 +28,9 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
     // Order notices shown in the top bar's notification menu until the customer clears them.
     state Array<String> notices = [];
 
+    // While muted, new order notices are not added; the notification menu shows the switch checked.
+    state Boolean noticesMuted = false;
+
     fn addToCart(UUID productId, Int quantity) {
         foreach line in cart {
             if (line.productId == productId) {
@@ -46,8 +49,11 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
         return total;
     }
 
-    fn pushNotice(String text) { notices = notices.append(text); }
+    fn pushNotice(String text) {
+        if (!noticesMuted) { notices = notices.append(text); }
+    }
     fn clearNotices() { notices = []; }
+    fn toggleNoticesMuted() { noticesMuted = !noticesMuted; }
     fn unreadCount() -> Int { return notices.length; }
 
     // The only layout, so every page uses it: the application shell. A link names a page:
@@ -68,7 +74,7 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
                 topBar {
                     text(Msg.organizationName);
                     spacer;
-                    search : bind(query), from(md);
+                    search(Msg.searchLabel) : bind(query), placeholder(Msg.searchExample), from(md);
                     menu(Msg.notifications) {
                         iconButton(notifications, Msg.notifications) : trigger;
                         badge(unreadCount());
@@ -76,6 +82,7 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
                             text(item);
                         }
                         menuItem(Msg.markAllRead) : onClick(clearNotices());
+                        menuItem(Msg.muteNotices) : onClick(toggleNoticesMuted()), checked(noticesMuted), multiple;
                     }
                     menu(Msg.account) {
                         avatar(Fmt.initials(Session.claim('name'))) : trigger;
@@ -133,11 +140,11 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
             }
             when (product.isAvailable) {
                 row {
-                    iconButton(remove, Msg.decrease) : onClick(decrement());
+                    iconButton(remove, Msg.decrease) : onClick(decrement()), disabled(quantity <= 1);
                     text(Fmt.number(quantity));
-                    iconButton(add, Msg.increase) : onClick(increment());
+                    iconButton(add, Msg.increase) : onClick(increment()), disabled(quantity >= 10);
                 }
-                button(Msg.addToCart) : onClick(addToCart(product.id, quantity)), kind(primary);
+                button(Msg.addToCart) : onClick(addToCart(product.id, quantity)), kind(primary), hint(Msg.addToCartHint);
             } otherwise {
                 callout(Msg.outOfStock) : tone(warning);
             }
@@ -206,9 +213,12 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
     @path('/orders/:id')
     page OrderDetail(UUID id) {
         data { order = OrderService.OrderAPI.get.orderById(id: id); }
+        state Boolean cancelling = false;
 
+        // The cancel button shows its progress and ignores a second press until the call is answered.
         fn cancel() {
             if (!Ui.confirm(Msg.confirmCancel)) { return; }
+            cancelling = true;
             try {
                 OrderService.OrderAPI.put.cancelOrder(id: id, request: CancelOrderRequest { reason: Msg.customerRequest.text });
                 order.refresh();
@@ -216,6 +226,7 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
             } catch (ConflictError e) {
                 Ui.toast(Msg.cannotCancel);
             }
+            cancelling = false;
         }
 
         view {
@@ -223,7 +234,7 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
             StatusBadge(order.status);
             text(Fmt.money(order.total));
             when (order.canCancel) {
-                button(Msg.cancelOrder) : onClick(cancel()), tone(danger);
+                button(Msg.cancelOrder) : onClick(cancel()), tone(danger), busy(cancelling);
             }
         }
     }

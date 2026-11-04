@@ -8,6 +8,9 @@ config strings ecommerce.Storefront locale "tr-TR" {
     outOfStock      = "Stokta yok";
     share           = "Paylaş";
     addToCart       = "Sepete ekle";
+    addToCartHint   = "Seçilen miktarı sepetinize ekler";
+    searchLabel     = "Ara";
+    searchExample   = "örneğin: deri bot";
     increase        = "Miktarı artır";
     decrease        = "Miktarı azalt";
     cartEmpty       = "Sepetiniz boş";
@@ -28,6 +31,7 @@ config strings ecommerce.Storefront locale "tr-TR" {
     organizationName = "Acme Perakende";
     notifications    = "Bildirimler";
     markAllRead      = "Tümünü okundu say";
+    muteNotices      = "Bildirimleri sessize al";
     account          = "Hesap";
     signOut          = "Çıkış yap";
     navShop          = "Alışveriş";
@@ -43,6 +47,8 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.cancel       = "Vazgeç";
     framework.forbidden    = "Bu sayfaya erişiminiz yok";
     framework.failed       = "Bir şeyler ters gitti";
+    framework.unreachable  = "Sunucuya ulaşılamıyor. Bağlantınızı kontrol edip yeniden deneyin.";
+    framework.requestFailed = "İstek {status} durum koduyla başarısız oldu";
     framework.submit       = "Gönder";
     framework.required     = "Bu alan zorunludur";
     framework.tooShort     = "En az {min} karakter girin";
@@ -68,6 +74,8 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.pagination = "Sayfalama";
     framework.pageNumber = "Sayfa {number}";
     framework.pageSize = "Sayfa başına satır";
+    framework.firstPage = "İlk sayfa";
+    framework.lastPage = "Son sayfa";
     framework.back = "Geri";
     framework.optional = "(isteğe bağlı)";
     framework.notProvided = "Belirtilmedi";
@@ -82,6 +90,8 @@ config strings ecommerce.Storefront locale "tr-TR" {
     framework.notFoundTitle = "Sayfa bulunamadı";
     framework.notFoundDetail = "Aradığınız sayfa mevcut değil ya da taşınmış.";
     framework.goHome = "Ana sayfaya git";
+    framework.showSecret = "Değeri göster";
+    framework.hideSecret = "Değeri gizle";
     framework.formatting   = "Biçimlendirme";
     framework.bold         = "Kalın";
     framework.italic       = "İtalik";

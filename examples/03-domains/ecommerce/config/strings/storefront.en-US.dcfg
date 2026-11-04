@@ -8,6 +8,9 @@ config strings ecommerce.Storefront locale "en-US" {
     outOfStock      = "Out of stock";
     share           = "Share";
     addToCart       = "Add to cart";
+    addToCartHint   = "Adds the chosen quantity to your cart";
+    searchLabel     = "Search";
+    searchExample   = "for example: leather boots";
     increase        = "Increase quantity";
     decrease        = "Decrease quantity";
     cartEmpty       = "Your cart is empty";
@@ -28,6 +31,7 @@ config strings ecommerce.Storefront locale "en-US" {
     organizationName = "Acme Retail";
     notifications    = "Notifications";
     markAllRead      = "Mark all as read";
+    muteNotices      = "Mute notifications";
     account          = "Account";
     signOut          = "Sign out";
     navShop          = "Shop";
