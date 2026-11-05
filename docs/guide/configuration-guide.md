@@ -2222,7 +2222,16 @@ Runtime-valid backends are `aws-secrets-manager`, `azure-key-vault`, `file`,
 |---|---|---|
 | AWS ECS Fargate / App Runner | AWS Secrets Manager | task/instance role via IMDS (region baked) |
 | Azure App Service | Azure Key Vault | system-assigned managed identity |
+| Azure VM (`azure-vm`), default | Mounted files under `/run/secrets/` | file read (no network) |
+| Azure VM (`azure-vm`) with `defaultBackend = azure-key-vault` | Azure Key Vault: one vault per service that alone reads a secret, one application vault, one host vault | each service's own workload identity; the compose project mounts no secret file |
 | LOCAL / docker-compose | Mounted files under `/run/secrets/` | file read (no network) |
+
+On `azure-vm` with `azure-key-vault`, `scripts/deploy.py` checks every vault's secrets by name
+before anything is packaged or started and seeds only the secrets the framework owns; a required
+secret you have not set stops the deploy, listed by vault, handle and name. The variables the host's
+compose file interpolates live in the host vault (one secret per variable the project's `.env.example`
+documents as required) and are fetched into the compose process's environment on the VM, never into
+the release archive.
 
 ### 3. What the generated code actually does
 
