@@ -20,13 +20,13 @@
             proposal under D:\datrix\.tmp\case-proposals\ -- never into the
             repository.
             With -Annotations, propose moving the named modules' diagnostic,
-            transpiled and language-server tests onto fixture annotations and
-            per-code diagnostic fixtures instead.
+            transpiled and language-server tests onto fixture annotations
+            instead.
    accept   Move an approved proposal's rows into case files (an annotation
-            proposal's annotations and per-code fixtures into the fixtures),
-            and remove the code they replace.
+            proposal's annotations into the fixtures), and remove the code
+            they replace.
    check    Check everything the package commits about its cases: case files,
-            fixture annotations, per-code fixtures and docs fences.
+            fixture annotations and docs fences.
 
 .PARAMETER Command
  observe, new, migrate, accept or check.
@@ -50,7 +50,7 @@
  the code emitted for the function declared there, the language server's answers at its $0).
 
 .PARAMETER Annotations
- migrate: propose fixture annotations (and per-code fixtures) for the named modules'
+ migrate: propose fixture annotations for the named modules'
  diagnostic, transpiled and language-server tests, in place of case rows.
 
 .PARAMETER Id

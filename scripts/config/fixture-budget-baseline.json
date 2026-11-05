@@ -1,7 +1,7 @@
 {
   "_comment": "Fixture budget baseline. Per package: fixture_files (.dtrx, .dtrx.false, .dcfg, .dseed files under tests/) and inline_literals (.dtrx/.dcfg string literals in test modules); globally: duplicate_copies, cross_package_names and total_fixtures (every package's fixture_files and inline_literals plus the shared datrix-testing fixture files). Every count may only fall: datrix/scripts/gates/ratchet/fixture-budget-gate.ps1 fails a rise, and its -UpdateBaseline writes only when no count rises. shared_files is printed by the gate and is not pinned here.",
   "baseline": {
-    "cross_package_names": 314,
+    "cross_package_names": 312,
     "datrix-cli:fixture_files": 238,
     "datrix-cli:inline_literals": 92,
     "datrix-codegen-angular:fixture_files": 280,
@@ -20,13 +20,13 @@
     "datrix-codegen-flutter:inline_literals": 0,
     "datrix-codegen-kernel:fixture_files": 36,
     "datrix-codegen-kernel:inline_literals": 4,
-    "datrix-codegen-python:fixture_files": 535,
+    "datrix-codegen-python:fixture_files": 532,
     "datrix-codegen-python:inline_literals": 163,
     "datrix-codegen-sql:fixture_files": 26,
     "datrix-codegen-sql:inline_literals": 7,
     "datrix-codegen-typescript-core:fixture_files": 4,
     "datrix-codegen-typescript-core:inline_literals": 1,
-    "datrix-codegen-typescript:fixture_files": 403,
+    "datrix-codegen-typescript:fixture_files": 390,
     "datrix-codegen-typescript:inline_literals": 49,
     "datrix-common:fixture_files": 59,
     "datrix-common:inline_literals": 121,
@@ -40,7 +40,7 @@
     "datrix-semantic:inline_literals": 111,
     "datrix-testing:fixture_files": 19,
     "datrix-testing:inline_literals": 63,
-    "duplicate_copies": 301,
-    "total_fixtures": 4720
+    "duplicate_copies": 285,
+    "total_fixtures": 4709
   }
 }
