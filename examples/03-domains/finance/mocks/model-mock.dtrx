@@ -1,0 +1,103 @@
+// Stands in for the model. It speaks the wire format of the provider the analyst's agents block names, and it
+// follows a short script: read the alert, then propose a freeze if the alert is critical or two or more alerts are
+// open on the account, and otherwise give advice. It does not think, and a real model is one profile away
+// (`production` in config/compliance-service.dcfg).
+service finance.ModelMock('config/mocks/model-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the model') {
+
+    discovery { }
+
+    enum ModelMove {
+        ReadAlert : tone(info),
+        ProposeFreeze : tone(warning),
+        Answer : tone(success)
+    }
+
+    rdbms modelDb {
+
+        /// One turn the model took, for the Back Office's vendor page.
+        entity ModelCall extends BaseEntity {
+            ModelMove move : filterable;
+            String(1000) detail;
+        }
+    }
+
+    // An agent's prompt carries each value it interpolates inside <data> delimiters.
+    fn tagged(String text, String tag) -> String {
+        return text.split(#"<{tag}><data>")[1].split("</data>")[0];
+    }
+
+    fn deservesAFreeze(String severity, Int openOnThisAccount) -> Boolean {
+        return severity == "Critical" || openOnThisAccount >= 2;
+    }
+
+    fn usage() -> JSON {
+        return { input_tokens: 150, output_tokens: 40 };
+    }
+
+    fn callTool(String name, JSON input) -> JSON {
+        return {
+            type: "message",
+            role: "assistant",
+            stop_reason: "tool_use",
+            content: [{ type: "tool_use", id: #"toolu_{Random.string(16)}", name: name, input: input }],
+            usage: usage()
+        };
+    }
+
+    fn finish(String text) -> JSON {
+        modelDb.ModelCall.create({ move: ModelMove.Answer, detail: text });
+        return {
+            type: "message",
+            role: "assistant",
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: JSON.stringify({ text: text }) }],
+            usage: usage()
+        };
+    }
+
+    fn afterATool(String toolResult, String alertId) -> JSON {
+        let JSON result = JSON.parse(toolResult);
+        if (toolResult.contains("\"frozen\"")) {
+            let String frozenSubject = JSON.get(result, "subject");
+            return finish(#"A second officer agreed. The account behind {frozenSubject} is frozen.");
+        }
+        let String subject = JSON.get(result, "subject");
+        let String severity = JSON.get(result, "severity");
+        let Int open = JSON.get(result, "openOnThisAccount");
+        if (deservesAFreeze(severity, open)) {
+            modelDb.ModelCall.create({ move: ModelMove.ProposeFreeze, detail: subject });
+            return callTool("proposeFreeze", { alertId: alertId, reason: #"Severity {severity}, with {open} open on this account." });
+        }
+        return finish(#"{subject} looks routine. Check the source of funds before closing it.");
+    }
+
+    // The provider's public API. A handle sends no key over plain HTTP, by rule, so this route has none; it holds
+    // nothing but its own script. The first message carries the alert, and the newest says what just happened.
+    rest_api ModelAPI : basePath('/v1'), rdbms(modelDb) {
+        @path('/messages')
+        post messages(JSON request) : auth(public) -> JSON {
+            let Array<JSON> turns = JSON.get(request, "messages");
+            let Array<JSON> opening = JSON.get(turns[0], "content");
+            let String alertId = tagged(JSON.get(opening[opening.length - 1], "text"), "alert");
+            let Array<JSON> blocks = JSON.get(turns[turns.length - 1], "content");
+            let JSON newest = blocks[blocks.length - 1];
+            if (JSON.get(newest, "type") == "tool_result") {
+                return afterATool(JSON.get(newest, "content"), alertId);
+            }
+            modelDb.ModelCall.create({ move: ModelMove.ReadAlert, detail: alertId });
+            return callTool("readAlert", { alertId: alertId });
+        }
+    }
+
+    // What the Back Office shows: every move the model made.
+    rest_api ModelDeskAPI : basePath('/api/v1/desk/model'), rdbms(modelDb) {
+        resource ModelCall : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("the script proposes a freeze only when it should") {
+        assert deservesAFreeze("Critical", 0);
+        assert deservesAFreeze("Medium", 2);
+        assert !deservesAFreeze("Medium", 1);
+    }
+}

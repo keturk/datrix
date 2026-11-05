@@ -22,8 +22,9 @@ service lms.ModelMock('config/mocks/model-mock.dcfg')
         }
     }
 
+    // An agent's prompt carries each value it interpolates inside <data> delimiters.
     fn tagged(String text, String tag) -> String {
-        return text.split(#"<{tag}>")[1].split(#"</{tag}>")[0];
+        return text.split(#"<{tag}><data>")[1].split("</data>")[0];
     }
 
     fn asksForRefund(String question) -> Boolean {
@@ -58,7 +59,7 @@ service lms.ModelMock('config/mocks/model-mock.dcfg')
 
     fn answerFrom(String toolResult) -> JSON {
         let JSON result = JSON.parse(toolResult);
-        if (toolResult.contains("refunded")) {
+        if (toolResult.contains("\"refunded\"")) {
             let String course = JSON.get(result, "courseTitle");
             return finish(#"Your instructor agreed. Your refund for {course} is on its way.");
         }
@@ -104,6 +105,6 @@ service lms.ModelMock('config/mocks/model-mock.dcfg')
     }
 
     test("the script reads a tagged value out of a prompt") {
-        assert tagged("before <lesson>abc</lesson> after", "lesson") == "abc";
+        assert tagged("before <lesson><data>abc</data></lesson> after", "lesson") == "abc";
     }
 }

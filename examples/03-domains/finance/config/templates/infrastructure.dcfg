@@ -1,6 +1,30 @@
-// Reusable infrastructure: PostgreSQL and one Kafka broker. Imported project-root-relative by
+// Reusable infrastructure: PostgreSQL, one Kafka broker and one RabbitMQ. Imported project-root-relative by
 // every service config, so this file must not move.
 config shared finance.InfrastructureTemplates {
+
+  // Carries the decision that wakes a run suspended on an analyst's freeze proposal.
+  template rabbitContainer() {
+    engine = "rabbitmq";
+    flavor = "container";
+    host = "localhost";
+    port = 5672;
+    managementPort = 15672;
+    defaultUser = "guest";
+    dockerImage = "rabbitmq:3-management-alpine";
+    volumePath = "/var/lib/rabbitmq";
+    // Not `ping`: that answers before the AMQP port opens, and a service started on it fails its first connection.
+    healthCheckCmd = "rabbitmq-diagnostics -q check_port_connectivity";
+  }
+
+  template queuePolling() {
+    sqsPollWaitSeconds = 20;
+    sqsMaxMessagesPerPoll = 10;
+    servicebusMaxWaitSeconds = 5;
+  }
+
+  template rabbitPrefetch() {
+    rabbitmqPrefetchCount = 10;
+  }
 
   template postgresContainer(id, database, poolSize = 5, maxOverflow = 5) {
     id = id;

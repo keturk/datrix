@@ -2,8 +2,10 @@ from finance.common import AccountStatus, AccountType;
 
 // Compliance watches the bank from its events and stops nothing itself: a large transfer raises an
 // alert for a person, a sanctions hit raises a critical one, and every account and alert change
-// goes in an audit trail the database itself keeps append-only.
-service finance.ComplianceService('config/compliance-service.dcfg') : version('2.0.0'), description('Alerts and the audit trail') {
+// goes in an audit trail the database itself keeps append-only. An officer can ask an analyst agent
+// about an alert. The agent may propose freezing the account through a tool marked `approval`, and
+// the run then waits for a second officer: whoever asked can never approve their own request.
+service finance.ComplianceService('config/compliance-service.dcfg') : version('2.0.0'), description('Alerts, the audit trail and an analyst agent') {
 
     discovery { }
 
@@ -30,6 +32,13 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
         Closed : tone(neutral)
     }
 
+    enum FreezeStage {
+        Waiting : tone(warning),
+        Frozen : tone(danger),
+        Declined : tone(neutral),
+        Lapsed : tone(neutral)
+    }
+
     rdbms complianceDb {
 
         entity ComplianceAlert extends BaseEntity {
@@ -41,6 +50,9 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
             Money? amount;
             UUID? reviewedBy;
             String(500)? reviewNote;
+            UUID accountId : hidden;
+            String(1000)? analystNote;
+            FreezeStage? freezeStage : filterable;
 
             index(status, severity);
         }
@@ -68,6 +80,10 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
     // A service reads another service's topics through a pubsub block of its own.
     pubsub mq { }
 
+    // Approval decisions travel on a queue the framework declares here.
+    queues {
+    }
+
     subscribe TransferEvents {
         on TransferPosted(UUID transferId, String reference, UUID fromAccountId, Money amount, Boolean needsReview) {
             if (needsReview) {
@@ -76,7 +92,8 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
                     severity: AlertSeverity.Medium,
                     subject: reference,
                     reason: "A transfer reached the review threshold.",
-                    amount: amount
+                    amount: amount,
+                    accountId: fromAccountId
                 });
                 audit("alert.raised", reference, "Large transfer");
             }
@@ -88,7 +105,8 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
                 severity: AlertSeverity.Critical,
                 subject: reference,
                 reason: reason,
-                amount: amount
+                amount: amount,
+                accountId: fromAccountId
             });
             audit("alert.raised", reference, reason);
         }
@@ -106,7 +124,8 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
                     type: AlertType.AccountFrozen,
                     severity: AlertSeverity.Medium,
                     subject: accountNumber,
-                    reason: "An officer froze this account."
+                    reason: "An officer froze this account.",
+                    accountId: accountId
                 });
             }
         }
@@ -122,10 +141,151 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
         Int critical;
     }
 
+    struct AlertFacts {
+        String type;
+        String severity;
+        String(30) subject;
+        String(500) reason;
+        Int openOnThisAccount;
+    }
+
+    struct AnalystView {
+        String(1000) text;
+    }
+
+    struct FreezeResult {
+        String(30) subject;
+        Boolean frozen;
+    }
+
+    struct AnalystReply {
+        String(1000) note;
+        Boolean waitingOnSecondOfficer;
+    }
+
+    /// A freeze the analyst proposed, as the second officer reads it. Everything but the analyst's reason
+    /// comes from the alert row.
+    struct FreezeProposal {
+        UUID requestId;
+        String(30) subject;
+        String(500) alertReason;
+        Money? amount;
+        String(500) analystReason;
+        DateTime requestedAt;
+    }
+
+    agents analyst {
+
+        model primary;
+
+        tool readAlert(UUID alertId) -> AlertFacts : description('What an alert says, and how many other alerts are open on the same account.') {
+            let complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(alertId);
+            let Int open = complianceDb.ComplianceAlert.where(accountId: alert.accountId, status: AlertStatus.Open).count();
+            return {
+                type: alert.type.toString(),
+                severity: alert.severity.toString(),
+                subject: alert.subject,
+                reason: alert.reason,
+                openOnThisAccount: open
+            };
+        }
+
+        // Irreversible for the customer, so it waits for a person. The account comes from the alert the service
+        // wrote from its own events, never from the model.
+        tool proposeFreeze(UUID alertId, String(500) reason) -> FreezeResult : description('Ask a second officer to freeze the account behind an alert.'), approval {
+            ensure reason.length >= 3;
+            let complianceDb.ComplianceAlert alert = complianceDb.ComplianceAlert.findOrFail(alertId);
+            AccountService.AccountInternalAPI.post.freezeOnApproval({ accountId: alert.accountId });
+            alert.freezeStage = FreezeStage.Frozen;
+            alert.save();
+            audit("analyst.freeze.approved", alert.subject, reason);
+            return { subject: alert.subject, frozen: true };
+        }
+
+        agent Analyst(complianceDb.ComplianceAlert alert) -> AnalystView {
+            model(primary);
+            tools(readAlert, proposeFreeze);
+            steps(6);
+            onDecision(onFreezeDecided);
+            prompt {
+                return #"
+                    You help a bank's compliance officer with one alert. Read it with readAlert first. Propose freezing
+                    the account with proposeFreeze only when the alert is critical or several alerts are open on the
+                    account. Otherwise say briefly what the officer should check. A person decides every freeze.
+                    <alert>{alert.id}</alert>
+                ";
+            }
+        }
+    }
+
+    // What follows a decision. An approved run has already frozen the account, in the tool body, and its answer
+    // replaces the note that said it was waiting.
+    fn onFreezeDecided(UUID requestId, ApprovalOutcome outcome, AnalystView? result) -> Void {
+        let complianceDb.ComplianceAlert alert = alertOf(complianceDb.ApprovalRequest.findOrFail(requestId));
+        if (outcome == ApprovalOutcome.Approved) {
+            if (result != null) {
+                alert.analystNote = result.text;
+                alert.save();
+            }
+            return;
+        }
+        let Boolean lapsed = outcome == ApprovalOutcome.Expired;
+        alert.freezeStage = lapsed ? FreezeStage.Lapsed : FreezeStage.Declined;
+        alert.analystNote = lapsed ? "Nobody decided in time, so the account stays open." : "A second officer declined, so the account stays open.";
+        alert.save();
+        audit("analyst.freeze.declined", alert.subject, outcome.toString());
+    }
+
+    fn alertOf(complianceDb.ApprovalRequest request) -> complianceDb.ComplianceAlert {
+        let UUID alertId = JSON.get(JSON.parse(request.arguments), "alertId");
+        return complianceDb.ComplianceAlert.findOrFail(alertId);
+    }
+
+    fn proposalOf(complianceDb.ApprovalRequest request) -> FreezeProposal {
+        let complianceDb.ComplianceAlert alert = alertOf(request);
+        return FreezeProposal {
+            requestId: request.id,
+            subject: alert.subject,
+            alertReason: alert.reason,
+            amount: alert.amount,
+            analystReason: JSON.get(JSON.parse(request.arguments), "reason"),
+            requestedAt: request.requestedAt
+        };
+    }
+
     rest_api ComplianceAPI : basePath('/api/v1/compliance'), rdbms(complianceDb) {
         resource ComplianceAlert : only(list, get), auth(required, providers: [identity], roles: [officer]);
         resource AuditEvent : only(list), auth(required, providers: [identity], roles: [officer]);
         resource DailyReport : only(list), auth(required, providers: [identity], roles: [officer]);
+
+        @path('/alerts/:id/ask-analyst')
+        post askAnalyst(UUID id) : auth(required, providers: [identity], roles: [officer]) -> AnalystReply {
+            let ComplianceAlert alert = ComplianceAlert.findOrFail(id);
+            try {
+                let AnalystView view = analyst.Analyst(alert);
+                alert.analystNote = view.text;
+                alert.save();
+                return AnalystReply { note: view.text, waitingOnSecondOfficer: false };
+            } catch (ModelApprovalPending pending) {
+                let String waiting = "The analyst proposes freezing this account. A second officer has to approve it.";
+                alert.analystNote = waiting;
+                alert.freezeStage = FreezeStage.Waiting;
+                alert.save();
+                return AnalystReply { note: waiting, waitingOnSecondOfficer: true };
+            }
+        }
+
+        // The freezes waiting on a second officer. Approving and declining go through the service's own approval
+        // endpoints (ApprovalAPI), which refuse the officer who asked.
+        @path('/freeze-proposals')
+        get freezeProposals() : auth(required, providers: [identity], roles: [officer]) -> Array<FreezeProposal> {
+            let Array<complianceDb.ApprovalRequest> waiting = complianceDb.ApprovalRequest
+                .where(state: ApprovalState.Pending)
+                .orderBy(requestedAt: asc)
+                .limit(100)
+                .all();
+            return waiting.map(request => proposalOf(request));
+        }
 
         @path('/summary')
         get summary() : auth(required, providers: [identity], roles: [officer]) -> AlertSummary {
@@ -174,5 +334,19 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
             reason: "A transfer reached the review threshold."
         });
         assert alert.status == AlertStatus.Open;
+    }
+
+    // replay('advice') binds the primary handle to fixtures/agents/analyst/primary/advice.jsonl: the model answers
+    // straight away, and no request is written.
+    test("advice asks no second officer") : replay('advice') {
+        let ComplianceAlert alert = complianceDb.ComplianceAlert.create({
+            type: AlertType.LargeTransfer,
+            severity: AlertSeverity.Medium,
+            subject: "TR-1",
+            reason: "A transfer reached the review threshold."
+        });
+        let AnalystView view = analyst.Analyst(alert);
+        assert view.text.contains("source of funds");
+        assert complianceDb.ApprovalRequest.where(state: ApprovalState.Pending).count() == 0;
     }
 }

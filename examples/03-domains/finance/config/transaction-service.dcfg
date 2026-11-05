@@ -3,6 +3,7 @@ config service finance.TransactionService {
 
   base {
     port = 8002;
+    language = "python";  // ComplianceService's agent needs Python, and one system generates in one language.
     replicas = 1;
     healthCheck {
       path = "/health";

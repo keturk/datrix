@@ -3,6 +3,7 @@ config service finance.BankMock {
 
   base {
     port = 8090;
+    language = "python";  // ComplianceService's agent needs Python, and one system generates in one language.
     replicas = 1;
     healthCheck {
       path = "/health";

@@ -9,12 +9,14 @@ include 'compliance-service.dtrx';
 include 'mocks/bank-mock.dtrx';
 include 'mocks/kyc-mock.dtrx';
 include 'mocks/sanctions-mock.dtrx';
+include 'mocks/model-mock.dtrx';
 include 'banking-app.dtrx';
 include 'back-office-app.dtrx';
 
 /// Quillon Bank: customers open accounts and move money on the web or a phone, staff check
-/// customers and review alerts, and the ledger itself refuses an unbalanced posting. The payment
-/// network, the identity check and the sanctions list belong to outside vendors, played here by
-/// mocks in the same stack.
+/// customers and review alerts, and the ledger itself refuses an unbalanced posting. An AI analyst
+/// reads an alert for an officer and can propose freezing the account, which waits for a second
+/// officer's approval. The payment network, the identity check, the sanctions list and the model
+/// belong to outside vendors, played here by mocks in the same stack.
 system finance.System('config/system.dcfg') : version('2.0.0') {
 }

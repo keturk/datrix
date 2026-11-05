@@ -1,0 +1,41 @@
+config service finance.ModelMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8093;
+    language = "python";  // ComplianceService's agent needs Python, and one system generates in one language.
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms modelDb from postgresContainer(id: "8d21f7c4-5b0e-4a63-9f18-3ce6a7d01b52", database: "finance_model_mock");
+    httpSecurity from localHttpSecurity(host: "finance-model-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

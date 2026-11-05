@@ -1,6 +1,6 @@
 # Quillon Bank
 
-A small retail bank, built as a complete application: customers open accounts and move money on the web or a phone, and staff check customers, take deposits and review alerts. A real double-entry ledger sits underneath. The payment network, the identity check and the sanctions list run as mocks in the same stack, so nothing here needs an account with anyone and no real money moves. Quillon Bank is invented.
+A small retail bank, built as a complete application: customers open accounts and move money on the web or a phone, and staff check customers, take deposits and review alerts. A real double-entry ledger sits underneath, and an AI analyst reads an alert for an officer and can propose freezing the account, which waits for a second officer. The payment network, the identity check, the sanctions list and the model run as mocks in the same stack, so nothing here needs an account with anyone and no real money moves. Quillon Bank is invented.
 
 ## What it shows
 
@@ -14,6 +14,9 @@ A small retail bank, built as a complete application: customers open accounts an
 | Personal data handled with care: the identity document is never stored, and the date of birth never leaves the service | `register`, `dateOfBirth : hidden` in [account-service.dtrx](account-service.dtrx) |
 | Compliance built only on events, with an audit trail the database keeps append-only | [compliance-service.dtrx](compliance-service.dtrx) |
 | Jobs that keep their own record: nightly reconciliation and a daily report | `ReconcileYesterday`, `ReportYesterday` |
+| An AI agent with tools that a person has to approve: a proposal pauses the run, and a second officer's decision wakes it | `agents analyst` in [compliance-service.dtrx](compliance-service.dtrx) |
+| The approval endpoints an `agents` block brings, called from a designed page | the Freezes page in [back-office-app.dtrx](back-office-app.dtrx) |
+| Agent tests that replay a recorded conversation, so a spec test never reaches a model | `: replay('advice')`, [config/fixtures/agents/](config/fixtures/agents/) |
 | Third parties behind `extern service` contracts | [providers/](providers/) |
 | Mock vendors that authenticate callers with API keys, storing only hashes | [mocks/](mocks/) |
 | Payments that are safe to retry: one key per transfer | `idempotencyKey` in `payout` |
@@ -23,13 +26,14 @@ A small retail bank, built as a complete application: customers open accounts an
 | Part | Port | What it does |
 |---|---|---|
 | Banking app | 4200 | Accounts, statements, transfers, paying someone at another bank, the identity check |
-| Back Office app | 4300 | Customers, accounts, transfers, the counter, alerts, the audit trail, the ledger, and what the vendors received |
+| Back Office app | 4300 | Customers, accounts, transfers, the counter, alerts, freezes waiting on an officer, the audit trail, the ledger, and what the vendors received |
 | `AccountService` | 8001 | Customers and accounts, and the application's identity block |
 | `TransactionService` | 8002 | The ledger and transfers |
-| `ComplianceService` | 8003 | Alerts, the audit trail and daily reports |
+| `ComplianceService` | 8003 | Alerts, the audit trail, daily reports and the AI analyst |
 | `BankMock` | 8090 | Stands in for the payment network |
 | `KycMock` | 8091 | Stands in for the identity check vendor |
 | `SanctionsMock` | 8092 | Stands in for the sanctions vendor |
+| `ModelMock` | 8093 | Stands in for the model behind the analyst |
 
 ## Third parties
 
@@ -41,16 +45,18 @@ The product services call a contract and do not know a mock answers it. To use a
 | `KycProvider` | `KycMock` | A document number ending `0000` is declined, one ending `9999` goes to a person, anything else is clear |
 | `SanctionsProvider` | `SanctionsMock` | Screens a payee against a short invented list staff can edit |
 
+`ModelMock` is different: it speaks the wire format of the model provider the `agents` block names, so the analyst needs no contract. It follows a short script and does not think. The `production` profile in [config/compliance-service.dcfg](config/compliance-service.dcfg) is the same agent with a real model and a key.
+
 ## Run it
 
 ```bash
-datrix generate -s examples/03-domains/finance/system.dtrx -L python
+datrix generate -s examples/03-domains/finance/system.dtrx -L python --profile development
 cd <the generated output>
 cp .env.example .env
 ./scripts/deploy.sh        # Windows: scripts\deploy.ps1
 ```
 
-TypeScript generates from the same source with `-L typescript`. Only one example can hold the default ports at a time, and `.env` moves them.
+The `development` profile runs the analyst against the model mock. The default `test` profile replays recorded answers instead, for spec tests. This example generates in Python only, because TypeScript does not realize `agents` yet; every service's config names its language. Only one example can hold the default ports at a time, and `.env` moves them.
 
 Then open:
 
@@ -66,6 +72,8 @@ Then open:
 5. **Hit the sanctions list.** Pay `Ivor Blackwood`. The payment holds, no money moves, and a critical alert appears under Alerts.
 6. **Have a payment refused.** Pay anyone at an IBAN starting `XX`. The transfer is rejected and the money comes back.
 7. **Trip compliance.** Transfer 10,000 or more, and an alert appears for an officer.
+8. **Ask the analyst.** As an officer, use *Ask the analyst* on that alert. A routine alert gets advice. On a critical one, or a second open alert on the same account, the analyst proposes a freeze and its run pauses.
+9. **Be the second officer.** The proposal waits under Freezes. The officer who asked is refused, so sign in as another officer and approve it: the run wakes up and freezes the account. Decline one and the account stays open.
 
 ## Sign-in and roles
 

@@ -11,7 +11,8 @@ config shared lms.InfrastructureTemplates {
     defaultUser = "guest";
     dockerImage = "rabbitmq:3-management-alpine";
     volumePath = "/var/lib/rabbitmq";
-    healthCheckCmd = "rabbitmq-diagnostics -q ping";
+    // Not `ping`: that answers before the AMQP port opens, and a service started on it fails its first connection.
+    healthCheckCmd = "rabbitmq-diagnostics -q check_port_connectivity";
   }
 
   template queuePolling() {

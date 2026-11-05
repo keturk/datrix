@@ -10,8 +10,15 @@ app finance.BackOffice('config/back-office-app.dcfg') : version('2.0.0') {
     uses finance.BankMock;
     uses finance.KycMock;
     uses finance.SanctionsMock;
+    uses finance.ModelMock;
 
     theme extends Brand { }
+
+    state String analystNote = "";
+
+    fn askAnalyst(UUID id) {
+        analystNote = ComplianceService.ComplianceAPI.post.askAnalyst(id: id).note;
+    }
 
     fn freezeAccount(UUID id) {
         AccountService.StaffAPI.post.freeze(id: id);
@@ -31,11 +38,13 @@ app finance.BackOffice('config/back-office-app.dcfg') : version('2.0.0') {
             link Transfers : icon(swap_horiz), group(Msg.navBank);
             link Counter : icon(point_of_sale), group(Msg.navBank);
             link Alerts : icon(report), group(Msg.navCompliance);
+            link Freezes : icon(lock), group(Msg.navCompliance);
             link Audit : icon(history), group(Msg.navCompliance);
             link Ledger : icon(menu_book), group(Msg.navCompliance);
             link Payments : icon(send), group(Msg.navVendors);
             link Checks : icon(badge), group(Msg.navVendors);
             link Screenings : icon(policy), group(Msg.navVendors);
+            link ModelTurns : icon(smart_toy), group(Msg.navVendors);
         }
         view {
             sidebar : collapsible, at(lg) {
@@ -198,9 +207,68 @@ app finance.BackOffice('config/back-office-app.dcfg') : version('2.0.0') {
             section(Msg.alertsPerDay) {
                 chart(bar, data: reports, x: r => r.day, y: r => r.alertsRaised);
             }
+            when (analystNote != "") {
+                callout(analystNote) : tone(info);
+            }
             table(AlertList);
             card(Msg.closeAlertTitle) { form(CloseAlert); }
         }
+    }
+
+    @path('/freezes')
+    page Freezes() {
+        data {
+            proposals = ComplianceService.ComplianceAPI.get.freezeProposals() : poll(15s);
+        }
+
+        // These two reach the approval endpoints the analyst's agents block brings with it. Approving wakes the
+        // suspended run, which freezes the account. The endpoints refuse the officer who asked the analyst.
+        fn approveFreeze(UUID requestId) {
+            ComplianceService.ApprovalAPI.post.approve(id: requestId);
+            proposals.refresh();
+            Ui.toast(Msg.freezeApproved, tone: warning);
+        }
+
+        fn declineFreeze(UUID requestId) {
+            ComplianceService.ApprovalAPI.post.deny(id: requestId);
+            proposals.refresh();
+            Ui.toast(Msg.freezeDeclined, tone: info);
+        }
+
+        view {
+            pageHeader(Msg.freezesTitle, Msg.freezesSubtitle) {
+                link(Msg.freezeHistory, Alerts);
+            }
+            when (proposals.length == 0) {
+                emptyState(Msg.noFreezesWaiting) : icon(task_alt);
+            }
+            foreach (proposal in proposals) {
+                card(proposal.subject) {
+                    text(Msg.freezeAsked(asked: Fmt.relative(proposal.requestedAt)));
+                    callout(proposal.alertReason) : tone(warning);
+                    text(Msg.analystReason(reason: proposal.analystReason));
+                    row {
+                        button(Msg.approveFreeze) : onClick(approveFreeze(proposal.requestId)), kind(primary), tone(danger), icon(lock);
+                        button(Msg.declineFreeze) : onClick(declineFreeze(proposal.requestId)), icon(close);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/vendors/model')
+    page ModelTurns() {
+        view {
+            pageHeader(Msg.modelTitle, Msg.modelSubtitle);
+            table(TurnList);
+        }
+    }
+
+    table TurnList : source(ModelMock.ModelDeskAPI.modelDb.ModelCall.list), poll(30s) {
+        column createdAt : format(relative);
+        column move;
+        column detail;
+        filter move;
     }
 
     table AlertList : source(ComplianceService.ComplianceAPI.complianceDb.ComplianceAlert.list), pageSizes(10, 25, 50), poll(30s) {
@@ -211,10 +279,14 @@ app finance.BackOffice('config/back-office-app.dcfg') : version('2.0.0') {
         column subject;
         column reason;
         column amount : format(money);
+        column analystNote;
+        column freezeStage;
         column reviewNote;
         filter status;
         filter severity;
         filter type;
+        filter freezeStage;
+        rowAction askAnalyst : onClick(askAnalyst(row.id));
     }
 
     form CloseAlert : submit(ComplianceService.ComplianceAPI.post.closeAlert) {

@@ -266,7 +266,8 @@ service social.PeopleService('config/people-service.dcfg') : version('2.0.0'), d
                 }
                 dispatch PersonFollowed(mine.handle, mine.displayName, handle);
             }
-            return Counted { count: Profile.where(handle: target.handle).firstOrFail().followers };
+            let Profile counted = Profile.where(handle: target.handle).firstOrFail();
+            return Counted { count: counted.followers };
         }
 
         @path('/unfollow/:handle')

@@ -116,11 +116,17 @@ service lms.TutorService('config/tutor-service.dcfg') : version('2.0.0'), descri
     // What follows a decision. An approved run has already refunded, through the tool body. A decline or a
     // request nobody answered in time never ran the tool, so the student is told here.
     fn onRefundDecided(UUID requestId, ApprovalOutcome outcome, TutorAnswer? result) -> Void {
+        let tutorDb.TutorExchange exchange = exchangeOf(tutorDb.ApprovalRequest.findOrFail(requestId));
         if (outcome == ApprovalOutcome.Approved) {
+            if (result != null) {
+                exchange.answer = result.text;
+                exchange.save();
+            }
             return;
         }
-        let tutorDb.TutorExchange exchange = exchangeOf(tutorDb.ApprovalRequest.findOrFail(requestId));
-        exchange.refundStage = outcome == ApprovalOutcome.Expired ? RefundStage.Lapsed : RefundStage.Declined;
+        let Boolean lapsed = outcome == ApprovalOutcome.Expired;
+        exchange.refundStage = lapsed ? RefundStage.Lapsed : RefundStage.Declined;
+        exchange.answer = lapsed ? "Your instructor did not decide in time, so no refund was made." : "Your instructor decided against a refund. Your place on the course is safe.";
         exchange.save();
         EnrollmentService.EnrollmentInternalAPI.post.tellRefundDeclined({ enrollmentId: exchange.enrollmentId });
     }

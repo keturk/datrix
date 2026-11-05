@@ -57,8 +57,37 @@ config strings finance.BackOffice locale "en-US" {
     tabNames           = "Listed names";
     addName            = "Add a name";
     nameAdded          = "Name added.";
+    freezesTitle       = "Freezes waiting";
+    freezesSubtitle    = "The analyst proposed these. A second officer decides, and nothing happens until one does.";
+    freezeHistory      = "See every alert";
+    noFreezesWaiting   = "No freezes are waiting for a decision.";
+    freezeAsked        = "Proposed {asked}";
+    analystReason      = "Why the analyst proposes it: {reason}";
+    approveFreeze      = "Freeze the account";
+    declineFreeze      = "Leave it open";
+    freezeApproved     = "Freeze approved. The account will be frozen in a moment.";
+    freezeDeclined     = "Proposal declined. The account stays open.";
+    modelTitle         = "The model";
+    modelSubtitle      = "Every move the analyst's model made. A script plays the model here.";
   }
   labels {
+    page.Freezes     = "Freezes";
+    page.ModelTurns  = "Model";
+    field.ComplianceAlert.analystNote = "Analyst says";
+    field.ComplianceAlert.freezeStage = "Freeze";
+    filter.AlertList.freezeStage = "Freeze";
+    action.AlertList.askAnalyst = "Ask the analyst";
+    field.ModelCall.createdAt = "When";
+    field.ModelCall.move     = "Move";
+    field.ModelCall.detail   = "Detail";
+    filter.TurnList.move     = "Move";
+    enum.FreezeStage.Waiting = "Waiting on an officer";
+    enum.FreezeStage.Frozen  = "Frozen";
+    enum.FreezeStage.Declined = "Declined";
+    enum.FreezeStage.Lapsed  = "Lapsed";
+    enum.ModelMove.ReadAlert = "Read an alert";
+    enum.ModelMove.ProposeFreeze = "Proposed a freeze";
+    enum.ModelMove.Answer    = "Answered";
     page.Dashboard   = "Dashboard";
     page.Customers   = "Customers";
     page.AccountList = "Accounts";

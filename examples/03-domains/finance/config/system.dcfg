@@ -30,6 +30,12 @@ config system finance.System {
             retries = 20;
             startPeriod = "60s";
           }
+          rabbitmqHealthcheck {
+            interval = "10s";
+            timeout = "15s";
+            retries = 20;
+            startPeriod = "60s";
+          }
           jobWorkerHealthcheck {
             interval = "30s";
             timeout = "10s";

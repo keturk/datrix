@@ -234,6 +234,25 @@ service finance.AccountService('config/account-service.dcfg') : version('2.0.0')
         }
     }
 
+    struct FreezeOrder {
+        UUID accountId;
+    }
+
+    struct FreezeDone {
+        AccountStatus status;
+    }
+
+    // What compliance reaches once a second officer approved a freeze the analyst proposed.
+    rest_api AccountInternalAPI : basePath('/api/v1/internal/accounts'), rdbms(accountDb) {
+        @path('/freeze')
+        post freezeOnApproval(FreezeOrder request) : auth(service, providers: [machine]) -> FreezeDone {
+            let Account account = Account.findOrFail(request.accountId);
+            account.status = AccountStatus.Frozen;
+            account.save();
+            return FreezeDone { status: account.status };
+        }
+    }
+
     test("a new account starts active with a generated number") {
         let Customer customer = accountDb.Customer.create({
             userId: uuid(),

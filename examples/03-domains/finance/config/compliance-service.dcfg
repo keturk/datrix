@@ -3,6 +3,7 @@ config service finance.ComplianceService {
 
   base {
     port = 8003;
+    language = "python";  // The agents block needs Python, and one system generates in one language.
     replicas = 1;
     healthCheck {
       path = "/health";
@@ -13,6 +14,9 @@ config service finance.ComplianceService {
     httpSecurity from localHttpSecurity(host: "finance-compliance-service");
     outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
+    queues from rabbitContainer();
+    queueOps from queuePolling();
+    messagingOps from rabbitPrefetch();
     serviceCredentialOps from machineCredential();
     microserviceClientOps from peerClient();
     retryBudgetOps from retryBudget();
@@ -26,19 +30,86 @@ config service finance.ComplianceService {
     }
     resilience {
       defaults {
-        timeout = "10s";
+        timeout = "30s";
       }
       dependencyPolicy {
         defaults {
           rdbms from standardDatabasePolicy();
+          // A model call is never retried by the client: only a breaker and a bulkhead apply.
+          model {
+            circuitBreaker {
+              failureThreshold = 5;
+              timeout = "30s";
+            }
+            bulkhead {
+              maxConcurrent = 8;
+            }
+          }
         }
+      }
+    }
+    // Outside production the model is the mock in this stack. Plain HTTP to a model is only allowed with no key
+    // on the wire, which is why the handle carries none; production below is the same agent over TLS with a key.
+    agents analyst {
+      models {
+        primary {
+          provider = "anthropic";
+          flavor = "external";
+          model = "quillon-script";
+          url = "http://finance-model-mock:8093";
+          auth = "none";
+          allowPlaintextHttp = true;
+          maxOutputTokens = 1024;
+          timeout = "20s";
+          budget {
+            perRun {
+              tokens = 8000;
+              wallclock = "1m";
+            }
+            daily {
+              tokens = 500000;
+            }
+          }
+        }
+      }
+      // A second officer decides: the endpoints refuse the officer who asked the analyst. A proposal nobody
+      // answers within a day lapses, and the alert says so.
+      // exposure = "public" puts the approval endpoints on the gateway, so the Back Office can call them.
+      approvals {
+        approverRole = "officer";
+        providers = ["identity"];
+        timeout = "24h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "public";
       }
     }
   }
 
+  // Spec tests never reach a model: the replay provider plays config/fixtures/agents/analyst/primary/.
   profile test as "test" extends base {
     alias env = "TEST";
     alias resource = "test";
+    replace agents analyst {
+      models {
+        primary {
+          provider = "replay";
+          fixtures = "fixtures/agents/analyst/primary/";
+          budget {
+            perRun {
+              tokens = 8000;
+              wallclock = "1m";
+            }
+          }
+        }
+      }
+      approvals {
+        approverRole = "officer";
+        providers = ["identity"];
+        timeout = "24h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "public";
+      }
+    }
   }
 
   profile development as "dev" extends base {
@@ -49,5 +120,39 @@ config service finance.ComplianceService {
   profile production as "prod" extends base {
     alias env = "PROD";
     alias resource = "prod";
+    secrets {
+      secret analyst_model_key {
+        required = true;
+        purpose = "API key for the model behind the analyst.";
+      }
+    }
+    replace agents analyst {
+      models {
+        primary {
+          provider = "anthropic";
+          flavor = "direct";
+          model = "claude-sonnet-5-5";
+          apiKey = "analyst_model_key";
+          maxOutputTokens = 1024;
+          timeout = "60s";
+          budget {
+            perRun {
+              tokens = 8000;
+              wallclock = "2m";
+            }
+            daily {
+              tokens = 500000;
+            }
+          }
+        }
+      }
+      approvals {
+        approverRole = "officer";
+        providers = ["identity"];
+        timeout = "24h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "public";
+      }
+    }
   }
 }

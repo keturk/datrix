@@ -4,9 +4,10 @@ seed service finance.ComplianceService {
   rdbms complianceDb {
     baseline {
       ComplianceAlert table on(id) {
-        id,                 type,          severity, status, subject,         reason,                                     amount;
-        @uuid("alert-big"), LargeTransfer, Medium,   Open,   "TR-SEED-OPEN2", "A transfer reached the review threshold.", 12000.00;
-        @uuid("alert-frz"), AccountFrozen, Medium,   Open,   "QB1000000003",  "An officer froze this account.",           null;
+        id,                 type,          severity, status, subject,         reason,                                     amount,   accountId;
+        @uuid("alert-big"), LargeTransfer, Medium,   Open,   "TR-SEED-OPEN2", "A transfer reached the review threshold.", 12000.00, @uuid("account-mina");
+        @uuid("alert-frz"), AccountFrozen, Medium,   Open,   "QB1000000003",  "An officer froze this account.",           null,     @uuid("account-ben");
+        @uuid("alert-hit"), SanctionsHit,  Critical, Open,   "TR-SEED-HELD1", "The payee matches a listed name.",         4800.00,  @uuid("account-mina2");
       }
       AuditEvent table on(id) {
         id,                  action,           subject,        detail;

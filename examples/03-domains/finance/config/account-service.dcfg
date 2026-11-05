@@ -3,6 +3,7 @@ config service finance.AccountService {
 
   base {
     port = 8001;
+    language = "python";  // ComplianceService's agent needs Python, and one system generates in one language.
     replicas = 1;
     healthCheck {
       path = "/health";
@@ -13,6 +14,7 @@ config service finance.AccountService {
     httpSecurity from localHttpSecurity(host: "finance-account-service");
     outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
+    serviceCredentialOps from machineCredential();
     resilience {
       defaults {
         timeout = "10s";
