@@ -60,41 +60,6 @@ Analyze a fixture project (`tests\fixtures\[projects\]<name>\`) the way a test d
 
 Parameters: `-Path` (required; the `.dtrx` or its directory), `-ConfigProfile <name,...>` (default `test`), `-Dbg`, `-SelfTest`
 
-### `dev\fixture-author.ps1`
-
-Author a package's diagnostics area fixtures from the diagnostic catalog: draft the areas with a local model, plan them, copy their scaffold, verify each area reports exactly what it annotates.
-
-Drafting (no action switch) asks the model for one fragment per variant, analyzes the area once per round, and sends a cascade or a variant not provoked back, at most 4 rounds. A variant still failing is written to `.tmp\fixture-author\queue\<area>.md` with its last analysis output and draft, for a person to finish; a draft holding a secret-looking literal is queued and never written. An area on disk is never drafted over.
-
-Target-check variants (the package whose session registers the target checks) go to one area, `targets`, declaring `// @analysis targets` and naming no language: it is one input per registered backend language, and drafting and `-Verify` analyze every input, so a variant provoked under one language only is not provoked.
-
-| Form | Command |
-|------|---------|
-| Draft every absent area | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic` |
-| Draft one area | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Area svc` |
-| Needs and planned areas | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Plan` |
-| One area's variants | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Area svc -Plan` |
-| Copy the scaffold | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Scaffold` |
-| Verify one area | `.\dev\fixture-author.ps1 diagnostics -Package datrix-semantic -Area svc -Verify` |
-
-Parameters: `-Kind diagnostics` (required, positional), `-Package <name>` (required), `-Area <area>` (default every planned area), at most one of `-Plan`, `-Scaffold`, `-Verify` (none drafts), `-LocalMachines <host,...>`, `-LlmModel <model,...>`, `-LlmTimeout <seconds>` (default 300), `-Dbg`, `-SelfTest`
-
-Exit of `diagnostics`: 0 done, 1 a variant was queued, an area failed verification or the package's state refuses the run, 2 usage error, 3 no local model can draft (nothing is written).
-
-### `dev\fixture-dedupe.ps1`
-
-Keep each duplicated test fixture (file or inline literal) once under the corpus's `shared/` directory. Lists its groups, the copy that moves, the copies deleted, the copies kept with their reason (among them every copy of a `.dcfg` the model-contract capture refuses or holds a secret finding for, of a `.dtrx` the formatter's corpus walk refuses, of a file in a directory a test reads whole or copies with `shutil.copytree`, and of a `.dtrx` an entry staying in place includes while it names a project-root path), each fixture reference rewritten to reach its file's shared place, and each test-module site rewritten to `shared_fixture(...)` or refused for a hand edit. Without `-DryRun` it proves the write over the planned tree, writes it, proves it again on disk with every semantic baseline's drift, and records it under `<workspace>\.tmp\fixture-dedupe\<time>\` (`record.json`, and each replaced file's old bytes); a failure once written puts every file back. No git command.
-
-| Form | Command |
-|------|---------|
-| List the plan | `.\dev\fixture-dedupe.ps1 -DryRun` |
-| List, prove, write and record | `.\dev\fixture-dedupe.ps1` |
-| Over another workspace root | `.\dev\fixture-dedupe.ps1 -DryRun -BaseDir <root>` |
-
-Parameters: `-DryRun`, `-BaseDir <root>` (default: the workspace), `-Dbg`, `-SelfTest`
-
-Exit: 0 listed (and, without `-DryRun`, written and proven), 1 a walk site cannot be evaluated, a staying reference is shadowed by a placed copy, or the write's proof fails (nothing written, or everything put back), 2 usage error / unreadable or unparsable file / missing corpus / a capture that cannot run / a semantic-baseline entry that cannot be analyzed.
-
 ### `dev\who-imports.ps1`
 
 Which runtime import chain first loads a module.
