@@ -100,12 +100,12 @@
     "reason": "Searches an expression tree for string literal values, not names."
   },
   {
-    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/forms.py::_reads_name",
+    "site": "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/_form_fields.py::_reads_name",
     "category": "no-facts-boundary",
     "reason": "Reads a client form's view expression, on which analysis records no facts."
   },
   {
-    "site": "datrix-codegen-angular/src/datrix_codegen_angular/dgen/views.py::_references_foreach_variable",
+    "site": "datrix-codegen-angular/src/datrix_codegen_angular/dgen/_view_expressions.py::_references_foreach_variable",
     "category": "no-facts-boundary",
     "reason": "Reads a client view element's expression, on which analysis records no facts."
   },
