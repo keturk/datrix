@@ -15,16 +15,6 @@ app lms.Instructor('config/instructor-app.dcfg') : version('2.0.0') {
     state UUID? addingTo = null;
     state Boolean adding = false;
 
-    fn grantRefund(UUID id) {
-        EnrollmentService.TeachingAPI.post.grantRefund(id: id);
-        Ui.toast(Msg.refundGranted, tone: success);
-    }
-
-    fn declineRefund(UUID id) {
-        EnrollmentService.TeachingAPI.post.declineRefund(id: id);
-        Ui.toast(Msg.refundDeclined, tone: info);
-    }
-
     layout Shell : default {
         nav {
             link Dashboard : icon(dashboard), group(Msg.navTeaching);
@@ -64,16 +54,17 @@ app lms.Instructor('config/instructor-app.dcfg') : version('2.0.0') {
     page Dashboard() {
         data {
             summary = EnrollmentService.TeachingAPI.get.summary() : poll(30s);
+            proposals = TutorService.TutorAPI.get.refundProposals() : poll(30s);
         }
         view {
             pageHeader(Msg.dashboardTitle, Msg.dashboardSubtitle);
             grid : style(statRow) {
                 stat(Msg.statActive, Fmt.number(summary.activeStudents)) : icon(groups);
                 stat(Msg.statCompleted, Fmt.number(summary.completed)) : icon(workspace_premium), tone(success);
-                stat(Msg.statRefunds, Fmt.number(summary.refundsWaiting)) : icon(currency_exchange), tone(warning);
+                stat(Msg.statRefunds, Fmt.number(proposals.length)) : icon(currency_exchange), tone(warning);
                 stat(Msg.statRevenue, Fmt.money(summary.revenue)) : icon(payments);
             }
-            when (summary.refundsWaiting > 0) {
+            when (proposals.length > 0) {
                 callout(Msg.refundsWaitingNotice) : tone(warning) { link(Msg.openRefunds, Refunds) : kind(primary); }
             }
         }
@@ -213,23 +204,43 @@ app lms.Instructor('config/instructor-app.dcfg') : version('2.0.0') {
 
     @path('/refunds')
     page Refunds() {
-        view {
-            pageHeader(Msg.refundsTitle, Msg.refundsSubtitle);
-            table(RefundList);
+        data {
+            proposals = TutorService.TutorAPI.get.refundProposals() : poll(15s);
         }
-    }
 
-    table RefundList : source(EnrollmentService.TeachingAPI.enrollmentDb.RefundRequest.list), poll(30s) {
-        column createdAt : format(relative);
-        column studentName;
-        column courseTitle;
-        column amount : format(money);
-        column reason;
-        column status;
-        column decidedByName;
-        filter status;
-        rowAction grant : onClick(grantRefund(row.id));
-        rowAction decline : onClick(declineRefund(row.id));
+        // These two reach the approval endpoints the tutor's agents block brings with it. Approving wakes the
+        // suspended run, which refunds and answers; declining ends it, and the student is told by email.
+        fn approveRefund(UUID requestId) {
+            TutorService.ApprovalAPI.post.approve(id: requestId);
+            proposals.refresh();
+            Ui.toast(Msg.refundGranted, tone: success);
+        }
+
+        fn declineRefund(UUID requestId) {
+            TutorService.ApprovalAPI.post.deny(id: requestId);
+            proposals.refresh();
+            Ui.toast(Msg.refundDeclined, tone: info);
+        }
+
+        view {
+            pageHeader(Msg.refundsTitle, Msg.refundsSubtitle) {
+                link(Msg.refundHistory, TutorLog);
+            }
+            when (proposals.length == 0) {
+                emptyState(Msg.noRefundsWaiting) : icon(task_alt);
+            }
+            foreach (proposal in proposals) {
+                card(proposal.studentName) {
+                    text(Msg.refundLine(course: proposal.courseTitle, amount: Fmt.money(proposal.paid), asked: Fmt.relative(proposal.requestedAt)));
+                    callout(proposal.question) : tone(info);
+                    text(Msg.tutorReason(reason: proposal.reason));
+                    row {
+                        button(Msg.approve) : onClick(approveRefund(proposal.requestId)), kind(primary), icon(check);
+                        button(Msg.decline) : onClick(declineRefund(proposal.requestId)), icon(close);
+                    }
+                }
+            }
+        }
     }
 
     @path('/tutor')
@@ -240,19 +251,15 @@ app lms.Instructor('config/instructor-app.dcfg') : version('2.0.0') {
         }
     }
 
-    component RefundAskedBadge(Boolean refundProposed) {
-        view {
-            when (refundProposed) { badge(Msg.askedRefund) : tone(warning); }
-        }
-    }
-
     table ExchangeList : source(TutorService.TutorAPI.tutorDb.TutorExchange.list), poll(30s) {
         column createdAt : format(relative);
         column studentName;
+        column courseTitle;
         column question;
         column answer;
-        column refundProposed : render(RefundAskedBadge);
+        column refundStage;
         filter studentName;
+        filter refundStage;
     }
 
     @path('/vendors/charges')
@@ -299,17 +306,9 @@ app lms.Instructor('config/instructor-app.dcfg') : version('2.0.0') {
 
     table TurnList : source(ModelMock.ModelDeskAPI.modelDb.ModelCall.list), poll(30s) {
         column createdAt : format(relative);
-        column lessonTitle;
-        column question;
-        column answer;
-        column wantsRefund : render(RefundAskedBadge2);
-        filter lessonTitle;
-    }
-
-    component RefundAskedBadge2(Boolean wantsRefund) {
-        view {
-            when (wantsRefund) { badge(Msg.askedRefund) : tone(warning); }
-        }
+        column move;
+        column detail;
+        filter move;
     }
 
     page NotFound() : fallback {

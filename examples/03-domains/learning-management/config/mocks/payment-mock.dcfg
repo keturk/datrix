@@ -3,6 +3,7 @@ config service lms.PaymentMock {
 
   base {
     port = 8090;
+    language = "python";  // TutorService's agent needs Python, and one system generates in one language.
     replicas = 1;
     healthCheck {
       path = "/health";

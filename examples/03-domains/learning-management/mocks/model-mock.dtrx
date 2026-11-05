@@ -1,42 +1,29 @@
-// Stands in for the model. It implements the ModelProvider contract and follows a short script: a
-// question about getting money back is a refund, anything else is answered with the opening of the
-// lesson. It does not think, and a real model is one URL in config/providers/model-provider.dcfg away.
+// Stands in for the model. It speaks the wire format of the provider the tutor's agents block names, and it
+// follows a short script: a question about getting money back asks for the offerRefund tool, anything else
+// reads the lesson and answers with its opening. It does not think, and a real model is one profile away
+// (`production` in config/tutor-service.dcfg).
 service lms.ModelMock('config/mocks/model-mock.dcfg')
     : version('1.0.0'), description('In-stack mock of the model') {
 
     discovery { }
 
+    enum ModelMove {
+        ReadLesson : tone(info),
+        OfferRefund : tone(warning),
+        Answer : tone(success)
+    }
+
     rdbms modelDb {
 
-        /// One answer the model gave, for the Instructor app's vendor page.
+        /// One turn the model took, for the Instructor app's vendor page.
         entity ModelCall extends BaseEntity {
-            String(200) lessonTitle : filterable;
-            String(1000) question;
-            String(2000) answer;
-            Boolean wantsRefund : filterable;
-        }
-
-        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
-        entity ApiKey extends BaseEntity {
-            String(64) keyHash : unique;
-            UUID ownerId : index;
-            Array<String> scopes = [];
-            Boolean isActive = true;
-            DateTime? expiresAt;
-            DateTime? lastUsedAt;
+            ModelMove move : filterable;
+            String(2000) detail;
         }
     }
 
-    struct ModelQuestion {
-        String(400) instructions;
-        String(200) lessonTitle;
-        Text lessonText;
-        String(1000) question;
-    }
-
-    struct ModelAnswer {
-        String(2000) text;
-        Boolean wantsRefund;
+    fn tagged(String text, String tag) -> String {
+        return text.split(#"<{tag}>")[1].split(#"</{tag}>")[0];
     }
 
     fn asksForRefund(String question) -> Boolean {
@@ -44,20 +31,68 @@ service lms.ModelMock('config/mocks/model-mock.dcfg')
         return asked.contains("refund") || asked.contains("money back");
     }
 
-    // The vendor's public API: exactly the ModelProvider contract.
+    fn usage() -> JSON {
+        return { input_tokens: 120, output_tokens: 40 };
+    }
+
+    fn callTool(String name, JSON input) -> JSON {
+        return {
+            type: "message",
+            role: "assistant",
+            stop_reason: "tool_use",
+            content: [{ type: "tool_use", id: #"toolu_{Random.string(16)}", name: name, input: input }],
+            usage: usage()
+        };
+    }
+
+    fn finish(String text) -> JSON {
+        modelDb.ModelCall.create({ move: ModelMove.Answer, detail: text });
+        return {
+            type: "message",
+            role: "assistant",
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: JSON.stringify({ text: text }) }],
+            usage: usage()
+        };
+    }
+
+    fn answerFrom(String toolResult) -> JSON {
+        let JSON result = JSON.parse(toolResult);
+        if (toolResult.contains("refunded")) {
+            let String course = JSON.get(result, "courseTitle");
+            return finish(#"Your instructor agreed. Your refund for {course} is on its way.");
+        }
+        let String title = JSON.get(result, "title");
+        let String body = JSON.get(result, "body");
+        return finish(#"From {title}: {body.substring(0, 400)}");
+    }
+
+    fn openingMove(String prompt) -> JSON {
+        let String question = tagged(prompt, "question");
+        if (asksForRefund(question)) {
+            modelDb.ModelCall.create({ move: ModelMove.OfferRefund, detail: question });
+            return callTool("offerRefund", { exchangeId: tagged(prompt, "exchange"), reason: "The student asked for their money back." });
+        }
+        modelDb.ModelCall.create({ move: ModelMove.ReadLesson, detail: question });
+        return callTool("readLesson", { lessonId: tagged(prompt, "lesson") });
+    }
+
+    // The provider's public API. A handle sends no key over plain HTTP, by rule, so this route has none; it holds
+    // nothing but its own script. The script looks at the newest message: a tool's result means it can answer.
     rest_api ModelAPI : basePath('/v1'), rdbms(modelDb) {
-        @path('/answers')
-        post answer(ModelQuestion request) : auth(required, providers: [modelKeys]) -> ModelAnswer {
-            let Boolean wantsRefund = asksForRefund(request.question);
-            let String text = wantsRefund
-                ? "I have passed your request to your instructor, who will decide. You will get an email either way."
-                : #"From {request.lessonTitle}: {request.lessonText.substring(0, 400)}";
-            ModelCall.create({ lessonTitle: request.lessonTitle, question: request.question, answer: text, wantsRefund: wantsRefund });
-            return ModelAnswer { text: text, wantsRefund: wantsRefund };
+        @path('/messages')
+        post messages(JSON request) : auth(public) -> JSON {
+            let Array<JSON> turns = JSON.get(request, "messages");
+            let Array<JSON> blocks = JSON.get(turns[turns.length - 1], "content");
+            let JSON newest = blocks[blocks.length - 1];
+            if (JSON.get(newest, "type") == "tool_result") {
+                return answerFrom(JSON.get(newest, "content"));
+            }
+            return openingMove(JSON.get(newest, "text"));
         }
     }
 
-    // What the Instructor app shows: every answer the model gave.
+    // What the Instructor app shows: every move the model made.
     rest_api ModelDeskAPI : basePath('/api/v1/desk/model'), rdbms(modelDb) {
         resource ModelCall : only(list), auth(required, providers: [identity], roles: [operator]);
     }
@@ -66,5 +101,9 @@ service lms.ModelMock('config/mocks/model-mock.dcfg')
         assert asksForRefund("Can I have a refund please?");
         assert asksForRefund("I want my money back");
         assert !asksForRefund("Why do contour lines never cross?");
+    }
+
+    test("the script reads a tagged value out of a prompt") {
+        assert tagged("before <lesson>abc</lesson> after", "lesson") == "abc";
     }
 }

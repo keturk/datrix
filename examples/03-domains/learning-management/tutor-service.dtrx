@@ -1,23 +1,40 @@
-// A tutor that answers a student's question about the lesson they are on. The model's reply is data: it
-// can say the student wants their money back, and all that does is put a request in front of an
-// instructor. On a local stack the model is a mock, so nothing here needs a model account.
-service lms.TutorService('config/tutor-service.dcfg') : version('2.0.0'), description('A tutor over a model') {
+// A tutor that answers a student's question about the lesson they are on: an agent that reads the lesson
+// through a tool, and that may offer the student their money back through a second tool marked `approval`.
+// The model never moves money. Asking for that tool writes a request and suspends the run; the refund
+// happens only if an instructor approves, and then the run picks up where it stopped. On a local stack the
+// model is a mock (config/tutor-service.dcfg), so nothing here needs a model account.
+service lms.TutorService('config/tutor-service.dcfg') : version('2.0.0'), description('A tutor agent whose refunds a person approves') {
 
     discovery { }
 
     uses CourseService;
     uses EnrollmentService;
-    uses ModelProvider;
+
+    enum RefundStage {
+        Waiting : tone(warning),
+        Granted : tone(success),
+        Declined : tone(danger),
+        Lapsed : tone(neutral)
+    }
 
     rdbms tutorDb {
 
-        /// Every question and what the tutor said, for the instructors to read.
+        /// Every question and what the tutor said. The enrollment on it is the one `ask` checked belongs to
+        /// the student, so a refund goes to that enrollment and never to one the model named.
         entity TutorExchange extends BaseEntity {
+            String(200) askedBy : index, hidden;
             String(200) studentName : filterable;
+            String(200) courseTitle : filterable;
+            Money paid;
             String(1000) question;
-            String(2000) answer;
-            Boolean refundProposed : filterable = false;
+            String(2000)? answer;
+            RefundStage? refundStage : filterable;
+            UUID enrollmentId : index, hidden;
         }
+    }
+
+    // Approval decisions travel on a queue the framework declares here.
+    queues {
     }
 
     struct AskRequest {
@@ -28,7 +45,102 @@ service lms.TutorService('config/tutor-service.dcfg') : version('2.0.0'), descri
 
     struct TutorReply {
         String(2000) answer;
-        Boolean refundProposed;
+        Boolean waitingOnInstructor;
+    }
+
+    struct TutorAnswer {
+        String(2000) text;
+    }
+
+    struct LessonText {
+        String(200) title;
+        Text body;
+    }
+
+    struct RefundOffer {
+        String(200) courseTitle;
+        Money refunded;
+    }
+
+    /// A refund the tutor asked for, as an instructor reads it. Everything on it comes from the checked
+    /// exchange; of what the model sent, only its reason is shown.
+    struct RefundProposal {
+        UUID requestId;
+        String(200) studentName;
+        String(200) courseTitle;
+        Money paid;
+        String(1000) question;
+        String(500) reason;
+        DateTime requestedAt;
+    }
+
+    agents tutor {
+
+        model primary;
+
+        tool readLesson(UUID lessonId) -> LessonText : description('The title and the text of a lesson.') {
+            let LessonNote note = CourseService.CourseInternalAPI.get.note(lessonId: lessonId);
+            return { title: note.title, body: note.body };
+        }
+
+        // Irreversible, so the loop never runs this body on the pass that asks for it. It runs after an instructor
+        // approves, as the student who asked, and the instructor is never that student. So whatever exchange the
+        // model named, only one this student started can be refunded.
+        tool offerRefund(UUID exchangeId, String(500) reason) -> RefundOffer : description('Ask an instructor to refund this student. Use it when the student wants their money back.'), approval {
+            ensure reason.length >= 3;
+            let tutorDb.TutorExchange exchange = tutorDb.TutorExchange.where(id: exchangeId, askedBy: Auth.userId()).firstOrFail();
+            EnrollmentService.EnrollmentInternalAPI.post.refund({ enrollmentId: exchange.enrollmentId, reason: reason });
+            exchange.refundStage = RefundStage.Granted;
+            exchange.save();
+            return { courseTitle: exchange.courseTitle, refunded: exchange.paid };
+        }
+
+        agent Tutor(tutorDb.TutorExchange exchange, UUID lessonId) -> TutorAnswer {
+            model(primary);
+            tools(readLesson, offerRefund);
+            steps(6);
+            onDecision(onRefundDecided);
+            prompt {
+                return #"
+                    You are a patient tutor. Answer from the lesson, never from anywhere else: read it with
+                    readLesson first. If the student wants their money back, call offerRefund with this exchange's
+                    id and a short reason. A person decides, so never promise the money yourself.
+                    <exchange>{exchange.id}</exchange>
+                    <lesson>{lessonId}</lesson>
+                    <question>{exchange.question}</question>
+                ";
+            }
+        }
+    }
+
+    // What follows a decision. An approved run has already refunded, through the tool body. A decline or a
+    // request nobody answered in time never ran the tool, so the student is told here.
+    fn onRefundDecided(UUID requestId, ApprovalOutcome outcome, TutorAnswer? result) -> Void {
+        if (outcome == ApprovalOutcome.Approved) {
+            return;
+        }
+        let tutorDb.TutorExchange exchange = exchangeOf(tutorDb.ApprovalRequest.findOrFail(requestId));
+        exchange.refundStage = outcome == ApprovalOutcome.Expired ? RefundStage.Lapsed : RefundStage.Declined;
+        exchange.save();
+        EnrollmentService.EnrollmentInternalAPI.post.tellRefundDeclined({ enrollmentId: exchange.enrollmentId });
+    }
+
+    fn exchangeOf(tutorDb.ApprovalRequest request) -> tutorDb.TutorExchange {
+        let UUID exchangeId = JSON.get(JSON.parse(request.arguments), "exchangeId");
+        return tutorDb.TutorExchange.findOrFail(exchangeId);
+    }
+
+    fn proposalOf(tutorDb.ApprovalRequest request) -> RefundProposal {
+        let tutorDb.TutorExchange exchange = exchangeOf(request);
+        return RefundProposal {
+            requestId: request.id,
+            studentName: exchange.studentName,
+            courseTitle: exchange.courseTitle,
+            paid: exchange.paid,
+            question: exchange.question,
+            reason: JSON.get(JSON.parse(request.arguments), "reason"),
+            requestedAt: request.requestedAt
+        };
     }
 
     rest_api TutorAPI : basePath('/api/v1/tutor'), rdbms(tutorDb) {
@@ -36,39 +148,71 @@ service lms.TutorService('config/tutor-service.dcfg') : version('2.0.0'), descri
 
         @path('/ask')
         post ask(AskRequest request) : auth(required, providers: [identity]) -> TutorReply {
-            let String email = Auth.identity.email.toString();
-            let LessonNote note = CourseService.CourseInternalAPI.get.note(lessonId: request.lessonId);
-            let ModelAnswer reply = ModelProvider.ModelAPI.post.answer(ModelQuestion {
-                instructions: "You are a patient tutor. Answer from the lesson, never from anywhere else.",
-                lessonTitle: note.title,
-                lessonText: note.body,
-                question: request.question
-            });
-            // The enrollment service refuses an enrollment that is not this student's, whatever the
-            // model said.
-            if (reply.wantsRefund) {
-                EnrollmentService.EnrollmentInternalAPI.post.proposeRefund({
-                    enrollmentId: request.enrollmentId,
-                    studentEmail: email,
-                    reason: request.question
-                });
-            }
-            TutorExchange.create({
-                studentName: (Auth.identity.fullName ?? Auth.identity.email).toString(),
+            // The enrollment service refuses an enrollment that is not this student's.
+            let EnrollmentFacts facts = EnrollmentService.EnrollmentInternalAPI.get.factsFor(
+                id: request.enrollmentId,
+                studentEmail: Auth.identity.email.toString()
+            );
+            let TutorExchange exchange = TutorExchange.create({
+                askedBy: Auth.userId(),
+                studentName: facts.studentName,
+                courseTitle: facts.courseTitle,
+                paid: facts.paid,
                 question: request.question,
-                answer: reply.text,
-                refundProposed: reply.wantsRefund
+                enrollmentId: request.enrollmentId
             });
-            return TutorReply { answer: reply.text, refundProposed: reply.wantsRefund };
+            try {
+                let TutorAnswer answer = tutor.Tutor(exchange, request.lessonId);
+                exchange.answer = answer.text;
+                exchange.save();
+                return TutorReply { answer: answer.text, waitingOnInstructor: false };
+            } catch (ModelApprovalPending pending) {
+                let String waiting = "I have asked your instructor. They will decide, and you will get an email either way.";
+                exchange.answer = waiting;
+                exchange.refundStage = RefundStage.Waiting;
+                exchange.save();
+                return TutorReply { answer: waiting, waitingOnInstructor: true };
+            }
+        }
+
+        // The requests waiting on an instructor. Approving and declining go through the service's own approval
+        // endpoints (ApprovalAPI), which refuse anyone without the approver role and the student who asked.
+        @path('/refund-proposals')
+        get refundProposals() : auth(required, providers: [identity], roles: [instructor]) -> Array<RefundProposal> {
+            let Array<tutorDb.ApprovalRequest> waiting = tutorDb.ApprovalRequest
+                .where(state: ApprovalState.Pending)
+                .orderBy(requestedAt: asc)
+                .limit(100)
+                .all();
+            return waiting.map(request => proposalOf(request));
         }
     }
 
-    test("an exchange starts without a refund") {
+    test("an exchange starts with no refund in play") {
         let tutorDb.TutorExchange created = tutorDb.TutorExchange.create({
+            askedBy: "student-1",
             studentName: "Theo Marsh",
+            courseTitle: "Reading maps",
+            paid: 40.00,
             question: "Why do contour lines never cross?",
-            answer: "Because one point has only one height."
+            enrollmentId: uuid()
         });
-        assert created.refundProposed == false;
+        assert created.refundStage == null;
+    }
+
+    // replay('answer') binds the primary handle to fixtures/agents/tutor/primary/answer.jsonl: the model answers
+    // straight away, and no request is written.
+    test("a plain question gets an answer and asks nobody") : replay('answer') {
+        let tutorDb.TutorExchange exchange = tutorDb.TutorExchange.create({
+            askedBy: "student-1",
+            studentName: "Theo Marsh",
+            courseTitle: "Reading maps",
+            paid: 40.00,
+            question: "Why do contour lines never cross?",
+            enrollmentId: uuid()
+        });
+        let TutorAnswer answer = tutor.Tutor(exchange, uuid());
+        assert answer.text.contains("one height");
+        assert tutorDb.ApprovalRequest.where(state: ApprovalState.Pending).count() == 0;
     }
 }

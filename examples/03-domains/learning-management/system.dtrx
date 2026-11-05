@@ -2,7 +2,6 @@ include 'common.dtrx';
 include 'ui.dtrx';
 include 'providers/payment-provider.dtrx';
 include 'providers/email-provider.dtrx';
-include 'providers/model-provider.dtrx';
 include 'course-service.dtrx';
 include 'enrollment-service.dtrx';
 include 'tutor-service.dtrx';

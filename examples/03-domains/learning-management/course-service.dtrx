@@ -27,9 +27,6 @@ service lms.CourseService('config/course-service.dcfg') : version('2.0.0'), desc
 
         provider emailKeys config('config/identity/email-keys.dcfg') {
         }
-
-        provider modelKeys config('config/identity/model-keys.dcfg') {
-        }
     }
 
     exceptions {

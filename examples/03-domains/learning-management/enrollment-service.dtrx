@@ -1,7 +1,7 @@
 from lms.common import QuizOption;
 
 // A student on a course: paying for it, passing its lessons, and getting a certificate or their money
-// back. A refund is proposed, by a student through the tutor, and only an instructor can grant it.
+// back. A refund reaches this service only after an instructor approved the tutor's request for it.
 service lms.EnrollmentService('config/enrollment-service.dcfg') : version('2.0.0'), description('Enrollments, progress and refunds') {
 
     discovery { }
@@ -15,19 +15,12 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('2.0.0
         NotYoursError : status(404), message("You are not enrolled on that");
         AlreadyEnrolledError : status(409), message("You are already on this course");
         NotRefundableError : status(409), message("That enrollment cannot be refunded");
-        AlreadyDecidedError : status(409), message("That refund is already decided");
     }
 
     enum EnrollmentStatus {
         Active : tone(info),
         Completed : tone(success),
         Refunded : tone(neutral)
-    }
-
-    enum RefundStatus {
-        Proposed : tone(warning),
-        Granted : tone(success),
-        Declined : tone(danger)
     }
 
     /// Two cards to try, so a decline can be seen. No real card enters this application.
@@ -52,6 +45,7 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('2.0.0
             Money paid;
             String(40)? chargeId : hidden;
             String(20)? certificateCode;
+            String(500)? refundReason;
             DateTime? completedAt;
             DateTime lastActiveAt;
             UUID courseId : index;
@@ -74,16 +68,6 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('2.0.0
             index(enrollmentId, lessonId) : unique;
         }
 
-        entity RefundRequest extends BaseEntity {
-            String(200) courseTitle : filterable;
-            String(200) studentName : filterable;
-            Money amount;
-            String(500) reason;
-            RefundStatus status : filterable = RefundStatus.Proposed;
-            String(200)? decidedByName;
-            DateTime? decidedAt;
-            UUID enrollmentId : index;
-        }
     }
 
     struct EnrollRequest {
@@ -116,21 +100,28 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('2.0.0
         Array<LessonStep> steps;
     }
 
-    struct ProposeRefundRequest {
+    struct EnrollmentFacts {
+        String(200) studentName;
+        String(200) courseTitle;
+        Money paid;
+    }
+
+    struct ApprovedRefund {
         UUID enrollmentId;
-        String(200) studentEmail;
         String(500) reason;
     }
 
-    struct RefundReceipt {
-        UUID id;
-        RefundStatus status;
+    struct RefundDone {
+        EnrollmentStatus status;
+    }
+
+    struct DeclinedRefund {
+        UUID enrollmentId;
     }
 
     struct TeachingSummary {
         Int activeStudents;
         Int completed;
-        Int refundsWaiting;
         Money revenue;
     }
 
@@ -232,7 +223,6 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('2.0.0
     // What instructors see and decide.
     rest_api TeachingAPI : basePath('/api/v1/teaching'), rdbms(enrollmentDb) {
         resource Enrollment : only(list), auth(required, providers: [identity], roles: [instructor]);
-        resource RefundRequest : only(list), auth(required, providers: [identity], roles: [instructor]);
 
         @path('/summary')
         get summary() : auth(required, providers: [identity], roles: [instructor]) -> TeachingSummary {
@@ -241,69 +231,50 @@ service lms.EnrollmentService('config/enrollment-service.dcfg') : version('2.0.0
             return TeachingSummary {
                 activeStudents: everyone.filter(e => e.status == EnrollmentStatus.Active).length,
                 completed: everyone.filter(e => e.status == EnrollmentStatus.Completed).length,
-                refundsWaiting: RefundRequest.where(status: RefundStatus.Proposed).count(),
                 revenue: earned
             };
-        }
-
-        @path('/refunds/:id/grant')
-        post grantRefund(UUID id) : auth(required, providers: [identity], roles: [instructor]) -> RefundRequest {
-            let RefundRequest refund = RefundRequest.findOrFail(id);
-            if (refund.status != RefundStatus.Proposed) {
-                throw AlreadyDecidedError();
-            }
-            let Enrollment enrollment = Enrollment.findOrFail(refund.enrollmentId);
-            if (enrollment.chargeId == null) {
-                throw NotRefundableError();
-            }
-            PaymentProvider.PaymentAPI.post.refundCharge(RefundChargeRequest { chargeId: enrollment.chargeId, idempotencyKey: #"refund-{refund.id}" });
-            enrollment.status = EnrollmentStatus.Refunded;
-            enrollment.save();
-            refund.status = RefundStatus.Granted;
-            refund.decidedByName = (Auth.identity.fullName ?? Auth.identity.email).toString();
-            refund.decidedAt = DateTime.now();
-            refund.save();
-            sendMail(enrollment.studentEmail, #"Your refund for {enrollment.courseTitle}", "Your refund is on its way to your card.", #"refunded-{refund.id}");
-            return refund;
-        }
-
-        @path('/refunds/:id/decline')
-        post declineRefund(UUID id) : auth(required, providers: [identity], roles: [instructor]) -> RefundRequest {
-            let RefundRequest refund = RefundRequest.findOrFail(id);
-            if (refund.status != RefundStatus.Proposed) {
-                throw AlreadyDecidedError();
-            }
-            refund.status = RefundStatus.Declined;
-            refund.decidedByName = (Auth.identity.fullName ?? Auth.identity.email).toString();
-            refund.decidedAt = DateTime.now();
-            refund.save();
-            return refund;
         }
     }
 
     // What the tutor reaches. It says on whose behalf it asks, and the enrollment has to be theirs.
     rest_api EnrollmentInternalAPI : basePath('/api/v1/internal/enrollments'), rdbms(enrollmentDb) {
-        @path('/refunds')
-        post proposeRefund(ProposeRefundRequest request) : auth(service, providers: [machine]) -> RefundReceipt {
-            let Enrollment? enrollment = Enrollment.where(id: request.enrollmentId, studentEmail: request.studentEmail).first();
+        @path('/:id/facts')
+        get factsFor(UUID id, String studentEmail) : auth(service, providers: [machine]) -> EnrollmentFacts {
+            let Enrollment? enrollment = Enrollment.where(id: id, studentEmail: studentEmail).first();
             if (enrollment == null) {
                 throw NotYoursError();
             }
+            return EnrollmentFacts {
+                studentName: enrollment.studentName,
+                courseTitle: enrollment.courseTitle,
+                paid: enrollment.paid
+            };
+        }
+
+        // Runs once an instructor approved. A second approval of the same enrollment finds the work done, and
+        // the vendor's idempotency key would stop a second refund even if it did not.
+        @path('/refunds')
+        post refund(ApprovedRefund request) : auth(service, providers: [machine]) -> RefundDone {
+            let Enrollment enrollment = Enrollment.findOrFail(request.enrollmentId);
             if (enrollment.status == EnrollmentStatus.Refunded) {
+                return RefundDone { status: enrollment.status };
+            }
+            if (enrollment.chargeId == null) {
                 throw NotRefundableError();
             }
-            let RefundRequest? open = RefundRequest.where(enrollmentId: enrollment.id, status: RefundStatus.Proposed).first();
-            if (open != null) {
-                return RefundReceipt { id: open.id, status: open.status };
-            }
-            let RefundRequest created = RefundRequest.create({
-                enrollmentId: enrollment.id,
-                courseTitle: enrollment.courseTitle,
-                studentName: enrollment.studentName,
-                amount: enrollment.paid,
-                reason: request.reason
-            });
-            return RefundReceipt { id: created.id, status: created.status };
+            PaymentProvider.PaymentAPI.post.refundCharge(RefundChargeRequest { chargeId: enrollment.chargeId, idempotencyKey: #"refund-{enrollment.id}" });
+            enrollment.status = EnrollmentStatus.Refunded;
+            enrollment.refundReason = request.reason;
+            enrollment.save();
+            sendMail(enrollment.studentEmail, #"Your refund for {enrollment.courseTitle}", "Your refund is on its way to your card.", #"refunded-{enrollment.id}");
+            return RefundDone { status: enrollment.status };
+        }
+
+        @path('/refunds/declined')
+        post tellRefundDeclined(DeclinedRefund request) : auth(service, providers: [machine]) -> RefundDone {
+            let Enrollment enrollment = Enrollment.findOrFail(request.enrollmentId);
+            sendMail(enrollment.studentEmail, #"About your refund for {enrollment.courseTitle}", "Your instructor did not approve this refund. Reply to this email to talk it through.", #"refund-declined-{enrollment.id}-{uuid()}");
+            return RefundDone { status: enrollment.status };
         }
     }
 

@@ -3,12 +3,16 @@ config service lms.TutorService {
 
   base {
     port = 8003;
+    language = "python";  // The agents block needs Python, and one system generates in one language.
     replicas = 1;
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
     rdbms tutorDb from postgresContainer(id: "60ff839c-6df7-4e0f-9223-8178909afaba", database: "lms_tutor");
+    queues from rabbitContainer();
+    queueOps from queuePolling();
+    messagingOps from rabbitPrefetch();
     httpSecurity from localHttpSecurity(host: "lms-tutor-service");
     serviceCredentialOps from machineCredential();
     microserviceClientOps from peerClient();
@@ -20,24 +24,80 @@ config service lms.TutorService {
       dependencyPolicy {
         defaults {
           rdbms from standardDatabasePolicy();
+          // A model call is never retried by the client: only a breaker and a bulkhead apply.
+          model {
+            circuitBreaker {
+              failureThreshold = 5;
+              timeout = "30s";
+            }
+            bulkhead {
+              maxConcurrent = 8;
+            }
+          }
         }
       }
     }
-    secrets {
-      // The default only exists on a local stack, where it matches the hash seeded in
-      // seed/model-mock.dseed, so the example runs with nothing to configure. Any other deployment must
-      // supply the handle's value.
-      secret model_provider_api_key {
-        required = true;
-        purpose = "API key for the model behind the tutor (ModelProvider contract).";
-        localDefault = "dev-only-model-key-not-a-credential";
+    // Outside production the model is the mock in this stack. Plain HTTP to a model is only allowed with no key
+    // on the wire, which is why the handle carries none; production below is the same agent over TLS with a key.
+    agents tutor {
+      models {
+        primary {
+          provider = "anthropic";
+          flavor = "external";
+          model = "larkhill-script";
+          url = "http://lms-model-mock:8092";
+          auth = "none";
+          allowPlaintextHttp = true;
+          maxOutputTokens = 1024;
+          timeout = "20s";
+          budget {
+            perRun {
+              tokens = 8000;
+              wallclock = "1m";
+            }
+            daily {
+              tokens = 500000;
+            }
+          }
+        }
+      }
+      // An instructor decides. A request nobody answers within three days lapses, and the student is told.
+      // exposure = "public" puts the approval endpoints on the gateway, so the Instructor app can call them.
+      approvals {
+        approverRole = "instructor";
+        providers = ["identity"];
+        timeout = "72h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "public";
       }
     }
   }
 
+  // Spec tests never reach a model: the replay provider plays config/fixtures/agents/tutor/primary/.
   profile test as "test" extends base {
     alias env = "TEST";
     alias resource = "test";
+    replace agents tutor {
+      models {
+        primary {
+          provider = "replay";
+          fixtures = "fixtures/agents/tutor/primary/";
+          budget {
+            perRun {
+              tokens = 8000;
+              wallclock = "1m";
+            }
+          }
+        }
+      }
+      approvals {
+        approverRole = "instructor";
+        providers = ["identity"];
+        timeout = "72h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "public";
+      }
+    }
   }
 
   profile development as "dev" extends base {
@@ -48,5 +108,39 @@ config service lms.TutorService {
   profile production as "prod" extends base {
     alias env = "PROD";
     alias resource = "prod";
+    secrets {
+      secret tutor_model_key {
+        required = true;
+        purpose = "API key for the model behind the tutor.";
+      }
+    }
+    replace agents tutor {
+      models {
+        primary {
+          provider = "anthropic";
+          flavor = "direct";
+          model = "claude-sonnet-5-5";
+          apiKey = "tutor_model_key";
+          maxOutputTokens = 1024;
+          timeout = "60s";
+          budget {
+            perRun {
+              tokens = 8000;
+              wallclock = "2m";
+            }
+            daily {
+              tokens = 500000;
+            }
+          }
+        }
+      }
+      approvals {
+        approverRole = "instructor";
+        providers = ["identity"];
+        timeout = "72h";
+        sweepSchedule = "*/15 * * * *";
+        exposure = "public";
+      }
+    }
   }
 }
