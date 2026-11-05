@@ -190,8 +190,9 @@ plan is proven, written and recorded (below). No git command runs.
   the group, its literals listed for a hand edit. Only the literals of one exact text read the shared file
   (the group's largest class of equal texts holding an assigned literal); a literal of other text, or one
   holding a carriage return (which `read_text` does not give back), is refused and stays as written.
-- **Kept in place.** A copy inside a directory read whole: one a test module's `glob`, `rglob`, `iterdir` or
-  `walk` call reaches on a fixture-path name (its receiver evaluated statically: `Path(__file__)` chains,
+- **Kept in place.** A copy inside a directory read whole: one a test module's `glob`, `rglob`, `iterdir`,
+  `walk` or `shutil.copytree` call reaches on a fixture-path name, since a path leading out of a temporary copy
+  resolves to nothing (its receiver evaluated statically: `Path(__file__)` chains,
   constants, imports, pytest fixtures returning one expression), every package's `tests/fixtures/diagnostics/`
   (the diagnostics collector) and `tests/fixtures/cases/lsp-*/` (the language-server inputs). A copy already
   in the shared set. A copy whose bytes differ from the copy that moves (normalized-equal only): deleting it
@@ -200,7 +201,8 @@ plan is proven, written and recorded (below). No git command runs.
   model-contract capture's secret screen flags: the would-be corpus (each placed text written, each moved
   or deleted copy taken out of its package) is built in a temporary directory and `collect_samples` runs
   over it with the real model set of each package holding `tests/test_model_contracts.py`, repeated without
-  the flagged groups until none of the moving ones is flagged.
+  the flagged groups until none of the moving ones is flagged. A `.dcfg` that capture refuses to load is kept
+  the same way, and so is a `.dtrx` the formatter's corpus walk refuses.
 - **References follow their file.** The move map sends each moved copy to its shared place and each deleted
   copy to its group's shared copy. Every fixture still in a tree (each moved copy at its shared place, every
   file that stays) must name the file it named before at that file's new place. A reference that still does,
@@ -212,7 +214,9 @@ plan is proven, written and recorded (below). No git command runs.
   reference (a `.dcfg` `import`, a seed path, an asset or content path) is confined to the project root by
   its loader, so a rewrite leaving it cannot follow. Nor can one reaching another package's `tests/` (across
   packages only the shared corpus is read), or one that, read back by its rule over the moved tree, lands
-  elsewhere. When a reference cannot follow, what it reads stays: the group of a moved reader moves
+  elsewhere. Nor can an `include` of a `.dtrx` that names a project-root path when the include would leave
+  its reader's directory: the loader resolves that path against the including entry's directory, so a copy
+  shared by entries in other directories cannot serve them all. When a reference cannot follow, what it reads stays: the group of a moved reader moves
   nothing, and a leaving copy a staying reader names is kept beside it. The plan is rebuilt with what the
   screen flags and what the references hold until neither holds anything new.
 - **Test sites follow their copy.** Once the plan settles, every test module of every package (the modules whose
