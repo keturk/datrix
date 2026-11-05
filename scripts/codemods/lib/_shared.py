@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Final
 
 import libcst as cst
@@ -13,10 +14,24 @@ WRITE_ENV: Final = "DATRIX_CODEMOD_WRITE"
 
 
 def finish(query: Query) -> Query:
-    """Run *query*: write the rewrite when ``run-codemod -Write`` asked for it, else print its diff."""
-    if os.environ.get(WRITE_ENV) == "1":
-        return query.write()
-    return query.diff()
+    """Run *query*: write the rewrite when ``run-codemod -Write`` asked for it, else print its diff.
+
+    Bowler writes a file through text mode, which respells every line ending as the platform's, so each
+    written file gets its own back.
+    """
+    if os.environ.get(WRITE_ENV) != "1":
+        return query.diff()
+    newlines: dict[str, bytes] = {}
+
+    def note_newline(filename: str, hunk: list[str]) -> bool:
+        newlines[filename] = b"\r\n" if b"\r\n" in Path(filename).read_bytes() else b"\n"
+        return True
+
+    written = query.process(note_newline).write()
+    for filename, newline in newlines.items():
+        path = Path(filename)
+        path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", newline))
+    return written
 
 
 def _module_expression(dotted: str) -> cst.BaseExpression:

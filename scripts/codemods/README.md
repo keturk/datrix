@@ -25,13 +25,14 @@ Runs a Bowler codemod from `scripts/codemods/lib/`. All arguments after the code
 | **Rename imports** | `.\codemods\run-codemod.ps1 08_rename_module_imports datrix_language.parser datrix_language.parsing datrix-language\src` | Preview the import updates (dotted submodules included) |
 | **Write** | `.\codemods\run-codemod.ps1 08_rename_module_imports datrix_language.parser datrix_language.parsing datrix-language\src -Write` | Write the previewed rewrite |
 | **Print to logger** | `.\codemods\run-codemod.ps1 13_print_to_logger datrix-cli\src` | Replace `print` with `logger.info` |
+| **Inline a constant** | `.\codemods\run-codemod.ps1 14_inline_constant my_pkg.names SYSTEM_FILE my-pkg\tests` | Preview: its string literal at every read, the name gone from the imports |
 
-**Parameters:** `-CodemodName` (positional 0, required), `-CodemodArgs` (positional, variadic), `-Write`, `-SelfTest` (a planted rename previewed, then written; the refusals; the wrapper seam). Only a numbered recipe (`NN_name`) in `scripts/codemods/lib/` runs: any other name, or one holding a path, is refused with the list of recipes (exit 1).
+**Parameters:** `-CodemodName` (positional 0, required), `-CodemodArgs` (positional, variadic), `-Write`, `-SelfTest` (a planted rename previewed, then written with each file's line endings kept; a planted constant inlined, and refused in an f-string; the refusals; the wrapper seam). Only a numbered recipe (`NN_name`) in `scripts/codemods/lib/` runs: any other name, or one holding a path, is refused with the list of recipes (exit 1).
 
 **Module:** `datrix_scripts.codemods.run_codemod`; POSIX twin `codemods/run-codemod.sh` (the recipe and its arguments as positionals, or `--codemod-name` / `--codemod-args`; `--write`) — `bash codemods/run-codemod.sh 01_rename_function parse_file parse_path`.
 
 - **Preview (diff only):** Default; no files are changed.
-- **Write:** `-Write` sets `DATRIX_CODEMOD_WRITE=1`; every recipe ends in `finish(query)` (`lib/_shared.py`), which then calls `.write()` instead of `.diff()`. A new recipe ends in `finish(...)` too. The runner puts `lib/` first on `PYTHONPATH`, so a recipe imports its helpers with `from _shared import ...`.
+- **Write:** `-Write` sets `DATRIX_CODEMOD_WRITE=1`; every recipe ends in `finish(query)` (`lib/_shared.py`), which then calls `.write()` instead of `.diff()` and gives each written file its own line endings back (Bowler writes through text mode). A new recipe ends in `finish(...)` too. The runner puts `lib/` first on `PYTHONPATH`, so a recipe imports its helpers with `from _shared import ...`.
 - **`08_rename_module_imports` rewrites import statements only** (`import old`, `from old[.sub] import x`). A module bound by `import old` and used as `old.x` in the body, and a dotted path written as a string (an entry point, a `pyproject.toml` key, a lazy import), keep the old name: finish a rename with a text search for the old name that must come back empty.
 
 **Paths:** If you omit paths, the codemod uses the current directory. Pass one or more dirs or files as the last arguments.
@@ -50,6 +51,7 @@ Runs a Bowler codemod from `scripts/codemods/lib/`. All arguments after the code
 | `06_remove_function_argument.py` | Remove a parameter from function and all call sites. `-- FUNC_NAME ARG_NAME` |
 | `07_add_decorator.py` | Add a decorator to functions with a given name. Edit DECORATOR_* in script. `-- FUNC_NAME` |
 | `08_rename_module_imports.py` | Update imports when a module is renamed. `-- OLD_MODULE NEW_MODULE` |
+| `14_inline_constant.py` | Replace a module's string constant by its literal in every module importing it, and drop it from their imports. `-- MODULE NAME`. The value is read from the constant. A module holding a use it cannot rewrite (inside an f-string, an aliased or other-module import, an import sharing its line, a rebinding, an attribute read, a read with no import, a file the parser cannot read) stays unchanged and is listed as `REFUSED <file>:<line>`; any listed module makes the exit code 1. Edit those by hand, then run again. A name only inside a plain string stays. The import statement keeps its layout: run the formatter if a parenthesized list is left short enough for one line. |
 
 ### Structural and domain-specific
 
