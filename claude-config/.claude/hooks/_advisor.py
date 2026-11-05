@@ -152,7 +152,8 @@ def _is_advisor_dispatch(block: dict[str, object]) -> bool:
     return isinstance(tool_input, dict) and tool_input.get("subagent_type") == ADVISOR_AGENT
 
 
-def _entries(transcript_path: str) -> list[dict[str, object]] | None:
+def transcript_entries(transcript_path: str) -> list[dict[str, object]] | None:
+    """Every JSON object in the transcript, in order; None when it cannot be read."""
     try:
         with open(transcript_path, encoding="utf-8") as handle:
             lines = handle.readlines()
@@ -182,14 +183,17 @@ def _invoked_skill(entry: dict[str, object], blocks: list[dict[str, object]]) ->
     return None
 
 
+def latest_invoked_skill(entries: list[dict[str, object]]) -> str | None:
+    """The skill invoked last in the session, or None when it invoked none."""
+    latest: str | None = None
+    for entry in entries:
+        latest = _invoked_skill(entry, content_blocks(entry)) or latest
+    return latest
+
+
 def _in_jon_discussion(entries: list[dict[str, object]]) -> bool:
     """Whether the latest skill invoked in the session is one that exists to ask Jon."""
-    discussing = False
-    for entry in entries:
-        skill = _invoked_skill(entry, content_blocks(entry))
-        if skill is not None:
-            discussing = skill in JON_DISCUSSION_SKILLS
-    return discussing
+    return latest_invoked_skill(entries) in JON_DISCUSSION_SKILLS
 
 
 def advisor_verdict(transcript_path: str) -> Verdict:
@@ -197,7 +201,7 @@ def advisor_verdict(transcript_path: str) -> Verdict:
     JON_DISCUSSION when the session is in a skill that exists to ask Jon."""
     if subagents_forbidden():
         return Verdict.ADVISOR_FORBIDDEN
-    entries = _entries(transcript_path)
+    entries = transcript_entries(transcript_path)
     if entries is None:
         return Verdict.UNREADABLE
     if _in_jon_discussion(entries):
@@ -230,7 +234,7 @@ def advisor_verdict(transcript_path: str) -> Verdict:
 
 def advisor_consulted(transcript_path: str) -> bool | None:
     """Whether a `decision-advisor` was dispatched anywhere in the session; None when unreadable."""
-    entries = _entries(transcript_path)
+    entries = transcript_entries(transcript_path)
     if entries is None:
         return None
     return any(_is_advisor_dispatch(block) for entry in entries for block in content_blocks(entry))

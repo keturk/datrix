@@ -22,6 +22,9 @@ A skill that exists to ask Jon (`/discuss-finding`, `_advisor.JON_DISCUSSION_SKI
 questions to him directly: in such a session a reply that ends on a question, or carries an
 `APPROVAL_REQUIRED:` line, ends the turn with no advisor and whatever the plan says.
 
+Jon's own word always ends the turn, first of all and whatever the plan says: an interrupt with
+nothing after it, a message that opens with "stop", or a question he asked and the reply answers.
+
 Fails open: an unreadable payload or transcript, or `_MAX_BLOCKS` consecutive refusals in one
 session, lets the stop through so this hook can never wedge a session.
 
@@ -40,10 +43,12 @@ from typing import Final
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import _agent_plan as plan  # noqa: E402
-from _advisor import ADVISOR_REMEDY, Verdict, advisor_verdict  # noqa: E402
-from _report_language import stop_reply, strip_quoted  # noqa: E402
+from _advisor import ADVISOR_REMEDY, Verdict, advisor_verdict, transcript_entries  # noqa: E402
+from _report_language import content_blocks, is_jon_speaking, stop_reply, strip_quoted  # noqa: E402
 
 _MAX_BLOCKS: Final = 5
+_INTERRUPT_MARKER: Final = "[Request interrupted by user"
+_STOP_ORDER_RE: Final = re.compile(r"^\W*stop\b", re.IGNORECASE)
 # The approval request shape execution-contract §4 prescribes: one line starting the marker.
 _APPROVAL_LINE_RE: Final = re.compile(r"^[ \t>*-]*APPROVAL_REQUIRED:[ \t]*\S", re.MULTILINE)
 _UNTICKED_RE: Final = re.compile(r"^\s*[-*]\s*\[ \]\s*(.+)$", re.MULTILINE)
@@ -51,6 +56,21 @@ _TICKED_OR_NOT_RE: Final = re.compile(r"^\s*[-*]\s*\[[ xX]\]", re.MULTILINE)
 _EXIT_RE: Final = re.compile(
     r"^\s*Status:\s*(STOPPED_BY_JON|BLOCKED\s+B[1-4])\b", re.MULTILINE | re.IGNORECASE
 )
+
+
+def _jon_halted(transcript_path: str) -> bool:
+    """Jon's latest word is an interrupt, a stop order or a question, so the turn ends here."""
+    for entry in reversed(transcript_entries(transcript_path) or []):
+        if entry.get("type") != "user":
+            continue
+        blocks = content_blocks(entry)
+        texts = [str(block.get("text", "")).strip() for block in blocks if block.get("type") == "text"]
+        if any(text.startswith(_INTERRUPT_MARKER) for text in texts):
+            return True
+        if is_jon_speaking(blocks):
+            words = "\n".join(texts).strip()
+            return words.endswith("?") or _STOP_ORDER_RE.match(words) is not None
+    return False
 
 
 def _ends_on_question(reply: str) -> bool:
@@ -126,6 +146,9 @@ def main() -> None:
         sys.exit(0)
 
     session_id = data.get("session_id") or ""
+    if _jon_halted(str(data.get("transcript_path", ""))):
+        _record_blocks(session_id, 0)
+        sys.exit(0)
     reply = strip_quoted(stop_reply(data))
     asks_approval = bool(_APPROVAL_LINE_RE.search(reply))
     if asks_approval or _ends_on_question(reply):

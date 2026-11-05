@@ -22,7 +22,9 @@ import _agent_plan as plan  # noqa: E402
 def _instruction(path: str) -> str:
     return (
         f"First, Write `{path}` with `{plan.STEPS_HEADING}` (`- [ ] <step>` lines), "
-        f"`{plan.CRITERIA_HEADING}` (what proves it done) and an empty "
+        f"`{plan.CRITERIA_HEADING}` (what proves it done), `## Scope` (`paths: <globs>` and "
+        "`scripts: <names>` taken from the order's own words; it locks on first sight and "
+        "`guard-plan-scope.py` refuses anything outside it) and an empty "
         f"`{plan.VERIFICATION_HEADING}`. Tick steps as done; before stopping, fill "
         f"`{plan.VERIFICATION_HEADING}` with what you ran and what it printed, or add "
         "`Status: STOPPED_BY_JON` / `Status: BLOCKED B<n>`. The Stop hook enforces it. "
