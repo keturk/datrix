@@ -17,7 +17,6 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
 
     // What the open dialogs work on: a form sends these values without showing them.
     state UUID? chosenPost = null;
-    state Boolean composing = false;
     state Boolean commenting = false;
     state Boolean reporting = false;
     state Boolean claiming = false;
@@ -82,7 +81,6 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
 
     form ComposeForm : submit(PostService.MyPostAPI.post.createPost) {
         fn posted(PostStatus status) {
-            composing = false;
             if (status == PostStatus.Published) {
                 Ui.toast(Msg.posted, tone: success);
             } else {
@@ -107,18 +105,11 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
             Nav.to(Search, q: searchFor.trim());
         }
 
-        fn startPost() {
-            composing = true;
-        }
-
-        fn stopPost() {
-            composing = false;
-            posts.refresh();
-        }
-
+        // Anyone can read this page, so it reaches no route that needs a sign-in. The link leads to a page that
+        // does, which is where a visitor is asked to sign in.
         view {
             pageHeader(Msg.exploreTitle, Msg.exploreSubtitle) {
-                button(Msg.newPost) : onClick(startPost()), kind(primary), icon(edit);
+                link(Msg.newPost, Compose) : kind(primary), icon(edit);
             }
             card {
                 input(Msg.searchLabel) : bind(searchFor);
@@ -140,12 +131,14 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
                 }
                 PostCards(posts: posts);
             }
-            when (composing) {
-                dialog(Msg.newPost) : onClose(stopPost()) {
-                    callout(Msg.composeNote) : tone(info);
-                    form(ComposeForm);
-                }
-            }
+        }
+    }
+
+    @path('/compose')
+    page Compose() {
+        view {
+            pageHeader(Msg.newPost, Msg.composeNote) : back(Explore);
+            card { form(ComposeForm); }
         }
     }
 
@@ -208,31 +201,9 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
             posts = PostService.PublicPostAPI.get.byPerson(handle: handle);
         }
 
-        fn follow() {
-            PeopleService.MyPeopleAPI.post.follow(handle: handle);
-            card.refresh();
-            Ui.toast(Msg.followed, tone: success);
-        }
-
-        fn unfollow() {
-            PeopleService.MyPeopleAPI.post.unfollow(handle: handle);
-            card.refresh();
-            Ui.toast(Msg.unfollowed, tone: info);
-        }
-
-        fn block() {
-            if (Ui.confirm(Msg.blockConfirm)) {
-                PeopleService.MyPeopleAPI.post.block(handle: handle);
-                card.refresh();
-                Ui.toast(Msg.blocked, tone: info);
-            }
-        }
-
         view {
             pageHeader(card.displayName, Msg.handleLine(handle: card.handle)) : back(Explore) {
-                button(Msg.follow) : onClick(follow()), kind(primary), icon(person_add);
-                button(Msg.unfollow) : onClick(unfollow()), icon(person_remove);
-                button(Msg.block) : onClick(block()), icon(block), tone(danger);
+                link(Msg.followOrBlock, Connect, handle: handle) : kind(primary), icon(person_add);
             }
             when (card.isSuspended) {
                 callout(Msg.suspendedNote) : tone(danger);
@@ -252,8 +223,87 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
         }
     }
 
+    /// Following and blocking need a sign-in, so they live a link away from the page anyone can read.
+    @path('/people/:handle/connect')
+    page Connect(String handle) {
+        data {
+            card = PeopleService.PublicPeopleAPI.get.card(handle: handle);
+            relation = PeopleService.MyPeopleAPI.get.relation(handle: handle);
+        }
+
+        fn follow() {
+            PeopleService.MyPeopleAPI.post.follow(handle: handle);
+            card.refresh();
+            relation.refresh();
+            Ui.toast(Msg.followed, tone: success);
+        }
+
+        fn unfollow() {
+            PeopleService.MyPeopleAPI.post.unfollow(handle: handle);
+            card.refresh();
+            relation.refresh();
+            Ui.toast(Msg.unfollowed, tone: info);
+        }
+
+        fn block() {
+            if (Ui.confirm(Msg.blockConfirm)) {
+                PeopleService.MyPeopleAPI.post.block(handle: handle);
+                card.refresh();
+                relation.refresh();
+                Ui.toast(Msg.blocked, tone: info);
+            }
+        }
+
+        view {
+            pageHeader(card.displayName, Msg.handleLine(handle: card.handle)) : back(Explore) {
+                link(Msg.seeProfile, Person, handle: handle) : icon(person);
+            }
+            grid : style(statRow) {
+                stat(Msg.statFollowers, Fmt.number(card.followers)) : icon(group);
+                stat(Msg.statFollowing, Fmt.number(card.following)) : icon(person_add);
+            }
+            when (relation.isMe) {
+                callout(Msg.thisIsYou) : tone(info);
+            } otherwise {
+                row {
+                    when (relation.isFollowing) {
+                        button(Msg.unfollow) : onClick(unfollow()), icon(person_remove);
+                    } otherwise {
+                        button(Msg.follow) : onClick(follow()), kind(primary), icon(person_add);
+                    }
+                    button(Msg.block) : onClick(block()), icon(block), tone(danger);
+                }
+            }
+        }
+    }
+
     @path('/posts/:id')
     page PostDetail(UUID id) {
+        data { page = PostService.PublicPostAPI.get.postPage(id: id) : poll(20s); }
+
+        view {
+            pageHeader(page.post.authorName, Msg.handleLine(handle: page.post.authorHandle)) : back(Explore) {
+                link(Msg.joinIn, JoinIn, id: id) : kind(primary), icon(forum);
+            }
+            card {
+                markdown(page.post.body);
+                text(Msg.postFacts(when: Fmt.dateTime(page.post.createdAt), likes: Fmt.number(page.post.likes), comments: Fmt.number(page.post.comments)));
+            }
+            section(Msg.commentsTitle) {
+                when (page.comments.length == 0) {
+                    emptyState(Msg.noComments) : icon(comment);
+                }
+                timeline(data: page.comments, at: c => c.createdAt) {
+                    heading(item.authorName);
+                    markdown(item.body);
+                }
+            }
+        }
+    }
+
+    /// Liking, commenting and reporting need a sign-in, so they live a link away from the page anyone can read.
+    @path('/posts/:id/join')
+    page JoinIn(UUID id) {
         data { page = PostService.PublicPostAPI.get.postPage(id: id) : poll(20s); }
 
         fn like() {
@@ -282,6 +332,7 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
 
         view {
             pageHeader(page.post.authorName, Msg.handleLine(handle: page.post.authorHandle)) : back(Explore) {
+                link(Msg.seePost, PostDetail, id: id) : icon(article);
                 button(Msg.likeButton(likes: Fmt.number(page.post.likes))) : onClick(like()), icon(favorite);
                 button(Msg.addComment) : onClick(startComment()), kind(primary), icon(comment);
                 button(Msg.report) : onClick(startReport()), icon(flag), tone(danger);

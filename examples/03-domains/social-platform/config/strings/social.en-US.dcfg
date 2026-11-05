@@ -37,6 +37,11 @@ config strings social.Social locale "en-US" {
     tagTitle          = "#{tag}";
     tagSubtitle       = "Everything published under this tag.";
     follow            = "Follow";
+    followOrBlock     = "Follow or block";
+    joinIn            = "Like, comment or report";
+    thisIsYou         = "This is your own profile.";
+    seeProfile        = "See the profile";
+    seePost           = "See the post";
     followed          = "Following.";
     unfollow          = "Unfollow";
     unfollowed        = "No longer following.";
@@ -81,6 +86,9 @@ config strings social.Social locale "en-US" {
     page.Tag           = "Tag";
     page.Person        = "Person";
     page.PostDetail    = "Post";
+    page.Compose       = "New post";
+    page.Connect       = "Follow or block";
+    page.JoinIn        = "Join in";
     page.MyPosts       = "My posts";
     page.Notifications = "Notifications";
     page.Settings      = "Settings";

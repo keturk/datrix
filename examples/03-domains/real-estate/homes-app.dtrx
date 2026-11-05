@@ -19,9 +19,7 @@ app realestate.Homes('config/homes-app.dcfg') : version('2.0.0') {
         image land = 'assets/land.png';
     }
 
-    state UUID? chosenHome = null;
-    state Boolean booking = false;
-    state Boolean offering = false;
+    state UUID? chosenHome = null : persisted;
 
     layout Site : default {
         nav {
@@ -129,27 +127,18 @@ app realestate.Homes('config/homes-app.dcfg') : version('2.0.0') {
     page HomeDetail(UUID id) {
         data { page = ListingService.HomesAPI.get.home(id: id); }
 
-        fn startBooking() {
+        // Anyone can read this page, so it reaches no route that needs a sign-in. The next page does, which is
+        // where a visitor is asked to sign in. The chosen home is kept through that round trip.
+        fn takeNextStep() {
             chosenHome = id;
-            booking = true;
-        }
-
-        fn startOffer() {
-            chosenHome = id;
-            offering = true;
-        }
-
-        fn closeDialogs() {
-            booking = false;
-            offering = false;
+            Nav.to(NextStep, id: id);
         }
 
         view {
             pageHeader(page.home.title, Msg.placeLine(place: page.home.neighbourhoodName, city: page.home.city)) : back(Browse) {
                 badge(page.home.status);
                 when (page.home.status == ListingStatus.Active) {
-                    button(Msg.bookViewing) : onClick(startBooking()), icon(event);
-                    button(Msg.makeOffer) : onClick(startOffer()), kind(primary), icon(request_quote);
+                    button(Msg.viewOrOffer) : onClick(takeNextStep()), kind(primary), icon(request_quote);
                 }
             }
             HomeArt(kind: page.home.kind);
@@ -171,15 +160,24 @@ app realestate.Homes('config/homes-app.dcfg') : version('2.0.0') {
                     }
                 }
             }
-            when (booking) {
-                dialog(Msg.bookViewing) : onClose(closeDialogs()) {
-                    form(BookViewing);
-                }
+        }
+    }
+
+    @path('/homes/:id/next')
+    page NextStep(UUID id) {
+        data { page = ListingService.HomesAPI.get.home(id: id); }
+
+        view {
+            pageHeader(page.home.title, Msg.placeLine(place: page.home.neighbourhoodName, city: page.home.city)) : back(Browse) {
+                link(Msg.seeHome, HomeDetail, id: id) : icon(home);
             }
-            when (offering) {
-                dialog(Msg.makeOffer) : onClose(closeDialogs()) {
+            tabs {
+                tab(Msg.bookViewing) {
+                    card { form(BookViewing); }
+                }
+                tab(Msg.makeOffer) {
                     callout(Msg.lenderNote) : tone(info);
-                    form(OfferOnHome);
+                    card { form(OfferOnHome); }
                 }
             }
         }
@@ -187,7 +185,6 @@ app realestate.Homes('config/homes-app.dcfg') : version('2.0.0') {
 
     form BookViewing : submit(ViewingService.BuyerViewingAPI.post.requestViewing) {
         fn booked() {
-            booking = false;
             Ui.toast(Msg.viewingRequested, tone: success);
             Nav.to(MyViewings);
         }
@@ -199,7 +196,6 @@ app realestate.Homes('config/homes-app.dcfg') : version('2.0.0') {
 
     form OfferOnHome : submit(DealService.BuyerDealAPI.post.makeOffer) {
         fn offered() {
-            offering = false;
             Ui.toast(Msg.offerMade, tone: success);
             Nav.to(MyOffers);
         }

@@ -27,6 +27,8 @@ config strings realestate.Homes locale "en-US" {
     mapSubtitle      = "Tap a pin to see the home.";
     bookViewing      = "Book a viewing";
     makeOffer        = "Make an offer";
+    viewOrOffer      = "Book a viewing or make an offer";
+    seeHome          = "See the home";
     statPrice        = "Asking";
     statBeds         = "Bedrooms";
     statBaths        = "Bathrooms";
@@ -56,6 +58,7 @@ config strings realestate.Homes locale "en-US" {
     page.Search     = "Search";
     page.Map        = "Map";
     page.HomeDetail = "Home";
+    page.NextStep   = "View or offer";
     page.MyViewings = "My viewings";
     page.MyOffers   = "My offers";
     page.NotFound   = "Not found";
