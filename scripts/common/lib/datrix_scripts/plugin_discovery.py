@@ -20,13 +20,12 @@ from collections.abc import Callable
 from typing import Final
 
 from datrix_common.errors.plugin import PluginError
-from datrix_common.plugin.registry import (
+from datrix_common.plugin.registry import PluginRegistry, plugin_registry
+from datrix_common.plugin._registry_discovery import (
     EXTENSION_GROUP,
     GENERATOR_GROUP,
     LANGUAGES_GROUP,
     PLATFORM_GROUP,
-    PluginRegistry,
-    plugin_registry,
 )
 
 EXIT_OK: Final[int] = 0

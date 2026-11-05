@@ -36,7 +36,7 @@ from typing import Final
 
 import yaml
 from datrix_cli.commands._app_spec import resolve_application
-from datrix_common.config_resolution import ConfigResolutionError
+from datrix_common._config_service_resolution import ConfigResolutionError
 from datrix_common.datrix_model.containers import Application
 from datrix_common.paths import ServicePaths
 from datrix_language.registration import register_all

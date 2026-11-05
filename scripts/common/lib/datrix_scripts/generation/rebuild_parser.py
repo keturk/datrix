@@ -28,13 +28,15 @@ from typing import Final
 import datrix_language.parser.tree_sitter_datrix as tree_sitter_datrix
 from datrix_common.errors.parse import ParseError
 from datrix_language.parser.tree_sitter_datrix.build import (
-    GRAMMAR_FILENAME,
     build_if_stale,
-    compiled_library_path,
     ensure_grammar_compiled,
+    should_rebuild_grammar,
+)
+from datrix_language.parser.tree_sitter_datrix._build_toolchain import (
+    GRAMMAR_FILENAME,
+    compiled_library_path,
     grammar_hash_path,
     interpreter_platform_tag,
-    should_rebuild_grammar,
 )
 
 from datrix_scripts.test.wrappers import GENERATION_SCRIPTS_DIR, module_main, run_self_test

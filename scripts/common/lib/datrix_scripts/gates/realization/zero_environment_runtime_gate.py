@@ -84,16 +84,16 @@ from pathlib import Path
 from typing import Final
 
 from datrix_codegen_kernel.parity.conformance_probes import (
-    IdiomOccurrence,
     UnparseableGeneratedFileError,
     language_conformance_probes,
+)
+from datrix_codegen_kernel.parity._conformance_probes_response_body_wire_field import (
+    IdiomOccurrence,
 )
 from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError
 from datrix_common.plugin._capability_declarations import declaration_for_language
 from datrix_common.plugin.code_idiom import CodeIdiom, MemberAccessIdiom
-from datrix_common.plugin.language_capability import (
-    ZeroEnvironmentRuntimeDeclaration,
-)
+from datrix_common.plugin._language_idioms import ZeroEnvironmentRuntimeDeclaration
 
 from datrix_scripts.gate_harness import EXIT_PASS, WRAPPER_DEBUG_FLAG, report_condition
 from datrix_scripts.gate_log import gate_child, run_as_gate

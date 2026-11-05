@@ -42,13 +42,12 @@ from typing import Final
 # The entry-point group names are owned by datrix-common's plugin registry;
 # import them so this module tracks the single source of truth rather than
 # re-spelling the group strings.
-from datrix_common.plugin.registry import (
+from datrix_common.plugin.registry import PluginRegistry, plugin_registry
+from datrix_common.plugin._registry_discovery import (
     GENERATOR_GROUP,
     LANGUAGES_GROUP,
     PLATFORM_GROUP,
-    PluginRegistry,
     entry_points,
-    plugin_registry,
 )
 from datrix_testing.target_distributions import target_import_names
 

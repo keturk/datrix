@@ -16,7 +16,8 @@ no entry claims stays in the original module.
 Each new module gets the original's import header with its own docstring, the imports of
 the names it uses from its siblings and from the original, the original's module-level ``pytestmark`` (a test
 module's marks do not survive a split by themselves), and its definitions. The original keeps
-its header, the unclaimed definitions and imports of the moved names it still uses.
+its header, the unclaimed definitions and imports of the moved names it still uses. A moved name
+leaves the original's ``__all__``.
 
 The original module does NOT re-export what moved: every symbol keeps one import path. Every
 ``from <original> import <moved name>`` in the workspace (``datrix_scripts.import_sites``) is
@@ -29,8 +30,18 @@ refuses -- writing nothing -- when it would be wrong or incomplete:
 - an import cycle among the new modules and the original: moved code imports the names left
   behind from the original, and the original imports the moved names it still uses, so moved code
   may use what stays only when nothing that stays uses it back;
-- an ``__all__`` in the original naming a moved name;
+- an ``__all__`` naming a moved name that is not a plain list or tuple of strings;
+- a name rebound through ``global`` left in more than one module: ``from m import x`` copies the
+  binding, so a rebinding in one module never reaches the other;
 - an importer the rewrite cannot reach: an import statement sharing its line with other code.
+
+Imports and ``if TYPE_CHECKING:`` blocks below the first definition count as header, so they never
+leave with the definition above them. A name a moved definition only spells in a quoted annotation
+is imported under ``TYPE_CHECKING``.
+
+``--list`` takes ``large-files.ps1`` output and splits every listed file at ``--limit`` lines or more
+with no plan file: ``split_module_planner`` chooses the cuts and names the new modules. A file that
+cannot be cut, or has nothing left to move, is reported and left alone.
 
 A module-object read ``alias.<moved name>`` is pointed at the module the name moved to: ``alias``
 becomes that module's stem and ``from <package> import <stem>`` is added below the statement that
@@ -45,6 +56,7 @@ Exit codes: 0 = split done (or a clean dry run), 1 = refused (every reason print
 
 Usage:
     python -m datrix_scripts.codemods.split_module --module=FILE --plan=PLAN.json [--package-module=DOTTED] [--dry-run]
+    python -m datrix_scripts.codemods.split_module --list=LARGE_FILES_OUTPUT.txt [--limit=600] [--dry-run]
 """
 
 from __future__ import annotations
@@ -64,6 +76,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
+from datrix_scripts.codemods.split_module_planner import cannot_be_cut, cut_test_classes, listed_files, plan_cut
 from datrix_scripts.gate_harness import UsageError, expect_usage_error
 from datrix_scripts.import_sites import (
     PACKAGE_DIR_PREFIX,
@@ -83,6 +96,7 @@ EXIT_OK: Final[int] = 0
 EXIT_REFUSED: Final[int] = 1
 MARKER_NAME: Final[str] = "pytestmark"
 ALL_NAME: Final[str] = "__all__"
+TESTS_PACKAGE_PREFIX: Final[str] = "tests."
 INIT_FILE_NAME: Final[str] = "__init__.py"
 PYPROJECT_NAME: Final[str] = "pyproject.toml"
 PLAN_DOC_KEY: Final[str] = "doc"
@@ -90,7 +104,8 @@ PLAN_RANGE_KEY: Final[str] = "range"
 PLAN_NAMES_KEY: Final[str] = "names"
 MAX_SINGLE_LINE_IMPORT: Final[int] = 100
 MAX_COLUMN: Final[int] = 1 << 30
-RUFF_RULES: Final[str] = "F401,I001"
+RUFF_RULES: Final[str] = "F401,I001,TC005"
+DEFAULT_LIMIT: Final[int] = 600
 WRITE_ENCODING: Final[str] = "utf-8"
 BLANK_LINES_BEFORE_DEFINITIONS: Final[str] = "\n\n"
 
@@ -118,10 +133,11 @@ class SourceModule:
     blocks: dict[str, str] = field(default_factory=dict)
     owner: dict[str, list[str]] = field(default_factory=dict)
     order: list[str] = field(default_factory=list)
+    late_imports: str = ""
 
     @property
     def header(self) -> str:
-        return "".join(self.lines[: self.header_end])
+        return "".join(self.lines[: self.header_end]) + self.late_imports
 
 
 @dataclass(frozen=True)
@@ -233,15 +249,27 @@ def source_lines(path: Path) -> list[str]:
     return io.StringIO(path.read_text(encoding=SOURCE_ENCODING), newline="").readlines()
 
 
+def _is_late_header(node: ast.stmt, header_end: int) -> bool:
+    """An import or ``if TYPE_CHECKING:`` block below the header, which no definition owns."""
+    if _start_line(node) <= header_end:
+        return False
+    return isinstance(node, (ast.Import, ast.ImportFrom)) or (isinstance(node, ast.If) and "TYPE_CHECKING" in ast.unparse(node.test))
+
+
 def read_module(path: Path) -> SourceModule:
     """Cut *path* into its header and one block per top-level definition. Each block owns the
     lines above it (its leading comments) through its own last line."""
-    lines = source_lines(path)
-    tree = ast.parse("".join(lines), filename=str(path))
+    original = source_lines(path)
+    tree = ast.parse("".join(original), filename=str(path))
     body = list(tree.body)
     first = body[0] if body else None
     is_docstring = isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str)
-    module = SourceModule(lines=lines, header_end=_header_end(body), docstring=first if is_docstring else None)
+    module = SourceModule(lines=original, header_end=_header_end(body), docstring=first if is_docstring else None)
+    lines = list(original)
+    for node in body:
+        if _is_late_header(node, module.header_end):
+            module.late_imports += "".join(original[node.lineno - 1 : _end_line(node)])
+            lines[node.lineno - 1 : _end_line(node)] = [""] * (_end_line(node) - node.lineno + 1)
     previous_end = module.header_end
     for node in body:
         names = defined_names(node)
@@ -364,16 +392,44 @@ def validate_cut(module: SourceModule, entries: Sequence[PlanEntry], homes: Mapp
     _assert_acyclic(graph, edge_names)
 
 
-def _check_all(module: SourceModule, moved: frozenset[str]) -> None:
-    block = module.blocks.get(ALL_NAME)
-    if block is None:
-        return
-    listed = {node.value for node in ast.walk(ast.parse(block)) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
-    if listed & moved:
+def _check_rebound_globals(module: SourceModule, homes: Mapping[str, str], original_stem: str) -> None:
+    """Refuse a cut that leaves a name rebound through ``global`` in more than one module."""
+    writers = {
+        key: {name for node in ast.walk(ast.parse(module.blocks[key])) if isinstance(node, ast.Global) for name in node.names}
+        for key in module.order
+    }
+    for name in set().union(*writers.values()):
+        touching = [key for key in module.order if name in writers[key] or name in free_names(module.blocks[key]) or name in module.owner[key]]
+        places = {homes.get(key, original_stem) for key in touching}
+        if len(places) > 1:
+            raise SplitRefused(
+                f"{name!r} is rebound through 'global' but the cut leaves its uses in {sorted(places)}: an import copies "
+                f"the binding, so the rebinding would not reach them. Fix: keep {touching} in one module."
+            )
+
+
+def _all_without(block: str, moved: frozenset[str]) -> str:
+    """The ``__all__`` block with *moved* gone, since each symbol keeps one import path.
+
+    Raises:
+        SplitRefused: A moved name is listed in anything but a plain list or tuple of strings.
+    """
+    statement = ast.parse(block).body[0]
+    value = statement.value if isinstance(statement, (ast.Assign, ast.AnnAssign)) else None
+    listed = {node.value for node in ast.walk(statement) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+    if not listed & moved:
+        return block
+    if not isinstance(value, (ast.List, ast.Tuple)) or not all(isinstance(item, ast.Constant) for item in value.elts):
         raise SplitRefused(
-            f"{ALL_NAME} in the original names moved definitions {sorted(listed & moved)}. Fix: remove them "
-            f"from {ALL_NAME} first (each symbol keeps one import path), then split."
+            f"{ALL_NAME} in the original names moved definitions {sorted(listed & moved)} and is not a plain list or "
+            f"tuple of strings. Fix: write it as one, then split."
         )
+    lines = block.splitlines(keepends=True)
+    opening, closing = ("[", "]") if isinstance(value, ast.List) else ("(", ")")
+    kept = "".join(f'    "{item.value}",\n' for item in value.elts if item.value not in moved)
+    before = "".join(lines[: value.lineno - 1]) + lines[value.lineno - 1][: value.col_offset]
+    after = lines[value.end_lineno - 1][value.end_col_offset :] + "".join(lines[value.end_lineno :])
+    return f"{before}{opening}\n{kept}{closing}{after}"
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +450,7 @@ def _header_with_doc(module: SourceModule, doc: str) -> str:
     if module.docstring is None:
         return f'"""{doc}"""\n\n' + module.header
     doc_end = _end_line(module.docstring)
-    return f'"""{doc}"""\n' + "".join(module.lines[doc_end : module.header_end])
+    return f'"""{doc}"""\n' + "".join(module.lines[doc_end : module.header_end]) + module.late_imports
 
 
 def _imports_from_siblings(sources: Sequence[str], own_stem: str, homes: Mapping[str, str], package: str) -> str:
@@ -405,6 +461,41 @@ def _imports_from_siblings(sources: Sequence[str], own_stem: str, homes: Mapping
             if home is not None and home != own_stem:
                 needed.setdefault(home, set()).add(name)
     return "".join(_import_statement(f"{package}.{home}", sorted(names)) for home, names in sorted(needed.items()))
+
+
+def _annotations_of(node: ast.AST) -> list[ast.expr]:
+    if isinstance(node, ast.AnnAssign):
+        return [node.annotation]
+    if isinstance(node, ast.arg) and node.annotation is not None:
+        return [node.annotation]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None:
+        return [node.returns]
+    return []
+
+
+def _names_in_quotes(annotation: ast.expr) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(annotation):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            with contextlib.suppress(SyntaxError):
+                names |= {sub.id for sub in ast.walk(ast.parse(node.value, mode="eval")) if isinstance(sub, ast.Name)}
+    return names
+
+
+def _type_only_imports(sources: Sequence[str], own_stem: str, homes: Mapping[str, str], package: str, header: str) -> str:
+    """Imports under ``TYPE_CHECKING`` of what *sources* spell only in a quoted annotation."""
+    needed: dict[str, set[str]] = {}
+    for source in sources:
+        quoted = {name for node in ast.walk(ast.parse(source)) for note in _annotations_of(node) for name in _names_in_quotes(note)}
+        for name in quoted - free_names(source):
+            home = homes.get(name)
+            if home is not None and home != own_stem:
+                needed.setdefault(home, set()).add(name)
+    if not needed:
+        return ""
+    statements = "".join(_import_statement(f"{package}.{home}", sorted(names), "    ") for home, names in sorted(needed.items()))
+    guard_import = "" if "TYPE_CHECKING" in header else "from typing import TYPE_CHECKING\n"
+    return f"{guard_import}\nif TYPE_CHECKING:\n{statements}"
 
 
 def _definitions(sources: Sequence[str]) -> str:
@@ -418,14 +509,21 @@ def render_new_module(module: SourceModule, entry: PlanEntry, homes: Mapping[str
     return (
         _header_with_doc(module, entry.doc)
         + _imports_from_siblings(sources, entry.stem, homes, package)
+        + _type_only_imports(sources, entry.stem, homes, package, module.header)
         + (f"\n{marker}\n" if marker else "")
         + _definitions(sources)
     )
 
 
 def render_remainder(module: SourceModule, homes: Mapping[str, str], package: str, original_stem: str) -> str:
-    kept = [module.blocks[key] for key in module.order if homes.get(key, original_stem) == original_stem]
-    return module.header + _imports_from_siblings(kept, original_stem, homes, package) + _definitions(kept)
+    moved = frozenset(name for name, home in homes.items() if home != original_stem)
+    kept = [
+        _all_without(module.blocks[key], moved) if key == ALL_NAME else module.blocks[key]
+        for key in module.order
+        if homes.get(key, original_stem) == original_stem
+    ]
+    imports = _imports_from_siblings(kept, original_stem, homes, package)
+    return module.header + imports + _type_only_imports(kept, original_stem, homes, package, module.header) + _definitions(kept)
 
 
 # ---------------------------------------------------------------------------
@@ -547,16 +645,21 @@ def _text_reference_files(workspace: Path) -> list[Path]:
     return files
 
 
+def _can_import(path: Path, original: str, owner: Path) -> bool:
+    """Whether *path* can mean this module: every repo has a ``tests`` package, so ``tests.x`` names its own repo's."""
+    return not original.startswith(TESTS_PACKAGE_PREFIX) or path.resolve().is_relative_to(owner)
+
+
 def plan_importers(
-    original: str, moved: Mapping[str, str], skip: frozenset[Path], workspace: Path
+    original: str, moved: Mapping[str, str], skip: frozenset[Path], workspace: Path, owner: Path
 ) -> tuple[list[SourceEdit], list[Path], list[str]]:
     """Every importer edit the split needs, every file spelling a dotted path to a moved name, and every
-    reason the split cannot be completed."""
+    reason the split cannot be completed. *owner* is the repo holding the split module."""
     edits: list[SourceEdit] = []
     text_files: list[Path] = []
     blockers: list[str] = []
     for path in scanned_files(workspace):
-        if path.resolve() in skip:
+        if path.resolve() in skip or not _can_import(path, original, owner):
             continue
         try:
             file_edits, file_blockers = _importer_edits(path, original, moved, workspace)
@@ -566,7 +669,7 @@ def plan_importers(
         edits.extend(file_edits)
         blockers.extend(file_blockers)
     for path in _text_reference_files(workspace):
-        if path.resolve() not in skip and _has_text_reference(path, original, moved):
+        if path.resolve() not in skip and _can_import(path, original, owner) and _has_text_reference(path, original, moved):
             text_files.append(path)
     return edits, text_files, blockers
 
@@ -704,7 +807,7 @@ def prepare(args: argparse.Namespace, workspace: Path) -> SplitPlan:
     if target.stem in provides.values():
         raise SplitRefused(f"A new module may not take the original's name {target.stem!r}. Pick another stem.")
     homes = homes_of(module, provides, target.stem)
-    _check_all(module, frozenset(provides))
+    _check_rebound_globals(module, homes, target.stem)
     validate_cut(module, entries, homes, target.stem)
     clashes = [entry.stem for entry in entries if (target.parent / f"{entry.stem}.py").exists()]
     if clashes:
@@ -712,7 +815,9 @@ def prepare(args: argparse.Namespace, workspace: Path) -> SplitPlan:
     outputs = {target.parent / f"{entry.stem}.py": render_new_module(module, entry, homes, package) for entry in entries}
     skip = frozenset({target, *(path.resolve() for path in outputs)})
     original = f"{package}.{target.stem}"
-    edits, text_files, blockers = plan_importers(original, provides, skip, workspace.resolve())
+    root = workspace.resolve()
+    owner = root / target.relative_to(root).parts[0] if target.is_relative_to(root) else root
+    edits, text_files, blockers = plan_importers(original, provides, skip, root, owner)
     return SplitPlan(
         target=target,
         outputs=outputs,
@@ -767,8 +872,65 @@ def split(args: argparse.Namespace, workspace: Path) -> int:
     return EXIT_OK
 
 
+def _test_package(path: Path, workspace: Path) -> str | None:
+    """The dotted package of a module outside a src/ tree, read from its repository root."""
+    parts = path.resolve().relative_to(workspace.resolve()).parts
+    return None if SRC_DIR_NAME in parts else ".".join(parts[1:-1])
+
+
+def _cut_oversized_test_classes(path: Path) -> None:
+    text = "".join(source_lines(path))
+    cut = cut_test_classes(text)
+    if cut != text:
+        path.write_text(cut, encoding=WRITE_ENCODING)
+
+
+def _split_listed_file(path: Path, args: argparse.Namespace, workspace: Path) -> int:
+    """Plan and split one listed file; returns the exit code. A file left alone says why."""
+    if len(source_lines(path)) < args.limit:
+        print(f"== {display_path(path, workspace)}: already under {args.limit}")
+        return EXIT_OK
+    if not args.dry_run and path.name.startswith("test_"):
+        _cut_oversized_test_classes(path)
+    module = read_module(path)
+    chunks = [] if cannot_be_cut(path, module) else plan_cut(path, module, free_names)
+    if not chunks:
+        print(f"== {display_path(path, workspace)}: left alone, nothing can move")
+        return EXIT_OK
+    print(f"== {display_path(path, workspace)}: {len(chunks)} new module(s)")
+    plan = {chunk.stem: {PLAN_DOC_KEY: chunk.doc, PLAN_NAMES_KEY: list(chunk.names)} for chunk in chunks}
+    with tempfile.TemporaryDirectory() as tmp:
+        plan_path = Path(tmp) / "plan.json"
+        plan_path.write_text(json.dumps(plan), encoding=WRITE_ENCODING)
+        one = argparse.Namespace(module=path, plan=plan_path, package_module=_test_package(path, workspace), dry_run=args.dry_run)
+        return run_split(one, workspace)
+
+
+def split_listed(args: argparse.Namespace, workspace: Path) -> int:
+    """Split every file ``args.list`` names at ``args.limit`` lines or more; one refusal does not stop the rest."""
+    files = listed_files(args.list.read_text(encoding=SOURCE_ENCODING), args.limit, workspace)
+    refused = [path for path in files if path.is_file() and _listed_file_refused(path, args, workspace)]
+    missing = [path for path in files if not path.is_file()]
+    for path in missing:
+        print(f"== {display_path(path, workspace)}: no such file")
+    print(f"Listed {len(files)} file(s); {len(refused)} refused, {len(missing)} missing.")
+    for path in refused:
+        print(f"refused {display_path(path, workspace)}")
+    return EXIT_REFUSED if refused else EXIT_OK
+
+
+def _listed_file_refused(path: Path, args: argparse.Namespace, workspace: Path) -> bool:
+    try:
+        return _split_listed_file(path, args, workspace) != EXIT_OK
+    except (SplitRefused, SyntaxError) as exc:
+        print(f"Refused: {exc} Nothing was written.")
+        return True
+
+
 def run_split(args: argparse.Namespace, workspace: Path) -> int:
     """The split, its refusal printed; returns the exit code."""
+    if getattr(args, "list", None) is not None:
+        return split_listed(args, workspace)
     if args.module is None or args.plan is None or not args.module.is_file() or not args.plan.is_file():
         raise UsageError(
             f"Expected an existing -Module file and -Plan file; got {args.module} and {args.plan}. "
@@ -789,6 +951,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--module", type=Path, help="The .py file to split.")
     parser.add_argument("--plan", type=Path, help="The JSON plan (see the module docstring).")
     parser.add_argument("--package-module", help="Dotted package of the module when it is not under a src/ tree.")
+    parser.add_argument("--list", type=Path, help="large-files.ps1 output: split every listed file, no plan needed.")
+    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="With --list: the line count a file must reach.")
     parser.add_argument("--dry-run", action="store_true", help="Print what the split would do; write nothing.")
     parser.add_argument("--self-test", action="store_true",
                         help="Run only the self-test: a planted module is split (dry run, then for real), and a bad plan "
@@ -920,6 +1084,92 @@ def _check_module_object_reads_follow_the_moved_name() -> None:
         ), importer.read_text(encoding=WRITE_ENCODING)
 
 
+_PLANTED_LATE_HEADER: Final = (
+    '"""Big."""\n\nimport os\n\nLIMIT = 1\nimport sys\n\nif TYPE_CHECKING:\n    from typing import Any\n\n\n'
+    "def alpha() -> str:\n    return sys.platform\n\n\ndef beta() -> str:\n    return os.sep\n"
+)
+_PLANTED_GLOBAL: Final = (
+    '"""Big."""\n\nCACHE = None\n\n\ndef fill() -> None:\n    global CACHE\n    CACHE = 1\n\n\n'
+    "def read() -> object:\n    return CACHE\n"
+)
+
+
+def _check_imports_below_a_definition_stay_in_every_header() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plan_spec = {"_limit": {PLAN_DOC_KEY: "Limit.", PLAN_NAMES_KEY: ["LIMIT"]}}
+        module, plan, _importer = _planted_workspace(root, plan_spec, _PLANTED_LATE_HEADER)
+        code, text = _quiet_split([f"--module={module}", f"--plan={plan}"], root)
+        assert code == EXIT_OK, text
+        remainder = module.read_text(encoding=WRITE_ENCODING)
+        assert "import sys" in remainder and "import os" in remainder, remainder
+        assert "import sys" not in (module.parent / "_limit.py").read_text(encoding=WRITE_ENCODING)
+
+
+def _check_a_rebound_global_is_never_left_in_two_modules() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plan_spec = {"_fill": {PLAN_DOC_KEY: "Fill.", PLAN_NAMES_KEY: ["fill"]}}
+        module, plan, _importer = _planted_workspace(root, plan_spec, _PLANTED_GLOBAL)
+        code, text = _quiet_split([f"--module={module}", f"--plan={plan}"], root)
+        assert code == EXIT_REFUSED and "rebound through 'global'" in text, text
+
+
+def _check_a_list_is_split_with_no_plan() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        functions = "".join(f"def f{n}() -> int:\n" + "    x = 1\n" * 50 + "    return x\n\n\n" for n in range(14))
+        module, _plan, _importer = _planted_workspace(root, {}, f'"""Big."""\n\n\n{functions}')
+        listing = root / "large.txt"
+        project = f"{PACKAGE_DIR_PREFIX}planted"
+        listing.write_text(f"[1/1] {project} (top=20)\n\n  730  src/planted_pkg/big.py\n", encoding=WRITE_ENCODING)
+        code, text = _quiet_split([f"--list={listing}"], root)
+        assert code == EXIT_OK and "1 new module(s)" in text, text
+        assert len(source_lines(module)) < DEFAULT_LIMIT, text
+
+
+def _check_a_listed_file_just_over_the_limit_loses_its_all_entries() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        functions = "".join(f"def f{n}() -> int:\n" + "    x = 1\n" * 30 + "    return x\n\n\n" for n in range(18))
+        listed = ", ".join(f'"f{n}"' for n in range(18))
+        module, _plan, _importer = _planted_workspace(root, {}, f'"""Big."""\n\n__all__ = [{listed}]\n\n\n{functions}')
+        listing = root / "large.txt"
+        project = f"{PACKAGE_DIR_PREFIX}planted"
+        listing.write_text(f"[1/1] {project} (top=20)\n\n  620  src/planted_pkg/big.py\n", encoding=WRITE_ENCODING)
+        code, text = _quiet_split([f"--list={listing}"], root)
+        assert code == EXIT_OK and "1 new module(s)" in text, text
+        remainder = "".join(source_lines(module))
+        assert len(source_lines(module)) < DEFAULT_LIMIT and '"f0"' not in remainder and '"f17"' in remainder, remainder
+
+
+def _check_an_oversized_test_class_is_cut_at_its_methods() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        tests = "".join(f"    def test_{n}(self) -> None:\n" + "        x = 1\n" * 40 + "        assert x\n\n" for n in range(18))
+        helper = "    def _helper(self) -> int:\n        return 1\n\n    def test_tied(self) -> None:\n        assert self._helper()\n\n"
+        module, _plan, _importer = _planted_workspace(root, {}, f'"""Big."""\n\n\nclass TestBig:\n    """All of it."""\n\n{tests}{helper}')
+        (module.parent / "test_big.py").write_text(module.read_text(encoding=WRITE_ENCODING), encoding=WRITE_ENCODING)
+        listing = root / "large.txt"
+        project = f"{PACKAGE_DIR_PREFIX}planted"
+        listing.write_text(f"[1/1] {project} (top=20)\n\n  780  src/planted_pkg/test_big.py\n", encoding=WRITE_ENCODING)
+        code, text = _quiet_split([f"--list={listing}"], root)
+        assert code == EXIT_OK and "new module(s)" in text, text
+        parts = [path.read_text(encoding=WRITE_ENCODING) for path in sorted(module.parent.glob("test_big*.py"))]
+        assert all(len(part.splitlines()) < DEFAULT_LIMIT for part in parts), [len(part.splitlines()) for part in parts]
+        holders = [part for part in parts if "def _helper" in part]
+        assert len(holders) == 1 and "def test_tied" in holders[0], text
+
+
+def _check_a_tests_module_reaches_importers_only_in_its_own_repo() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve()
+        own, other = root / "repo-a" / "tests" / "user.py", root / "repo-b" / "tests" / "user.py"
+        assert _can_import(own, "tests.conftest", root / "repo-a")
+        assert not _can_import(other, "tests.conftest", root / "repo-a")
+        assert _can_import(other, "planted_pkg.big", root / "repo-a")
+
+
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
         checks = [_check_a_planted_module_is_split_and_its_importer_rewritten,
@@ -928,7 +1178,13 @@ def _run(args: argparse.Namespace) -> int:
                   _check_dotted_paths_in_text_are_rewritten_and_line_endings_kept,
                   _check_module_object_reads_follow_the_moved_name,
                   _check_quoted_references_to_the_original_are_reported,
-                  _check_a_bad_plan_is_refused_and_nothing_written]
+                  _check_a_bad_plan_is_refused_and_nothing_written,
+                  _check_imports_below_a_definition_stay_in_every_header,
+                  _check_a_rebound_global_is_never_left_in_two_modules,
+                  _check_a_list_is_split_with_no_plan,
+                  _check_a_listed_file_just_over_the_limit_loses_its_all_entries,
+                  _check_an_oversized_test_class_is_cut_at_its_methods,
+                  _check_a_tests_module_reaches_importers_only_in_its_own_repo]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
                              folder=CODEMODS_SCRIPTS_DIR)
     return run_split(args, WORKSPACE_DIR)

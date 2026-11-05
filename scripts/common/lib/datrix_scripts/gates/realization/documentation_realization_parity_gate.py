@@ -87,19 +87,21 @@ from typing import Final
 
 from datrix_codegen_kernel.parity.conformance_probes import (
     BytesJsonField,
-    DocumentationSurfaces,
-    EnumClassifierRender,
-    EventEnvelopeCensus,
     ExternClientRequest,
     ExternGraphqlRequest,
     ExternalQueueControlCensus,
-    IdiomOccurrence,
     LanguageConformanceProbes,
-    ResponseBodyWireField,
-    RouteWireContract,
     TransactionUnit,
     conformance_probes_of_language_plugin,
     language_conformance_probes,
+)
+from datrix_codegen_kernel.parity._conformance_probes_response_body_wire_field import (
+    DocumentationSurfaces,
+    EnumClassifierRender,
+    EventEnvelopeCensus,
+    IdiomOccurrence,
+    ResponseBodyWireField,
+    RouteWireContract,
 )
 from datrix_common.errors.plugin import PluginValidationError
 from datrix_common.plugin.code_idiom import CodeIdiom

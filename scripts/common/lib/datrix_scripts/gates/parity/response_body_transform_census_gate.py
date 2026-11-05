@@ -40,7 +40,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from datrix_codegen_kernel.parity.conformance_probes import IdiomOccurrence, language_conformance_probes
+from datrix_codegen_kernel.parity.conformance_probes import language_conformance_probes
+from datrix_codegen_kernel.parity._conformance_probes_response_body_wire_field import (
+    IdiomOccurrence,
+)
 from datrix_common.errors.plugin import PluginNotFoundError, PluginValidationError
 from datrix_common.plugin._capability_declarations import declaration_for_language
 from datrix_common.plugin.code_idiom import CallIdiom, CodeIdiom

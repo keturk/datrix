@@ -151,7 +151,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from datrix_common.plugin.registry import LANGUAGES_GROUP, entry_points
+from datrix_common.plugin._registry_discovery import LANGUAGES_GROUP, entry_points
 
 from datrix_scripts.gate_harness import EXIT_PASS, WRAPPER_DEBUG_FLAG
 from datrix_scripts.gate_log import gate_child, run_as_gate

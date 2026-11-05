@@ -24,7 +24,7 @@ from types import ModuleType
 from typing import Final
 
 from datrix_codegen_kernel.sql_facts import type_mappings as sql_type_mappings
-from datrix_common.plugin.registry import EXTENSION_GROUP
+from datrix_common.plugin._registry_discovery import EXTENSION_GROUP
 from datrix_common.types.base import TypeMappingBase
 
 from datrix_scripts.dev.arguments import comma_values

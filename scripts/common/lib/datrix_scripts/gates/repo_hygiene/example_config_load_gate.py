@@ -58,14 +58,14 @@ from datrix_common.config.unified_loader import (
     load_strings_config,
     load_system_config,
 )
-from datrix_common.config_resolution import ConfigResolutionError
+from datrix_common._config_service_resolution import ConfigResolutionError
 from datrix_common.errors.base import DatrixError
 from datrix_common.errors.codegen import PipelineError
 from datrix_common.errors.configuration import ConfigValidationError
 from datrix_common.protocols.config_documents import ConfigDocumentSourceProtocol
 from datrix_common.source_syntax import SourceParseError
 from datrix_language.parser.dcfg_documents import disk_config_documents
-from datrix_testing.parsing import register_installed_parsers
+from datrix_testing._parsing_support import register_installed_parsers
 from datrix_testing.project import analysis_of
 
 from datrix_scripts.gate_harness import write_files

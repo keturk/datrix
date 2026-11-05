@@ -35,11 +35,8 @@ import sys
 from collections.abc import Sequence
 from typing import Final, cast
 
-from datrix_codegen_common.transpiler.builtin_registry import (
-    BUILTIN_REGISTRY,
-    BuiltinGroup,
-    obligated_groups,
-)
+from datrix_codegen_common.transpiler.builtin_registry import BUILTIN_REGISTRY
+from datrix_codegen_common.transpiler._builtin_model import BuiltinGroup, obligated_groups
 from datrix_codegen_common.transpiler.profile import TranspilerProfile
 from datrix_codegen_kernel.generation.discovery import get_language_plugin
 

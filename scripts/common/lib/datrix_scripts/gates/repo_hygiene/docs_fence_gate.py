@@ -26,7 +26,7 @@ from typing import Final
 
 from datrix_testing.cases.fences import FenceError
 from datrix_testing.cases.runner import fence_failures
-from datrix_testing.parsing import register_installed_parsers
+from datrix_testing._parsing_support import register_installed_parsers
 
 from datrix_scripts.gate_log import gate_child, run_as_gate
 from datrix_scripts.gates.repo_hygiene.gate_options import packages_current, self_test_gate_parser

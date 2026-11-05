@@ -57,9 +57,11 @@ from pathlib import Path
 from typing import Final
 
 from datrix_codegen_kernel.parity.conformance_probes import (
-    IdiomOccurrence,
     UnparseableGeneratedFileError,
     language_conformance_probes,
+)
+from datrix_codegen_kernel.parity._conformance_probes_response_body_wire_field import (
+    IdiomOccurrence,
 )
 from datrix_common.datrix_model.problem_types import (  # noqa: E402
     FIELD_ERROR_PATH_RULE,
@@ -74,7 +76,7 @@ from datrix_common.plugin.code_idiom import (
     FunctionIdiom,
     InterpolatedStringIdiom,
 )
-from datrix_common.plugin.language_capability import (  # noqa: E402
+from datrix_common.plugin._language_idioms import (
     ExecutedFieldErrorPathFormatter,
     ExecutedLocatedClassifier,
     FieldErrorPathRealization,

@@ -18,7 +18,7 @@ from typing import Literal
 # installed datrix.platforms entry points, never a hardcoded
 # "aws"/"azure"/"docker"/"local" literal: registered_platform_names() comes
 # from the shared scripts package (datrix_scripts, on PYTHONPATH).
-from datrix_common.config.datasource.identity_config import (
+from datrix_common.config.datasource._identity_config_identity_provider import (
     IdentityProvider as ConfigIdentityProvider,
 )
 

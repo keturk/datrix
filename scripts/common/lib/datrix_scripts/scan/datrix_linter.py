@@ -195,7 +195,7 @@ class DatrixLinter:
 
     def _resolve_service_configs(self, app: Application, project_root: Path) -> list[str]:
         """Resolve service/shared config profiles before semantic validation."""
-        from datrix_common.config_resolution import (
+        from datrix_common._config_service_resolution import (
             ConfigResolutionError,
             resolve_service_configs,
         )

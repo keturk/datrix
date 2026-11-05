@@ -69,11 +69,9 @@ from datrix_common.plugin._capability_declarations import (
     declaration_for_provider,
 )
 from datrix_common.plugin.code_idiom import CallIdiom
-from datrix_common.plugin.language_capability import (
-    PLATFORM_ONLY_OBSERVABILITY_CATEGORIES,
-    LanguageCapabilityDeclaration,
-)
-from datrix_common.plugin.registry import LANGUAGES_GROUP, PLATFORM_GROUP
+from datrix_common.plugin._language_declaration import LanguageCapabilityDeclaration
+from datrix_common.plugin._language_idioms import PLATFORM_ONLY_OBSERVABILITY_CATEGORIES
+from datrix_common.plugin._registry_discovery import LANGUAGES_GROUP, PLATFORM_GROUP
 from datrix_scripts.gate_log import gate_child, run_as_gate
 from datrix_scripts.gates.parity.gate_entry import ParityGate, gate_parser, problems_self_test
 

@@ -267,7 +267,7 @@ def extract_typescript(data: bytes) -> FileFacts:
 
 @functools.cache
 def _datrix_parser() -> Parser:
-    from datrix_language.parser.tree_sitter_datrix.parser import load_datrix_language
+    from datrix_language.parser.tree_sitter_datrix._parser_loading import load_datrix_language
 
     return Parser(load_datrix_language())
 

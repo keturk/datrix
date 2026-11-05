@@ -91,7 +91,7 @@ from datrix_codegen_common.parity.domain_registry import SHARED_CONTEXT_TYPES
 from datrix_codegen_kernel.generation.discovery import get_language_plugin
 from datrix_codegen_kernel.parity.domain_declaration import DomainDeclaration
 from datrix_codegen_kernel.parity.domain_ids import STRUCTURAL_DOMAIN_IDS
-from datrix_common.plugin.registry import LANGUAGES_GROUP
+from datrix_common.plugin._registry_discovery import LANGUAGES_GROUP
 from datrix_scripts.gate_log import gate_child, run_as_gate
 from datrix_scripts.gates.parity.gate_entry import ParityGate, gate_parser, problems_self_test
 from datrix_testing.conformance.domain_self_consistency import (

@@ -48,6 +48,7 @@ EXIT_OPEN: Final[int] = 1
 LEDGER_FILE: Final[Path] = TMP_DIR / "failure-ledger" / "ledger.json"
 RUN_GLOB: Final = "test-results-*/index.json"
 FULL_KIND: Final = "full"
+UNKNOWN_FILE: Final = "unknown"
 MAX_IDS_PRINTED: Final = 40
 
 FAILING: Final = "FAILING"
@@ -78,6 +79,14 @@ def _text(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _test_file(entry: dict[str, object]) -> str:
+    """The file an entry failed in: a collection error records none, and its id is the module's dotted path."""
+    recorded = _normal(_text(entry.get("file")))
+    if recorded and recorded != UNKNOWN_FILE:
+        return recorded
+    return _normal(_text(entry["test_id"]).split("::", 1)[0].replace(".", "/") + ".py")
+
+
 def load_run(path: Path) -> Run:
     """Parse one ``index.json``; a file that is not a run raises ``UsageError`` naming it."""
     try:
@@ -93,7 +102,7 @@ def load_run(path: Path) -> Run:
     for key in ("failures", "errors"):
         for entry in data.get(key) or []:
             if isinstance(entry, dict) and _text(entry.get("test_id")):
-                failing[_text(entry["test_id"])] = _normal(_text(entry.get("file")))
+                failing[_text(entry["test_id"])] = _test_file(entry)
     return Run(
         project=_text(data["project"]),
         timestamp=_text(data["timestamp"]),
@@ -110,7 +119,8 @@ def covers(run: Run, test_file: str) -> bool:
     """Whether *run* ran every test of *test_file*: a full run, or a ``-Specific`` naming it or its directory."""
     if run.kind == FULL_KIND:
         return True
-    return any(test_file == entry or test_file.startswith(entry.rstrip("/") + "/") for entry in run.specific)
+    package = test_file.removesuffix(".py")
+    return any(entry in (test_file, package) or test_file.startswith(entry.rstrip("/") + "/") for entry in run.specific)
 
 
 def package_runs(start: Run) -> list[Run]:
@@ -296,6 +306,39 @@ def _check_a_failing_rerun_and_a_new_failure_stay_open() -> None:
         )
 
 
+def _check_a_targeted_run_closes_a_collection_error() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        collection_error = ("tests.unit.test_c", UNKNOWN_FILE)
+        start = _plant_run(root, "pkg", "test-results-1", "2026-01-01T10:00:00", _FULL, [collection_error, _A])
+        _plant_run(
+            root,
+            "pkg",
+            "test-results-2",
+            "2026-01-01T11:00:00",
+            '{"kind": "targeted", "specific": ["tests/unit/test_c.py"]}',
+            [],
+        )
+        labels = _open_labels([load_run(start)])
+        assert labels == {_A[0]: NOT_RERUN}, f"a collection error's id names its file, got {labels}"
+
+
+def _check_a_directory_run_closes_a_package_collection_error() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        package_error = ("tests.unit.generators", UNKNOWN_FILE)
+        start = _plant_run(root, "pkg", "test-results-1", "2026-01-01T10:00:00", _FULL, [package_error])
+        _plant_run(
+            root,
+            "pkg",
+            "test-results-2",
+            "2026-01-01T11:00:00",
+            '{"kind": "targeted", "specific": ["tests/unit/generators"]}',
+            [],
+        )
+        assert not _open_labels([load_run(start)]), "a run of the directory proves a package's collection error"
+
+
 def _check_a_full_green_run_closes_everything() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -322,6 +365,8 @@ def _run(args: argparse.Namespace) -> int:
             _check_ids_stay_open_until_rerun,
             _check_a_covering_run_closes_only_what_it_covers,
             _check_a_failing_rerun_and_a_new_failure_stay_open,
+            _check_a_targeted_run_closes_a_collection_error,
+            _check_a_directory_run_closes_a_package_collection_error,
             _check_a_full_green_run_closes_everything,
             _check_the_ledger_round_trips_and_refuses_bad_input,
         ]

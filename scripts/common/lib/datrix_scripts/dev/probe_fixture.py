@@ -154,7 +154,7 @@ def _block_summary(service: object) -> list[str]:
 
 def probe_profile(dtrx: Path, profile: str) -> bool:
     """Analyze the project under *profile* and print the outcome; False when it failed."""
-    from datrix_testing.parsing import register_installed_parsers
+    from datrix_testing._parsing_support import register_installed_parsers
     from datrix_testing.project import analyzed_project
 
     register_installed_parsers()

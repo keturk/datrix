@@ -222,12 +222,12 @@ from datrix_codegen_common.testkit.fixtures.fixtureclient import (
     fixture_client_target_descriptor,
 )
 from datrix_codegen_common.transpiler._emit_adapters import emit_adapter
-from datrix_codegen_kernel.platform.realization_table import (
+from datrix_codegen_kernel.platform.realization_table import parse_realization_tables
+from datrix_codegen_kernel.platform._realization_table_dispatch_table_cells import (
     ArtifactEmitter,
     RealizationCell,
     RealizationTable,
     ScaffoldRuntimeRealization,
-    parse_realization_tables,
 )
 from datrix_common.errors.plugin import PluginNotFoundError
 from datrix_common.plugin._capability_declarations import declaration_for_language
@@ -235,7 +235,8 @@ from datrix_common.plugin._capability_scaffold_ports import container_scaffold_g
 from datrix_common.plugin.identity import RuntimeId
 from datrix_common.plugin.client_capability import ClientTargetCapabilityDeclaration
 from datrix_common.plugin.descriptor import PluginDescriptor
-from datrix_common.plugin.registry import GENERATOR_GROUP, PluginRegistry, plugin_registry
+from datrix_common.plugin.registry import PluginRegistry, plugin_registry
+from datrix_common.plugin._registry_discovery import GENERATOR_GROUP
 from datrix_testing.conformance.plugin_harness import (
     FixtureEntryPointSpec,
     process_fixture_plugin_environment,
