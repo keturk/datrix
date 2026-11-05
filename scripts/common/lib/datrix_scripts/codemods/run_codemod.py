@@ -146,13 +146,79 @@ def _check_a_recipe_previews_a_planted_rename() -> None:
 def _check_write_rewrites_the_planted_file() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         planted = Path(tmp) / "sample.py"
-        planted.write_text(_PLANTED_SOURCE, encoding="utf-8")
+        planted.write_bytes(_PLANTED_SOURCE.encode())
+        crlf = Path(tmp) / "crlf_sample.py"
+        crlf.write_bytes(_PLANTED_SOURCE.replace("\n", "\r\n").encode())
         args = build_parser().parse_args(["--write", "01_rename_function", "old_func", "new_func", tmp])
         assert args.write, "--write did not parse"
         status = run_codemod(*requested(args), write=args.write)
         assert status == 0, f"run-codemod --write exited {status}"
-        assert planted.read_text(encoding="utf-8") == _PLANTED_SOURCE.replace("old_func", "new_func"), (
-            f"--write left {planted.read_text(encoding='utf-8')!r}; expected every old_func renamed")
+        renamed = _PLANTED_SOURCE.replace("old_func", "new_func")
+        assert planted.read_bytes() == renamed.encode(), (
+            f"--write left {planted.read_bytes()!r}; expected every old_func renamed, its LF endings kept")
+        assert crlf.read_bytes() == renamed.replace("\n", "\r\n").encode(), (
+            f"--write left {crlf.read_bytes()!r}; expected every old_func renamed, its CRLF endings kept")
+
+
+_INLINE_RECIPE: Final = "14_inline_constant"
+_PLANTED_NAMES: Final = 'SYSTEM_FILE = "system.dtrx"\nOTHER_FILE = "other.dtrx"\n'
+_PLANTED_READER: Final = (
+    '"""SYSTEM_FILE in a docstring stays."""\n\n'
+    "from planted_names import (\n    OTHER_FILE,\n    SYSTEM_FILE,\n)\n\n"
+    'FILES = [SYSTEM_FILE, OTHER_FILE, "SYSTEM_FILE"]\n'
+)
+_PLANTED_READER_INLINED: Final = (
+    '"""SYSTEM_FILE in a docstring stays."""\n\n'
+    "from planted_names import (\n    OTHER_FILE,\n)\n\n"
+    'FILES = ["system.dtrx", OTHER_FILE, "SYSTEM_FILE"]\n'
+)
+_PLANTED_SOLE_IMPORT: Final = "from planted_names import SYSTEM_FILE\n\nFILE = SYSTEM_FILE\n"
+_PLANTED_SOLE_IMPORT_INLINED: Final = 'FILE = "system.dtrx"\n'
+_PLANTED_FSTRING: Final = 'from planted_names import SYSTEM_FILE\n\nFILE = SYSTEM_FILE\nTEXT = f"Expected {SYSTEM_FILE}"\n'
+
+
+def _run_inline_recipe(names_dir: Path, tree: Path, *, write: bool) -> subprocess.CompletedProcess[str]:
+    """Recipe 14 over *tree*, with the planted constants module in *names_dir* importable."""
+    env = codemod_env(write)
+    env[PYTHONPATH_ENV] = os.pathsep.join((str(names_dir), env[PYTHONPATH_ENV]))
+    command = codemod_command(find_codemod_script(_INLINE_RECIPE), ["planted_names", "SYSTEM_FILE", str(tree)])
+    return subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+
+
+def _check_inline_recipe_previews_then_writes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        names_dir = Path(tmp) / "names"
+        tree = Path(tmp) / "tree"
+        names_dir.mkdir()
+        tree.mkdir()
+        (names_dir / "planted_names.py").write_bytes(_PLANTED_NAMES.encode())
+        reader = tree / "reader.py"
+        reader.write_bytes(_PLANTED_READER.encode())
+        sole_import = tree / "sole_import.py"
+        sole_import.write_bytes(_PLANTED_SOLE_IMPORT.encode())
+        preview = _run_inline_recipe(names_dir, tree, write=False)
+        assert preview.returncode == 0, preview.stdout + preview.stderr
+        assert '+FILES = ["system.dtrx", OTHER_FILE, "SYSTEM_FILE"]' in preview.stdout, preview.stdout + preview.stderr
+        assert reader.read_bytes() == _PLANTED_READER.encode(), "a preview rewrote the file"
+        written = _run_inline_recipe(names_dir, tree, write=True)
+        assert written.returncode == 0, written.stdout + written.stderr
+        assert reader.read_bytes() == _PLANTED_READER_INLINED.encode(), f"--write left {reader.read_bytes()!r}"
+        assert sole_import.read_bytes() == _PLANTED_SOLE_IMPORT_INLINED.encode(), f"--write left {sole_import.read_bytes()!r}"
+
+
+def _check_inline_recipe_refuses_an_fstring_use() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        names_dir = Path(tmp) / "names"
+        tree = Path(tmp) / "tree"
+        names_dir.mkdir()
+        tree.mkdir()
+        (names_dir / "planted_names.py").write_bytes(_PLANTED_NAMES.encode())
+        planted = tree / "fstring_use.py"
+        planted.write_bytes(_PLANTED_FSTRING.encode())
+        result = _run_inline_recipe(names_dir, tree, write=True)
+        assert result.returncode == 1, f"an f-string use exited {result.returncode}: {result.stdout + result.stderr}"
+        assert "fstring_use.py:4: SYSTEM_FILE is read inside an f-string" in result.stderr, result.stderr
+        assert planted.read_bytes() == _PLANTED_FSTRING.encode(), f"a refused module was rewritten: {planted.read_bytes()!r}"
 
 
 def _check_unknown_or_path_names_are_refused() -> None:
@@ -171,6 +237,7 @@ def _check_unknown_or_path_names_are_refused() -> None:
 def _run(args: argparse.Namespace) -> int:
     if args.self_test:
         checks = [_check_a_recipe_previews_a_planted_rename, _check_write_rewrites_the_planted_file,
+                  _check_inline_recipe_previews_then_writes, _check_inline_recipe_refuses_an_fstring_use,
                   _check_unknown_or_path_names_are_refused]
         return run_self_test(checks, wrapper=WRAPPER, module=MODULE, parser=build_parser(),
                              folder=CODEMODS_SCRIPTS_DIR)

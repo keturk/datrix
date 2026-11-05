@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--package", help="observe: the package whose named inputs and registrations to load")
     parser.add_argument("--at", help="observe: a fixture line, <file>:<line>, in place of the four positionals")
     parser.add_argument("--annotations", action="store_true",
-                        help="migrate: propose fixture annotations and per-code fixtures instead of case rows")
+                        help="migrate: propose fixture annotations instead of case rows")
     parser.add_argument("--id", help="new: the case id, <area>.<slug>")
     parser.add_argument("--tags", help="new: the feature tags, comma-separated")
     parser.add_argument("--case-input", help="new: the named input")

@@ -211,6 +211,7 @@ _PLATFORM_FACT_FIELDS: Final[frozenset[str]] = frozenset({
     "edge_origin_host_port",
     "edge_path_routed_origins",
     "cache_pooled_slice_delivery",
+    "pooled_cache_credential_authenticates",    # whether this platform's pool server takes a member's credential
     "publishes_gateway_behind_managed_edge",
     "trusted_edge_client_address_include",
     "client_address_source",

@@ -78,7 +78,7 @@ EXEMPTIONS_PATH: Final[Path] = DATRIX_DIR / "scripts" / "config" / "pooled-cache
 #: The pooled-cache example fixture -- the only source this gate's real
 #: (non-self-test) run reads (never generates). Every target is checked
 #: against this SAME two-member pooled-cache fixture; this gate never edits it.
-_FIXTURE_SYSTEM_DTRX: Final[Path] = (
+_POOLED_CACHE_SYSTEM_DTRX: Final[Path] = (
     DATRIX_DIR
     / "examples" / "02-features" / "03-infrastructure-blocks" / "cache" / "system.dtrx"
 )
@@ -193,7 +193,7 @@ def _fixture_pooled_cache_member_count() -> int:
             realization probe needs a genuinely pooled (>=2-member) group to
             tell a distinguishing implementation from a collapsed one.
     """
-    config_dir = _FIXTURE_SYSTEM_DTRX.parent / "config"
+    config_dir = _POOLED_CACHE_SYSTEM_DTRX.parent / "config"
     count = sum(
         dcfg_file.read_text(encoding="utf-8").count(_CACHE_GROUP_DECLARATION_LITERAL)
         for dcfg_file in sorted(config_dir.glob("*.dcfg"))

@@ -6,7 +6,7 @@ rendered with its parameter block and module, beside a ``.sh`` twin rendered fro
 excepted), read with PowerShell's own parser (``datrix_scripts.powershell_ast``) and the rendering seam
 (``datrix_scripts.entrypoint``), each a hard zero with no baseline:
 
-1. ``code-lines`` -- at most ``MAX_WRAPPER_CODE_LINES`` lines carry a token other than a comment. The
+1. ``code-lines`` -- at most ``MAX_WRAPPER_LINES_OF_CODE`` lines carry a token other than a comment. The
    comment-based help is the wrapper's documentation and does not count; the ``param()`` block and the
    template's lines do.
 2. ``not-rendered`` -- the wrapper (and its twin, when there is one) is the template rendered: equal text
@@ -54,7 +54,7 @@ MODULE: Final = "datrix_scripts.gates.repo_hygiene.thin_entrypoint_gate"
 WRAPPER: Final = "thin-entrypoint-gate"
 
 #: The most lines of code (comment-based help excluded) a wrapper may hold.
-MAX_WRAPPER_CODE_LINES: Final = 40
+MAX_WRAPPER_LINES_OF_CODE: Final = 40
 #: The templates, relative to the scripts tree: the ``.ps1`` one is no wrapper, and both are what a wrapper renders.
 PS1_TEMPLATE_PATH: Final = PS1_TEMPLATE.relative_to(SCRIPTS_DIR)
 SH_TEMPLATE_PATH: Final = SH_TEMPLATE.relative_to(SCRIPTS_DIR)
@@ -123,8 +123,8 @@ def thin_entrypoint_hits(scripts_dir: Path) -> list[Hit]:
         location = wrapper.relative_to(scripts_dir).as_posix()
         fact = facts[wrapper.resolve()]
         hits.extend(Hit(Rule.PARSE_ERROR, location, message) for message in fact.parse_errors)
-        if fact.code_lines > MAX_WRAPPER_CODE_LINES:
-            detail = (f"{fact.code_lines} lines of code, at most {MAX_WRAPPER_CODE_LINES} allowed (comment-based "
+        if fact.code_lines > MAX_WRAPPER_LINES_OF_CODE:
+            detail = (f"{fact.code_lines} lines of code, at most {MAX_WRAPPER_LINES_OF_CODE} allowed (comment-based "
                       "help does not count); move the logic into its datrix_scripts module")
             hits.append(Hit(Rule.CODE_LINES, location, detail))
         hits.extend(_rendering_hits(wrapper, location, ps1_template, sh_template))
@@ -141,7 +141,7 @@ _FRAME_BLOCK: Final = "[CmdletBinding()]\nparam(\n)\n"
 #: Help long enough that the wrapper has more physical lines than the limit, though few lines of code.
 _HELP_HEAVY_BLOCK: Final = (
     "<#\n.SYNOPSIS\n Planted.\n"
-    + "".join(f"\n.PARAMETER P{number}\n Switch {number}.\n" for number in range(MAX_WRAPPER_CODE_LINES))
+    + "".join(f"\n.PARAMETER P{number}\n Switch {number}.\n" for number in range(MAX_WRAPPER_LINES_OF_CODE))
     + "#>\n[CmdletBinding()]\nparam([switch]$SelfTest)\n"
 )
 _HANDMADE: Final = "[CmdletBinding()]\nparam([switch]$SelfTest)\nWrite-Output 'behaviour in the wrapper'\n"
@@ -172,7 +172,7 @@ def _planted_tree(root: Path, *, defects: bool) -> Path:
     one whose rendering is preceded by a byte-order mark."""
     ps1_template, sh_template = _templates()
     # _switches_block(n) holds the frame's code lines, n switch lines and the last parameter's line.
-    at_limit = MAX_WRAPPER_CODE_LINES - _frame_code_lines(root, ps1_template) - 1
+    at_limit = MAX_WRAPPER_LINES_OF_CODE - _frame_code_lines(root, ps1_template) - 1
     scripts_dir = root / "scripts"
     files = {PS1_TEMPLATE_PATH.as_posix(): ps1_template, SH_TEMPLATE_PATH.as_posix(): sh_template}
     files |= _rendered_pair("a/help-heavy", _HELP_HEAVY_BLOCK, ps1_template, sh_template)
@@ -194,7 +194,7 @@ def _check_a_clean_tree_has_no_hit() -> None:
         scripts_dir = _planted_tree(Path(temp), defects=False)
         help_heavy_lines = len((scripts_dir / "a" / f"help-heavy{PS1_SUFFIX}").read_text(encoding=_ENCODING).splitlines())
         hits = thin_entrypoint_hits(scripts_dir)
-    assert help_heavy_lines > MAX_WRAPPER_CODE_LINES, f"the help-heavy plant has only {help_heavy_lines} lines"
+    assert help_heavy_lines > MAX_WRAPPER_LINES_OF_CODE, f"the help-heavy plant has only {help_heavy_lines} lines"
     assert hits == [], [hit.render() for hit in hits]
 
 
@@ -240,7 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
     """The options of ``gates/repo-hygiene/thin-entrypoint-gate.ps1``: one per wrapper parameter, spelled exactly."""
     parser = check_list_parser(
         "Thin entrypoints: every scripts .ps1 is the wrapper template rendered, at most "
-        f"{MAX_WRAPPER_CODE_LINES} lines of code, with its .sh twin.",
+        f"{MAX_WRAPPER_LINES_OF_CODE} lines of code, with its .sh twin.",
         debug_flag=WRAPPER_DEBUG_FLAG,
         allow_abbrev=False,
         harness_self_test_flag=False,
