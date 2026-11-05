@@ -96,7 +96,7 @@ The split **refuses and writes nothing** when it would be wrong or incomplete:
 
 - a double claim, an unknown name, a reversed range, or a claimed `pytestmark`;
 - an import cycle among the new modules and the original. Moved code imports what stays from the original, and the original imports the moved names it still uses, so moved code may use what stays only when nothing that stays uses it back. The refusal names the cycle and the names on each edge: claim those into the same module;
-- an `__all__` naming a moved name;
+- an `__all__` naming a moved name that is not a plain list or tuple of strings (otherwise the moved name just leaves it);
 - an import sharing its line with other code.
 
 A module-object read `alias.<moved name>` is pointed at the module the name moved to: `alias` becomes that
@@ -113,10 +113,11 @@ A quoted spelling of the original (`"pkg.big"`, `"big.py"`, `"dir/big.py"`) in a
 | **Preview** | `.\codemods\split-module.ps1 -Module <file.py> -Plan D:\datrix\.tmp\split-plan.json -DryRun` | New modules, remainder, every importer rewrite, every blocker; writes nothing |
 | **Split** | `.\codemods\split-module.ps1 -Module <file.py> -Plan D:\datrix\.tmp\split-plan.json` | Write the new modules, the remainder and the importer rewrites |
 | **Test module** | `.\codemods\split-module.ps1 -Module <tests\...\test_big.py> -Plan <plan> -PackageModule tests.unit.generators` | A module outside `src/` names its dotted package |
+| **A whole list** | `.\codemods\split-module.ps1 -List D:\datrix\.tmp\large-files.txt [-Limit 600] [-DryRun]` | Saved `large-files.ps1 -All` output: every listed file at the limit is split with no plan; one that cannot be cut is reported and left alone |
 
 **Parameters:** `-Module <path>` (required), `-Plan <path>` (required), `-PackageModule <dotted>` (required outside a `src/` tree), `-DryRun`, `-SelfTest` (a planted workspace: a dry run, a split with its importer rewritten, moved code importing what stays, a cycle refused, a refused plan). **Exit codes:** 0 = split done (or a clean dry run), 1 = refused (every reason printed), 2 = usage. Run the moved code's tests afterwards (`test.ps1 <pkg> -Specific` / `-Tag`).
 
-**Module:** `datrix_scripts.codemods.split_module`; POSIX twin `codemods/split-module.sh` (`--module`, `--plan`, `--package-module`, `--dry-run`, `--self-test`).
+**Module:** `datrix_scripts.codemods.split_module`; POSIX twin `codemods/split-module.sh` (`--module`, `--plan`, `--package-module`, `--list`, `--limit`, `--dry-run`, `--self-test`).
 
 ## `codemods\rewrite.ps1`
 

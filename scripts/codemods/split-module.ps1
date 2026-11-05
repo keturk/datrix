@@ -20,7 +20,8 @@
  The original does NOT re-export what moved (one import path per symbol): every
  `from <original> import <moved>` across the workspace is rewritten to the new home. The
  split refuses, writing nothing, on a double claim, an unknown name, an import cycle among
- the new modules and the original (named with the names on each edge), an __all__ naming a moved name, or a
+ the new modules and the original (named with the names on each edge), an __all__ naming a moved name that is
+ not a plain list or tuple of strings (otherwise the moved name just leaves it), or a
  reference the rewrite cannot reach (a module-object attribute read, an import sharing its
  line, or the dotted path written as text in a source or pyproject.toml file). ruff
  (F401, I001) then tidies the imports of the new modules and the original.
@@ -37,6 +38,14 @@
  Dotted package of the module when it is not under a src/ tree (e.g. a test module:
  tests.unit.generators).
 
+.PARAMETER List
+ A file holding large-files.ps1 output. Every listed file at -Limit lines or more is split with no
+ plan: the cuts and the new module names are chosen for you. A file that cannot be cut or has
+ nothing left to move is reported and left alone.
+
+.PARAMETER Limit
+ With -List: the line count a file must reach. Default 600.
+
 .PARAMETER DryRun
  Print the new modules, the remainder and every importer rewrite; write nothing.
 
@@ -48,13 +57,19 @@
 .EXAMPLE
  .\codemods\split-module.ps1 -Module D:\datrix\datrix-codegen-azure\src\datrix_codegen_azure\generators\resource_mapping\_gateway_app_service.py -Plan D:\datrix\.tmp\split-plan.json -DryRun
  Preview the split and every import it would rewrite.
+
+.EXAMPLE
+ .\codemods\split-module.ps1 -List D:\datrix\.tmp\large-files.txt
+ Split every file at 600 lines or more in saved large-files.ps1 -All output.
 #>
 [CmdletBinding(DefaultParameterSetName = "Run")]
 param(
  [Parameter(ParameterSetName = "Run", Mandatory = $true)][string]$Module,
  [Parameter(ParameterSetName = "Run", Mandatory = $true)][string]$Plan,
  [Parameter(ParameterSetName = "Run")][string]$PackageModule,
- [Parameter(ParameterSetName = "Run")][switch]$DryRun,
+ [Parameter(ParameterSetName = "List", Mandatory = $true)][string]$List,
+ [Parameter(ParameterSetName = "List")][int]$Limit,
+ [Parameter(ParameterSetName = "Run")][Parameter(ParameterSetName = "List")][switch]$DryRun,
  [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )
 # Rendered from scripts/common/templates/entrypoint.ps1, as is every line from here on: the behaviour is the
