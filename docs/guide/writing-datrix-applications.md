@@ -932,6 +932,10 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0') {
 service notification.NotificationService('config/notification-service.dcfg') : version('1.0.0') {
     uses OrderService : subscribe;
 
+    // The service's consumer runs in this block, even when it declares no topics of its own.
+    // Without one the subscription has nothing to receive it, and analysis refuses it (EVT014).
+    pubsub mq { }
+
     subscribe ecommerce.OrderService.mq.OrderEvents {
         on OrderCreated(UUID orderId, Money total, Email customerEmail) {
             Email.send({
