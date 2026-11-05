@@ -1749,6 +1749,8 @@ Each profile (`test`, `production`, …) is a `QueueConfig` object:
 
 Connection and ops fields (when required): `host`, `port`, `managementPort`, `defaultUser`, `dockerImage`, `volumePath`, `healthCheckCmd`, `region`, `queuePrefix`, `connectionString`, `sku`.
 
+A RabbitMQ `healthCheckCmd` that runs `rabbitmq-diagnostics` or `rabbitmqctl` must run `check_port_connectivity` (for example `rabbitmq-diagnostics -q check_port_connectivity`). `ping` and `check_running` pass before the listeners accept connections, so a service waiting on them can fail with `Connection refused`; config resolution refuses them.
+
 ### Defaults and overrides
 
 | `.dcfg` key | Role |
