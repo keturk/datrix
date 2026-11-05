@@ -72,9 +72,16 @@ components); the public Site is self-contained.
   field list: routes come from `@path`, each page's guard and the hosted login from the auth
   of the endpoints it reaches, and every form and table from the backend struct it binds.
   The Admin `workspace` narrows every catalog page to the `admin` role with one `auth(...)`.
+- **Tables show what a person reads.** `columns(auto) except [...]` leaves out ids and other
+  internal values, a section that writes out its `column` members shows them in that order, and
+  `column x : format(...)` shows money and timestamps in the session's locale. The Admin
+  `CategoryName` component shows a product's category by name, reading it through the public
+  `CategoryAPI`, one request per row, and the Admin edit form chooses a category by name with
+  `field categoryId : options(...)` over the same API.
 - **Text lives in strings files.** Every user-visible string is a `Msg.<key>` or a derived
   label resolved from [`config/strings/storefront.en-US.dcfg`](config/strings/storefront.en-US.dcfg)
-  (the system's `defaultLocale`) and [`storefront.tr-TR.dcfg`](config/strings/storefront.tr-TR.dcfg).
+  (the system's `defaultLocale`) and [`storefront.tr-TR.dcfg`](config/strings/storefront.tr-TR.dcfg);
+  [`admin.en-US.dcfg`](config/strings/admin.en-US.dcfg) sets the Admin's page titles and column headings.
 - **Push.** The Storefront declares `push : targets(flutter)`; the device registry is
   injected into `NotificationService`, the one used service that configures
   `integrations.push`.
@@ -201,7 +208,7 @@ To run one of them, regenerate into a scratch directory (that restores `secrets/
 - `config/shipping-service.dcfg`
 - `config/notification-service.dcfg`
 - `config/storefront-app.dcfg`, `config/admin-app.dcfg`
-- `config/strings/storefront.en-US.dcfg`, `config/strings/storefront.tr-TR.dcfg`
+- `config/strings/storefront.en-US.dcfg`, `config/strings/storefront.tr-TR.dcfg`, `config/strings/admin.en-US.dcfg`
 
 `assets/` holds the Storefront's logo, launcher icon and splash image.
 

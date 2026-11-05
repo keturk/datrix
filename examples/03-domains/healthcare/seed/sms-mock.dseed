@@ -1,0 +1,12 @@
+// The key the clinic presents to the text vendor. The key itself is the development default of the
+// services' secret; the vendor stores only its SHA-256 hash.
+seed service healthcare.SmsMock {
+  rdbms smsDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,              keyHash,                                                            ownerId,                 scopes,         isActive;
+        @uuid("sms-key"), "483e402ac2aa5c69d36bee53b0852c97a62c6c994810863b7db5e8bf5f9e6900", @uuid("owner-ferncrest"), ["sms:write"], true;
+      }
+    }
+  }
+}

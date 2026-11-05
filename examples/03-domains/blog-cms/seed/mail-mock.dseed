@@ -1,0 +1,12 @@
+// The key NewsletterService presents to the email provider. The key itself is the development
+// default of the service's secret; the provider stores only its SHA-256 hash.
+seed service blog.MailMock {
+  rdbms mailDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                         keyHash,                                                            ownerId,                         scopes,                     isActive;
+        @uuid("mail-key-newsletter"), "892171ef8d18114eade5dd846b9dd2d4789f1dc6ea86cc17f1126732ead71c4d", @uuid("owner-newsletter-service"), ["messages:send", "messages:read"], true;
+      }
+    }
+  }
+}

@@ -1,0 +1,284 @@
+from realestate.ui import Brand, statRow, cardGrid;
+
+/// Where a buyer looks for a home, on the web and on a phone. Anyone can search and read; booking a
+/// viewing and making an offer start a sign-in.
+app realestate.Homes('config/homes-app.dcfg') : version('2.0.0') {
+    uses realestate.ListingService;
+    uses realestate.ViewingService;
+    uses realestate.DealService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+        image house = 'assets/house.png';
+        image apartment = 'assets/apartment.png';
+        image townhouse = 'assets/townhouse.png';
+        image cottage = 'assets/cottage.png';
+        image land = 'assets/land.png';
+    }
+
+    state UUID? chosenHome = null;
+    state Boolean booking = false;
+    state Boolean offering = false;
+
+    layout Site : default {
+        nav {
+            link Browse : icon(home_work);
+            link Map : icon(map);
+            link MyViewings : icon(event);
+            link MyOffers : icon(request_quote);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    /// A drawing of the kind of home, since this application stores no photographs.
+    component HomeArt(PropertyKind kind) {
+        view {
+            when (kind == PropertyKind.House) { image(house, Msg.artHouse); }
+            when (kind == PropertyKind.Apartment) { image(apartment, Msg.artApartment); }
+            when (kind == PropertyKind.Townhouse) { image(townhouse, Msg.artTownhouse); }
+            when (kind == PropertyKind.Cottage) { image(cottage, Msg.artCottage); }
+            when (kind == PropertyKind.Land) { image(land, Msg.artLand); }
+        }
+    }
+
+    component HomeCards(Array<ListingCard> homes) {
+        view {
+            grid : style(cardGrid) {
+                foreach (home in homes) {
+                    card(home.title) {
+                        HomeArt(kind: home.kind);
+                        text(Fmt.money(home.price));
+                        text(Msg.placeLine(place: home.neighbourhoodName, city: home.city));
+                        text(Msg.factsLine(beds: Fmt.number(home.bedrooms), baths: Fmt.number(home.bathrooms), area: Fmt.number(home.areaSqm)));
+                        link(Msg.seeHome, HomeDetail, id: home.id) : kind(primary), icon(arrow_forward);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/')
+    page Browse() {
+        data { homes = ListingService.HomesAPI.get.onTheMarket(); }
+        state String searchFor = '';
+
+        fn search() {
+            Nav.to(Search, q: searchFor.trim());
+        }
+
+        view {
+            pageHeader(Msg.browseTitle, Msg.browseSubtitle);
+            card {
+                input(Msg.searchLabel) : bind(searchFor);
+                button(Msg.search) : onClick(search()), kind(primary), icon(search);
+            }
+            when (homes.length == 0) {
+                emptyState(Msg.noHomes) : icon(home_work);
+            }
+            HomeCards(homes: homes);
+        }
+    }
+
+    @path('/search/:q')
+    page Search(String q) {
+        data { homes = ListingService.HomesAPI.get.search(q: q); }
+        view {
+            pageHeader(Msg.resultsTitle(q: q), Msg.resultsSubtitle) : back(Browse);
+            when (homes.length == 0) {
+                emptyState(Msg.noMatches) : icon(search_off) { link(Msg.seeEverything, Browse) : kind(primary); }
+            }
+            HomeCards(homes: homes);
+        }
+    }
+
+    @path('/map')
+    page Map() {
+        data { pins = ListingService.HomesAPI.get.pins(); }
+        view {
+            pageHeader(Msg.mapTitle, Msg.mapSubtitle);
+            map {
+                foreach (pin in pins) {
+                    marker(pin.point, pin.title) : onClick(Nav.to(HomeDetail, id: pin.id));
+                }
+            }
+        }
+    }
+
+    @path('/homes/:id')
+    page HomeDetail(UUID id) {
+        data { page = ListingService.HomesAPI.get.home(id: id); }
+
+        fn startBooking() {
+            chosenHome = id;
+            booking = true;
+        }
+
+        fn startOffer() {
+            chosenHome = id;
+            offering = true;
+        }
+
+        fn closeDialogs() {
+            booking = false;
+            offering = false;
+        }
+
+        view {
+            pageHeader(page.home.title, Msg.placeLine(place: page.home.neighbourhoodName, city: page.home.city)) : back(Browse) {
+                badge(page.home.status);
+                when (page.home.status == ListingStatus.Active) {
+                    button(Msg.bookViewing) : onClick(startBooking()), icon(event);
+                    button(Msg.makeOffer) : onClick(startOffer()), kind(primary), icon(request_quote);
+                }
+            }
+            HomeArt(kind: page.home.kind);
+            grid : style(statRow) {
+                stat(Msg.statPrice, Fmt.money(page.home.price)) : icon(sell);
+                stat(Msg.statBeds, Fmt.number(page.home.bedrooms)) : icon(bed);
+                stat(Msg.statBaths, Fmt.number(page.home.bathrooms)) : icon(bathtub);
+                stat(Msg.statArea, Msg.areaLine(area: Fmt.number(page.home.areaSqm))) : icon(square_foot);
+            }
+            card { markdown(page.summary); }
+            card(Msg.yourAgent) { text(page.agentName); }
+            map(center: page.point, zoom: 14) {
+                marker(page.point, page.home.title);
+            }
+            when (page.priceHistory.length > 0) {
+                section(Msg.priceHistory) {
+                    timeline(data: page.priceHistory, at: p => p.at) {
+                        text(Msg.priceStep(from: Fmt.money(item.oldPrice), to: Fmt.money(item.newPrice)));
+                    }
+                }
+            }
+            when (booking) {
+                dialog(Msg.bookViewing) : onClose(closeDialogs()) {
+                    form(BookViewing);
+                }
+            }
+            when (offering) {
+                dialog(Msg.makeOffer) : onClose(closeDialogs()) {
+                    callout(Msg.lenderNote) : tone(info);
+                    form(OfferOnHome);
+                }
+            }
+        }
+    }
+
+    form BookViewing : submit(ViewingService.BuyerViewingAPI.post.requestViewing) {
+        fn booked() {
+            booking = false;
+            Ui.toast(Msg.viewingRequested, tone: success);
+            Nav.to(MyViewings);
+        }
+        field listingId : fixed(chosenHome);
+        field startsAt;
+        field note;
+        onSuccess(booked());
+    }
+
+    form OfferOnHome : submit(DealService.BuyerDealAPI.post.makeOffer) {
+        fn offered() {
+            offering = false;
+            Ui.toast(Msg.offerMade, tone: success);
+            Nav.to(MyOffers);
+        }
+        field listingId : fixed(chosenHome);
+        field amount;
+        field financing;
+        onSuccess(offered());
+    }
+
+    @path('/viewings')
+    page MyViewings() {
+        data { viewings = ViewingService.BuyerViewingAPI.get.mine() : poll(30s); }
+
+        fn cancel(UUID id) {
+            ViewingService.BuyerViewingAPI.post.cancel(id: id);
+            viewings.refresh();
+            Ui.toast(Msg.viewingCancelled, tone: info);
+        }
+
+        view {
+            pageHeader(Msg.viewingsTitle, Msg.viewingsSubtitle);
+            when (viewings.length == 0) {
+                emptyState(Msg.noViewings) : icon(event) { link(Msg.seeEverything, Browse) : kind(primary); }
+            }
+            list(data: viewings) {
+                heading(item.listingTitle);
+                badge(item.status);
+                text(Fmt.dateTime(item.startsAt));
+                text(Msg.withAgent(name: item.agentName));
+                when (item.status == ViewingStatus.Requested || item.status == ViewingStatus.Confirmed) {
+                    button(Msg.cancelViewing) : onClick(cancel(item.id)), icon(event_busy);
+                }
+            }
+        }
+    }
+
+    @path('/offers')
+    page MyOffers() {
+        data {
+            offers = DealService.BuyerDealAPI.get.mine() : poll(30s);
+            contracts = DealService.BuyerDealAPI.get.myContracts() : poll(30s);
+        }
+
+        fn withdraw(UUID id) {
+            DealService.BuyerDealAPI.post.withdraw(id: id);
+            offers.refresh();
+            Ui.toast(Msg.offerWithdrawn, tone: info);
+        }
+
+        view {
+            pageHeader(Msg.offersTitle, Msg.offersSubtitle);
+            when (contracts.length > 0) {
+                section(Msg.contractsTitle) {
+                    list(data: contracts) {
+                        heading(item.listingTitle);
+                        badge(item.status);
+                        text(Fmt.money(item.price));
+                    }
+                }
+            }
+            when (offers.length == 0) {
+                emptyState(Msg.noOffers) : icon(request_quote) { link(Msg.seeEverything, Browse) : kind(primary); }
+            }
+            list(data: offers) {
+                heading(item.listingTitle);
+                badge(item.status);
+                badge(item.financing);
+                text(Fmt.money(item.amount));
+                when (item.status == OfferStatus.Submitted) {
+                    button(Msg.withdrawOffer) : onClick(withdraw(item.id)), icon(undo);
+                }
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Browse); }
+        }
+    }
+
+    test("the browse page opens") {
+        let Screen screen = render(Browse);
+        assert screen.shows(Msg.browseTitle);
+    }
+}

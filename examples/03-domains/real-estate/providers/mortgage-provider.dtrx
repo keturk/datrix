@@ -1,0 +1,38 @@
+// The contract of the lender. config/providers/mortgage-provider.dcfg says where it is served. The answer
+// is about one person and one amount, and it is the lender's to give.
+extern service realestate.MortgageProvider('config/providers/mortgage-provider.dcfg')
+    : version('1.0.0'), description('Mortgage pre-approval') {
+
+    enum PreapprovalDecision {
+        Approved,
+        Declined
+    }
+
+    struct PreapproveRequest {
+        String(200) applicantName;
+        Email applicantEmail;
+        Money amount;
+        /// The caller's key: asking again with the same key returns the first answer.
+        String(120) idempotencyKey;
+    }
+
+    struct Preapproval {
+        String(40) reference;
+        PreapprovalDecision decision;
+    }
+
+    rest_api MortgageAPI : basePath('/v1') {
+        @path('/preapprovals')
+        post preapprove(PreapproveRequest request) -> Preapproval {
+            ensure request.amount > 0;
+            ensure request.idempotencyKey != "";
+        }
+    }
+
+    errors {
+        ApplicantRefused(String message);
+    }
+
+    auth : apiKey(header: 'X-Mortgage-Api-Key');
+    health : path('/health');
+}

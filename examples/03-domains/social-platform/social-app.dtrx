@@ -1,0 +1,499 @@
+from social.ui import Brand, statRow, cardGrid;
+from social.common import PostStatus;
+
+/// Where people read and post, on the web and on a phone. Anyone can read; posting, following and liking start
+/// a sign-in.
+app social.Social('config/social-app.dcfg') : version('2.0.0') {
+    uses social.PeopleService;
+    uses social.PostService;
+    uses social.NoticeService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    // What the open dialogs work on: a form sends these values without showing them.
+    state UUID? chosenPost = null;
+    state Boolean composing = false;
+    state Boolean commenting = false;
+    state Boolean reporting = false;
+    state Boolean claiming = false;
+    state Boolean editing = false;
+
+    layout Site : default {
+        nav {
+            link Explore : icon(explore);
+            link Home : icon(home);
+            link Notifications : icon(notifications);
+            link MyPosts : icon(edit_note);
+            link Settings : icon(settings);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    /// One post in a list. Its author's name and handle, never an id.
+    component PostCards(Array<Post> posts) {
+        view {
+            foreach (entry in posts) {
+                card(entry.authorName) {
+                    link(Msg.handleLine(handle: entry.authorHandle), Person, handle: entry.authorHandle);
+                    markdown(entry.body);
+                    text(Msg.postFacts(when: Fmt.relative(entry.createdAt), likes: Fmt.number(entry.likes), comments: Fmt.number(entry.comments)));
+                    link(Msg.openPost, PostDetail, id: entry.id) : icon(forum);
+                }
+            }
+        }
+    }
+
+    component PeopleCards(Array<ProfileCard> people) {
+        view {
+            grid : style(cardGrid) {
+                foreach (person in people) {
+                    card(person.displayName) {
+                        link(Msg.handleLine(handle: person.handle), Person, handle: person.handle) : kind(primary);
+                        text(person.bio);
+                        text(Msg.followerLine(count: Fmt.number(person.followers)));
+                    }
+                }
+            }
+        }
+    }
+
+    form ComposeForm : submit(PostService.MyPostAPI.post.createPost) {
+        fn posted(PostStatus status) {
+            composing = false;
+            if (status == PostStatus.Published) {
+                Ui.toast(Msg.posted, tone: success);
+            } else {
+                Ui.toast(Msg.postHeld, tone: warning);
+            }
+            Nav.to(MyPosts);
+        }
+        field body;
+        onSuccess(posted(result.status));
+    }
+
+    @path('/')
+    page Explore() {
+        data {
+            posts = PostService.PublicPostAPI.get.explore() : poll(30s);
+            tags = PostService.PublicPostAPI.get.trending() : poll(60s);
+            people = PeopleService.PublicPeopleAPI.get.suggested();
+        }
+        state String searchFor = '';
+
+        fn search() {
+            Nav.to(Search, q: searchFor.trim());
+        }
+
+        fn startPost() {
+            composing = true;
+        }
+
+        fn stopPost() {
+            composing = false;
+            posts.refresh();
+        }
+
+        view {
+            pageHeader(Msg.exploreTitle, Msg.exploreSubtitle) {
+                button(Msg.newPost) : onClick(startPost()), kind(primary), icon(edit);
+            }
+            card {
+                input(Msg.searchLabel) : bind(searchFor);
+                button(Msg.search) : onClick(search()), icon(search);
+            }
+            when (tags.length > 0) {
+                section(Msg.trendingTitle) {
+                    foreach (tag in tags) {
+                        link(Msg.tagLine(tag: tag.tag, uses: Fmt.number(tag.uses)), Tag, tag: tag.tag) : icon(tag);
+                    }
+                }
+            }
+            section(Msg.peopleTitle) {
+                PeopleCards(people: people);
+            }
+            section(Msg.latestTitle) {
+                when (posts.length == 0) {
+                    emptyState(Msg.noPosts) : icon(forum);
+                }
+                PostCards(posts: posts);
+            }
+            when (composing) {
+                dialog(Msg.newPost) : onClose(stopPost()) {
+                    callout(Msg.composeNote) : tone(info);
+                    form(ComposeForm);
+                }
+            }
+        }
+    }
+
+    @path('/home')
+    page Home() {
+        data {
+            me = PeopleService.MyPeopleAPI.get.me();
+            posts = PostService.MyPostAPI.get.home() : poll(30s);
+        }
+        view {
+            pageHeader(Msg.homeTitle, Msg.homeSubtitle);
+            when (!me.hasProfile) {
+                callout(Msg.chooseHandleFirst) : tone(warning) { link(Msg.chooseHandle, Settings) : kind(primary); }
+            }
+            when (posts.length == 0) {
+                emptyState(Msg.nobodyYet) : icon(group) { link(Msg.findPeople, Explore) : kind(primary); }
+            }
+            PostCards(posts: posts);
+        }
+    }
+
+    @path('/search/:q')
+    page Search(String q) {
+        data {
+            posts = PostService.PublicPostAPI.get.search(q: q);
+            people = PeopleService.PublicPeopleAPI.get.search(q: q);
+        }
+        view {
+            pageHeader(Msg.resultsTitle(q: q), Msg.resultsSubtitle) : back(Explore);
+            tabs {
+                tab(Msg.tabPosts) : badge(posts.length) {
+                    when (posts.length == 0) {
+                        emptyState(Msg.noMatches) : icon(search_off);
+                    }
+                    PostCards(posts: posts);
+                }
+                tab(Msg.tabPeople) : badge(people.length) {
+                    PeopleCards(people: people);
+                }
+            }
+        }
+    }
+
+    @path('/tag/:tag')
+    page Tag(String tag) {
+        data { posts = PostService.PublicPostAPI.get.tagged(tag: tag); }
+        view {
+            pageHeader(Msg.tagTitle(tag: tag), Msg.tagSubtitle) : back(Explore);
+            when (posts.length == 0) {
+                emptyState(Msg.noPosts) : icon(tag);
+            }
+            PostCards(posts: posts);
+        }
+    }
+
+    @path('/people/:handle')
+    page Person(String handle) {
+        data {
+            card = PeopleService.PublicPeopleAPI.get.card(handle: handle);
+            posts = PostService.PublicPostAPI.get.byPerson(handle: handle);
+        }
+
+        fn follow() {
+            PeopleService.MyPeopleAPI.post.follow(handle: handle);
+            card.refresh();
+            Ui.toast(Msg.followed, tone: success);
+        }
+
+        fn unfollow() {
+            PeopleService.MyPeopleAPI.post.unfollow(handle: handle);
+            card.refresh();
+            Ui.toast(Msg.unfollowed, tone: info);
+        }
+
+        fn block() {
+            if (Ui.confirm(Msg.blockConfirm)) {
+                PeopleService.MyPeopleAPI.post.block(handle: handle);
+                card.refresh();
+                Ui.toast(Msg.blocked, tone: info);
+            }
+        }
+
+        view {
+            pageHeader(card.displayName, Msg.handleLine(handle: card.handle)) : back(Explore) {
+                button(Msg.follow) : onClick(follow()), kind(primary), icon(person_add);
+                button(Msg.unfollow) : onClick(unfollow()), icon(person_remove);
+                button(Msg.block) : onClick(block()), icon(block), tone(danger);
+            }
+            when (card.isSuspended) {
+                callout(Msg.suspendedNote) : tone(danger);
+            }
+            grid : style(statRow) {
+                stat(Msg.statFollowers, Fmt.number(card.followers)) : icon(group);
+                stat(Msg.statFollowing, Fmt.number(card.following)) : icon(person_add);
+                stat(Msg.statPosts, Fmt.number(posts.length)) : icon(edit_note);
+            }
+            card { markdown(card.bio); }
+            section(Msg.latestTitle) {
+                when (posts.length == 0) {
+                    emptyState(Msg.noPosts) : icon(forum);
+                }
+                PostCards(posts: posts);
+            }
+        }
+    }
+
+    @path('/posts/:id')
+    page PostDetail(UUID id) {
+        data { page = PostService.PublicPostAPI.get.postPage(id: id) : poll(20s); }
+
+        fn like() {
+            PostService.MyPostAPI.post.like(id: id);
+            page.refresh();
+        }
+
+        fn startComment() {
+            chosenPost = id;
+            commenting = true;
+        }
+
+        fn stopComment() {
+            commenting = false;
+            page.refresh();
+        }
+
+        fn startReport() {
+            chosenPost = id;
+            reporting = true;
+        }
+
+        fn stopReport() {
+            reporting = false;
+        }
+
+        view {
+            pageHeader(page.post.authorName, Msg.handleLine(handle: page.post.authorHandle)) : back(Explore) {
+                button(Msg.likeButton(likes: Fmt.number(page.post.likes))) : onClick(like()), icon(favorite);
+                button(Msg.addComment) : onClick(startComment()), kind(primary), icon(comment);
+                button(Msg.report) : onClick(startReport()), icon(flag), tone(danger);
+            }
+            card {
+                markdown(page.post.body);
+                text(Fmt.dateTime(page.post.createdAt));
+            }
+            section(Msg.commentsTitle) {
+                when (page.comments.length == 0) {
+                    emptyState(Msg.noComments) : icon(comment);
+                }
+                timeline(data: page.comments, at: c => c.createdAt) {
+                    heading(item.authorName);
+                    markdown(item.body);
+                }
+            }
+            when (commenting) {
+                dialog(Msg.addComment) : onClose(stopComment()) {
+                    form(CommentForm);
+                }
+            }
+            when (reporting) {
+                dialog(Msg.report) : onClose(stopReport()) {
+                    callout(Msg.reportNote) : tone(info);
+                    form(ReportForm);
+                }
+            }
+        }
+    }
+
+    form CommentForm : submit(PostService.MyPostAPI.post.addComment) {
+        fn added() {
+            commenting = false;
+        }
+        field postId : fixed(chosenPost);
+        field body;
+        onSuccess(added());
+    }
+
+    form ReportForm : submit(PostService.MyPostAPI.post.report) {
+        fn sent() {
+            reporting = false;
+            Ui.toast(Msg.reported, tone: success);
+        }
+        field postId : fixed(chosenPost);
+        field reason;
+        onSuccess(sent());
+    }
+
+    @path('/my-posts')
+    page MyPosts() {
+        data { posts = PostService.MyPostAPI.get.mine() : poll(20s); }
+        view {
+            pageHeader(Msg.myPostsTitle, Msg.myPostsSubtitle);
+            when (posts.length == 0) {
+                emptyState(Msg.noPosts) : icon(edit_note) { link(Msg.findPeople, Explore) : kind(primary); }
+            }
+            list(data: posts) {
+                markdown(item.body);
+                badge(item.status);
+                text(Fmt.relative(item.createdAt));
+                when (item.heldReason != null) {
+                    callout(Msg.heldLine(reason: item.heldReason)) : tone(warning);
+                }
+            }
+        }
+    }
+
+    @path('/notifications')
+    page Notifications() {
+        data {
+            notices = NoticeService.NoticeAPI.get.mine() : poll(15s);
+            counts = NoticeService.NoticeAPI.get.unread() : poll(15s);
+        }
+
+        fn readAll() {
+            NoticeService.NoticeAPI.post.markAllRead();
+            notices.refresh();
+            counts.refresh();
+        }
+
+        fn open(UUID id, UUID? postId) {
+            NoticeService.NoticeAPI.post.markRead(id: id);
+            notices.refresh();
+            counts.refresh();
+            if (postId != null) {
+                Nav.to(PostDetail, id: postId);
+            }
+        }
+
+        view {
+            pageHeader(Msg.noticesTitle, Msg.noticesSubtitle(count: Fmt.number(counts.unread))) {
+                button(Msg.markAllRead) : onClick(readAll()), icon(done_all);
+            }
+            when (notices.length == 0) {
+                emptyState(Msg.noNotices) : icon(notifications) { }
+            }
+            list(data: notices) : onClick(open(item.id, item.postId)) {
+                heading(item.actorName);
+                badge(item.kind);
+                text(item.summary);
+                text(Fmt.relative(item.createdAt));
+                when (!item.isRead) {
+                    badge(Msg.unread);
+                }
+            }
+        }
+    }
+
+    @path('/settings')
+    page Settings() {
+        data {
+            me = PeopleService.MyPeopleAPI.get.me();
+            choices = NoticeService.NoticeAPI.get.preferences();
+        }
+
+        fn setPush(Boolean on) {
+            NoticeService.NoticeAPI.post.choosePreferences({ pushOn: on, emailOn: choices.emailOn });
+            choices.refresh();
+        }
+
+        fn setEmail(Boolean on) {
+            NoticeService.NoticeAPI.post.choosePreferences({ pushOn: choices.pushOn, emailOn: on });
+            choices.refresh();
+        }
+
+        fn startClaim() {
+            claiming = true;
+        }
+
+        fn stopClaim() {
+            claiming = false;
+            me.refresh();
+        }
+
+        fn startEdit() {
+            editing = true;
+        }
+
+        fn stopEdit() {
+            editing = false;
+            me.refresh();
+        }
+
+        view {
+            pageHeader(Msg.settingsTitle, Msg.settingsSubtitle);
+            when (!me.hasProfile) {
+                callout(Msg.chooseHandleFirst) : tone(warning) {
+                    button(Msg.chooseHandle) : onClick(startClaim()), kind(primary), icon(badge);
+                }
+            }
+            when (me.hasProfile) {
+                card(me.displayName) {
+                    text(Msg.handleLine(handle: me.handle));
+                    text(me.bio);
+                    text(Msg.yourCounts(followers: Fmt.number(me.followers), following: Fmt.number(me.following)));
+                    button(Msg.editProfile) : onClick(startEdit()), icon(edit);
+                }
+                section(Msg.noticesChoice) {
+                    when (choices.pushOn) {
+                        button(Msg.pushOff) : onClick(setPush(false)), icon(notifications_off);
+                    }
+                    when (!choices.pushOn) {
+                        button(Msg.pushOn) : onClick(setPush(true)), icon(notifications_active);
+                    }
+                    when (choices.emailOn) {
+                        button(Msg.emailOff) : onClick(setEmail(false)), icon(unsubscribe);
+                    }
+                    when (!choices.emailOn) {
+                        button(Msg.emailOn) : onClick(setEmail(true)), icon(mail);
+                    }
+                }
+            }
+            when (claiming) {
+                dialog(Msg.chooseHandle) : onClose(stopClaim()) {
+                    form(ClaimForm);
+                }
+            }
+            when (editing) {
+                dialog(Msg.editProfile) : onClose(stopEdit()) {
+                    form(ProfileForm);
+                }
+            }
+        }
+    }
+
+    form ClaimForm : submit(PeopleService.MyPeopleAPI.post.claimHandle) {
+        fn claimed() {
+            claiming = false;
+            Ui.toast(Msg.handleClaimed, tone: success);
+        }
+        field handle;
+        field displayName;
+        field bio;
+        onSuccess(claimed());
+    }
+
+    form ProfileForm : submit(PeopleService.MyPeopleAPI.post.updateProfile) {
+        fn saved() {
+            editing = false;
+            Ui.toast(Msg.profileSaved, tone: success);
+        }
+        field displayName;
+        field bio;
+        onSuccess(saved());
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.backHome, Explore); }
+        }
+    }
+
+    test("the explore page opens") {
+        let Screen screen = render(Explore);
+        assert screen.shows(Msg.exploreTitle);
+    }
+}

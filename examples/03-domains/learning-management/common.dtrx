@@ -1,9 +1,9 @@
-
-// Shared module - defines reusable types across all learning management services
-// BaseEntity is provided by the Datrix standard library.
+// What the Larkhill services share.
 module lms.common {
 
-    const MAX_SCORE = 100;
-    const MIN_SCORE = 0;
-    const PASSING_SCORE = 60;
+    enum QuizOption {
+        OptionA,
+        OptionB,
+        OptionC
+    }
 }

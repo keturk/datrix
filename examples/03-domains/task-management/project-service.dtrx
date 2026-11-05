@@ -1,494 +1,334 @@
+// Projects and who belongs to them. Membership is what every read and write in Millrace is checked against:
+// someone who is not on a project cannot learn it exists. Each project hands out its own task numbers under
+// a lock, so WEB-41 and WEB-42 can never be the same task.
+service taskapp.ProjectService('config/project-service.dcfg') : version('2.0.0'), description('Projects, members and milestones') {
 
-service taskapp.ProjectService('config/project-service.dcfg') : version('1.0.0'), description('project and team management service') {
-    discovery {
-        UserService { loadBalance: roundRobin, healthyOnly: true }
+    discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            Email email;
+            String? fullName;
+            group "operator" as operator;
+        }
+        provider machine config('config/identity/machine.dcfg') { }
+        provider chatKeys config('config/identity/chat-keys.dcfg') { }
+        provider emailKeys config('config/identity/email-keys.dcfg') { }
     }
 
-    enum ProjectStatus {
-        Planning : value('planning'),
-        Active : value('active'),
-        OnHold : value('on_hold'),
-        Completed : value('completed'),
-        Archived : value('archived')
+    exceptions {
+        NoSuchProjectError : status(404), message("Project not found");
+        OwnersOnlyError : status(403), message("Only an owner of this project can do that");
+        EditorsOnlyError : status(403), message("You can read this project but not change it");
+        CodeTakenError : status(409), message("Another project already uses that code");
+        AlreadyMemberError : status(409), message("That person is already on this project");
+        LastOwnerError : status(409), message("A project needs at least one owner");
     }
 
-    enum MemberRole {
-        Owner : value('owner'),
-        Admin : value('admin'),
-        Contributor : value('contributor'),
-        Viewer : value('viewer')
+    enum ProjectRole {
+        Owner : tone(success),
+        Editor : tone(info),
+        Viewer : tone(neutral)
     }
 
-    struct CreateProjectRequest {
-        String name;
-        Text? description;
-    }
-
-    struct UpdateProjectRequest {
-        String(200)? name;
-        Text? description;
-        ProjectStatus? status;
-    }
-
-    struct AddMemberRequest {
-        UUID userId;
-        MemberRole role;
-    }
-
-    struct UpdateMemberRoleRequest {
-        MemberRole role;
-    }
-
-    struct ProjectSummary {
-        UUID projectId;
-        String name;
-        ProjectStatus status;
-        Int memberCount;
-        DateTime createdAt;
+    enum ProjectState {
+        Active : tone(success),
+        Archived : tone(neutral)
     }
 
     rdbms projectDb {
 
-        entity Project extends BaseEntity : audit {
-            String(200) name : trim;
-            Text? description;
-            ProjectStatus status = ProjectStatus.Planning;
-            UUID ownerId : index;
-            String(10)? projectKey;
-            Int taskCount = 0;
-            Int completedTaskCount = 0;
-            DateTime? startDate;
-            DateTime? targetEndDate;
-            DateTime? actualEndDate;
-
-            // Computed fields
-            Boolean isActive := status == ProjectStatus.Active;
-            Boolean isCompleted := status == ProjectStatus.Completed;
-            Boolean canAddTasks := status == ProjectStatus.Planning || status == ProjectStatus.Active;
-
-            hasMany ProjectMember as members : cascade(delete);
-
-            index(ownerId, status);
-            index(status, createdAt);
-            fulltext(name, description);
-
-            validate {
-                if (name.trim().isEmpty())
-                ValidationError("Project name cannot be empty");
-                if (name.length() > 200)
-                ValidationError("Project name cannot exceed 200 characters");
-            }
-
-            beforeCreate {
-                projectKey = #"PRJ-{Random.string(6).toUpperCase()}";
-            }
-
-            afterCreate {
-                dispatch ProjectCreated(id, name, ownerId);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch ProjectStatusChanged(id, oldValue(status), status);
-
-                    if (status == ProjectStatus.Completed && actualEndDate == null) {
-                        actualEndDate = DateTime.now();
-                    }
-
-                    Log.info("Project status changed", {
-                        projectId: id,
-                        oldStatus: oldValue(status),
-                        newStatus: status
-                    });
-                }
-
-            }
-
+        entity Project extends BaseEntity {
+            String(120) name : filterable;
+            /// The prefix of every task number on this project: WEB in WEB-42.
+            String(6) code : unique;
+            Text summary;
+            ProjectState state : filterable = ProjectState.Active;
+            /// Where this project's news is posted.
+            String(80) chatChannel;
+            Int nextNumber = 1;
         }
 
-        entity ProjectMember extends BaseEntity {
-            UUID userId : index;
-            MemberRole role = MemberRole.Contributor;
+        entity Member extends BaseEntity {
+            String(200) personName : filterable;
+            ProjectRole role : filterable;
+            Email email : index;
+            UUID projectId : index;
 
-            belongsTo Project : index;
-
-            index(projectId, userId) : unique;
-
-            validate {
-                if (userId == null)
-                ValidationError("User ID is required for project membership");
-            }
-
-            afterCreate {
-                dispatch MemberAdded(projectId, userId, role);
-            }
-
+            index(projectId, email) : unique;
         }
 
+        entity Milestone extends BaseEntity {
+            String(120) name;
+            DateTime dueAt;
+            Boolean isDone = false;
+            UUID projectId : index;
+        }
     }
 
     pubsub mq {
-
         topic ProjectEvents {
-            publish ProjectCreated(UUID projectId, String name, UUID ownerId) {
-                ensure name.length > 0;
+            publish MemberAdded(String projectName, String personName, String email, String addedBy) {
+                ensure email != "";
             }
-
-            publish ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish MemberAdded(UUID projectId, UUID userId, MemberRole role);
-            publish MemberRemoved(UUID projectId, UUID userId);
-            publish ProjectArchived(UUID projectId);
         }
-
     }
 
-    subscribe ProjectEvents {
-        on ProjectCreated(UUID projectId, String name, UUID ownerId) {
-            Log.info("Project created", { projectId: projectId, name: name, ownerId: ownerId });
-
-            // Automatically add the owner as a project member with Owner role
-            let ProjectMember member = projectDb.ProjectMember.create({
-                projectId: projectId,
-                userId: ownerId,
-                role: MemberRole.Owner
-            });
-            member.save();
-        }
-
-        on ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
-            Log.info("Project status changed", {
-                projectId: projectId,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-        }
-
-        on MemberAdded(UUID projectId, UUID userId, MemberRole role) {
-            Log.info("Member added to project", {
-                projectId: projectId,
-                userId: userId,
-                role: role
-            });
-        }
-
-        on MemberRemoved(UUID projectId, UUID userId) {
-            Log.info("Member removed from project", {
-                projectId: projectId,
-                userId: userId
-            });
-        }
-
-        on ProjectArchived(UUID projectId) {
-            Log.info("Project archived", { projectId: projectId });
-        }
-
+    struct NewProject {
+        String(120) name;
+        String(6) code;
+        Text summary;
+        String(80) chatChannel;
     }
 
+    struct NewMember {
+        UUID projectId;
+        String(200) personName;
+        Email email;
+        ProjectRole role;
+    }
+
+    struct NewMilestone {
+        UUID projectId;
+        String(120) name;
+        DateTime dueAt;
+    }
+
+    struct ProjectCard {
+        UUID id;
+        String name;
+        String code;
+        Text summary;
+        ProjectState state;
+        ProjectRole myRole;
+        Int people;
+        Int milestonesOpen;
+    }
+
+    struct ProjectPage {
+        ProjectCard project;
+        Array<Member> people;
+        Array<Milestone> milestones;
+        Boolean canEdit;
+        Boolean canManage;
+    }
+
+    struct AccessQuestion {
+        UUID projectId;
+        String email;
+    }
+
+    /// What the task service needs to know before it acts for someone.
+    struct ProjectAccess {
+        Boolean isMember;
+        Boolean canEdit;
+        String projectName;
+        String code;
+        String chatChannel;
+    }
+
+    struct NumberRequest {
+        UUID projectId;
+    }
+
+    struct TaskNumber {
+        String number;
+    }
+
+    struct PersonOnProject {
+        String personName;
+        String email;
+    }
+
+    struct ProjectPeople {
+        Array<PersonOnProject> people;
+    }
+
+    fn myMembership(UUID projectId) -> projectDb.Member {
+        let projectDb.Member? mine = projectDb.Member.where(projectId: projectId, email: Auth.identity.email).first();
+        if (mine == null) {
+            throw NoSuchProjectError();
+        }
+        return mine;
+    }
+
+    fn requireEditor(UUID projectId) {
+        let projectDb.Member mine = myMembership(projectId);
+        if (mine.role == ProjectRole.Viewer) {
+            throw EditorsOnlyError();
+        }
+    }
+
+    fn requireOwner(UUID projectId) {
+        let projectDb.Member mine = myMembership(projectId);
+        if (mine.role != ProjectRole.Owner) {
+            throw OwnersOnlyError();
+        }
+    }
+
+    fn cardOf(projectDb.Project project, ProjectRole role) -> ProjectCard {
+        return ProjectCard {
+            id: project.id,
+            name: project.name,
+            code: project.code,
+            summary: project.summary,
+            state: project.state,
+            myRole: role,
+            people: projectDb.Member.where(projectId: project.id).count(),
+            milestonesOpen: projectDb.Milestone.where(projectId: project.id, isDone: false).count()
+        };
+    }
+
+    // What someone signed in does. They only ever see projects they are on.
     rest_api ProjectAPI : basePath('/api/v1/projects'), rdbms(projectDb) {
-
-        // List projects for the current user
-        get(PageRequest page, ProjectStatus? status) : auth(required, providers: [identity]) -> Page<projectDb.Project> {
-            let UUID userId = Auth.user().id;
-
-            // Find projects where the user is a member
-            let Array<ProjectMember> memberships = projectDb.ProjectMember
-            .where(userId: userId)
-            .all();
-
-            let Array<UUID> projectIds = memberships.map(m => m.projectId);
-
-            let JSON query = projectDb.Project.whereIn(id: projectIds);
-
-            if (status != null) {
-                query = query.where(status: status);
+        @path('/mine')
+        get mine() : auth(required, providers: [identity]) -> Array<ProjectCard> {
+            let Array<Member> memberships = Member.where(email: Auth.identity.email).limit(100).all();
+            let Array<ProjectCard> cards = [];
+            foreach membership in memberships {
+                let Project project = Project.findOrFail(membership.projectId);
+                cards.push(cardOf(project, membership.role));
             }
-
-            return query.orderBy(updatedAt: desc).page(page);
+            return cards;
         }
 
-        // Get a single project
-        @path('/:id')
-        get(UUID id) : auth(required, providers: [identity]) -> projectDb.Project {
-            return projectDb.Project.findOrFail(id);
+        @path('/page/:id')
+        get page(UUID id) : auth(required, providers: [identity]) -> ProjectPage {
+            let Member mine = myMembership(id);
+            let Project project = Project.findOrFail(id);
+            return ProjectPage {
+                project: cardOf(project, mine.role),
+                people: Member.where(projectId: id).orderBy(personName: asc).limit(200).all(),
+                milestones: Milestone.where(projectId: id).orderBy(dueAt: asc).limit(50).all(),
+                canEdit: mine.role != ProjectRole.Viewer,
+                canManage: mine.role == ProjectRole.Owner
+            };
         }
 
-        // Create a new project
-        post(CreateProjectRequest request) : auth(required, providers: [identity]) -> projectDb.Project {
-            let UUID ownerId = Auth.user().id;
-
-            let Project project = projectDb.Project.create({
+        @path('/new')
+        post createProject(NewProject request) : auth(required, providers: [identity]) -> Project {
+            if (Project.where(code: request.code).first() != null) {
+                throw CodeTakenError();
+            }
+            let Project created = Project.create({
                 name: request.name,
-                description: request.description,
-                ownerId: ownerId,
-                status: ProjectStatus.Planning
+                code: request.code,
+                summary: request.summary,
+                chatChannel: request.chatChannel
             });
-            project.save();
-
-            return project;
+            Member.create({
+                projectId: created.id,
+                personName: (Auth.identity.fullName ?? Auth.identity.email).toString(),
+                email: Auth.identity.email,
+                role: ProjectRole.Owner
+            });
+            return created;
         }
 
-        // Update a project
-        @path('/:id')
-        put(UUID id, UpdateProjectRequest request) : auth(required, providers: [identity]) -> projectDb.Project {
-            let Project project = projectDb.Project.findOrFail(id);
-
-            if (request.name != null) {
-                project.name = request.name;
+        @path('/members')
+        post addMember(NewMember request) : auth(required, providers: [identity]) -> Member {
+            requireOwner(request.projectId);
+            if (Member.where(projectId: request.projectId, email: request.email).first() != null) {
+                throw AlreadyMemberError();
             }
-
-            if (request.description != null) {
-                project.description = request.description;
-            }
-
-            if (request.status != null) {
-                project.status = request.status;
-            }
-
-            project.save();
-            return project;
-        }
-
-        // Delete (archive) a project
-        @path('/:id')
-        delete(UUID id) : auth(required, providers: [identity]) -> Void {
-            let Project project = projectDb.Project.findOrFail(id);
-            let UUID userId = Auth.user().id;
-
-            if (project.ownerId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("Only the project owner or admin can archive a project");
-            }
-
-            project.status = ProjectStatus.Archived;
-            project.save();
-
-            dispatch ProjectArchived(id);
-        }
-
-        // Add a member to a project
-        @path('/:id/members')
-        post(UUID id, AddMemberRequest request) : auth(required, providers: [identity]) -> projectDb.ProjectMember {
-            let Project project = projectDb.Project.findOrFail(id);
-
-            // Verify the user exists
-            let User user = UserService.UserAPI.get.userByIdInternal(request.userId);
-
-            // Check if already a member
-            let ProjectMember? existing = projectDb.ProjectMember
-            .where(projectId: id)
-            .where(userId: request.userId)
-            .first();
-
-            if (existing != null) {
-                throw ValidationException({
-                    code: "ALREADY_MEMBER",
-                    message: "User is already a member of this project"
-                });
-            }
-
-            let ProjectMember member = projectDb.ProjectMember.create({
-                projectId: id,
-                userId: request.userId,
+            let Project project = Project.findOrFail(request.projectId);
+            let Member added = Member.create({
+                projectId: request.projectId,
+                personName: request.personName,
+                email: request.email,
                 role: request.role
             });
-            member.save();
-
-            return member;
+            dispatch MemberAdded(project.name, request.personName, request.email.toString(), (Auth.identity.fullName ?? Auth.identity.email).toString());
+            return added;
         }
 
-        // Update a member's role
-        @path('/:id/members/:userId')
-        put(UUID id, UUID userId, UpdateMemberRoleRequest request) : auth(required, providers: [identity]) -> projectDb.ProjectMember {
-            let ProjectMember member = projectDb.ProjectMember
-            .where(projectId: id)
-            .where(userId: userId)
-            .firstOrFail();
-
-            member.role = request.role;
-            member.save();
-
-            return member;
-        }
-
-        // Remove a member from a project
-        @path('/:id/members/:userId')
-        delete(UUID id, UUID userId) : auth(required, providers: [identity]) -> Void {
-            let ProjectMember member = projectDb.ProjectMember
-            .where(projectId: id)
-            .where(userId: userId)
-            .firstOrFail();
-
-            if (member.role == MemberRole.Owner) {
-                throw ValidationException({
-                    code: "CANNOT_REMOVE_OWNER",
-                    message: "Cannot remove the project owner"
-                });
+        @path('/members/remove/:id')
+        post removeMember(UUID id) : auth(required, providers: [identity]) -> ProjectPeopleCount {
+            let Member member = Member.findOrFail(id);
+            requireOwner(member.projectId);
+            if (member.role == ProjectRole.Owner && Member.where(projectId: member.projectId, role: ProjectRole.Owner).count() == 1) {
+                throw LastOwnerError();
             }
-
+            let UUID projectId = member.projectId;
             member.delete();
-            dispatch MemberRemoved(id, userId);
+            return ProjectPeopleCount { people: Member.where(projectId: projectId).count() };
         }
 
-        // Get project members
-        @path('/:id/members')
-        get(UUID id) : auth(required, providers: [identity]) -> Array<projectDb.ProjectMember> {
-            return projectDb.ProjectMember
-            .where(projectId: id)
-            .all();
+        @path('/milestones')
+        post addMilestone(NewMilestone request) : auth(required, providers: [identity]) -> Milestone {
+            requireEditor(request.projectId);
+            return Milestone.create({ projectId: request.projectId, name: request.name, dueAt: request.dueAt });
         }
 
-        // Search projects
-        @path('/search')
-        get(String query, PageRequest page) : auth(required, providers: [identity]) -> Page<projectDb.Project> {
-            return projectDb.Project.fulltext(query).page(page);
+        @path('/milestones/done/:id')
+        post finishMilestone(UUID id) : auth(required, providers: [identity]) -> Milestone {
+            let Milestone milestone = Milestone.findOrFail(id);
+            requireEditor(milestone.projectId);
+            milestone.isDone = true;
+            milestone.save();
+            return milestone;
         }
 
-        // Internal endpoint for other services
-        @path('/service/:id')
-        get projectByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> projectDb.Project {
-            return projectDb.Project.findOrFail(id);
+        @path('/archive/:id')
+        post archive(UUID id) : auth(required, providers: [identity]) -> Project {
+            requireOwner(id);
+            let Project project = Project.findOrFail(id);
+            project.state = ProjectState.Archived;
+            project.save();
+            return project;
+        }
+    }
+
+    struct ProjectPeopleCount {
+        Int people;
+    }
+
+    // What the task service asks before it acts for someone.
+    rest_api ProjectInternalAPI : basePath('/internal/projects'), rdbms(projectDb) {
+        @path('/access')
+        post access(AccessQuestion question) : auth(service, providers: [machine]) -> ProjectAccess {
+            let Project? project = Project.where(id: question.projectId).first();
+            let Member? member = Member.where(projectId: question.projectId, email: question.email).first();
+            if (project == null || member == null) {
+                return ProjectAccess { isMember: false, canEdit: false, projectName: "", code: "", chatChannel: "" };
+            }
+            return ProjectAccess {
+                isMember: true,
+                canEdit: member.role != ProjectRole.Viewer,
+                projectName: project.name,
+                code: project.code,
+                chatChannel: project.chatChannel
+            };
         }
 
+        // Two tasks made at the same moment queue on this lock and get different numbers.
+        @path('/next-number')
+        post nextNumber(NumberRequest request) : auth(service, providers: [machine]) -> TaskNumber {
+            let String number = "";
+            transaction(projectDb) {
+                let Project project = Project.where(id: request.projectId).forUpdate().firstOrFail();
+                number = #"{project.code}-{project.nextNumber}";
+                project.nextNumber = project.nextNumber + 1;
+                project.save();
+            }
+            return TaskNumber { number: number };
+        }
+
+        @path('/people')
+        post people(NumberRequest request) : auth(service, providers: [machine]) -> ProjectPeople {
+            let Array<Member> members = Member.where(projectId: request.projectId).orderBy(personName: asc).limit(200).all();
+            return ProjectPeople { people: members.map(m => PersonOnProject { personName: m.personName, email: m.email.toString() }) };
+        }
     }
 
-    test("validation rejects empty project name") {
-        assert throws(
-        () => projectDb.Project.create({
-            name: "",
-            ownerId: uuid()
-        }),
-        ValidationError("Project name cannot be empty")
-        );
-    }
-
-    test("computed isActive for Active status") {
-        let Project project = projectDb.Project.create({
-            name: "Test Project",
-            ownerId: uuid(),
-            status: ProjectStatus.Active
+    test("a new project starts numbering at one") {
+        let projectDb.Project created = projectDb.Project.create({
+            name: "Test project",
+            code: "TST",
+            summary: "A test project.",
+            chatChannel: "test"
         });
-        project.save();
-        assert project.isActive == true;
-        assert project.canAddTasks == true;
+        assert created.nextNumber == 1;
+        assert created.state == ProjectState.Active;
     }
-
-    test("computed canAddTasks for Planning status") {
-        let Project project = projectDb.Project.create({
-            name: "Planning Project",
-            ownerId: uuid(),
-            status: ProjectStatus.Planning
-        });
-        project.save();
-        assert project.canAddTasks == true;
-    }
-
-    test("beforeCreate generates projectKey") {
-        let Project project = projectDb.Project.create({
-            name: "Key Project",
-            ownerId: uuid()
-        });
-        project.save();
-        assert project.projectKey != null;
-    }
-
-    test("afterCreate emits ProjectCreated event") {
-        let UUID ownerId = uuid();
-        let Project project = projectDb.Project.create({
-            name: "Event Project",
-            ownerId: ownerId
-        });
-        project.save();
-        assert emitted(ProjectCreated(project.id, "Event Project", ownerId));
-    }
-
-    test("computed isCompleted for Completed status") {
-        let Project project = projectDb.Project.create({
-            name: "Completed Project",
-            ownerId: uuid(),
-            status: ProjectStatus.Completed,
-            actualEndDate: DateTime.now()
-        });
-        project.save();
-        assert project.isCompleted == true;
-        assert project.isActive == false;
-    }
-
-    test("computed canAddTasks is false for Completed project") {
-        let Project project = projectDb.Project.create({
-            name: "Completed No Tasks Project",
-            ownerId: uuid(),
-            status: ProjectStatus.Completed
-        });
-        project.save();
-        assert project.canAddTasks == false;
-    }
-
-    test("computed canAddTasks is false for OnHold project") {
-        let Project project = projectDb.Project.create({
-            name: "On Hold Project",
-            ownerId: uuid(),
-            status: ProjectStatus.OnHold
-        });
-        project.save();
-        assert project.canAddTasks == false;
-    }
-
-    test("computed canAddTasks is false for Archived project") {
-        let Project project = projectDb.Project.create({
-            name: "Archived Tasks Project",
-            ownerId: uuid(),
-            status: ProjectStatus.Archived
-        });
-        project.save();
-        assert project.canAddTasks == false;
-    }
-
-    test("status change emits ProjectStatusChanged") {
-        let Project project = projectDb.Project.create({
-            name: "Status Event Project",
-            ownerId: uuid(),
-            status: ProjectStatus.Planning
-        });
-        project.save();
-        project.status = ProjectStatus.Active;
-        project.save();
-        assert emitted(ProjectStatusChanged(project.id, ProjectStatus.Planning, ProjectStatus.Active));
-    }
-
-    test("validation rejects project name exceeding 200 chars") {
-        let String longName = "A".repeat(201);
-        assert throws(
-        () => projectDb.Project.create({
-            name: longName,
-            ownerId: uuid()
-        }),
-        ValidationError("Project name cannot exceed 200 characters")
-        );
-    }
-
-    test("afterCreate on ProjectMember emits MemberAdded") {
-        let UUID projectId = uuid();
-        let UUID userId = uuid();
-        let ProjectMember member = projectDb.ProjectMember.create({
-            projectId: projectId,
-            userId: userId,
-            role: MemberRole.Contributor
-        });
-        member.save();
-        assert emitted(MemberAdded(projectId, userId, MemberRole.Contributor));
-    }
-
-    test("validation rejects null userId on ProjectMember") {
-        assert throws(
-        () => projectDb.ProjectMember.create({
-            projectId: uuid(),
-            userId: null,
-            role: MemberRole.Viewer
-        }),
-        ValidationError("User ID is required for project membership")
-        );
-    }
-
 }

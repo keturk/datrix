@@ -1,0 +1,18 @@
+// The key CommentService presents to the moderation vendor (only its SHA-256 hash is stored), and
+// the terms a walkthrough can use to see a comment blocked.
+seed service blog.ModerationMock {
+  rdbms moderationDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                               keyHash,                                                            ownerId,                      scopes,          isActive;
+        @uuid("moderation-key-comments"), "e3f8eb33df23d8bebeb297cd7b1db8a28505e004bc78cfd3c3823abe0d2d5283", @uuid("owner-comment-service"), ["checks:create"], true;
+      }
+      BlockedTerm table on(term) {
+        term;
+        "free crypto";
+        "miracle cure";
+        "wire transfer";
+      }
+    }
+  }
+}

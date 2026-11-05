@@ -1,0 +1,31 @@
+// The contract of the maps vendor. config/providers/route-provider.dcfg says where it is served.
+extern service fooddelivery.RouteProvider('config/providers/route-provider.dcfg')
+    : version('1.0.0'), description('Driving distance and time between two points') {
+
+    struct PlanRouteRequest {
+        Float fromLatitude;
+        Float fromLongitude;
+        Float toLatitude;
+        Float toLongitude;
+    }
+
+    struct RoutePlan {
+        String(40) id;
+        Float distanceKm;
+        Int minutes;
+    }
+
+    rest_api RouteAPI : basePath('/v1') {
+        @path('/routes')
+        post planRoute(PlanRouteRequest request) -> RoutePlan {
+            ensure request.fromLatitude != request.toLatitude || request.fromLongitude != request.toLongitude;
+        }
+    }
+
+    errors {
+        NoRoute(String message);
+    }
+
+    auth : apiKey(header: 'X-Route-Api-Key');
+    health : path('/health');
+}

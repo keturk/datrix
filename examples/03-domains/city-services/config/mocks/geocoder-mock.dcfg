@@ -1,0 +1,40 @@
+config service cityservices.GeocoderMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8091;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms geocoderDb from postgisContainer(id: "a93e5c12-47d8-4f06-b2c1-5e8d0f6a7b23", database: "cityservices_geocoder_mock");
+    httpSecurity from localHttpSecurity(host: "cityservices-geocoder-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

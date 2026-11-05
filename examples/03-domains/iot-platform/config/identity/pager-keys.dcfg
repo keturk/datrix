@@ -1,0 +1,34 @@
+// API keys of the paging vendor. mode = self: PagerMock issues and verifies them itself, and only the
+// SHA-256 hash of a key is stored.
+config identity pagerKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "workforce";
+    apiKey {
+      header = "X-Pager-Api-Key";
+      store = "iot.PagerMock";
+      storeBlock = "pagerDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+      }
+      lastUsedResolutionSeconds = 60;
+      serviceProviders = ["machine"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

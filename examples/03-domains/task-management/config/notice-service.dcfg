@@ -1,0 +1,67 @@
+config service taskapp.NoticeService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8003;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms noticeDb from postgresContainer(id: "fb3692df-acec-4a1a-948f-335e28445e9c", database: "taskapp_notice");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "taskapp-notice-service");
+    outboxOps from outboxBatches();
+    kafkaOps from kafkaPolling();
+    serviceCredentialOps from machineCredential();
+    microserviceClientOps from peerClient();
+    retryBudgetOps from retryBudget();
+    jobs {
+      jobs {
+        RetryNotices {
+          schedule = "*/5 * * * *";
+          timeout = "120s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+    secrets {
+      // The defaults only exist on a local stack, where they match the hashes seeded in seed/, so the
+      // example runs with nothing to configure. Any other deployment must supply the handles' values.
+      secret chat_provider_api_key {
+        required = true;
+        purpose = "API key for the chat vendor (ChatProvider contract).";
+        localDefault = "dev-only-chat-key-not-a-credential";
+      }
+      secret email_provider_api_key {
+        required = true;
+        purpose = "API key for the email vendor (EmailProvider contract).";
+        localDefault = "dev-only-email-key-not-a-credential";
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

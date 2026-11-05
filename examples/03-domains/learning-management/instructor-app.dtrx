@@ -1,0 +1,321 @@
+from lms.ui import Brand, statRow;
+
+/// Where instructors build courses, see how students are doing, read what the tutor said, and decide
+/// refunds. Only an operator reaches the vendor pages, which show every charge, email and model turn.
+app lms.Instructor('config/instructor-app.dcfg') : version('2.0.0') {
+    uses lms.CourseService;
+    uses lms.EnrollmentService;
+    uses lms.TutorService;
+    uses lms.PaymentMock;
+    uses lms.EmailMock;
+    uses lms.ModelMock;
+
+    theme extends Brand { }
+
+    state UUID? addingTo = null;
+    state Boolean adding = false;
+
+    fn grantRefund(UUID id) {
+        EnrollmentService.TeachingAPI.post.grantRefund(id: id);
+        Ui.toast(Msg.refundGranted, tone: success);
+    }
+
+    fn declineRefund(UUID id) {
+        EnrollmentService.TeachingAPI.post.declineRefund(id: id);
+        Ui.toast(Msg.refundDeclined, tone: info);
+    }
+
+    layout Shell : default {
+        nav {
+            link Dashboard : icon(dashboard), group(Msg.navTeaching);
+            link Courses : icon(school), group(Msg.navTeaching);
+            link Students : icon(groups), group(Msg.navTeaching);
+            link Refunds : icon(currency_exchange), group(Msg.navTeaching);
+            link TutorLog : icon(forum), group(Msg.navTeaching);
+            link Charges : icon(credit_card), group(Msg.navVendors);
+            link Outbox : icon(mail), group(Msg.navVendors);
+            link ModelTurns : icon(smart_toy), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Dashboard() {
+        data {
+            summary = EnrollmentService.TeachingAPI.get.summary() : poll(30s);
+        }
+        view {
+            pageHeader(Msg.dashboardTitle, Msg.dashboardSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statActive, Fmt.number(summary.activeStudents)) : icon(groups);
+                stat(Msg.statCompleted, Fmt.number(summary.completed)) : icon(workspace_premium), tone(success);
+                stat(Msg.statRefunds, Fmt.number(summary.refundsWaiting)) : icon(currency_exchange), tone(warning);
+                stat(Msg.statRevenue, Fmt.money(summary.revenue)) : icon(payments);
+            }
+            when (summary.refundsWaiting > 0) {
+                callout(Msg.refundsWaitingNotice) : tone(warning) { link(Msg.openRefunds, Refunds) : kind(primary); }
+            }
+        }
+    }
+
+    @path('/courses')
+    page Courses() {
+        view {
+            pageHeader(Msg.coursesTitle, Msg.coursesSubtitle);
+            table(CourseList);
+            card(Msg.newCourse) { form(NewCourse); }
+        }
+    }
+
+    table CourseList : source(CourseService.StudioAPI.courseDb.Course.list), pageSizes(10, 25, 50) {
+        column title;
+        column level;
+        column status;
+        column price : format(money);
+        column lessonCount : format(number);
+        column totalMinutes : format(number);
+        column publishedAt : format(date);
+        filter title : live;
+        filter status;
+        filter level;
+        rowAction open : onClick(Nav.to(CourseEditor, id: row.id));
+    }
+
+    form NewCourse : submit(CourseService.StudioAPI.post.createCourse) {
+        fn created(UUID id) {
+            Ui.toast(Msg.courseCreated, tone: success);
+            Nav.to(CourseEditor, id: id);
+        }
+        field title;
+        field summary;
+        field level;
+        field price;
+        onSuccess(created(result.id));
+    }
+
+    @path('/courses/:id')
+    page CourseEditor(UUID id) {
+        data {
+            course = CourseService.StudioAPI.courseDb.Course.get(id: id);
+            lessons = CourseService.StudioAPI.get.lessonsOf(courseId: id);
+        }
+
+        fn publish() {
+            CourseService.StudioAPI.post.publish(id: id);
+            course.refresh();
+            Ui.toast(Msg.published, tone: success);
+        }
+
+        fn archive() {
+            CourseService.StudioAPI.post.archive(id: id);
+            course.refresh();
+            Ui.toast(Msg.archived, tone: info);
+        }
+
+        fn startAdding() {
+            addingTo = id;
+            adding = true;
+        }
+
+        fn stopAdding() {
+            adding = false;
+            lessons.refresh();
+            course.refresh();
+        }
+
+        view {
+            pageHeader(course.title, course.instructorName) : back(Courses) {
+                badge(course.status);
+                when (course.status == CourseStatus.Draft) {
+                    button(Msg.publish) : onClick(publish()), kind(primary), icon(publish);
+                }
+                when (course.status == CourseStatus.Published) {
+                    button(Msg.archive) : onClick(archive()), icon(archive);
+                }
+            }
+            card { markdown(course.summary); }
+            section(Msg.lessonsTitle) {
+                when (lessons.length == 0) {
+                    emptyState(Msg.noLessons) : icon(menu_book);
+                }
+                list(data: lessons) {
+                    heading(item.title);
+                    text(Msg.minutesLine(minutes: Fmt.number(item.minutes)));
+                }
+            }
+            button(Msg.addLesson) : onClick(startAdding()), kind(primary), icon(add);
+            when (adding) {
+                dialog(Msg.addLesson) : onClose(stopAdding()) {
+                    form(AddLesson);
+                }
+            }
+        }
+    }
+
+    form AddLesson : submit(CourseService.StudioAPI.post.addLesson) {
+        fn added() {
+            adding = false;
+            Ui.toast(Msg.lessonAdded, tone: success);
+        }
+        field courseId : fixed(addingTo);
+        field title;
+        field minutes;
+        field body;
+        field question;
+        field optionA;
+        field optionB;
+        field optionC;
+        field rightAnswer;
+        onSuccess(added());
+    }
+
+    @path('/students')
+    page Students() {
+        view {
+            pageHeader(Msg.studentsTitle, Msg.studentsSubtitle);
+            table(StudentList);
+        }
+    }
+
+    table StudentList : source(EnrollmentService.TeachingAPI.enrollmentDb.Enrollment.list), pageSizes(10, 25, 50), poll(30s) {
+        column studentName;
+        column courseTitle;
+        column status;
+        column progressPercent : format(percent);
+        column paid : format(money);
+        column lastActiveAt : format(relative);
+        column certificateCode;
+        filter studentName : live;
+        filter courseTitle;
+        filter status;
+    }
+
+    @path('/refunds')
+    page Refunds() {
+        view {
+            pageHeader(Msg.refundsTitle, Msg.refundsSubtitle);
+            table(RefundList);
+        }
+    }
+
+    table RefundList : source(EnrollmentService.TeachingAPI.enrollmentDb.RefundRequest.list), poll(30s) {
+        column createdAt : format(relative);
+        column studentName;
+        column courseTitle;
+        column amount : format(money);
+        column reason;
+        column status;
+        column decidedByName;
+        filter status;
+        rowAction grant : onClick(grantRefund(row.id));
+        rowAction decline : onClick(declineRefund(row.id));
+    }
+
+    @path('/tutor')
+    page TutorLog() {
+        view {
+            pageHeader(Msg.tutorTitle, Msg.tutorSubtitle);
+            table(ExchangeList);
+        }
+    }
+
+    component RefundAskedBadge(Boolean refundProposed) {
+        view {
+            when (refundProposed) { badge(Msg.askedRefund) : tone(warning); }
+        }
+    }
+
+    table ExchangeList : source(TutorService.TutorAPI.tutorDb.TutorExchange.list), poll(30s) {
+        column createdAt : format(relative);
+        column studentName;
+        column question;
+        column answer;
+        column refundProposed : render(RefundAskedBadge);
+        filter studentName;
+    }
+
+    @path('/vendors/charges')
+    page Charges() {
+        view {
+            pageHeader(Msg.chargesTitle, Msg.chargesSubtitle);
+            table(ChargeList);
+        }
+    }
+
+    table ChargeList : source(PaymentMock.PaymentDeskAPI.paymentDb.CardCharge.list), poll(30s) {
+        column createdAt : format(relative);
+        column reference;
+        column amount : format(money);
+        column status;
+        column declineReason;
+        filter status;
+    }
+
+    @path('/vendors/outbox')
+    page Outbox() {
+        view {
+            pageHeader(Msg.outboxTitle, Msg.outboxSubtitle);
+            table(OutboxList);
+        }
+    }
+
+    table OutboxList : source(EmailMock.EmailDeskAPI.emailDb.Outbound.list), poll(30s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column body;
+        column status;
+        filter recipient;
+    }
+
+    @path('/vendors/model')
+    page ModelTurns() {
+        view {
+            pageHeader(Msg.modelTitle, Msg.modelSubtitle);
+            table(TurnList);
+        }
+    }
+
+    table TurnList : source(ModelMock.ModelDeskAPI.modelDb.ModelCall.list), poll(30s) {
+        column createdAt : format(relative);
+        column lessonTitle;
+        column question;
+        column answer;
+        column wantsRefund : render(RefundAskedBadge2);
+        filter lessonTitle;
+    }
+
+    component RefundAskedBadge2(Boolean wantsRefund) {
+        view {
+            when (wantsRefund) { badge(Msg.askedRefund) : tone(warning); }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Dashboard); }
+        }
+    }
+
+    test("the refunds page opens") {
+        let Screen screen = render(Refunds);
+        assert screen.shows(Msg.refundsTitle);
+    }
+}

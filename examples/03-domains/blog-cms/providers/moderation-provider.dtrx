@@ -1,0 +1,39 @@
+// The contract of the content moderation vendor, which reads a comment and answers what to do
+// with it. The product decides what each verdict means.
+extern service blog.ModerationProvider('config/providers/moderation-provider.dcfg')
+    : version('1.0.0'), description('Automated content moderation') {
+
+    enum Verdict {
+        Allow,
+        Review,
+        Block
+    }
+
+    struct CheckRequest {
+        /// The caller's reference: checking it again returns the first answer.
+        String(120) reference;
+        Text content;
+    }
+
+    struct CheckResult {
+        String(40) id;
+        String(120) reference;
+        Verdict verdict;
+        /// Why, in the vendor's words; empty when it found nothing.
+        String(200) reason;
+    }
+
+    rest_api ModerationAPI : basePath('/v1') {
+        @path('/checks')
+        post check(CheckRequest request) -> CheckResult {
+            ensure request.reference != "";
+        }
+    }
+
+    errors {
+        CheckRefused(String message);
+    }
+
+    auth : apiKey(header: 'X-Moderation-Api-Key');
+    health : path('/health');
+}

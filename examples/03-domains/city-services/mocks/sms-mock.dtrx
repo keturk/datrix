@@ -1,0 +1,86 @@
+// Implements the SmsProvider contract in the stack, so the application sends real requests and
+// needs no messaging account: every text lands in a log the Operations app shows instead of
+// reaching a phone. Callers authenticate with an API key, as with a real vendor.
+service cityservices.SmsMock('config/mocks/sms-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the text message vendor') {
+
+    discovery { }
+
+    enum TextStatus {
+        Accepted : tone(info),
+        Delivered : tone(success),
+        Failed : tone(danger)
+    }
+
+    rdbms smsDb {
+
+        /// A text the vendor accepted.
+        entity SentSms extends BaseEntity {
+            String(40) messageId : unique;
+            String(120) idempotencyKey : unique;
+            Phone recipient;
+            String(320) body;
+            TextStatus status : filterable = TextStatus.Delivered;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct SendSmsRequest {
+        Phone to;
+        String(320) body;
+        String(120) idempotencyKey;
+    }
+
+    struct TextMessage {
+        String(40) id;
+        TextStatus status;
+    }
+
+    /// A number in the range reserved for fiction fails, so a failed delivery can be shown.
+    const FAILING_PREFIX = "+1555010";
+
+    // The vendor's public API: exactly the SmsProvider contract.
+    rest_api SmsAPI : basePath('/v1'), rdbms(smsDb) {
+        @path('/messages')
+        post(SendSmsRequest request) : auth(required, providers: [smsKeys]) -> TextMessage {
+            let SentSms? existing = SentSms.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return TextMessage { id: existing.messageId, status: existing.status };
+            }
+            let SentSms created = SentSms.create({
+                messageId: #"sms_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                recipient: request.to,
+                body: request.body,
+                status: request.to.toString().startsWith(FAILING_PREFIX) ? TextStatus.Failed : TextStatus.Delivered
+            });
+            return TextMessage { id: created.messageId, status: created.status };
+        }
+    }
+
+    // What the Operations app shows: every text sent.
+    rest_api SmsDeskAPI : basePath('/api/v1/desk/sms'), rdbms(smsDb) {
+        resource SentSms : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a repeated idempotency key finds the first text") {
+        let SentSms first = smsDb.SentSms.create({
+            messageId: "sms_0001",
+            idempotencyKey: "receipt-1",
+            recipient: "+14155550123",
+            body: "Thanks"
+        });
+        let SentSms? again = smsDb.SentSms.where(idempotencyKey: "receipt-1").first();
+        assert again != null;
+        assert again.messageId == first.messageId;
+    }
+}

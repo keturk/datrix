@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Quayline Freight">
+  <rect width="64" height="64" rx="10" fill="#14506b"/>
+  <path d="M10 22h28v22H10z" fill="#ffffff"/>
+  <path d="M40 28h8l6 8v8H40z" fill="#ffffff"/>
+  <circle cx="20" cy="46" r="5" fill="#14506b" stroke="#ffffff" stroke-width="3"/>
+  <circle cx="46" cy="46" r="5" fill="#14506b" stroke="#ffffff" stroke-width="3"/>
+</svg>

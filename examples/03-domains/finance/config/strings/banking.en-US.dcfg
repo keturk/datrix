@@ -1,0 +1,37 @@
+config strings finance.Banking locale "en-US" {
+  messages {
+    appName          = "Quillon Bank";
+    account          = "Account";
+    signOut          = "Sign out";
+    home             = "Back to my accounts";
+    notFoundTitle    = "Page not found";
+    accountsTitle    = "My accounts";
+    accountsSubtitle = "Balances update the moment a posting commits.";
+    openChecking     = "Open a checking account";
+    openSavings      = "Open a savings account";
+    accountOpened    = "Your account is open.";
+    registerFirst    = "Finish your identity check to open an account.";
+    goToProfile      = "Go to my profile";
+    seeStatement     = "See statement";
+    statementSubtitle = "The last 100 entries on this account.";
+    balance          = "Balance";
+    moveTitle        = "Move money";
+    moveSubtitle     = "To another Quillon account, right away.";
+    moved            = "Money moved.";
+    payTitle         = "Pay anyone";
+    paySubtitle      = "To an account at another bank. Each payee is screened first.";
+    paid             = "Payment sent.";
+    notPaid          = "This payment was not sent. Check its status on your account.";
+    profileTitle     = "My profile";
+    profileSubtitle  = "Your identity document goes to our checking vendor and is not kept here.";
+    registered       = "Thanks. We have your details.";
+  }
+  labels {
+    page.Accounts  = "Accounts";
+    page.Statement = "Statement";
+    page.MoveMoney = "Move money";
+    page.PayAnyone = "Pay anyone";
+    page.Profile   = "Profile";
+    page.NotFound  = "Not found";
+  }
+}

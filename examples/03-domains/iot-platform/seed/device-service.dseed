@@ -1,0 +1,20 @@
+// Two invented cold stores and the devices in them. Each serial number has a simulated device in
+// seed/fleet-mock.dseed, and they all go online at the first tick.
+seed service iot.DeviceService {
+  rdbms deviceDb {
+    baseline {
+      Site table on(id) {
+        id,                  name,            city,        latitude, longitude;
+        @uuid("site-harbor"), "Harbor Street", "Port Alder", 45.515,  -122.678;
+        @uuid("site-mill"),   "Mill Yard",     "Port Alder", 45.540,  -122.640;
+      }
+      Device table on(serialNumber) {
+        id,                serialNumber, name,              kind,     siteName,        status,       firmwareVersion, minTemperature, maxTemperature, siteId;
+        @uuid("dev-dairy"), "CF-1001",    "Dairy fridge",    Fridge,   "Harbor Street", Provisioning, "1.4.0",         1.0,            5.0,            @uuid("site-harbor");
+        @uuid("dev-meat"),  "CF-1002",    "Meat cold room",  ColdRoom, "Harbor Street", Provisioning, "1.4.0",         0.0,            4.0,            @uuid("site-harbor");
+        @uuid("dev-ice"),   "CF-2001",    "Ice cream chest", Freezer,  "Mill Yard",     Provisioning, "1.4.0",         -25.0,          -15.0,          @uuid("site-mill");
+        @uuid("dev-veg"),   "CF-2002",    "Vegetable room",  ColdRoom, "Mill Yard",     Provisioning, "1.3.2",         2.0,            8.0,            @uuid("site-mill");
+      }
+    }
+  }
+}

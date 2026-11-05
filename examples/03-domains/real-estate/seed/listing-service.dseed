@@ -1,0 +1,29 @@
+// Invented homes in real Portland neighbourhoods. Sign up as dana@cobblestone.example.com and be granted
+// agent to work on them.
+seed service realestate.ListingService {
+  rdbms listingDb {
+    baseline {
+      Neighbourhood table on(name) {
+        id,                     name,            city,       latitude, longitude;
+        @uuid("place-pearl"),   "Pearl District", "Portland", 45.529,   -122.682;
+        @uuid("place-alberta"), "Alberta Arts",  "Portland", 45.559,   -122.646;
+        @uuid("place-sell"),    "Sellwood",      "Portland", 45.465,   -122.655;
+        @uuid("place-hills"),   "West Hills",    "Portland", 45.512,   -122.712;
+      }
+      Listing table on(id) {
+        id,                 title,                     neighbourhoodName, city,       kind,      price,     bedrooms, bathrooms, areaSqm, status, agentName,       agentEmail,                     publishedAt,        latitude, longitude, summary;
+        @uuid("home-loft"),  "Loft over the old mill",  "Pearl District",  "Portland", Apartment, 625000.00, 2,        2,         118,     Active, "Dana Whitlock", "dana@cobblestone.example.com", @datetime("-6d 10:00"), 45.530, -122.684, "Brick walls and tall windows on the fourth floor, two minutes from the streetcar. The kitchen faces the morning sun.";
+        @uuid("home-rose"),  "Rose Street bungalow",    "Alberta Arts",    "Portland", House,     549000.00, 3,        2,         142,     Active, "Dana Whitlock", "dana@cobblestone.example.com", @datetime("-4d 09:30"), 45.557, -122.649, "A 1924 bungalow with its original fir floors, a deep front porch and a garden that has been looked after for thirty years.";
+        @uuid("home-row"),   "End of the terrace",      "Alberta Arts",    "Portland", Townhouse, 479000.00, 3,        3,         131,     Active, "Dana Whitlock", "dana@cobblestone.example.com", @datetime("-2d 11:00"), 45.561, -122.642, "The end house of a new row, with a rooftop deck, a garage and solar panels already paying for themselves.";
+        @uuid("home-river"), "Riverside cottage",       "Sellwood",        "Portland", Cottage,   415000.00, 2,        1,         78,      Active, "Noor Bellamy",  "noor@cobblestone.example.com", @datetime("-9d 14:00"), 45.463, -122.661, "Small and bright, one street from the river path. The garden backs onto the park and there is room for a studio.";
+        @uuid("home-oak"),   "Oak Lane family home",    "West Hills",      "Portland", House,     1150000.00, 5,       4,         320,     Active, "Noor Bellamy",  "noor@cobblestone.example.com", @datetime("-12d 10:00"), 45.514, -122.716, "Five bedrooms among old oaks, with a view of the mountain from the upstairs landing and a garden on three levels.";
+        @uuid("home-plot"),  "Hillside building plot",  "West Hills",      "Portland", Land,      289000.00, 0,        0,         900,     Active, "Noor Bellamy",  "noor@cobblestone.example.com", @datetime("-1d 16:00"), 45.509, -122.721, "A south-facing plot with services at the road and permission for one house. The neighbours have built well.";
+        @uuid("home-draft"), "Corner flat, coming soon", "Sellwood",       "Portland", Apartment, 365000.00, 1,        1,         61,      Draft,  "Dana Whitlock", "dana@cobblestone.example.com", null,               45.468,   -122.652, "Still being photographed.";
+      }
+      PriceChange table on(id) {
+        id,                  listingId,          oldPrice,   newPrice;
+        @uuid("price-oak"),  @uuid("home-oak"),  1225000.00, 1150000.00;
+      }
+    }
+  }
+}

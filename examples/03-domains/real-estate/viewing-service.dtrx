@@ -1,543 +1,238 @@
+from realestate.common import ListingStatus;
 
-from realestate.common import PropertyType;
+// Going to see a home. A buyer asks for a time, the agent confirms it, and two confirmed viewings can never
+// overlap for one agent. A viewing comes with a reminder the day before, and news of a price change.
+service realestate.ViewingService('config/viewing-service.dcfg') : version('2.0.0'), description('Viewings') {
 
-service realestate.ViewingService('config/viewing-service.dcfg') : version('1.0.0'), description('property viewing scheduling service') {
-    discovery {
-        ListingService { loadBalance: roundRobin, healthyOnly: true }
+    discovery { }
+
+    uses ListingService;
+    uses EmailProvider;
+
+    exceptions {
+        NotOpenForViewingsError : status(409), message("That home is not taking viewings");
+        InThePastError : status(422), message("Choose a time in the future");
+        AgentBusyError : status(409), message("You already have a viewing at that time");
+        NotYourViewingError : status(404), message("Viewing not found");
+        WrongStepError : status(409), message("This viewing is not at that step");
     }
 
     enum ViewingStatus {
-        Scheduled : value('scheduled'),
-        Confirmed : value('confirmed'),
-        Completed : value('completed'),
-        Cancelled : value('cancelled'),
-        NoShow : value('no_show')
+        Requested : tone(warning),
+        Confirmed : tone(info),
+        Completed : tone(success),
+        Cancelled : tone(neutral),
+        NoShow : tone(danger)
     }
 
-    struct ScheduleViewingRequest {
-        UUID listingId;
-        UUID? agentId;
-        String clientName;
-        Email clientEmail;
-        Phone? clientPhone;
-        DateTime scheduledAt;
-        String? notes;
-    }
-
-    struct UpdateViewingRequest {
-        DateTime? scheduledAt;
-        String? notes;
-    }
-
-    struct CompleteViewingRequest {
-        String? feedback;
-        Int? rating;
-    }
-
-    struct CancelViewingRequest {
-        String reason;
-    }
+    const VIEWING_MINUTES = 30;
 
     rdbms viewingDb {
-        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
 
-        // Viewing appointment entity
         entity Viewing extends BaseEntity {
+            DateTime startsAt;
+            DateTime endsAt;
+            String(200) listingTitle : filterable;
+            String(200) buyerName : filterable;
+            ViewingStatus status : filterable = ViewingStatus.Requested;
+            String(200) agentName : filterable;
+            String(500)? note;
             UUID listingId : index;
-            UUID? agentId : index;
-            String(100) clientName : trim;
-            Email clientEmail;
-            Phone? clientPhone;
-            DateTime scheduledAt;
-            ViewingStatus status = ViewingStatus.Scheduled;
-            String(1000)? notes;
-            DateTime? completedAt;
-            String(1000)? feedback;
-            Int? rating : min(1), max(5);
-            String(500)? cancellationReason;
-
-            // Computed fields
-            Boolean isPending := status == ViewingStatus.Scheduled || status == ViewingStatus.Confirmed;
-            Boolean isCompleted := status == ViewingStatus.Completed;
-
-            index(listingId, scheduledAt);
-            index(agentId, scheduledAt);
-            index(status, scheduledAt);
-            index(clientEmail);
-
-            validate {
-                if (clientName.trim().isEmpty())
-                ValidationError("Client name cannot be empty");
-                if (scheduledAt < DateTime.now())
-                ValidationError("Viewing must be scheduled in the future");
-                if (rating != null && (rating < 1 || rating > 5))
-                ValidationError("Rating must be between 1 and 5");
-            }
-
-            afterCreate {
-                dispatch ViewingScheduled(id, listingId, clientName, clientEmail, scheduledAt);
-                Log.info("Viewing scheduled", { viewingId: id, listingId: listingId, scheduledAt: scheduledAt });
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch ViewingStatusChanged(id, listingId, oldValue(status), status);
-
-                    if (status == ViewingStatus.Cancelled) {
-                        Log.info("Viewing cancelled", { viewingId: id, reason: cancellationReason });
-                    } else if (status == ViewingStatus.Completed) {
-                        Log.info("Viewing completed", { viewingId: id, listingId: listingId, rating: rating });
-                    } else if (status == ViewingStatus.NoShow) {
-                        Log.warn("Client no-show", { viewingId: id, clientName: clientName });
-                    }
-
-                }
-
-            }
-
-            fn confirm() {
-                if (status != ViewingStatus.Scheduled) {
-                    throw ValidationException("Only scheduled viewings can be confirmed");
-                }
-
-                status = ViewingStatus.Confirmed;
-                this.save();
-            }
-
-            fn complete(String? viewingFeedback, Int? viewingRating) {
-                if (status != ViewingStatus.Scheduled && status != ViewingStatus.Confirmed) {
-                    throw ValidationException("Only scheduled or confirmed viewings can be completed");
-                }
-
-                status = ViewingStatus.Completed;
-                completedAt = DateTime.now();
-                feedback = viewingFeedback;
-                rating = viewingRating;
-                this.save();
-            }
-
-            fn cancel(String reason) {
-                if (status == ViewingStatus.Completed || status == ViewingStatus.Cancelled) {
-                    throw ValidationException("Cannot cancel a completed or already cancelled viewing");
-                }
-
-                status = ViewingStatus.Cancelled;
-                cancellationReason = reason;
-                this.save();
-            }
-
-            fn markNoShow() {
-                if (status != ViewingStatus.Scheduled && status != ViewingStatus.Confirmed) {
-                    throw ValidationException("Only scheduled or confirmed viewings can be marked as no-show");
-                }
-
-                status = ViewingStatus.NoShow;
-                this.save();
-            }
-
+            Email buyerEmail : index;
+            Email agentEmail : index;
+            Boolean reminderSent = false;
         }
-
-    }
-
-    pubsub mq {
-        topic ViewingEvents {
-            publish ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
-                ensure clientName.length > 0;
-            }
-
-            publish ViewingStatusChanged(UUID viewingId, UUID listingId, ViewingStatus oldStatus, ViewingStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-        }
-
-        // Listen for listing status changes
-    }
-
-    subscribe ViewingEvents {
-        on ViewingScheduled(UUID viewingId, UUID listingId, String clientName, String clientEmail, DateTime scheduledAt) {
-            Log.info("Viewing scheduled event received", { viewingId: viewingId, listingId: listingId });
-        }
-
-        on ViewingStatusChanged(UUID viewingId, UUID listingId, ViewingStatus oldStatus, ViewingStatus newStatus) {
-            Log.info("Viewing status changed", { viewingId: viewingId, oldStatus: oldStatus, newStatus: newStatus });
-        }
-
     }
 
     subscribe ListingEvents {
-        on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
-            Log.info("Listing status change received", { listingId: listingId, oldStatus: oldStatus, newStatus: newStatus });
-
-            // Cancel all pending viewings if listing is withdrawn or sold
-            if (newStatus == ListingStatus.Withdrawn || newStatus == ListingStatus.Sold) {
-                let Array<Viewing> pendingViewings = viewingDb.Viewing
+        // Anyone still going to see the home should hear about it before they arrive.
+        on ListingPriceChanged(UUID listingId, String title, Money oldPrice, Money newPrice) {
+            let Array<viewingDb.Viewing> upcoming = viewingDb.Viewing
                 .where(listingId: listingId)
-                .where(status: ViewingStatus.Scheduled)
+                .whereIn(status: [ViewingStatus.Requested, ViewingStatus.Confirmed])
+                .where(startsAt: gte(DateTime.now()))
+                .limit(100)
                 .all();
-
-                let Array<Viewing> confirmedViewings = viewingDb.Viewing
-                .where(listingId: listingId)
-                .where(status: ViewingStatus.Confirmed)
-                .all();
-
-                foreach viewing in pendingViewings {
-                    viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
-                }
-
-                foreach viewing in confirmedViewings {
-                    viewing.cancel(#"Listing {listingRef} is no longer available ({newStatus})");
-                }
-
-                let Int cancelledCount = pendingViewings.length() + confirmedViewings.length();
-                if (cancelledCount > 0) {
-                    Log.info("Cancelled viewings for unavailable listing", { listingId: listingId, count: cancelledCount });
-                }
-
+            foreach viewing in upcoming {
+                sendMail(viewing.buyerEmail.toString(), #"New price for {title}", #"The home you are going to see now asks ${newPrice.toString()}.", #"price-{viewing.id}-{newPrice.toString()}");
             }
-
         }
-
     }
 
-    rest_api ViewingAPI : basePath('/api/v1/viewings'), rdbms(viewingDb) {
-        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+    struct RequestViewing {
+        UUID listingId;
+        DateTime startsAt;
+        String(500)? note;
+    }
 
-        // List viewings, a page at a time
-        get(PageRequest page, UUID? listingId, ViewingStatus? status) : auth(required, providers: [identity]) -> Page<viewingDb.Viewing> {
-            let JSON query = viewingDb.Viewing.all();
+    struct DayLoad {
+        String day;
+        Int viewings;
+    }
 
-            if (listingId != null) {
-                query = viewingDb.Viewing.where(listingId: listingId);
-            }
+    struct ViewingSummary {
+        Int waitingForYou;
+        Int nextSevenDays;
+        Array<DayLoad> ahead;
+    }
 
-            if (status != null) {
-                query = query.where(status: status);
-            }
+    fn sendMail(String to, String subject, String body, String key) {
+        try {
+            EmailProvider.EmailAPI.post.sendEmail(SendEmailRequest { to: to, subject: subject, body: body, idempotencyKey: key });
+        } catch (Exception e) {
+            Log.warn("Email not sent", { key: key });
+        }
+    }
 
-            return query.orderBy(scheduledAt: asc).page(page);
+    fn ownAsAgent(UUID id) -> viewingDb.Viewing {
+        let viewingDb.Viewing viewing = viewingDb.Viewing.findOrFail(id);
+        if (viewing.agentEmail.toString() != Auth.identity.email.toString()) {
+            throw NotYourViewingError();
+        }
+        return viewing;
+    }
+
+    fn dayLoad(String agent, Int daysAhead) -> DayLoad {
+        let DateTime start = DateTime.now().startOfDay().addDays(daysAhead);
+        return DayLoad {
+            day: start.format('MMM dd'),
+            viewings: viewingDb.Viewing.where(agentEmail: agent, status: ViewingStatus.Confirmed).where(startsAt: gte(start)).where(startsAt: lt(start.addDays(1))).count()
+        };
+    }
+
+    // What a buyer does. Every read is scoped to whoever signed in.
+    rest_api BuyerViewingAPI : basePath('/api/v1/viewings'), rdbms(viewingDb) {
+        @path('/mine')
+        get mine() : auth(required, providers: [identity]) -> Array<Viewing> {
+            return Viewing.where(buyerEmail: Auth.identity.email).orderBy(startsAt: desc).limit(50).all();
         }
 
-        // Get a single viewing
-        @path('/:id')
-        get(UUID id) : auth(required, providers: [identity]) -> viewingDb.Viewing {
-            return viewingDb.Viewing.findOrFail(id);
-        }
-
-        // Schedule a new viewing
-        post(ScheduleViewingRequest request) : auth(required, providers: [identity]) -> viewingDb.Viewing {
-            // Verify the listing exists and is active
-            let Listing listing = ListingService.ListingAPI.get.listingByIdInternal(request.listingId);
-
-            if (listing.status != "active") {
-                throw ValidationException("Cannot schedule a viewing for a non-active listing");
+        @path('/request')
+        post requestViewing(RequestViewing request) : auth(required, providers: [identity]) -> Viewing {
+            let ListingFacts listing = ListingService.ListingInternalAPI.get.facts(id: request.listingId);
+            if (listing.status != ListingStatus.Active) {
+                throw NotOpenForViewingsError();
             }
-
-            let Viewing viewing = viewingDb.Viewing.create({
+            if (request.startsAt < DateTime.now()) {
+                throw InThePastError();
+            }
+            return Viewing.create({
                 listingId: request.listingId,
-                agentId: request.agentId ?? Auth.user().id,
-                clientName: request.clientName,
-                clientEmail: request.clientEmail,
-                clientPhone: request.clientPhone,
-                scheduledAt: request.scheduledAt,
-                notes: request.notes
+                listingTitle: listing.title,
+                startsAt: request.startsAt,
+                endsAt: request.startsAt.addMinutes(VIEWING_MINUTES),
+                note: request.note,
+                buyerName: (Auth.identity.fullName ?? Auth.identity.email).toString(),
+                buyerEmail: Auth.identity.email,
+                agentName: listing.agentName,
+                agentEmail: listing.agentEmail
             });
+        }
+
+        @path('/cancel/:id')
+        post cancel(UUID id) : auth(required, providers: [identity]) -> Viewing {
+            let Viewing? viewing = Viewing.where(id: id, buyerEmail: Auth.identity.email).first();
+            if (viewing == null) {
+                throw NotYourViewingError();
+            }
+            viewing.status = ViewingStatus.Cancelled;
             viewing.save();
+            return viewing;
+        }
+    }
 
+    // What an agent does.
+    rest_api AgentViewingAPI : basePath('/api/v1/agent/viewings'), rdbms(viewingDb) {
+        resource Viewing : only(list), auth(required, providers: [identity], roles: [agent]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [agent]) -> ViewingSummary {
+            let String me = Auth.identity.email.toString();
+            let Array<Int> days = [0, 1, 2, 3, 4, 5, 6];
+            return ViewingSummary {
+                waitingForYou: Viewing.where(agentEmail: me, status: ViewingStatus.Requested).count(),
+                nextSevenDays: Viewing.where(agentEmail: me, status: ViewingStatus.Confirmed).where(startsAt: gte(DateTime.now())).where(startsAt: lt(DateTime.now().addDays(7))).count(),
+                ahead: days.map(d => dayLoad(me, d))
+            };
+        }
+
+        @path('/calendar')
+        get calendar() : auth(required, providers: [identity], roles: [agent]) -> Array<Viewing> {
+            return Viewing.where(agentEmail: Auth.identity.email, status: ViewingStatus.Confirmed).orderBy(startsAt: asc).limit(200).all();
+        }
+
+        @path('/confirm/:id')
+        post confirm(UUID id) : auth(required, providers: [identity], roles: [agent]) -> Viewing {
+            let Viewing viewing = ownAsAgent(id);
+            if (viewing.status != ViewingStatus.Requested) {
+                throw WrongStepError();
+            }
+            let Int clashes = Viewing
+                .where(agentEmail: viewing.agentEmail, status: ViewingStatus.Confirmed)
+                .where(startsAt: gte(viewing.startsAt.addMinutes(-VIEWING_MINUTES + 1)))
+                .where(startsAt: lt(viewing.endsAt))
+                .count();
+            if (clashes > 0) {
+                throw AgentBusyError();
+            }
+            viewing.status = ViewingStatus.Confirmed;
+            viewing.save();
+            sendMail(viewing.buyerEmail.toString(), #"Your viewing of {viewing.listingTitle}", #"{viewing.agentName} will meet you on {viewing.startsAt.format('MMM dd')} at {viewing.startsAt.format('HH:mm')}.", #"confirmed-{viewing.id}");
             return viewing;
         }
 
-        // Confirm a viewing
-        @path('/:id/confirm')
-        put(UUID id) : auth(required, providers: [identity]) -> viewingDb.Viewing {
-            let Viewing viewing = viewingDb.Viewing.findOrFail(id);
-            viewing.confirm();
+        @path('/completed/:id')
+        post completed(UUID id) : auth(required, providers: [identity], roles: [agent]) -> Viewing {
+            let Viewing viewing = ownAsAgent(id);
+            if (viewing.status != ViewingStatus.Confirmed) {
+                throw WrongStepError();
+            }
+            viewing.status = ViewingStatus.Completed;
+            viewing.save();
             return viewing;
         }
 
-        // Complete a viewing with optional feedback
-        @path('/:id/complete')
-        put(UUID id, CompleteViewingRequest request) : auth(required, providers: [identity]) -> viewingDb.Viewing {
-            let Viewing viewing = viewingDb.Viewing.findOrFail(id);
-            viewing.complete(request.feedback, request.rating);
+        @path('/no-show/:id')
+        post noShow(UUID id) : auth(required, providers: [identity], roles: [agent]) -> Viewing {
+            let Viewing viewing = ownAsAgent(id);
+            if (viewing.status != ViewingStatus.Confirmed) {
+                throw WrongStepError();
+            }
+            viewing.status = ViewingStatus.NoShow;
+            viewing.save();
             return viewing;
         }
+    }
 
-        // Cancel a viewing
-        @path('/:id/cancel')
-        put(UUID id, CancelViewingRequest request) : auth(required, providers: [identity]) -> viewingDb.Viewing {
-            let Viewing viewing = viewingDb.Viewing.findOrFail(id);
-            viewing.cancel(request.reason);
-            return viewing;
+    jobs {
+        // Everyone with a confirmed viewing in the next day gets one reminder.
+        job RemindTomorrowsViewings {
+            let Array<viewingDb.Viewing> soon = viewingDb.Viewing
+                .where(status: ViewingStatus.Confirmed, reminderSent: false)
+                .where(startsAt: gte(DateTime.now()))
+                .where(startsAt: lt(DateTime.now().addHours(24)))
+                .limit(200)
+                .all();
+            foreach viewing in soon {
+                sendMail(viewing.buyerEmail.toString(), #"Tomorrow: {viewing.listingTitle}", #"{viewing.agentName} will meet you at {viewing.startsAt.format('HH:mm')}.", #"reminder-{viewing.id}");
+                viewing.reminderSent = true;
+                viewing.save();
+            }
         }
-
-        // Mark a viewing as no-show
-        @path('/:id/no-show')
-        put(UUID id) : auth(required, providers: [identity]) -> viewingDb.Viewing {
-            let Viewing viewing = viewingDb.Viewing.findOrFail(id);
-            viewing.markNoShow();
-            return viewing;
-        }
-
-        // Get viewings for a specific listing
-        @path('/by-listing/:listingId')
-        get(UUID listingId) : auth(required, providers: [identity]) -> Array<viewingDb.Viewing> {
-            return viewingDb.Viewing
-            .where(listingId: listingId)
-            .orderBy(scheduledAt: asc)
-            .all();
-        }
-
-        // Get upcoming viewings for an agent
-        @path('/by-agent/:agentId/upcoming')
-        get(UUID agentId) : auth(required, providers: [identity]) -> Array<viewingDb.Viewing> {
-            return viewingDb.Viewing
-            .where(agentId: agentId)
-            .where(scheduledAt: gte(DateTime.now()))
-            .where(status: ViewingStatus.Confirmed)
-            .orderBy(scheduledAt: asc)
-            .all();
-        }
-
     }
 
-    test("computed isPending is true for Scheduled status") {
-        let Viewing viewing = viewingDb.Viewing.create({
+    test("a new viewing waits for the agent") {
+        let viewingDb.Viewing created = viewingDb.Viewing.create({
             listingId: uuid(),
-            clientName: "John Doe",
-            clientEmail: "john@example.com",
-            scheduledAt: DateTime.now().addDays(3),
-            status: ViewingStatus.Scheduled
+            listingTitle: "Test home",
+            startsAt: DateTime.now().addDays(1),
+            endsAt: DateTime.now().addDays(1).addMinutes(VIEWING_MINUTES),
+            buyerName: "Theo Marsh",
+            buyerEmail: "theo@example.com",
+            agentName: "Dana Whitlock",
+            agentEmail: "dana@cobblestone.example.com"
         });
-        viewing.save();
-        assert viewing.isPending == true;
+        assert created.status == ViewingStatus.Requested;
+        assert created.reminderSent == false;
     }
-
-    test("validation rejects past scheduled time") {
-        assert throws(
-        () => viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Jane Smith",
-            clientEmail: "jane@example.com",
-            scheduledAt: DateTime.now().addDays(-1)
-        }),
-        ValidationError("Viewing must be scheduled in the future")
-        );
-    }
-
-    test("validation rejects empty client name") {
-        assert throws(
-        () => viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "",
-            clientEmail: "test@example.com",
-            scheduledAt: DateTime.now().addDays(7)
-        }),
-        ValidationError("Client name cannot be empty")
-        );
-    }
-
-    test("afterCreate emits ViewingScheduled event") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Bob Builder",
-            clientEmail: "bob@example.com",
-            scheduledAt: DateTime.now().addDays(5)
-        });
-        viewing.save();
-        assert emitted(ViewingScheduled(viewing.id, viewing.listingId, "Bob Builder", "bob@example.com", viewing.scheduledAt));
-    }
-
-    test("cancel fails for completed viewing") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Alice Wonder",
-            clientEmail: "alice@example.com",
-            scheduledAt: DateTime.now().addDays(2),
-            status: ViewingStatus.Completed
-        });
-        viewing.save();
-        assert throws(
-        () => viewing.cancel("No longer interested"),
-        ValidationException("Cannot cancel a completed or already cancelled viewing")
-        );
-    }
-
-    test("computed isPending is true for Confirmed status") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Carlos Rivera",
-            clientEmail: "carlos@example.com",
-            scheduledAt: DateTime.now().addDays(4),
-            status: ViewingStatus.Confirmed
-        });
-        viewing.save();
-        assert viewing.isPending == true;
-    }
-
-    test("computed isPending is false for Completed status") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Diana Ross",
-            clientEmail: "diana@example.com",
-            scheduledAt: DateTime.now().addDays(1),
-            status: ViewingStatus.Completed
-        });
-        viewing.save();
-        assert viewing.isPending == false;
-    }
-
-    test("computed isCompleted for Completed status") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Edward Norton",
-            clientEmail: "edward@example.com",
-            scheduledAt: DateTime.now().addDays(2),
-            status: ViewingStatus.Completed,
-            completedAt: DateTime.now()
-        });
-        viewing.save();
-        assert viewing.isCompleted == true;
-    }
-
-    test("computed isCompleted is false for Scheduled status") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Fiona Apple",
-            clientEmail: "fiona@example.com",
-            scheduledAt: DateTime.now().addDays(6),
-            status: ViewingStatus.Scheduled
-        });
-        viewing.save();
-        assert viewing.isCompleted == false;
-    }
-
-    test("confirm fn transitions Scheduled to Confirmed") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "George Martin",
-            clientEmail: "george@example.com",
-            scheduledAt: DateTime.now().addDays(3),
-            status: ViewingStatus.Scheduled
-        });
-        viewing.save();
-        viewing.confirm();
-        assert viewing.status == ViewingStatus.Confirmed;
-    }
-
-    test("confirm fails for non-scheduled viewing") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Hannah Lee",
-            clientEmail: "hannah@example.com",
-            scheduledAt: DateTime.now().addDays(2),
-            status: ViewingStatus.Confirmed
-        });
-        viewing.save();
-        assert throws(
-        () => viewing.confirm(),
-        ValidationException("Only scheduled viewings can be confirmed")
-        );
-    }
-
-    test("complete fn sets status, completedAt, feedback, and rating") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Isaac Newton",
-            clientEmail: "isaac@example.com",
-            scheduledAt: DateTime.now().addDays(1),
-            status: ViewingStatus.Confirmed
-        });
-        viewing.save();
-        viewing.complete("Great property, loved the yard", 5);
-        assert viewing.status == ViewingStatus.Completed;
-        assert viewing.completedAt != null;
-        assert viewing.feedback == "Great property, loved the yard";
-        assert viewing.rating == 5;
-    }
-
-    test("complete fails for cancelled viewing") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Julia Roberts",
-            clientEmail: "julia@example.com",
-            scheduledAt: DateTime.now().addDays(5),
-            status: ViewingStatus.Cancelled
-        });
-        viewing.save();
-        assert throws(
-        () => viewing.complete("Test feedback", 3),
-        ValidationException("Only scheduled or confirmed viewings can be completed")
-        );
-    }
-
-    test("cancel sets status and cancellation reason") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Kevin Hart",
-            clientEmail: "kevin@example.com",
-            scheduledAt: DateTime.now().addDays(4),
-            status: ViewingStatus.Scheduled
-        });
-        viewing.save();
-        viewing.cancel("Schedule conflict");
-        assert viewing.status == ViewingStatus.Cancelled;
-        assert viewing.cancellationReason == "Schedule conflict";
-    }
-
-    test("markNoShow sets status to NoShow") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Linda Carter",
-            clientEmail: "linda@example.com",
-            scheduledAt: DateTime.now().addDays(1),
-            status: ViewingStatus.Confirmed
-        });
-        viewing.save();
-        viewing.markNoShow();
-        assert viewing.status == ViewingStatus.NoShow;
-    }
-
-    test("markNoShow fails for cancelled viewing") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Michael Scott",
-            clientEmail: "michael@example.com",
-            scheduledAt: DateTime.now().addDays(3),
-            status: ViewingStatus.Cancelled
-        });
-        viewing.save();
-        assert throws(
-        () => viewing.markNoShow(),
-        ValidationException("Only scheduled or confirmed viewings can be marked as no-show")
-        );
-    }
-
-    test("status change emits ViewingStatusChanged") {
-        let Viewing viewing = viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Nancy Drew",
-            clientEmail: "nancy@example.com",
-            scheduledAt: DateTime.now().addDays(7),
-            status: ViewingStatus.Scheduled
-        });
-        viewing.save();
-        viewing.status = ViewingStatus.Confirmed;
-        viewing.save();
-        assert emitted(ViewingStatusChanged(viewing.id, viewing.listingId, ViewingStatus.Scheduled, ViewingStatus.Confirmed));
-    }
-
-    test("validation rejects invalid rating above 5") {
-        assert throws(
-        () => viewingDb.Viewing.create({
-            listingId: uuid(),
-            clientName: "Oscar Wilde",
-            clientEmail: "oscar@example.com",
-            scheduledAt: DateTime.now().addDays(2),
-            rating: 6
-        }),
-        ValidationError("Rating must be between 1 and 5")
-        );
-    }
-
 }

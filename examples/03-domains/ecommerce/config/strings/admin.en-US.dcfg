@@ -1,0 +1,10 @@
+config strings ecommerce.Admin locale "en-US" {
+  labels {
+    page.Products.list       = "Products";
+    page.Products.detail     = "Product";
+    page.Products.edit       = "Edit product";
+    field.Product.categoryId = "Category";
+    field.Product.createdAt  = "Created";
+    field.Product.updatedAt  = "Updated";
+  }
+}

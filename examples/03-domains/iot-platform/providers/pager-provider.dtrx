@@ -1,0 +1,37 @@
+// The contract of the paging vendor that wakes someone up. config/providers/pager-provider.dcfg says
+// where it is served.
+extern service iot.PagerProvider('config/providers/pager-provider.dcfg')
+    : version('1.0.0'), description('On-call paging') {
+
+    enum PageStatus {
+        Delivered,
+        Failed
+    }
+
+    struct SendPageRequest {
+        String(20) severity;
+        String(200) title;
+        String(500) body;
+        /// The caller's key: paging again with the same key returns the first page.
+        String(120) idempotencyKey;
+    }
+
+    struct PageAnswer {
+        String(40) id;
+        PageStatus status;
+    }
+
+    rest_api PagerAPI : basePath('/v1') {
+        @path('/pages')
+        post sendPage(SendPageRequest request) -> PageAnswer {
+            ensure request.idempotencyKey != "";
+        }
+    }
+
+    errors {
+        NoOnCall(String message);
+    }
+
+    auth : apiKey(header: 'X-Pager-Api-Key');
+    health : path('/health');
+}

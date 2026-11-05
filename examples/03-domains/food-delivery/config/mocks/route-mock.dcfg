@@ -1,0 +1,40 @@
+config service fooddelivery.RouteMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8091;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms routeDb from postgresContainer(id: "bdd01078-829e-4664-b961-c1616970cd4f", database: "fooddelivery_route_mock");
+    httpSecurity from localHttpSecurity(host: "fooddelivery-route-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

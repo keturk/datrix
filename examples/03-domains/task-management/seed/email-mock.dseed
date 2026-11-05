@@ -1,0 +1,12 @@
+// The key the notice service presents to the email vendor. The key itself is the development default of its
+// secret; the vendor stores only its SHA-256 hash.
+seed service taskapp.EmailMock {
+  rdbms emailDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                 keyHash,                                                            ownerId,                 scopes,                isActive;
+        @uuid("email-key"), "8ebb0f49fb77982872cbe7909a416457f2e847b42cfc3cbb84abdeede8163761", @uuid("owner-millrace"), ["deliveries:write"], true;
+      }
+    }
+  }
+}

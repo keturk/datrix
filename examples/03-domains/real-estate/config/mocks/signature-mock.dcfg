@@ -1,0 +1,40 @@
+config service realestate.SignatureMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8091;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms signatureDb from postgresContainer(id: "16d762ac-a7e6-435a-9d65-824e3d23d513", database: "realestate_signature_mock");
+    httpSecurity from localHttpSecurity(host: "realestate-signature-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

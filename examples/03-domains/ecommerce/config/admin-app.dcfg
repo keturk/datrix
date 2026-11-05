@@ -1,6 +1,7 @@
 config app ecommerce.Admin {
   base {
     targets = ["angular"];
+    strings = ["config/strings/admin.en-US.dcfg"];
     clients {
       angular {
         scope = "@ecommerce";

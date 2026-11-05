@@ -1,0 +1,293 @@
+from realestate.common import ListingStatus;
+
+// Offers and contracts. A buyer who needs a mortgage gets the lender's answer before the agent ever sees
+// the offer. Accepting one offer turns down the others under a lock, so one home never gets two contracts.
+// The contract goes out for signature, and when the buyer has signed, the home is sold.
+service realestate.DealService('config/deal-service.dcfg') : version('2.0.0'), description('Offers and contracts') {
+
+    discovery { }
+
+    uses ListingService;
+    uses MortgageProvider;
+    uses SignatureProvider;
+    uses EmailProvider;
+
+    exceptions {
+        NotOnTheMarketError : status(409), message("That home is not taking offers");
+        AlreadyOfferedError : status(409), message("You already have an offer on this home");
+        LenderDeclinedError : status(422), message("Your lender would not pre-approve this amount");
+        NotYourOfferError : status(404), message("Offer not found");
+        WrongStepError : status(409), message("This offer has already been decided");
+    }
+
+    enum Financing {
+        Cash,
+        Mortgage
+    }
+
+    enum OfferStatus {
+        Submitted : tone(warning),
+        Accepted : tone(success),
+        Rejected : tone(danger),
+        Withdrawn : tone(neutral)
+    }
+
+    enum ContractStatus {
+        AwaitingSignature : tone(warning),
+        Signed : tone(success),
+        Declined : tone(danger)
+    }
+
+    rdbms dealDb {
+
+        entity Offer extends BaseEntity {
+            String(200) listingTitle : filterable;
+            String(200) buyerName : filterable;
+            Money amount;
+            Financing financing : filterable;
+            OfferStatus status : filterable = OfferStatus.Submitted;
+            String(40)? lenderReference;
+            UUID listingId : index;
+            Email buyerEmail : index;
+            Email agentEmail : index;
+        }
+
+        entity Contract extends BaseEntity {
+            String(200) listingTitle : filterable;
+            String(200) buyerName : filterable;
+            Money price;
+            ContractStatus status : filterable = ContractStatus.AwaitingSignature;
+            DateTime? signedAt;
+            String(40)? envelopeId;
+            /// One home, one contract: the unique key is what the database itself refuses to break.
+            UUID listingId : unique;
+            UUID offerId;
+            Email buyerEmail : index;
+            Email agentEmail : index;
+        }
+    }
+
+    struct MakeOffer {
+        UUID listingId;
+        Money amount;
+        Financing financing;
+    }
+
+    struct DealSummary {
+        Int offersWaiting;
+        Int contractsOut;
+        Int signed;
+        Money signedValue;
+    }
+
+    fn sendMail(String to, String subject, String body, String key) {
+        try {
+            EmailProvider.EmailAPI.post.sendEmail(SendEmailRequest { to: to, subject: subject, body: body, idempotencyKey: key });
+        } catch (Exception e) {
+            Log.warn("Email not sent", { key: key });
+        }
+    }
+
+    fn ownAsAgent(UUID id) -> dealDb.Offer {
+        let dealDb.Offer offer = dealDb.Offer.findOrFail(id);
+        if (offer.agentEmail.toString() != Auth.identity.email.toString()) {
+            throw NotYourOfferError();
+        }
+        return offer;
+    }
+
+    /// The lender's answer, in the buyer's name. A refusal stops the offer here.
+    fn lenderReferenceFor(MakeOffer request, String buyerName, String buyerEmail) -> String {
+        let Preapproval answer = MortgageProvider.MortgageAPI.post.preapprove(PreapproveRequest {
+            applicantName: buyerName,
+            applicantEmail: buyerEmail,
+            amount: request.amount,
+            idempotencyKey: #"offer-{request.listingId}-{buyerEmail}-{request.amount.toString()}"
+        });
+        if (answer.decision == PreapprovalDecision.Declined) {
+            throw LenderDeclinedError();
+        }
+        return answer.reference;
+    }
+
+    /// The contract goes out for signature. If the vendor is down, the agent sees it still has no
+    /// envelope, and the job tries again.
+    fn sendForSignature(dealDb.Contract contract) {
+        try {
+            let Envelope envelope = SignatureProvider.SignatureAPI.post.sendEnvelope(SendEnvelopeRequest {
+                signerName: contract.buyerName,
+                signerEmail: contract.buyerEmail,
+                documentTitle: #"Contract of sale: {contract.listingTitle}",
+                documentBody: #"{contract.buyerName} agrees to buy {contract.listingTitle} for ${contract.price.toString()}.",
+                idempotencyKey: #"contract-{contract.id}"
+            });
+            contract.envelopeId = envelope.id;
+            contract.save();
+        } catch (Exception e) {
+            Log.warn("Contract not sent for signature", { contractId: contract.id });
+        }
+    }
+
+    // What a buyer does. Every read is scoped to whoever signed in.
+    rest_api BuyerDealAPI : basePath('/api/v1/offers'), rdbms(dealDb) {
+        @path('/mine')
+        get mine() : auth(required, providers: [identity]) -> Array<Offer> {
+            return Offer.where(buyerEmail: Auth.identity.email).orderBy(createdAt: desc).limit(50).all();
+        }
+
+        @path('/my-contracts')
+        get myContracts() : auth(required, providers: [identity]) -> Array<Contract> {
+            return Contract.where(buyerEmail: Auth.identity.email).orderBy(createdAt: desc).limit(20).all();
+        }
+
+        @path('/make')
+        post makeOffer(MakeOffer request) : auth(required, providers: [identity]) -> Offer {
+            let String buyerEmail = Auth.identity.email.toString();
+            let String buyerName = (Auth.identity.fullName ?? Auth.identity.email).toString();
+            let ListingFacts listing = ListingService.ListingInternalAPI.get.facts(id: request.listingId);
+            if (listing.status != ListingStatus.Active) {
+                throw NotOnTheMarketError();
+            }
+            if (Offer.where(listingId: request.listingId, buyerEmail: buyerEmail, status: OfferStatus.Submitted).first() != null) {
+                throw AlreadyOfferedError();
+            }
+            let String? lenderReference = request.financing == Financing.Mortgage ? lenderReferenceFor(request, buyerName, buyerEmail) : null;
+            let Offer created = Offer.create({
+                listingId: request.listingId,
+                listingTitle: listing.title,
+                buyerName: buyerName,
+                buyerEmail: buyerEmail,
+                agentEmail: listing.agentEmail,
+                amount: request.amount,
+                financing: request.financing,
+                lenderReference: lenderReference
+            });
+            sendMail(listing.agentEmail.toString(), #"New offer on {listing.title}", #"{buyerName} has offered ${request.amount.toString()}.", #"offer-{created.id}");
+            return created;
+        }
+
+        @path('/withdraw/:id')
+        post withdraw(UUID id) : auth(required, providers: [identity]) -> Offer {
+            let Offer? offer = Offer.where(id: id, buyerEmail: Auth.identity.email).first();
+            if (offer == null) {
+                throw NotYourOfferError();
+            }
+            if (offer.status != OfferStatus.Submitted) {
+                throw WrongStepError();
+            }
+            offer.status = OfferStatus.Withdrawn;
+            offer.save();
+            return offer;
+        }
+    }
+
+    // What an agent does.
+    rest_api AgentDealAPI : basePath('/api/v1/agent/deals'), rdbms(dealDb) {
+        resource Offer : only(list), auth(required, providers: [identity], roles: [agent]);
+        resource Contract : only(list), auth(required, providers: [identity], roles: [agent]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [agent]) -> DealSummary {
+            let String me = Auth.identity.email.toString();
+            let Array<Contract> signed = Contract.where(agentEmail: me, status: ContractStatus.Signed).limit(500).all();
+            let Money signedValue = Money.zero();
+            foreach contract in signed {
+                signedValue = signedValue.add(contract.price);
+            }
+            return DealSummary {
+                offersWaiting: Offer.where(agentEmail: me, status: OfferStatus.Submitted).count(),
+                contractsOut: Contract.where(agentEmail: me, status: ContractStatus.AwaitingSignature).count(),
+                signed: signed.length,
+                signedValue: signedValue
+            };
+        }
+
+        // The lock is on every open offer for the home, so a second agent's click finds them decided.
+        @path('/accept/:id')
+        post accept(UUID id) : auth(required, providers: [identity], roles: [agent]) -> Contract {
+            let Offer chosen = ownAsAgent(id);
+            transaction(dealDb) {
+                let Array<Offer> open = Offer.where(listingId: chosen.listingId, status: OfferStatus.Submitted).forUpdate().all();
+                let Offer locked = Offer.where(id: id).forUpdate().firstOrFail();
+                if (locked.status != OfferStatus.Submitted) {
+                    throw WrongStepError();
+                }
+                foreach other in open {
+                    other.status = other.id == id ? OfferStatus.Accepted : OfferStatus.Rejected;
+                    other.save();
+                }
+                Contract.create({
+                    listingId: locked.listingId,
+                    listingTitle: locked.listingTitle,
+                    offerId: locked.id,
+                    buyerName: locked.buyerName,
+                    buyerEmail: locked.buyerEmail,
+                    agentEmail: locked.agentEmail,
+                    price: locked.amount
+                });
+            }
+            ListingService.ListingInternalAPI.post.markUnderOffer({ listingId: chosen.listingId });
+            let Contract contract = Contract.where(offerId: id).firstOrFail();
+            sendForSignature(contract);
+            sendMail(chosen.buyerEmail.toString(), #"Your offer on {chosen.listingTitle} was accepted", "The contract is on its way for you to sign.", #"accepted-{id}");
+            return contract;
+        }
+
+        @path('/reject/:id')
+        post reject(UUID id) : auth(required, providers: [identity], roles: [agent]) -> Offer {
+            let Offer offer = ownAsAgent(id);
+            if (offer.status != OfferStatus.Submitted) {
+                throw WrongStepError();
+            }
+            offer.status = OfferStatus.Rejected;
+            offer.save();
+            sendMail(offer.buyerEmail.toString(), #"Your offer on {offer.listingTitle}", "The seller has decided not to accept it.", #"rejected-{id}");
+            return offer;
+        }
+    }
+
+    jobs {
+        // The vendor has no way to call us, so every open contract is asked about every two minutes.
+        job SyncSignatures {
+            let Array<dealDb.Contract> open = dealDb.Contract.where(status: ContractStatus.AwaitingSignature).limit(200).all();
+            foreach contract in open {
+                if (contract.envelopeId == null) {
+                    sendForSignature(contract);
+                } else {
+                    try {
+                        let Envelope envelope = SignatureProvider.SignatureAPI.get.envelopeById(id: contract.envelopeId);
+                        if (envelope.status == EnvelopeStatus.Signed) {
+                            contract.status = ContractStatus.Signed;
+                            contract.signedAt = DateTime.now();
+                            contract.save();
+                            ListingService.ListingInternalAPI.post.markSold({ listingId: contract.listingId });
+                            sendMail(contract.buyerEmail.toString(), #"{contract.listingTitle} is yours", "The contract is signed. Congratulations.", #"signed-{contract.id}");
+                        }
+                        if (envelope.status == EnvelopeStatus.Declined) {
+                            contract.status = ContractStatus.Declined;
+                            contract.save();
+                            ListingService.ListingInternalAPI.post.reopen({ listingId: contract.listingId });
+                            sendMail(contract.agentEmail.toString(), #"{contract.listingTitle} is back on the market", #"{contract.buyerName} declined to sign.", #"declined-{contract.id}");
+                        }
+                    } catch (Exception e) {
+                        Log.warn("Signature vendor did not answer", { contractId: contract.id });
+                    }
+                }
+            }
+        }
+    }
+
+    test("a new offer waits for the agent") {
+        let dealDb.Offer created = dealDb.Offer.create({
+            listingId: uuid(),
+            listingTitle: "Test home",
+            buyerName: "Theo Marsh",
+            buyerEmail: "theo@example.com",
+            agentEmail: "dana@cobblestone.example.com",
+            amount: 400000.00,
+            financing: Financing.Cash
+        });
+        assert created.status == OfferStatus.Submitted;
+        assert created.lenderReference == null;
+    }
+}

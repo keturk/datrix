@@ -1,0 +1,23 @@
+// Six invented people, and time off for HR to decide. The RebuildDirectory job writes them into the
+// directory within five minutes of first start.
+seed service hr.EmployeeService {
+  rdbms employeeDb {
+    baseline {
+      Employee table on(workEmail) {
+        id,                employeeNumber, fullName,          jobTitle,               department,  employmentType, status,  workEmail,                 hiredOn,      vacationDaysLeft;
+        @uuid("emp-ana"),  "AB-100001",    "Ana Ferreira",    "Staff engineer",       Engineering, FullTime,       Active,  "ana@alderbrook.example",  "2021-03-01", 18;
+        @uuid("emp-ben"),  "AB-100002",    "Ben Oyelaran",    "Product designer",     Design,      FullTime,       Active,  "ben@alderbrook.example",  "2022-06-13", 22;
+        @uuid("emp-lea"),  "AB-100003",    "Lea Marchetti",   "Account executive",    Sales,       FullTime,       OnLeave, "lea@alderbrook.example",  "2020-09-07", 25;
+        @uuid("emp-tom"),  "AB-100004",    "Tom Abara",       "HR partner",           People,      FullTime,       Active,  "tom@alderbrook.example",  "2019-01-14", 12;
+        @uuid("emp-rae"),  "AB-100005",    "Rae Lindqvist",   "Finance lead",         Finance,     FullTime,       Active,  "rae@alderbrook.example",  "2018-11-05", 9;
+        @uuid("emp-noor"), "AB-100006",    "Noor Haddad",     "Support engineer",     Operations,  Contract,       Active,  "noor@alderbrook.example", "2024-02-19", 25;
+      }
+      TimeOffRequest table on(id) {
+        id,               employeeName,    department,  kind,     firstDay,    lastDay,     days, note,                status,   decidedBy,   employeeId;
+        @uuid("off-ana"), "Ana Ferreira",  Engineering, Vacation, @date("+14d"), @date("+18d"), 5,  "Family visit",      Pending,  null,        @uuid("emp-ana");
+        @uuid("off-ben"), "Ben Oyelaran",  Design,      Sick,     @date("-2d"),  @date("-1d"),  2,  null,                Approved, "Tom Abara", @uuid("emp-ben");
+        @uuid("off-lea"), "Lea Marchetti", Sales,       Parental, @date("-30d"), @date("+60d"), 90, "Back in the spring", Approved, "Tom Abara", @uuid("emp-lea");
+      }
+    }
+  }
+}

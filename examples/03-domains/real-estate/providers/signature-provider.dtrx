@@ -1,0 +1,42 @@
+// The contract of the e-signature vendor. config/providers/signature-provider.dcfg says where it is
+// served. Someone signs when they sign, so the caller sends an envelope and asks later.
+extern service realestate.SignatureProvider('config/providers/signature-provider.dcfg')
+    : version('1.0.0'), description('Documents to sign') {
+
+    enum EnvelopeStatus {
+        Sent,
+        Signed,
+        Declined
+    }
+
+    struct SendEnvelopeRequest {
+        String(200) signerName;
+        Email signerEmail;
+        String(200) documentTitle;
+        Text documentBody;
+        /// The caller's key: sending again with the same key returns the first envelope.
+        String(120) idempotencyKey;
+    }
+
+    struct Envelope {
+        String(40) id;
+        EnvelopeStatus status;
+    }
+
+    rest_api SignatureAPI : basePath('/v1') {
+        @path('/envelopes')
+        post sendEnvelope(SendEnvelopeRequest request) -> Envelope {
+            ensure request.idempotencyKey != "";
+        }
+
+        @path('/envelopes/{id}')
+        get envelopeById(String id) -> Envelope;
+    }
+
+    errors {
+        EnvelopeNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-Signature-Api-Key');
+    health : path('/health');
+}

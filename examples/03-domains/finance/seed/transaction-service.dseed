@@ -1,0 +1,40 @@
+// The bank's clearing account and the seeded customers' accounts, with opening balances that the
+// entries below explain, and a week of nightly reconciliations. Each posting here balances, as the
+// database demands of any commit.
+seed service finance.TransactionService {
+  rdbms ledgerDb {
+    baseline {
+      LedgerAccount table on(accountId) {
+        id,                     accountId,             accountNumber,  ownerUserId,        type,     status, currency, balance;
+        @uuid("ledger-clearing"), @uuid("clearing"),   "QB0000000000", null,               Checking, Active, "USD",    -7450.00;
+        @uuid("ledger-mina"),    @uuid("account-mina"), "QB1000000001", @uuid("user-mina"), Checking, Active, "USD",    2200.00;
+        @uuid("ledger-mina2"),   @uuid("account-mina2"), "QB1000000002", @uuid("user-mina"), Savings,  Active, "USD",   5000.00;
+        @uuid("ledger-ben"),     @uuid("account-ben"),  "QB1000000003", @uuid("user-ben"),  Checking, Frozen, "USD",    250.00;
+      }
+      Transfer table on(reference) {
+        id,                 reference,      kind,     status, fromAccountId,            toAccountId,           fromNumber,     toNumber,       amount,  memo;
+        @uuid("tr-open1"),  "TR-SEED-OPEN1", Deposit, Posted, @uuid("ledger-clearing"), @uuid("ledger-mina"),  "QB0000000000", "QB1000000001", 2200.00, "Opening deposit";
+        @uuid("tr-open2"),  "TR-SEED-OPEN2", Deposit, Posted, @uuid("ledger-clearing"), @uuid("ledger-mina2"), "QB0000000000", "QB1000000002", 5000.00, "Opening deposit";
+        @uuid("tr-open3"),  "TR-SEED-OPEN3", Deposit, Posted, @uuid("ledger-clearing"), @uuid("ledger-ben"),   "QB0000000000", "QB1000000003", 250.00,  "Opening deposit";
+      }
+      LedgerEntry table on(id) {
+        id,                transferId,        accountId,                accountNumber,  reference,       description,       currency, side,   amount;
+        @uuid("entry-1a"), @uuid("tr-open1"), @uuid("ledger-clearing"), "QB0000000000", "TR-SEED-OPEN1", "Opening deposit", "USD",    Debit,  2200.00;
+        @uuid("entry-1b"), @uuid("tr-open1"), @uuid("ledger-mina"),     "QB1000000001", "TR-SEED-OPEN1", "Opening deposit", "USD",    Credit, 2200.00;
+        @uuid("entry-2a"), @uuid("tr-open2"), @uuid("ledger-clearing"), "QB0000000000", "TR-SEED-OPEN2", "Opening deposit", "USD",    Debit,  5000.00;
+        @uuid("entry-2b"), @uuid("tr-open2"), @uuid("ledger-mina2"),    "QB1000000002", "TR-SEED-OPEN2", "Opening deposit", "USD",    Credit, 5000.00;
+        @uuid("entry-3a"), @uuid("tr-open3"), @uuid("ledger-clearing"), "QB0000000000", "TR-SEED-OPEN3", "Opening deposit", "USD",    Debit,  250.00;
+        @uuid("entry-3b"), @uuid("tr-open3"), @uuid("ledger-ben"),      "QB1000000003", "TR-SEED-OPEN3", "Opening deposit", "USD",    Credit, 250.00;
+      }
+      Reconciliation table on(day) {
+        id,                day,          transferCount, postedAmount, balanced;
+        @uuid("recon-7"),  @datetime("-7d 00:00"), 12,  4180.50,      true;
+        @uuid("recon-6"),  @datetime("-6d 00:00"), 19,  9320.00,      true;
+        @uuid("recon-5"),  @datetime("-5d 00:00"), 9,   2115.25,      true;
+        @uuid("recon-4"),  @datetime("-4d 00:00"), 23,  12840.75,     true;
+        @uuid("recon-3"),  @datetime("-3d 00:00"), 16,  6010.00,      true;
+        @uuid("recon-2"),  @datetime("-2d 00:00"), 14,  5230.40,      true;
+      }
+    }
+  }
+}

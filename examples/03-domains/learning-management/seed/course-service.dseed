@@ -1,0 +1,18 @@
+// Two invented courses to enroll on. The right answer to each question is in the lesson above it.
+seed service lms.CourseService {
+  rdbms courseDb {
+    baseline {
+      Course table on(id) {
+        id,                  title,               summary,                                                                                instructorName, level,        status,    price,  lessonCount, totalMinutes, publishedAt;
+        @uuid("c-maps"),     "Reading maps",      "Contours, bearings and finding your way back. For anyone who has ever trusted a phone a little too far from a signal.", "Mira Olsen",   Beginner,     Published, 40.00,  2,           35,           @datetime("-30d 10:00");
+        @uuid("c-knots"),    "Knots that hold",   "Six knots, what each one is for, and how to tell when you have tied it wrong.",        "Oskar Lind",   Intermediate, Published, 25.00,  1,           20,           @datetime("-12d 10:00");
+      }
+      Lesson table on(id) {
+        id,                  position, title,                minutes, body,                                                                                                                                                                                                  question,                                     optionA,                         optionB,                      optionC,                         rightAnswer, courseId;
+        @uuid("l-contour"),  1,        "What a contour is",  20,      "A contour line joins points of the same height. Because one point on the ground has only one height, two contour lines can never cross. Lines close together mean steep ground; lines far apart mean gentle ground.", "Why can two contour lines never cross?",     "One point has only one height", "Maps do not allow it",       "They are drawn by hand",        OptionA,     @uuid("c-maps");
+        @uuid("l-bearing"),  2,        "Taking a bearing",   15,      "Lay the compass edge along your route, turn the housing until its lines point to map north, then lift the compass and turn yourself until the needle sits in the arrow. Walk where the travel arrow points.",           "What do you line the housing up with?",      "The route",                     "Magnetic south",             "Map north",                     OptionC,     @uuid("c-maps");
+        @uuid("l-bowline"),  1,        "The bowline",        20,      "The bowline makes a fixed loop that will not slip under load and is still easy to untie afterwards. Make a small loop, pass the end up through it, around the standing part, and back down.",                            "What makes a bowline useful?",               "It tightens as you pull",       "It holds and still unties",  "It uses less rope",             OptionB,     @uuid("c-knots");
+      }
+    }
+  }
+}

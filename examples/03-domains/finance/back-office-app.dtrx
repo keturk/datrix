@@ -1,0 +1,348 @@
+from finance.ui import Brand, statRow;
+
+/// Where bank staff work. Each page's sign-in and role come from the routes it reaches: a teller
+/// handles counters, an officer reviews customers and alerts, and only an operator reaches the
+/// vendor pages, which show what the application sent to the mocked vendors.
+app finance.BackOffice('config/back-office-app.dcfg') : version('2.0.0') {
+    uses finance.AccountService;
+    uses finance.TransactionService;
+    uses finance.ComplianceService;
+    uses finance.BankMock;
+    uses finance.KycMock;
+    uses finance.SanctionsMock;
+
+    theme extends Brand { }
+
+    fn freezeAccount(UUID id) {
+        AccountService.StaffAPI.post.freeze(id: id);
+        Ui.toast(Msg.accountFrozen, tone: warning);
+    }
+
+    fn unfreezeAccount(UUID id) {
+        AccountService.StaffAPI.post.unfreeze(id: id);
+        Ui.toast(Msg.accountUnfrozen, tone: success);
+    }
+
+    layout Shell : default {
+        nav {
+            link Dashboard : icon(dashboard), group(Msg.navBank);
+            link Customers : icon(groups), group(Msg.navBank);
+            link AccountList : icon(account_balance), group(Msg.navBank);
+            link Transfers : icon(swap_horiz), group(Msg.navBank);
+            link Counter : icon(point_of_sale), group(Msg.navBank);
+            link Alerts : icon(report), group(Msg.navCompliance);
+            link Audit : icon(history), group(Msg.navCompliance);
+            link Ledger : icon(menu_book), group(Msg.navCompliance);
+            link Payments : icon(send), group(Msg.navVendors);
+            link Checks : icon(badge), group(Msg.navVendors);
+            link Screenings : icon(policy), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    component YesBadge(Boolean value) {
+        view {
+            when (value) { badge(Msg.yes) : tone(success); }
+            when (!value) { badge(Msg.no) : tone(danger); }
+        }
+    }
+
+    component HitBadge(Boolean hit) {
+        view {
+            when (hit) { badge(Msg.hit) : tone(danger); }
+            when (!hit) { badge(Msg.clear) : tone(success); }
+        }
+    }
+
+    @path('/')
+    page Dashboard() {
+        data { ledger = TransactionService.LedgerAPI.get.summary(); }
+        view {
+            pageHeader(Msg.dashboardTitle, Msg.dashboardSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statAccounts, Fmt.number(ledger.accounts)) : icon(account_balance), tone(info);
+                stat(Msg.statPosted, Fmt.number(ledger.postedTransfers)) : icon(check_circle), tone(success);
+                stat(Msg.statHeld, Fmt.number(ledger.heldTransfers)) : icon(pause_circle), tone(warning);
+            }
+            section(Msg.recentTransfers) {
+                table(TransferList);
+            }
+        }
+    }
+
+    @path('/customers')
+    page Customers() {
+        view {
+            pageHeader(Msg.customersTitle, Msg.customersSubtitle);
+            table(CustomerList);
+            card(Msg.reviewTitle) { form(ClearCustomer); }
+            card(Msg.declineTitle) { form(DeclineCustomer); }
+        }
+    }
+
+    table CustomerList : source(AccountService.StaffAPI.accountDb.Customer.list), pageSizes(10, 25, 50) {
+        column createdAt : format(date);
+        column fullName;
+        column email;
+        column documentLast4;
+        column kycStatus;
+        column kycReason;
+        filter kycStatus;
+        filter fullName : live;
+    }
+
+    form ClearCustomer : submit(AccountService.StaffAPI.post.clearCustomer) {
+        field customerId : options(AccountService.StaffAPI.accountDb.Customer.list, value: c => c.id, label: c => c.fullName);
+        field reason;
+        onSuccess(Ui.toast(Msg.customerCleared, tone: success));
+    }
+
+    form DeclineCustomer : submit(AccountService.StaffAPI.post.declineCustomer) {
+        field customerId : options(AccountService.StaffAPI.accountDb.Customer.list, value: c => c.id, label: c => c.fullName);
+        field reason;
+        onSuccess(Ui.toast(Msg.customerDeclined, tone: warning));
+    }
+
+    @path('/accounts')
+    page AccountList() {
+        view {
+            pageHeader(Msg.accountListTitle, Msg.accountListSubtitle);
+            table(Accounts);
+        }
+    }
+
+    table Accounts : source(AccountService.StaffAPI.accountDb.Account.list), pageSizes(10, 25, 50) {
+        column createdAt : format(date);
+        column accountNumber;
+        column customerName;
+        column type;
+        column status;
+        filter status;
+        filter type;
+        filter accountNumber : live;
+        rowAction freeze : onClick(freezeAccount(row.id));
+        rowAction unfreeze : onClick(unfreezeAccount(row.id));
+    }
+
+    @path('/transfers')
+    page Transfers() {
+        view {
+            pageHeader(Msg.transfersTitle, Msg.transfersSubtitle);
+            table(TransferList);
+        }
+    }
+
+    table TransferList : source(TransactionService.LedgerAPI.ledgerDb.Transfer.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column reference;
+        column kind;
+        column status;
+        column fromNumber;
+        column toNumber;
+        column amount : format(money);
+        column payeeName;
+        column holdReason;
+        filter status;
+        filter kind;
+        filter reference : live;
+    }
+
+    @path('/counter')
+    page Counter() {
+        view {
+            pageHeader(Msg.counterTitle, Msg.counterSubtitle);
+            form(Deposit);
+        }
+    }
+
+    form Deposit : submit(TransactionService.LedgerAPI.post.deposit) {
+        field accountNumber;
+        field amount;
+        field memo;
+        onSuccess(Ui.toast(Msg.deposited, tone: success));
+    }
+
+    @path('/alerts')
+    page Alerts() {
+        data {
+            summary = ComplianceService.ComplianceAPI.get.summary();
+            reports = ComplianceService.ComplianceAPI.complianceDb.DailyReport.list();
+        }
+        view {
+            pageHeader(Msg.alertsTitle, Msg.alertsSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statOpenAlerts, Fmt.number(summary.open)) : icon(report), tone(warning);
+                stat(Msg.statCritical, Fmt.number(summary.critical)) : icon(gpp_maybe), tone(danger);
+            }
+            section(Msg.alertsPerDay) {
+                chart(bar, data: reports, x: r => r.day, y: r => r.alertsRaised);
+            }
+            table(AlertList);
+            card(Msg.closeAlertTitle) { form(CloseAlert); }
+        }
+    }
+
+    table AlertList : source(ComplianceService.ComplianceAPI.complianceDb.ComplianceAlert.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column type;
+        column severity;
+        column status;
+        column subject;
+        column reason;
+        column amount : format(money);
+        column reviewNote;
+        filter status;
+        filter severity;
+        filter type;
+    }
+
+    form CloseAlert : submit(ComplianceService.ComplianceAPI.post.closeAlert) {
+        field alertId : options(ComplianceService.ComplianceAPI.complianceDb.ComplianceAlert.list, value: a => a.id, label: a => a.subject);
+        field note;
+        onSuccess(Ui.toast(Msg.alertClosed, tone: success));
+    }
+
+    @path('/audit')
+    page Audit() {
+        view {
+            pageHeader(Msg.auditTitle, Msg.auditSubtitle);
+            table(AuditList);
+        }
+    }
+
+    table AuditList : source(ComplianceService.ComplianceAPI.complianceDb.AuditEvent.list), pageSizes(25, 50) {
+        column createdAt : format(dateTime);
+        column action;
+        column subject;
+        column detail;
+        filter action : live;
+    }
+
+    @path('/ledger')
+    page Ledger() {
+        view {
+            pageHeader(Msg.ledgerTitle, Msg.ledgerSubtitle);
+            tabs {
+                tab(Msg.tabEntries) { table(EntryList); }
+                tab(Msg.tabReconciliations) { table(ReconciliationList); }
+            }
+        }
+    }
+
+    table EntryList : source(TransactionService.LedgerAPI.ledgerDb.LedgerEntry.list), pageSizes(25, 50) {
+        column createdAt : format(dateTime);
+        column accountNumber;
+        column reference;
+        column description;
+        column side;
+        column amount : format(money);
+        filter side;
+    }
+
+    table ReconciliationList : source(TransactionService.LedgerAPI.ledgerDb.Reconciliation.list), pageSizes(10, 25) {
+        column day : format(date);
+        column transferCount : format(number);
+        column postedAmount : format(money);
+        column balanced : render(YesBadge);
+        filter balanced;
+    }
+
+    @path('/vendors/payments')
+    page Payments() {
+        view {
+            pageHeader(Msg.paymentsTitle, Msg.paymentsSubtitle);
+            table(PaymentList);
+        }
+    }
+
+    table PaymentList : source(BankMock.BankDeskAPI.bankDb.SentPayment.list), poll(15s) {
+        column createdAt : format(relative);
+        column iban;
+        column beneficiaryName;
+        column amount : format(money);
+        column reference;
+        column status;
+        column failureReason;
+        filter status;
+    }
+
+    @path('/vendors/checks')
+    page Checks() {
+        view {
+            pageHeader(Msg.checksTitle, Msg.checksSubtitle);
+            table(CheckList);
+        }
+    }
+
+    table CheckList : source(KycMock.KycDeskAPI.kycDb.IdentityCheck.list), poll(15s) {
+        column createdAt : format(relative);
+        column fullName;
+        column documentLast4;
+        column outcome;
+        column reason;
+        filter outcome;
+    }
+
+    @path('/vendors/screenings')
+    page Screenings() {
+        view {
+            pageHeader(Msg.screeningsTitle, Msg.screeningsSubtitle);
+            tabs {
+                tab(Msg.tabScreenings) { table(ScreeningList); }
+                tab(Msg.tabNames) {
+                    card(Msg.addName) { form(AddName); }
+                    table(NameList);
+                }
+            }
+        }
+    }
+
+    table ScreeningList : source(SanctionsMock.SanctionsDeskAPI.sanctionsDb.ScreeningRecord.list), poll(15s) {
+        column createdAt : format(relative);
+        column query;
+        column reference;
+        column hit : render(HitBadge);
+        filter hit;
+    }
+
+    table NameList : source(SanctionsMock.SanctionsDeskAPI.sanctionsDb.ListedName.list) {
+        column displayName;
+        column note;
+        rowAction remove : onClick(SanctionsMock.SanctionsDeskAPI.sanctionsDb.ListedName.delete(id: row.id));
+    }
+
+    form AddName : submit(SanctionsMock.SanctionsDeskAPI.sanctionsDb.ListedName.create) {
+        field name;
+        field displayName;
+        field note;
+        onSuccess(Ui.toast(Msg.nameAdded, tone: success));
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Dashboard); }
+        }
+    }
+
+    test("the transfers page opens") {
+        let Screen screen = render(Transfers);
+        assert screen.shows(Msg.transfersTitle);
+    }
+}

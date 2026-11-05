@@ -1,0 +1,20 @@
+// A signed visit from last week with its prescription and claim, so a chart has something in it and
+// a bill has a chart beside it. Everyone is invented.
+seed service healthcare.RecordService {
+  rdbms recordDb {
+    baseline {
+      VisitNote table on(appointmentId) {
+        id,                visitedAt,               patientName,    clinicianName,    specialty,         reason,                status, diagnosis,               signedAt,                visitCharge, appointmentId,          patientId;
+        @uuid("note-ana"), @datetime("-7d 09:00"),  "Ana Ferreira", "Dr. Imani Osei", "Family medicine", "Sore throat and fever", Signed, "Bacterial tonsillitis", @datetime("-7d 12:00"), 180.00,      @uuid("visit-ana-old"), @uuid("patient-ana");
+      }
+      Prescription table on(id) {
+        id,              patientName,    drugName,      directions,                      quantity, refillsLeft, prescribedBy,     status,         ticketId,        patientId;
+        @uuid("rx-ana"), "Ana Ferreira", "Amoxicillin", "One capsule three times a day", 21,       1,           "Dr. Imani Osei", ReadyForPickup, "RX-1000000001", @uuid("patient-ana");
+      }
+      InsuranceClaim table on(visitNoteId) {
+        id,                 visitedAt,              patientName,    clinicianName,    billedAmount, insurerPays, patientOwes, state,    claimNumber,      visitNoteId,       patientId;
+        @uuid("claim-ana"), @datetime("-7d 09:00"), "Ana Ferreira", "Dr. Imani Osei", 180.00,       155.00,      25.00,       Approved, "CLM-1000000001", @uuid("note-ana"), @uuid("patient-ana");
+      }
+    }
+  }
+}

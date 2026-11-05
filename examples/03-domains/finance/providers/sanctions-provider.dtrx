@@ -1,0 +1,31 @@
+// The contract of the sanctions screening vendor. config/providers/sanctions-provider.dcfg says
+// where it is served.
+extern service finance.SanctionsProvider('config/providers/sanctions-provider.dcfg')
+    : version('1.0.0'), description('Screens a payee against sanctions lists') {
+
+    struct ScreenRequest {
+        String(200) name;
+        /// Who asked, so the vendor's log can be traced back.
+        String(40) reference;
+    }
+
+    struct Screening {
+        String(40) id;
+        Boolean hit;
+        String(200)? matchedName;
+    }
+
+    rest_api SanctionsAPI : basePath('/v1') {
+        @path('/screenings')
+        post screen(ScreenRequest request) -> Screening {
+            ensure request.name != "";
+        }
+    }
+
+    errors {
+        BadName(String message);
+    }
+
+    auth : apiKey(header: 'X-Sanctions-Api-Key');
+    health : path('/health');
+}

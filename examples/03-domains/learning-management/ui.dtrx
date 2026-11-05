@@ -1,0 +1,52 @@
+// What the Larkhill apps share: the brand and the shape of a page.
+module lms.ui {
+
+    theme Brand {
+        color primary      = '#1f6f54';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#1c2a24';
+        color background   = '#f4f7f2';
+        color onBackground = '#1c2a24';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#56635c';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 12;
+        font body          = font('Source Serif 4', 16, 400);
+        font heading       = font('Source Serif 4', 26, 700);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#1d2a24';
+            color onSurface    = '#e4eee8';
+            color background   = '#131d18';
+            color onBackground = '#e4eee8';
+            color primary      = '#8ed4b6';
+            color onPrimary    = '#0d3b2a';
+        }
+    }
+
+    /// Figures across the top of a dashboard.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+
+    /// Courses in the catalog.
+    style cardGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 3; }
+    }
+}

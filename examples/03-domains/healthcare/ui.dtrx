@@ -1,0 +1,52 @@
+// What the Ferncrest apps share: the brand and the shape of a page.
+module healthcare.ui {
+
+    theme Brand {
+        color primary      = '#0f6e6e';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#14242b';
+        color background   = '#f3f8f8';
+        color onBackground = '#14242b';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#52606d';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 12;
+        font body          = font('Inter', 16, 400);
+        font heading       = font('Inter', 24, 700);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#1c2b31';
+            color onSurface    = '#e6f0f2';
+            color background   = '#121d21';
+            color onBackground = '#e6f0f2';
+            color primary      = '#7fd6d6';
+            color onPrimary    = '#063a3a';
+        }
+    }
+
+    /// Clinicians in one column on a phone and three from a tablet up.
+    style cardGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 3; }
+    }
+
+    /// Figures across the top of a dashboard.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+}

@@ -1,0 +1,12 @@
+// The key DeliveryService presents to the maps vendor. The key itself is the development default of
+// the service's secret; the vendor stores only its SHA-256 hash.
+seed service fooddelivery.RouteMock {
+  rdbms routeDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                  keyHash,                                                            ownerId,                          scopes,           isActive;
+        @uuid("route-key"),  "38279a3338d6d7a7b8033b7ac41f941f777c43abacba409675c699f17ff9ed40", @uuid("owner-delivery-service"), ["routes:write"], true;
+      }
+    }
+  }
+}

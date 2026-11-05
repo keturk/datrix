@@ -1,143 +1,348 @@
+from blog.common import minutesToRead;
 
-service blog.ContentService('config/content-service.dcfg') : version('1.0.0'), description('content management service') {
-    discovery {
-        AuthorService { loadBalance: roundRobin, healthyOnly: true }
+// Articles and their publishing workflow. A draft goes to review, an editor publishes or schedules
+// it, and only a published article is ever visible to a reader. Every saved version is kept in an
+// append-only history the database itself protects.
+service blog.ContentService('config/content-service.dcfg') : version('2.0.0'), description('Articles and the publishing workflow') {
+
+    discovery { }
+
+    exceptions {
+        NotYourPostError : status(403), message("This article belongs to another author");
+        InvalidTransitionError : status(409), message("The article cannot move to that state from where it is");
+        ScheduleInPastError : status(422), message("Choose a time in the future");
+        AuthorSuspendedError : status(403), message("This author account is suspended");
     }
 
-    enum ContentStatus {
-        Draft,
-        Published,
-        Archived,
-        Deleted
+    enum PostStatus {
+        Draft : tone(neutral),
+        InReview : tone(warning),
+        Scheduled : tone(info),
+        Published : tone(success),
+        Archived : tone(neutral)
     }
 
     rdbms contentDb {
 
-        entity Post extends BaseEntity {
-            UUID authorId : index;
-            String(200) title : trim;
-            // 'unique' ensures no duplicate values across rows
-            String(500)? slug : unique;
-            Text body;
-            ContentStatus status = ContentStatus.Draft;
-            DateTime? publishedAt;
-            Int approvedCommentCount = 0;
-
-            Boolean isDraft := status == ContentStatus.Draft;
-            index(authorId, status);
+        entity Category extends BaseEntity {
+            String(60) name : unique, trim;
+            String(60) slug : unique;
+            String(200)? description;
         }
 
+        entity Post extends BaseEntity : audit {
+            UUID authorId : index;
+            String(100) authorName;
+            String(200) title : trim, filterable, sortable;
+            String(500)? slug : unique;
+            String(300) excerpt;
+            Text body;
+            PostStatus status : filterable = PostStatus.Draft;
+            DateTime? scheduledFor;
+            DateTime? publishedAt : sortable;
+            Int readingMinutes = 1;
+            Int commentCount = 0;
+            Int version = 1;
+
+            Boolean isPublic := status == PostStatus.Published;
+
+            belongsTo Category : index;
+            index(status, publishedAt);
+            fulltext(title, excerpt, body);
+
+            beforeCreate {
+                readingMinutes = minutesToRead(body);
+            }
+
+            beforeUpdate {
+                if (isChanged(body)) {
+                    readingMinutes = minutesToRead(body);
+                }
+            }
+
+            afterUpdate {
+                if (isChanged(status) && status == PostStatus.Published) {
+                    dispatch PostPublished(id, title, excerpt, authorName);
+                }
+            }
+        }
+
+        /// A saved version of an article. The table refuses every change and delete.
+        entity PostRevision extends BaseEntity : appendOnly {
+            UUID postId : index;
+            Int version;
+            String(200) title;
+            Text body;
+            UUID editedBy;
+
+            index(postId, version) : unique;
+        }
     }
 
-    // Cache block - defines in-memory data structures backed by Redis
+    // Author cards the application shows beside an article stay fresh from the author's events.
     cache redis {
-        // 'hash' defines a key-value cache entry with TTL (time-to-live in seconds)
-        hash AuthorCache : prefix('author:'), ttl(3600) {
-            UUID authorId : key;
-            String fullName;
+        hash AuthorActive : prefix('author-active:'), ttl(86400) {
+            UUID userId : key;
             Boolean isActive;
         }
-
     }
 
     pubsub mq {
+        topic ContentEvents {
+            publish PostPublished(UUID postId, String title, String excerpt, String authorName) {
+                ensure title.length > 0;
+            }
+        }
     }
 
     subscribe AuthorEvents {
-
-        on AuthorRegistered(UUID authorId, Email email, String fullName) {
-            // Cache the author locally for fast lookups
-            redis.AuthorCache.set(authorId, {
-                authorId: authorId,
-                fullName: fullName,
-                isActive: false
-            });
-
-            Log.info("Author registered, cached", { authorId: authorId, fullName: fullName });
-        }
-
-        on AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus) {
-            redis.AuthorCache.set(authorId, {
-                authorId: authorId,
-                isActive: newStatus == "Active"
-            });
-
-            // React to cross-service events('config/service.dcfg') : archive posts when author becomes inactive
-            if (newStatus == "Suspended" || newStatus == "Inactive") {
-                let Array<Post> publishedPosts = contentDb.Post
-                .where(authorId: authorId)
-                .where(status: ContentStatus.Published)
-                .all();
-
-                // 'foreach' iterates over a collection
-                foreach post in publishedPosts {
-                    post.status = ContentStatus.Archived;
+        // A suspended author's published articles are taken down.
+        on AuthorStatusChanged(UUID authorId, UUID userId, AuthorStatus oldStatus, AuthorStatus newStatus) {
+            redis.AuthorActive.set(userId, { userId: userId, isActive: newStatus == AuthorStatus.Active });
+            if (newStatus == AuthorStatus.Suspended) {
+                foreach post in contentDb.Post.where(authorId: userId, status: PostStatus.Published).all() {
+                    post.status = PostStatus.Archived;
                     post.save();
                 }
-
-                if (publishedPosts.length() > 0) {
-                    Log.info("Archived posts for inactive author", {
-                        authorId: authorId,
-                        newStatus: newStatus,
-                        archivedCount: publishedPosts.length()
-                    });
-                }
-
             }
-
         }
-
     }
 
     subscribe CommentEvents {
-
-        on CommentApproved(UUID commentId, UUID contentId) {
-            let Post? post = contentDb.Post.find(contentId);
-
+        on CommentApproved(UUID commentId, UUID postId) {
+            let contentDb.Post? post = contentDb.Post.find(postId);
             if (post != null) {
-                post.approvedCommentCount = post.approvedCommentCount + 1;
+                post.commentCount = post.commentCount + 1;
                 post.save();
             }
+        }
+    }
 
+    jobs {
+        // Publishes each scheduled article once its time comes.
+        job PublishScheduledPosts {
+            foreach post in contentDb.Post.where(status: PostStatus.Scheduled).all() {
+                if (post.scheduledFor != null && post.scheduledFor <= DateTime.now()) {
+                    post.status = PostStatus.Published;
+                    post.publishedAt = DateTime.now();
+                    post.save();
+                }
+            }
+        }
+    }
+
+    struct WritePostRequest {
+        String(200) title;
+        String(300) excerpt;
+        Text body;
+        UUID categoryId;
+    }
+
+    struct UpdatePostRequest {
+        UUID id;
+        String(200) title;
+        String(300) excerpt;
+        Text body;
+        UUID categoryId;
+    }
+
+    struct SchedulePostRequest {
+        UUID id;
+        DateTime publishAt;
+    }
+
+    struct DeskSummary {
+        Int drafts;
+        Int inReview;
+        Int scheduled;
+        Int published;
+    }
+
+    fn requireOwnerOrEditor(contentDb.Post post) {
+        if (post.authorId != Auth.userId() && !Auth.hasRole("editor") && !Auth.hasRole("admin")) {
+            throw NotYourPostError();
+        }
+    }
+
+    fn recordRevision(contentDb.Post post) {
+        contentDb.PostRevision.create({
+            postId: post.id,
+            version: post.version,
+            title: post.title,
+            body: post.body,
+            editedBy: Auth.userId()
+        });
+    }
+
+    fn move(contentDb.Post post, PostStatus expected, PostStatus next) {
+        if (post.status != expected) {
+            throw InvalidTransitionError();
+        }
+        post.status = next;
+    }
+
+    // What a reader can reach: published articles and nothing else.
+    rest_api ReaderAPI : basePath('/api/v1/articles'), rdbms(contentDb) {
+        get articles(PageRequest page, String? q) : auth(public) -> Page<Post> {
+            if (q != null && q != "") {
+                return Post.fulltext(q).where(status: PostStatus.Published).page(page);
+            }
+            return Post.where(status: PostStatus.Published).orderBy(publishedAt: desc).page(page);
         }
 
+        @path('/:id')
+        get article(UUID id) : auth(public) -> Post {
+            return Post.where(id: id, status: PostStatus.Published).firstOrFail();
+        }
+
+        @path('/categories')
+        get categories() : auth(public) -> Array<Category> {
+            return Category.orderBy(name: asc).all();
+        }
     }
 
-    rest_api ContentAPI : basePath("/api/v1/posts"), rdbms(contentDb) {
-        resource contentDb.Post : auth(public), only(list, get);
-        resource contentDb.Post : auth(required, providers: [identity], roles: [editor]), only(create, update, delete);
+    // What authors and editors work with.
+    rest_api StudioAPI : basePath('/api/v1/studio/posts'), rdbms(contentDb) {
+        @path('/mine')
+        get myPosts(PageRequest page) : auth(required, providers: [identity]) -> Page<Post> {
+            return Post.where(authorId: Auth.userId()).orderBy(updatedAt: desc).page(page);
+        }
+
+        // The editor's view of every article, filtered by state and title.
+        resource Post : only(list), auth(required, providers: [identity], roles: [editor, admin]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [editor, admin]) -> DeskSummary {
+            return DeskSummary {
+                drafts: Post.where(status: PostStatus.Draft).count(),
+                inReview: Post.where(status: PostStatus.InReview).count(),
+                scheduled: Post.where(status: PostStatus.Scheduled).count(),
+                published: Post.where(status: PostStatus.Published).count()
+            };
+        }
+
+        @path('/:id')
+        get post(UUID id) : auth(required, providers: [identity]) -> Post {
+            let Post found = Post.findOrFail(id);
+            requireOwnerOrEditor(found);
+            return found;
+        }
+
+        @path('/:id/revisions')
+        get revisions(UUID id) : auth(required, providers: [identity]) -> Array<PostRevision> {
+            let Post found = Post.findOrFail(id);
+            requireOwnerOrEditor(found);
+            return PostRevision.where(postId: id).orderBy(version: desc).all();
+        }
+
+        post createPost(WritePostRequest request) : auth(required, providers: [identity]) -> Post {
+            let JSON? standing = redis.AuthorActive.get(Auth.userId());
+            if (standing != null && JSON.get(standing, "isActive") == false) {
+                throw AuthorSuspendedError();
+            }
+            let Post created = Post.create({
+                authorId: Auth.userId(),
+                authorName: Auth.identity.fullName ?? Auth.identity.email.toString(),
+                title: request.title,
+                slug: uuid().toString(),
+                excerpt: request.excerpt,
+                body: request.body,
+                categoryId: request.categoryId
+            });
+            recordRevision(created);
+            return created;
+        }
+
+        // Saving reloads the open article and its history, as well as the lists.
+        @path('/update')
+        post updatePost(UpdatePostRequest request) : auth(required, providers: [identity]), invalidates(post, revisions, myPosts) -> Post {
+            let Post found = Post.findOrFail(request.id);
+            requireOwnerOrEditor(found);
+            found.title = request.title;
+            found.excerpt = request.excerpt;
+            found.body = request.body;
+            found.categoryId = request.categoryId;
+            found.version = found.version + 1;
+            found.save();
+            recordRevision(found);
+            return found;
+        }
+
+        @path('/:id/submit')
+        post submit(UUID id) : auth(required, providers: [identity]) -> Post {
+            let Post found = Post.findOrFail(id);
+            requireOwnerOrEditor(found);
+            move(found, PostStatus.Draft, PostStatus.InReview);
+            found.save();
+            return found;
+        }
+
+        @path('/:id/publish')
+        post publish(UUID id) : auth(required, providers: [identity], roles: [editor, admin]) -> Post {
+            let Post found = Post.findOrFail(id);
+            move(found, PostStatus.InReview, PostStatus.Published);
+            found.publishedAt = DateTime.now();
+            found.save();
+            return found;
+        }
+
+        @path('/schedule')
+        post schedule(SchedulePostRequest request) : auth(required, providers: [identity], roles: [editor, admin]), invalidates(post) -> Post {
+            if (request.publishAt <= DateTime.now()) {
+                throw ScheduleInPastError();
+            }
+            let Post found = Post.findOrFail(request.id);
+            move(found, PostStatus.InReview, PostStatus.Scheduled);
+            found.scheduledFor = request.publishAt;
+            found.save();
+            return found;
+        }
+
+        @path('/:id/send-back')
+        post sendBack(UUID id) : auth(required, providers: [identity], roles: [editor, admin]) -> Post {
+            let Post found = Post.findOrFail(id);
+            move(found, PostStatus.InReview, PostStatus.Draft);
+            found.save();
+            return found;
+        }
+
+        @path('/:id/archive')
+        post archive(UUID id) : auth(required, providers: [identity], roles: [editor, admin]) -> Post {
+            let Post found = Post.findOrFail(id);
+            move(found, PostStatus.Published, PostStatus.Archived);
+            found.save();
+            return found;
+        }
     }
 
-    test("computed isDraft is true for Draft status") {
+    test("a new article starts as a private draft") {
         let Post post = contentDb.Post.create({
             authorId: uuid(),
-            title: "Test Post",
-            body: "Test content for spec test"
+            authorName: "Mina Okafor",
+            title: "On Field Notes",
+            excerpt: "Why we write things down",
+            body: "Short body",
+            categoryId: uuid()
         });
-        post.save();
-        assert post.isDraft == true;
+        assert post.status == PostStatus.Draft;
+        assert !post.isPublic;
     }
 
-    test("spec: isDraft is true for Spec Test Post draft fixture") {
+    test("publishing an article announces it") {
         let Post post = contentDb.Post.create({
             authorId: uuid(),
-            title: "Spec Test Post",
-            body: "This is a test post body"
+            authorName: "Mina Okafor",
+            title: "On Field Notes",
+            excerpt: "Why we write things down",
+            body: "Short body",
+            categoryId: uuid()
         });
+        post.status = PostStatus.Published;
         post.save();
-        assert post.isDraft == true;
+        assert emitted(PostPublished(post.id, post.title, post.excerpt, post.authorName));
     }
 
-    test("computed isDraft is false for Published status") {
-        let Post post = contentDb.Post.create({
-            authorId: uuid(),
-            title: "Published Spec Post",
-            body: "Published content for spec test",
-            status: ContentStatus.Published,
-            publishedAt: DateTime.now()
-        });
-        post.save();
-        assert post.isDraft == false;
+    test("a short article reads in one minute") {
+        assert minutesToRead("Only a few words") == 1;
     }
-
 }

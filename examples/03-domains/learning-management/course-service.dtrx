@@ -1,906 +1,311 @@
+from lms.common import QuizOption;
 
-service lms.CourseService('config/course-service.dcfg') : version('1.0.0'), description('course catalog and content management service') {
-    discovery {
-        StudentService { loadBalance: roundRobin, healthyOnly: true }
+// What Larkhill teaches: courses and their lessons, each lesson ending in one question. The catalog is
+// public. The right answer never leaves this service: the app sends an answer and is told if it is right.
+service lms.CourseService('config/course-service.dcfg') : version('2.0.0'), description('Courses and lessons') {
+
+    discovery { }
+
+    identity {
+        // Instructor and operator are granted, never self-assigned; anyone may sign up and learn. Sign-in
+        // belongs to the hosted identity provider, so nothing here handles a password.
+        provider identity config('config/identity/identity.dcfg') {
+            Email email;
+            String? fullName;
+
+            group "instructor" as instructor;
+            group "operator" as operator;
+        }
+
+        // Service-to-service callers.
+        provider machine config('config/identity/machine.dcfg') {
+        }
+
+        // API keys the mocks issue, the way a real vendor authenticates its API callers.
+        provider paymentKeys config('config/identity/payment-keys.dcfg') {
+        }
+
+        provider emailKeys config('config/identity/email-keys.dcfg') {
+        }
+
+        provider modelKeys config('config/identity/model-keys.dcfg') {
+        }
+    }
+
+    exceptions {
+        NotPublishedError : status(404), message("That course is not open");
+        EmptyCourseError : status(409), message("A course needs a lesson before it can be published");
+    }
+
+    enum CourseLevel {
+        Beginner : tone(success),
+        Intermediate : tone(info),
+        Advanced : tone(warning)
     }
 
     enum CourseStatus {
-        Draft : value('draft'),
-        Published : value('published'),
-        Archived : value('archived')
+        Draft : tone(neutral),
+        Published : tone(success),
+        Archived : tone(neutral)
     }
 
-    enum DifficultyLevel {
-        Beginner : value('beginner'),
-        Intermediate : value('intermediate'),
-        Advanced : value('advanced')
-    }
+    rdbms courseDb : audit {
 
-    enum ContentType {
-        Text : value('text'),
-        Video : value('video'),
-        Quiz : value('quiz'),
-        Assignment : value('assignment')
-    }
-
-    struct CreateCourseRequest {
-        String title;
-        Text description;
-        DifficultyLevel difficulty;
-        Int? maxEnrollment;
-        Decimal? durationHours;
-        JSON? tags;
-    }
-
-    struct UpdateCourseRequest {
-        String(200)? title;
-        Text? description;
-        DifficultyLevel? difficulty;
-        Int? maxEnrollment;
-        Decimal? durationHours;
-        JSON? tags;
-    }
-
-    struct CreateModuleRequest {
-        UUID courseId;
-        String title;
-        Text? description;
-        Int orderIndex;
-    }
-
-    struct CreateLessonRequest {
-        UUID moduleId;
-        String title;
-        Text? content;
-        ContentType contentType;
-        Int orderIndex;
-        Int? durationMinutes;
-    }
-
-    struct UpdateLessonRequest {
-        String(200)? title;
-        Text? content;
-        Int? durationMinutes;
-    }
-
-    struct RateCourseRequest {
-        Int rating;
-        Text? review;
-    }
-
-    struct CourseSummary {
-        UUID courseId;
-        String title;
-        CourseStatus status;
-        DifficultyLevel difficulty;
-        Int moduleCount;
-        Int lessonCount;
-        Int currentEnrollment;
-        Int? maxEnrollment;
-    }
-
-    rdbms courseDb {
-
-        entity Course extends BaseEntity : audit {
-            String(200) title : trim;
-            String(20) courseCode : unique;
-            Text description;
-            CourseStatus status = CourseStatus.Draft;
-            DifficultyLevel difficulty = DifficultyLevel.Beginner;
-            UUID instructorId : index;
-            Int? maxEnrollment;
-            Int currentEnrollment = 0;
-            Decimal(6, 2)? durationHours;
-            JSON? tags;
+        entity Course extends BaseEntity {
+            String(200) title : filterable;
+            String(600) summary;
+            String(200) instructorName : filterable;
+            CourseLevel level : filterable;
+            CourseStatus status : filterable = CourseStatus.Draft;
+            Money price;
+            Int lessonCount = 0;
+            Int totalMinutes = 0;
             DateTime? publishedAt;
-            Decimal(3, 2) averageRating = 0.00;
-            Int ratingCount = 0;
-
-            // Computed fields
-            Boolean isPublished := status == CourseStatus.Published;
-            Boolean isFull := maxEnrollment != null && currentEnrollment >= maxEnrollment;
-            Boolean canEnroll := status == CourseStatus.Published && !isFull;
-            Decimal enrollmentRate := maxEnrollment != null && maxEnrollment > 0 ? (currentEnrollment * 100.0 / maxEnrollment) : 0.0;
-
-            hasMany CourseModule as modules : cascade(delete);
-
-            index(status, difficulty);
-            index(instructorId, status);
-            index(courseCode);
-            fulltext(title, description);
-
-            validate {
-                if (title.trim().isEmpty())
-                ValidationError("Course title cannot be empty");
-                if (title.length() > 200)
-                ValidationError("Course title cannot exceed 200 characters");
-                if (description.trim().isEmpty())
-                ValidationError("Course description cannot be empty");
-                if (maxEnrollment != null && maxEnrollment <= 0)
-                ValidationError("Maximum enrollment must be a positive number");
-                if (durationHours != null && durationHours <= 0)
-                ValidationError("Duration must be a positive number");
-            }
-
-            beforeCreate {
-                courseCode = #"CRS-{Random.string(8).toUpperCase()}";
-            }
-
-            afterCreate {
-                dispatch CourseCreated(id, title, instructorId, difficulty);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch CourseStatusChanged(id, oldValue(status), status);
-
-                    if (status == CourseStatus.Published && publishedAt == null) {
-                        publishedAt = DateTime.now();
-                    }
-
-                    Log.info("Course status changed", {
-                        courseId: id,
-                        oldStatus: oldValue(status),
-                        newStatus: status
-                    });
-                }
-
-                if (isChanged(currentEnrollment)) {
-                    dispatch CourseEnrollmentUpdated(id, currentEnrollment, maxEnrollment);
-                }
-
-            }
-
-            fn publish() {
-                if (status == CourseStatus.Draft) {
-                    status = CourseStatus.Published;
-                    publishedAt = DateTime.now();
-                    this.save();
-                    Log.info("Course published", { courseId: id, title: title });
-                }
-
-            }
-
-            fn archive() {
-                status = CourseStatus.Archived;
-                this.save();
-                Log.info("Course archived", { courseId: id, title: title });
-            }
-
-        }
-
-        entity CourseModule extends BaseEntity {
-            String(200) title : trim;
-            Text? description;
-            Int orderIndex;
-
-            belongsTo Course : index;
-            hasMany Lesson as lessons : cascade(delete);
-
-            index(courseId, orderIndex);
-
-            validate {
-                if (title.trim().isEmpty())
-                ValidationError("Module title cannot be empty");
-                if (orderIndex < 0)
-                ValidationError("Order index cannot be negative");
-            }
-
         }
 
         entity Lesson extends BaseEntity {
-            String(200) title : trim;
-            Text? content;
-            ContentType contentType = ContentType.Text;
-            Int orderIndex;
-            Int durationMinutes = 0;
-            Url? videoUrl;
-            Url? resourceUrl;
-
-            belongsTo CourseModule : index;
-
-            index(courseModuleId, orderIndex);
-
-            validate {
-                if (title.trim().isEmpty())
-                ValidationError("Lesson title cannot be empty");
-                if (orderIndex < 0)
-                ValidationError("Order index cannot be negative");
-                if (durationMinutes < 0)
-                ValidationError("Duration cannot be negative");
-            }
-
-        }
-
-        entity CourseRating extends BaseEntity {
+            Int position;
+            String(200) title;
+            Int minutes;
+            Text body;
+            String(300) question;
+            String(200) optionA;
+            String(200) optionB;
+            String(200) optionC;
+            QuizOption rightAnswer : hidden;
             UUID courseId : index;
-            UUID studentId : index;
-            Int rating;
-            Text? review;
 
-            index(courseId, studentId) : unique;
-
-            validate {
-                if (rating < 1 || rating > 5)
-                ValidationError("Rating must be between 1 and 5");
-            }
-
-            afterCreate {
-                // Update average rating on the course
-                let Course? course = courseDb.Course.find(courseId);
-                if (course != null) {
-                    let Array<CourseRating> ratings = courseDb.CourseRating
-                    .where(courseId: courseId)
-                    .all();
-
-                    let Decimal totalRating = 0;
-                    foreach r in ratings {
-                        totalRating = totalRating + r.rating;
-                    }
-
-                    course.averageRating = totalRating / ratings.length();
-                    course.ratingCount = ratings.length();
-                    course.save();
-                }
-
-            }
-
+            index(courseId, position);
         }
-
     }
 
-    storage store {
-        folder materials : path('courses/materials/'), allowed(['application/pdf', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']), maxSize('100mb')
-        folder videos : path('courses/videos/'), allowed(['video/mp4', 'video/webm', 'video/quicktime']), maxSize('500mb')
-        folder assignments : path('courses/assignments/'), allowed(['application/pdf', 'application/zip', 'text/plain']), maxSize('50mb')
+    struct CreateCourseRequest {
+        String(200) title;
+        String(600) summary;
+        CourseLevel level;
+        Money price;
     }
 
-    pubsub mq {
-
-        topic CourseEvents {
-            publish CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {
-                ensure title.length > 0;
-            }
-
-            publish CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish CoursePublished(UUID courseId, String title) {
-                ensure title.length > 0;
-            }
-
-            publish CourseArchived(UUID courseId);
-            publish CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
-                ensure currentEnrollment >= 0;
-            }
-
-            publish ModuleAdded(UUID courseId, UUID moduleId, String title) {
-                ensure title.length > 0;
-            }
-
-            publish LessonAdded(UUID moduleId, UUID lessonId, String title) {
-                ensure title.length > 0;
-            }
-
-        }
-
+    struct AddLessonRequest {
+        UUID courseId;
+        String(200) title;
+        Int minutes;
+        Text body;
+        String(300) question;
+        String(200) optionA;
+        String(200) optionB;
+        String(200) optionC;
+        QuizOption rightAnswer;
     }
 
-    subscribe CourseEvents {
-        on CourseCreated(UUID courseId, String title, UUID instructorId, DifficultyLevel difficulty) {
-            Log.info("Course created", {
-                courseId: courseId,
-                title: title,
-                instructorId: instructorId,
-                difficulty: difficulty
-            });
-        }
-
-        on CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
-            Log.info("Course status changed", {
-                courseId: courseId,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-
-            if (newStatus == CourseStatus.Published) {
-                let Course? course = courseDb.Course.find(courseId);
-                if (course != null) {
-                    dispatch CoursePublished(courseId, course.title);
-                }
-
-            }
-
-            if (newStatus == CourseStatus.Archived) {
-                dispatch CourseArchived(courseId);
-            }
-
-        }
-
-        on CourseEnrollmentUpdated(UUID courseId, Int currentEnrollment, Int? maxEnrollment) {
-            Log.info("Course enrollment updated", {
-                courseId: courseId,
-                currentEnrollment: currentEnrollment,
-                maxEnrollment: maxEnrollment
-            });
-
-            if (maxEnrollment != null && currentEnrollment >= maxEnrollment) {
-                Log.warn("Course is now full", { courseId: courseId });
-            }
-
-        }
-
-        on CoursePublished(UUID courseId, String title) {
-            Log.info("Course published", { courseId: courseId, title: title });
-        }
-
-        on CourseArchived(UUID courseId) {
-            Log.info("Course archived", { courseId: courseId });
-        }
-
-        on ModuleAdded(UUID courseId, UUID moduleId, String title) {
-            Log.info("Module added to course", {
-                courseId: courseId,
-                moduleId: moduleId,
-                title: title
-            });
-        }
-
-        on LessonAdded(UUID moduleId, UUID lessonId, String title) {
-            Log.info("Lesson added to module", {
-                moduleId: moduleId,
-                lessonId: lessonId,
-                title: title
-            });
-        }
-
+    /// What the catalog shows of a lesson: a syllabus, not the lesson.
+    struct LessonOutline {
+        UUID id;
+        Int position;
+        String(200) title;
+        Int minutes;
     }
 
-    rest_api CourseAPI : basePath('/api/v1/courses'), rdbms(courseDb) {
+    struct CoursePage {
+        UUID id;
+        String(200) title;
+        String(600) summary;
+        String(200) instructorName;
+        CourseLevel level;
+        Money price;
+        Int totalMinutes;
+        Array<LessonOutline> lessons;
+    }
 
-        // List published courses
-        get(DifficultyLevel? difficulty, PageRequest page) : auth(public) -> Page<courseDb.Course> {
-            let JSON query = courseDb.Course.where(status: CourseStatus.Published);
+    /// A lesson as a student reads it. There is no answer here.
+    struct LessonView {
+        UUID id;
+        UUID courseId;
+        Int position;
+        String(200) title;
+        Int minutes;
+        Text body;
+        String(300) question;
+        String(200) optionA;
+        String(200) optionB;
+        String(200) optionC;
+    }
 
-            if (difficulty != null) {
-                query = query.where(difficulty: difficulty);
-            }
+    struct CheckAnswerRequest {
+        UUID lessonId;
+        QuizOption answer;
+    }
 
-            return query.orderBy(createdAt: desc).page(page);
+    struct AnswerVerdict {
+        Boolean correct;
+    }
+
+    /// What the enrollment service needs to sell a course.
+    struct CourseCard {
+        UUID id;
+        String(200) title;
+        Money price;
+        Int lessonCount;
+    }
+
+    struct LessonNote {
+        String(200) title;
+        Text body;
+    }
+
+    fn outlineOf(courseDb.Lesson lesson) -> LessonOutline {
+        return LessonOutline { id: lesson.id, position: lesson.position, title: lesson.title, minutes: lesson.minutes };
+    }
+
+    // Open to anyone: the catalog and each course's syllabus.
+    rest_api CatalogAPI : basePath('/api/v1/catalog'), rdbms(courseDb) {
+        @path('/courses')
+        get published() : auth(public) -> Array<Course> {
+            return Course.where(status: CourseStatus.Published).orderBy(publishedAt: desc).limit(60).all();
         }
 
-        // Get a single course with modules and lessons
+        @path('/courses/:id')
+        get courseById(UUID id) : auth(public) -> CoursePage {
+            let Course course = Course.findOrFail(id);
+            if (course.status != CourseStatus.Published) {
+                throw NotPublishedError();
+            }
+            let Array<Lesson> lessons = Lesson.where(courseId: id).orderBy(position: asc).limit(200).all();
+            return CoursePage {
+                id: course.id,
+                title: course.title,
+                summary: course.summary,
+                instructorName: course.instructorName,
+                level: course.level,
+                price: course.price,
+                totalMinutes: course.totalMinutes,
+                lessons: lessons.map(l => outlineOf(l))
+            };
+        }
+    }
+
+    // What a signed-in student reads.
+    rest_api LessonAPI : basePath('/api/v1/lessons'), rdbms(courseDb) {
         @path('/:id')
-        get(UUID id) : auth(public) -> courseDb.Course {
-            return courseDb.Course.findOrFail(id);
+        get lessonById(UUID id) : auth(required, providers: [identity]) -> LessonView {
+            let Lesson lesson = Lesson.findOrFail(id);
+            return LessonView {
+                id: lesson.id,
+                courseId: lesson.courseId,
+                position: lesson.position,
+                title: lesson.title,
+                minutes: lesson.minutes,
+                body: lesson.body,
+                question: lesson.question,
+                optionA: lesson.optionA,
+                optionB: lesson.optionB,
+                optionC: lesson.optionC
+            };
+        }
+    }
+
+    // What instructors do.
+    rest_api StudioAPI : basePath('/api/v1/studio'), rdbms(courseDb) {
+        resource Course : only(list, get), auth(required, providers: [identity], roles: [instructor]);
+
+        @path('/courses')
+        post createCourse(CreateCourseRequest request) : auth(required, providers: [identity], roles: [instructor]) -> Course {
+            return Course.create({
+                title: request.title,
+                summary: request.summary,
+                level: request.level,
+                price: request.price,
+                instructorName: (Auth.identity.fullName ?? Auth.identity.email).toString()
+            });
         }
 
-        // Create a new course
-        post(CreateCourseRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Course {
-            let UUID instructorId = Auth.user().id;
+        @path('/courses/:courseId/lessons')
+        get lessonsOf(UUID courseId) : auth(required, providers: [identity], roles: [instructor]) -> Array<LessonOutline> {
+            let Array<Lesson> lessons = Lesson.where(courseId: courseId).orderBy(position: asc).limit(200).all();
+            return lessons.map(l => outlineOf(l));
+        }
 
-            let Course course = courseDb.Course.create({
+        @path('/lessons')
+        post addLesson(AddLessonRequest request) : auth(required, providers: [identity], roles: [instructor]) -> LessonOutline {
+            let Course course = Course.findOrFail(request.courseId);
+            let Lesson lesson = Lesson.create({
+                courseId: course.id,
+                position: course.lessonCount + 1,
                 title: request.title,
-                description: request.description,
-                difficulty: request.difficulty,
-                instructorId: instructorId,
-                maxEnrollment: request.maxEnrollment,
-                durationHours: request.durationHours,
-                tags: request.tags ?? [],
-                status: CourseStatus.Draft
+                minutes: request.minutes,
+                body: request.body,
+                question: request.question,
+                optionA: request.optionA,
+                optionB: request.optionB,
+                optionC: request.optionC,
+                rightAnswer: request.rightAnswer
             });
+            course.lessonCount = course.lessonCount + 1;
+            course.totalMinutes = course.totalMinutes + request.minutes;
             course.save();
-
-            return course;
+            return outlineOf(lesson);
         }
 
-        // Update a course
-        @path('/:id')
-        put(UUID id, UpdateCourseRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Course {
-            let Course course = courseDb.Course.findOrFail(id);
-
-            if (request.title != null) {
-                course.title = request.title;
+        @path('/courses/:id/publish')
+        post publish(UUID id) : auth(required, providers: [identity], roles: [instructor]) -> Course {
+            let Course course = Course.findOrFail(id);
+            if (course.lessonCount == 0) {
+                throw EmptyCourseError();
             }
-
-            if (request.description != null) {
-                course.description = request.description;
-            }
-
-            if (request.difficulty != null) {
-                course.difficulty = request.difficulty;
-            }
-
-            if (request.maxEnrollment != null) {
-                course.maxEnrollment = request.maxEnrollment;
-            }
-
-            if (request.durationHours != null) {
-                course.durationHours = request.durationHours;
-            }
-
-            if (request.tags != null) {
-                course.tags = request.tags;
-            }
-
-            course.save();
-            return course;
-        }
-
-        // Publish a course
-        @path('/:id/publish')
-        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Course {
-            let Course course = courseDb.Course.findOrFail(id);
-
-            if (course.status != CourseStatus.Draft) {
-                throw ValidationException({
-                    code: "INVALID_STATUS",
-                    message: "Only draft courses can be published"
-                });
-            }
-
-            course.publish();
-            return course;
-        }
-
-        // Archive a course
-        @path('/:id/archive')
-        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Course {
-            let Course course = courseDb.Course.findOrFail(id);
-            course.archive();
-            return course;
-        }
-
-        // Search courses
-        @path('/search')
-        get(String query, DifficultyLevel? difficulty, PageRequest page) : auth(public) -> Page<courseDb.Course> {
-            let JSON courseQuery = courseDb.Course
-            .fulltext(query)
-            .where(status: CourseStatus.Published);
-
-            if (difficulty != null) {
-                courseQuery = courseQuery.where(difficulty: difficulty);
-            }
-
-            return courseQuery.page(page);
-        }
-
-        // Add a module to a course
-        @path('/:id/modules')
-        post(UUID id, CreateModuleRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.CourseModule {
-            let Course course = courseDb.Course.findOrFail(id);
-
-            let CourseModule module = courseDb.CourseModule.create({
-                courseId: id,
-                title: request.title,
-                description: request.description,
-                orderIndex: request.orderIndex
-            });
-            module.save();
-
-            dispatch ModuleAdded(id, module.id, module.title);
-
-            return module;
-        }
-
-        // Get modules for a course
-        @path('/:id/modules')
-        get(UUID id) : auth(public) -> Array<courseDb.CourseModule> {
-            return courseDb.CourseModule
-            .where(courseId: id)
-            .orderBy(orderIndex: asc)
-            .all();
-        }
-
-        // Add a lesson to a module
-        @path('/modules/:moduleId/lessons')
-        post(UUID moduleId, CreateLessonRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Lesson {
-            let CourseModule module = courseDb.CourseModule.findOrFail(moduleId);
-
-            let Lesson lesson = courseDb.Lesson.create({
-                courseModuleId: moduleId,
-                title: request.title,
-                content: request.content,
-                contentType: request.contentType,
-                orderIndex: request.orderIndex,
-                durationMinutes: request.durationMinutes ?? 0
-            });
-            lesson.save();
-
-            dispatch LessonAdded(moduleId, lesson.id, lesson.title);
-
-            return lesson;
-        }
-
-        // Get lessons for a module
-        @path('/modules/:moduleId/lessons')
-        get(UUID moduleId) : auth(public) -> Array<courseDb.Lesson> {
-            return courseDb.Lesson
-            .where(courseModuleId: moduleId)
-            .orderBy(orderIndex: asc)
-            .all();
-        }
-
-        // Update a lesson
-        @path('/lessons/:lessonId')
-        put(UUID lessonId, UpdateLessonRequest request) : auth(required, providers: [identity], roles: [admin]) -> courseDb.Lesson {
-            let Lesson lesson = courseDb.Lesson.findOrFail(lessonId);
-
-            if (request.title != null) {
-                lesson.title = request.title;
-            }
-
-            if (request.content != null) {
-                lesson.content = request.content;
-            }
-
-            if (request.durationMinutes != null) {
-                lesson.durationMinutes = request.durationMinutes;
-            }
-
-            lesson.save();
-            return lesson;
-        }
-
-        // Rate a course
-        @path('/:id/rate')
-        post(UUID id, RateCourseRequest request) : auth(required, providers: [identity]) -> courseDb.CourseRating {
-            let UUID studentId = Auth.user().id;
-            let Course course = courseDb.Course.findOrFail(id);
-
-            // Check if already rated
-            let CourseRating? existing = courseDb.CourseRating
-            .where(courseId: id)
-            .where(studentId: studentId)
-            .first();
-
-            if (existing != null) {
-                throw ValidationException({
-                    code: "ALREADY_RATED",
-                    message: "You have already rated this course"
-                });
-            }
-
-            let CourseRating courseRating = courseDb.CourseRating.create({
-                courseId: id,
-                studentId: studentId,
-                rating: request.rating,
-                review: request.review
-            });
-            courseRating.save();
-
-            return courseRating;
-        }
-
-        // Get course ratings
-        @path('/:id/ratings')
-        get(UUID id, PageRequest page) : auth(public) -> Page<courseDb.CourseRating> {
-            return courseDb.CourseRating
-            .where(courseId: id)
-            .orderBy(createdAt: desc)
-            .page(page);
-        }
-
-        // Internal endpoint for other services
-        @path('/service/:id')
-        get courseByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> courseDb.Course {
-            return courseDb.Course.findOrFail(id);
-        }
-
-        // Internal endpoint to check enrollment availability
-        @path('/service/:id/can-enroll')
-        get canEnroll(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> Boolean {
-            let Course course = courseDb.Course.findOrFail(id);
-            return course.canEnroll;
-        }
-
-        // Internal endpoint to increment enrollment count
-        @path('/service/:id/increment-enrollment')
-        post incrementEnrollment(UUID id) : auth(service, providers: [platform]), hidden -> courseDb.Course {
-            let Course course = courseDb.Course.findOrFail(id);
-            course.currentEnrollment = course.currentEnrollment + 1;
+            course.status = CourseStatus.Published;
+            course.publishedAt = DateTime.now();
             course.save();
             return course;
         }
 
-        // Internal endpoint to decrement enrollment count
-        @path('/service/:id/decrement-enrollment')
-        post decrementEnrollment(UUID id) : auth(service, providers: [platform]), hidden -> courseDb.Course {
-            let Course course = courseDb.Course.findOrFail(id);
-            if (course.currentEnrollment > 0) {
-                course.currentEnrollment = course.currentEnrollment - 1;
-                course.save();
-            }
-
+        @path('/courses/:id/archive')
+        post archive(UUID id) : auth(required, providers: [identity], roles: [instructor]) -> Course {
+            let Course course = Course.findOrFail(id);
+            course.status = CourseStatus.Archived;
+            course.save();
             return course;
         }
-
     }
 
-    test("validation rejects empty course title") {
-        assert throws(
-        () => courseDb.Course.create({
-            title: "",
-            description: "Test description",
-            difficulty: DifficultyLevel.Beginner,
-            instructorId: uuid()
-        }),
-        ValidationError("Course title cannot be empty")
-        );
+    // What other services read. Only a service with a machine credential reaches these.
+    rest_api CourseInternalAPI : basePath('/api/v1/internal/courses'), rdbms(courseDb) {
+        @path('/cards/:id')
+        get card(UUID id) : auth(service, providers: [machine]) -> CourseCard {
+            let Course course = Course.findOrFail(id);
+            if (course.status != CourseStatus.Published) {
+                throw NotPublishedError();
+            }
+            return CourseCard { id: course.id, title: course.title, price: course.price, lessonCount: course.lessonCount };
+        }
+
+        @path('/outlines/:courseId')
+        get outline(UUID courseId) : auth(service, providers: [machine]) -> Array<LessonOutline> {
+            let Array<Lesson> lessons = Lesson.where(courseId: courseId).orderBy(position: asc).limit(200).all();
+            return lessons.map(l => outlineOf(l));
+        }
+
+        @path('/check-answer')
+        post checkAnswer(CheckAnswerRequest request) : auth(service, providers: [machine]) -> AnswerVerdict {
+            let Lesson lesson = Lesson.findOrFail(request.lessonId);
+            return AnswerVerdict { correct: lesson.rightAnswer == request.answer };
+        }
+
+        @path('/notes/:lessonId')
+        get note(UUID lessonId) : auth(service, providers: [machine]) -> LessonNote {
+            let Lesson lesson = Lesson.findOrFail(lessonId);
+            return LessonNote { title: lesson.title, body: lesson.body };
+        }
     }
 
-    test("validation rejects empty course description") {
-        assert throws(
-        () => courseDb.Course.create({
-            title: "Test Course",
-            description: "",
-            difficulty: DifficultyLevel.Beginner,
-            instructorId: uuid()
-        }),
-        ValidationError("Course description cannot be empty")
-        );
-    }
-
-    test("validation rejects non-positive maxEnrollment") {
-        assert throws(
-        () => courseDb.Course.create({
-            title: "Limited Course",
-            description: "A course with enrollment limit",
-            difficulty: DifficultyLevel.Intermediate,
-            instructorId: uuid(),
-            maxEnrollment: 0
-        }),
-        ValidationError("Maximum enrollment must be a positive number")
-        );
-    }
-
-    test("validation rejects invalid rating") {
-        assert throws(
-        () => courseDb.CourseRating.create({
-            courseId: uuid(),
-            studentId: uuid(),
-            rating: 6
-        }),
-        ValidationError("Rating must be between 1 and 5")
-        );
-    }
-
-    test("computed isPublished for published course") {
-        let Course course = courseDb.Course.create({
-            title: "Published Course",
-            description: "A published course",
-            difficulty: DifficultyLevel.Beginner,
-            instructorId: uuid(),
-            status: CourseStatus.Published
+    test("a new course starts as a draft with nothing in it") {
+        let courseDb.Course created = courseDb.Course.create({
+            title: "Reading maps",
+            summary: "Contours, bearings and finding your way back.",
+            instructorName: "Mira Olsen",
+            level: CourseLevel.Beginner,
+            price: 40.00
         });
-        course.save();
-        assert course.isPublished == true;
+        assert created.status == CourseStatus.Draft;
+        assert created.lessonCount == 0;
     }
-
-    test("computed canEnroll for available course") {
-        let Course course = courseDb.Course.create({
-            title: "Open Course",
-            description: "An open course",
-            difficulty: DifficultyLevel.Beginner,
-            instructorId: uuid(),
-            status: CourseStatus.Published,
-            maxEnrollment: 30,
-            currentEnrollment: 10
-        });
-        course.save();
-        assert course.canEnroll == true;
-        assert course.isFull == false;
-    }
-
-    test("computed isFull when enrollment reaches max") {
-        let Course course = courseDb.Course.create({
-            title: "Full Course",
-            description: "A full course",
-            difficulty: DifficultyLevel.Advanced,
-            instructorId: uuid(),
-            status: CourseStatus.Published,
-            maxEnrollment: 25,
-            currentEnrollment: 25
-        });
-        course.save();
-        assert course.isFull == true;
-        assert course.canEnroll == false;
-    }
-
-    test("beforeCreate generates courseCode") {
-        let Course course = courseDb.Course.create({
-            title: "Code Course",
-            description: "A course for code testing",
-            difficulty: DifficultyLevel.Intermediate,
-            instructorId: uuid()
-        });
-        course.save();
-        assert course.courseCode != null;
-    }
-
-    test("afterCreate emits CourseCreated event") {
-        let UUID instructorId = uuid();
-        let Course course = courseDb.Course.create({
-            title: "Event Course",
-            description: "A course for event testing",
-            difficulty: DifficultyLevel.Advanced,
-            instructorId: instructorId
-        });
-        course.save();
-        assert emitted(CourseCreated(course.id, "Event Course", instructorId, DifficultyLevel.Advanced));
-    }
-
-    test("validation rejects empty module title") {
-        assert throws(
-        () => courseDb.CourseModule.create({
-            courseId: uuid(),
-            title: "",
-            orderIndex: 0
-        }),
-        ValidationError("Module title cannot be empty")
-        );
-    }
-
-    test("validation rejects empty lesson title") {
-        assert throws(
-        () => courseDb.Lesson.create({
-            courseModuleId: uuid(),
-            title: "",
-            orderIndex: 0
-        }),
-        ValidationError("Lesson title cannot be empty")
-        );
-    }
-
-    test("computed isPublished is false for Draft status") {
-        let Course course = courseDb.Course.create({
-            title: "Draft Course",
-            description: "A draft course for testing",
-            difficulty: DifficultyLevel.Beginner,
-            instructorId: uuid(),
-            status: CourseStatus.Draft
-        });
-        course.save();
-        assert course.isPublished == false;
-    }
-
-    test("computed canEnroll is false for Draft course") {
-        let Course course = courseDb.Course.create({
-            title: "Unpublished Course",
-            description: "Cannot enroll in a draft",
-            difficulty: DifficultyLevel.Intermediate,
-            instructorId: uuid(),
-            status: CourseStatus.Draft
-        });
-        course.save();
-        assert course.canEnroll == false;
-    }
-
-    test("computed enrollmentRate calculates correctly") {
-        let Course course = courseDb.Course.create({
-            title: "Enrollment Rate Course",
-            description: "Testing enrollment rate",
-            difficulty: DifficultyLevel.Beginner,
-            instructorId: uuid(),
-            status: CourseStatus.Published,
-            maxEnrollment: 50,
-            currentEnrollment: 25
-        });
-        course.save();
-        assert course.enrollmentRate == 50.0;
-    }
-
-    test("computed enrollmentRate is zero when maxEnrollment is null") {
-        let Course course = courseDb.Course.create({
-            title: "Unlimited Course",
-            description: "No enrollment cap",
-            difficulty: DifficultyLevel.Beginner,
-            instructorId: uuid(),
-            status: CourseStatus.Published,
-            currentEnrollment: 100
-        });
-        course.save();
-        assert course.enrollmentRate == 0.0;
-    }
-
-    test("validation rejects non-positive durationHours") {
-        assert throws(
-        () => courseDb.Course.create({
-            title: "Duration Course",
-            description: "Testing duration validation",
-            difficulty: DifficultyLevel.Advanced,
-            instructorId: uuid(),
-            durationHours: -5.0
-        }),
-        ValidationError("Duration must be a positive number")
-        );
-    }
-
-    test("publish fn transitions Draft to Published") {
-        let Course course = courseDb.Course.create({
-            title: "Publishable Course",
-            description: "Ready to be published",
-            difficulty: DifficultyLevel.Intermediate,
-            instructorId: uuid(),
-            status: CourseStatus.Draft
-        });
-        course.save();
-        course.publish();
-        assert course.status == CourseStatus.Published;
-        assert course.publishedAt != null;
-    }
-
-    test("archive fn sets status to Archived") {
-        let Course course = courseDb.Course.create({
-            title: "Archivable Course",
-            description: "Ready to be archived",
-            difficulty: DifficultyLevel.Beginner,
-            instructorId: uuid(),
-            status: CourseStatus.Published
-        });
-        course.save();
-        course.archive();
-        assert course.status == CourseStatus.Archived;
-    }
-
-    test("status change emits CourseStatusChanged event") {
-        let Course course = courseDb.Course.create({
-            title: "Status Change Course",
-            description: "Testing status change event",
-            difficulty: DifficultyLevel.Advanced,
-            instructorId: uuid(),
-            status: CourseStatus.Draft
-        });
-        course.save();
-        course.status = CourseStatus.Published;
-        course.save();
-        assert emitted(CourseStatusChanged(course.id, CourseStatus.Draft, CourseStatus.Published));
-    }
-
-    test("validation rejects negative module orderIndex") {
-        assert throws(
-        () => courseDb.CourseModule.create({
-            courseId: uuid(),
-            title: "Negative Order Module",
-            orderIndex: -1
-        }),
-        ValidationError("Order index cannot be negative")
-        );
-    }
-
-    test("validation rejects negative lesson orderIndex") {
-        assert throws(
-        () => courseDb.Lesson.create({
-            courseModuleId: uuid(),
-            title: "Negative Order Lesson",
-            orderIndex: -1
-        }),
-        ValidationError("Order index cannot be negative")
-        );
-    }
-
-    test("validation rejects negative lesson duration") {
-        assert throws(
-        () => courseDb.Lesson.create({
-            courseModuleId: uuid(),
-            title: "Negative Duration Lesson",
-            orderIndex: 1,
-            durationMinutes: -10
-        }),
-        ValidationError("Duration cannot be negative")
-        );
-    }
-
-    test("validation rejects rating below 1") {
-        assert throws(
-        () => courseDb.CourseRating.create({
-            courseId: uuid(),
-            studentId: uuid(),
-            rating: 0
-        }),
-        ValidationError("Rating must be between 1 and 5")
-        );
-    }
-
 }

@@ -290,6 +290,12 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         folder thumbnails : path('products/thumbnails/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('2mb')
     }
 
+    // A category is part of the public catalog, read the way a product is, so a page can show a
+    // product's category by name.
+    rest_api CategoryAPI : basePath('/api/v1/categories'), rdbms(productDb) {
+        resource productDb.Category : auth(public), only(list, get);
+    }
+
     rest_api ProductAPI : basePath('/api/v1/products'), rdbms(productDb) {
 
         resource productDb.Product : auth(public), only(list, get);

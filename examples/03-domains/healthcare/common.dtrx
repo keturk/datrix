@@ -1,90 +1,23 @@
-
-// Shared module - defines reusable types and functions across all healthcare services
-// BaseEntity, Address, ContactInfo, EmergencyContact, MAX_PAGE_SIZE and DEFAULT_PAGE_SIZE
-// are provided by the Datrix standard library.
+// What the Ferncrest services share.
 module healthcare.common {
 
-    // Extends stdlib BaseEntity with audit tracking fields for compliance
-    abstract entity AuditedEntity extends BaseEntity {
-        UUID? createdBy;
-        UUID? updatedBy;
-        String? changeReason;
+    /// A visit's path through the day. The clinic's board shows one column per member, in this order.
+    enum AppointmentStatus {
+        Booked : tone(info),
+        CheckedIn : tone(warning),
+        InRoom : tone(warning),
+        Completed : tone(success),
+        Cancelled : tone(neutral),
+        NoShow : tone(danger)
     }
 
-    // SoftDeletable is a builtin trait -- no need to define it.
-    // Use 'with SoftDeletable' on entities directly.
-
-    // Trait for marking records with access restrictions
-    trait Confidential {
-        Boolean isConfidential = false;
-        String? accessLevel;
-
-        fn markConfidential(String level = "restricted") {
-            isConfidential = true;
-            accessLevel = level;
-            this.save();
-        }
-
+    enum VisitKind {
+        InPerson : tone(neutral),
+        Video : tone(info)
     }
 
-    struct InsuranceInfo {
-        String(100) provider;
-        String(50) policyNumber;
-        String(50)? groupNumber;
-        String(100) subscriberName;
-        // 'Date' type for calendar dates without time
-        Date? effectiveDate;
-        Date? expirationDate;
+    /// A record number a patient can read out at the front desk.
+    fn generateRecordNumber() -> String {
+        return #"FC-{Random.string(6, '0123456789')}";
     }
-
-    // Enums define a fixed set of allowed values for type-safe fields
-    enum Gender {
-        Male,
-        Female,
-        Other,
-        PreferNotToSay
-    }
-
-    // Enum variants with custom serialization values via 'value(...)'
-    enum BloodType {
-        APositive  : value('A+'),
-        ANegative  : value('A-'),
-        BPositive  : value('B+'),
-        BNegative  : value('B-'),
-        ABPositive : value('AB+'),
-        ABNegative : value('AB-'),
-        OPositive  : value('O+'),
-        ONegative  : value('O-'),
-        Unknown    : value('Unknown')
-    }
-
-    const APPOINTMENT_DURATION_DEFAULT = 30;
-    const PRESCRIPTION_REFILL_MAX = 5;
-
-    // Shared utility functions
-    fn calculateAge(Date birthDate) -> Int {
-        return DateTime.diffInYears(birthDate, DateTime.now());
-    }
-
-    fn formatPatientName(String firstName, String lastName, String? middleName) -> String {
-        if (middleName != null && !middleName.isEmpty()) {
-            return #"{lastName}, {firstName} {middleName.substring(0, 1)}.";
-        }
-
-        return #"{lastName}, {firstName}";
-    }
-
-    fn generateMRN() -> String {
-        return #"MRN-{DateTime.now().format('YYYYMMDD')}-{Random.digits(6)}";
-    }
-
-    fn isValidInsurance(InsuranceInfo? insurance) -> Boolean {
-        if (insurance == null) return false;
-        if (insurance.expirationDate != null && insurance.expirationDate < Date.now()) {
-            return false;
-        }
-
-        return true;
-    }
-
 }

@@ -1,0 +1,29 @@
+config strings logistics.Tracking locale "en-US" {
+  messages {
+    appName       = "Quayline Freight";
+    logoAlt       = "Quayline Freight";
+    trackAnother  = "Track a parcel";
+    home          = "Track a parcel";
+    notFoundTitle = "Page not found";
+    homeTitle     = "Where is my parcel?";
+    homeSubtitle  = "Enter the number from your text message.";
+    numberLabel   = "Tracking number";
+    follow        = "Follow it";
+    demoNotice    = "This is a demonstration. Try QL-7KM2PQ9XTR, a parcel out for delivery today.";
+    goingTo       = "Going to {city}";
+    promised      = "Promised by";
+    deliveredLine = "Delivered {when}.";
+    historyTitle  = "What has happened so far";
+  }
+  labels {
+    page.Home     = "Track a parcel";
+    page.Tracked  = "Your parcel";
+    page.NotFound = "Not found";
+    enum.ShipmentStatus.Booked = "Booked";
+    enum.ShipmentStatus.Planned = "Planned";
+    enum.ShipmentStatus.OutForDelivery = "Out for delivery";
+    enum.ShipmentStatus.Delivered = "Delivered";
+    enum.ShipmentStatus.Failed = "Delivery failed";
+    enum.ShipmentStatus.WithPartner = "With our partner";
+  }
+}

@@ -1,49 +1,51 @@
-
-// Shared module for city services domain
+// What every Port Alder service shares.
 module cityservices.common {
 
-    // Types of public facilities managed by the city
     enum FacilityType {
-        Library : value('library'),
-        FireStation : value('fire_station'),
-        PoliceStation : value('police_station'),
-        CommunityCenter : value('community_center'),
-        Hospital : value('hospital')
+        Library : tone(info),
+        FireStation : tone(danger),
+        CommunityCenter : tone(success),
+        Clinic : tone(warning)
     }
 
-    // Zoning classifications for land use
     enum ZoningType {
-        Residential : value('residential'),
-        Commercial : value('commercial'),
-        Industrial : value('industrial'),
-        MixedUse : value('mixed_use'),
-        GreenSpace : value('green_space')
+        Residential : tone(success),
+        Commercial : tone(info),
+        Industrial : tone(warning),
+        MixedUse : tone(neutral)
     }
 
-    // Priority levels for citizen service requests
+    enum RequestCategory {
+        Pothole,
+        Streetlight,
+        Graffiti,
+        Flooding,
+        FallenTree,
+        Other
+    }
+
     enum RequestPriority {
-        Low : value('low'),
-        Medium : value('medium'),
-        High : value('high'),
-        Critical : value('critical')
+        Low : tone(neutral),
+        Medium : tone(info),
+        High : tone(warning),
+        Critical : tone(danger)
     }
 
-    // Lifecycle status of a service request
     enum RequestStatus {
-        Open : value('open'),
-        Assigned : value('assigned'),
-        InProgress : value('in_progress'),
-        Resolved : value('resolved'),
-        Closed : value('closed')
+        Open : tone(warning),
+        Assigned : tone(info),
+        InProgress : tone(info),
+        Resolved : tone(success),
+        Closed : tone(neutral)
     }
 
-    // Generate a unique request tracking number
+    /// The reference a resident quotes: today's date and a random part nobody can guess.
     fn generateRequestNumber() -> String {
-        return #"SR-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+        return #"SR-{DateTime.now().format('yyyyMMdd')}-{Random.string(6, 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789')}";
     }
 
-    // Generate a unique district code
-    fn generateDistrictCode() -> String {
-        return #"DST-{Random.string(4).toUpperCase()}";
+    /// A point as PostGIS reads it: longitude first.
+    fn pointWkt(Float latitude, Float longitude) -> String {
+        return #"POINT({longitude} {latitude})";
     }
 }

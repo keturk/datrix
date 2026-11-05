@@ -1,0 +1,467 @@
+from healthcare.common import AppointmentStatus;
+
+// The medical record. A finished visit opens a note for the clinician to write and sign; signing
+// sends the claim to the insurer, and a signed note never changes. Prescriptions go to the pharmacy
+// and the patient gets a text when one is ready. Every time someone opens a chart it is written to a
+// log nobody can edit, and the patient can read that log.
+service healthcare.RecordService('config/record-service.dcfg') : version('2.0.0'), description('Notes, prescriptions and claims') {
+
+    discovery { }
+
+    uses AppointmentService;
+    uses PatientService;
+    uses InsurerProvider;
+    uses PharmacyProvider;
+    uses SmsProvider;
+
+    exceptions {
+        NoteSignedError : status(409), message("A signed note cannot change");
+        NoteEmptyError : status(422), message("Write the note before signing it");
+        NoRefillsLeftError : status(409), message("This prescription has no refills left. Ask your clinician for a new one");
+    }
+
+    enum NoteStatus {
+        Draft : tone(warning),
+        Signed : tone(success)
+    }
+
+    enum PrescriptionStatus {
+        Received : tone(info),
+        Filling : tone(info),
+        ReadyForPickup : tone(success),
+        PickedUp : tone(neutral),
+        Rejected : tone(danger),
+        NotSent : tone(warning)
+    }
+
+    enum ClaimState {
+        Approved : tone(success),
+        InReview : tone(warning),
+        Denied : tone(danger),
+        SelfPay : tone(neutral)
+    }
+
+    rdbms recordDb : audit {
+
+        entity VisitNote extends BaseEntity {
+            DateTime visitedAt : index;
+            String(200) patientName : filterable;
+            String(200) clinicianName : filterable;
+            String(100) specialty;
+            String(300) reason;
+            NoteStatus status : filterable = NoteStatus.Draft;
+            String(200)? diagnosis;
+            /// What the clinician wrote. Kept out of the logs and out of every response.
+            Text? note : sensitive;
+            DateTime? signedAt;
+            Money visitCharge;
+            UUID appointmentId : unique;
+            UUID patientId : index;
+            UUID? patientUserId : index, hidden;
+        }
+
+        entity Prescription extends BaseEntity {
+            String(200) patientName : filterable;
+            String(200) drugName : filterable;
+            String(200) directions;
+            Int quantity : min(1);
+            Int refillsLeft : min(0) = 0;
+            String(200) prescribedBy;
+            PrescriptionStatus status : filterable = PrescriptionStatus.NotSent;
+            String(200)? rejectionReason;
+            String(40)? ticketId : hidden;
+            UUID patientId : index;
+            UUID? patientUserId : index, hidden;
+
+            index(status);
+        }
+
+        /// What happened to the bill for a visit.
+        entity InsuranceClaim extends BaseEntity {
+            DateTime visitedAt;
+            String(200) patientName : filterable;
+            String(200) clinicianName;
+            Money billedAmount;
+            Money insurerPays;
+            Money patientOwes;
+            ClaimState state : filterable;
+            String(200)? reason;
+            String(40)? claimNumber : hidden;
+            UUID visitNoteId : unique;
+            UUID patientId : index;
+            UUID? patientUserId : index, hidden;
+        }
+
+        /// Who opened a chart. The table refuses every change and delete.
+        entity ChartAccess extends BaseEntity : appendOnly {
+            String(200) viewerName;
+            String(200) purpose;
+            UUID patientId : index;
+            UUID? patientUserId : index, hidden;
+        }
+    }
+
+    subscribe AppointmentEvents {
+        // A finished visit opens its note. Delivery is at least once, so a second copy finds the first.
+        on AppointmentStatusChanged(UUID appointmentId, UUID patientId, UUID? patientUserId, String patientName, String clinicianName, String specialty, String reason, DateTime startsAt, Money visitCharge, AppointmentStatus oldStatus, AppointmentStatus newStatus) {
+            if (newStatus == AppointmentStatus.Completed && recordDb.VisitNote.where(appointmentId: appointmentId).first() == null) {
+                recordDb.VisitNote.create({
+                    appointmentId: appointmentId,
+                    patientId: patientId,
+                    patientUserId: patientUserId,
+                    patientName: patientName,
+                    clinicianName: clinicianName,
+                    specialty: specialty,
+                    reason: reason,
+                    visitedAt: startsAt,
+                    visitCharge: visitCharge
+                });
+            }
+        }
+    }
+
+    struct WriteNoteRequest {
+        UUID id;
+        String(200) diagnosis;
+        Text note;
+    }
+
+    struct PrescribeRequest {
+        UUID patientId;
+        String(200) drugName;
+        String(200) directions;
+        Int quantity;
+        Int refills;
+    }
+
+    /// A note with its text. The entity keeps the text out of every response, so a route that means
+    /// to show it says so here.
+    struct NoteView {
+        recordDb.VisitNote visit;
+        Text? text;
+    }
+
+    /// A chart as a clinician sees it.
+    struct PatientChart {
+        PatientCard patient;
+        Array<recordDb.VisitNote> notes;
+        Array<recordDb.Prescription> prescriptions;
+        Array<recordDb.InsuranceClaim> claims;
+        Array<recordDb.ChartAccess> accesses;
+    }
+
+    struct ClaimTotal {
+        String(40) state;
+        Int count;
+    }
+
+    struct BillingSummary {
+        Money billed;
+        Money fromInsurers;
+        Money fromPatients;
+        Int awaitingDecision;
+        Array<ClaimTotal> byState;
+    }
+
+    fn stateOf(ClaimDecision decision) -> ClaimState {
+        if (decision == ClaimDecision.Approved) {
+            return ClaimState.Approved;
+        }
+        return decision == ClaimDecision.Denied ? ClaimState.Denied : ClaimState.InReview;
+    }
+
+    fn textPatient(UUID patientId, String key, String body) {
+        try {
+            let PatientCard card = PatientService.PatientCardAPI.get.cardById(id: patientId);
+            if (card.phone != null) {
+                SmsProvider.SmsAPI.post.sendSms(SendSmsRequest { to: card.phone, body: body, idempotencyKey: key });
+            }
+        } catch (Exception e) {
+            Log.warn("Text not sent", { key: key });
+        }
+    }
+
+    /// Bills the visit. No member id means the patient pays, and an insurer that cannot be reached
+    /// leaves the claim in review with no number, for SubmitWaitingClaims to send.
+    fn fileClaim(recordDb.VisitNote visit) {
+        let PatientCard card = PatientService.PatientCardAPI.get.cardById(id: visit.patientId);
+        if (card.memberId == null) {
+            recordDb.InsuranceClaim.create({
+                visitNoteId: visit.id,
+                patientId: visit.patientId,
+                patientUserId: visit.patientUserId,
+                patientName: visit.patientName,
+                clinicianName: visit.clinicianName,
+                visitedAt: visit.visitedAt,
+                billedAmount: visit.visitCharge,
+                insurerPays: 0.00,
+                patientOwes: visit.visitCharge,
+                state: ClaimState.SelfPay
+            });
+            return;
+        }
+        let recordDb.InsuranceClaim claim = recordDb.InsuranceClaim.create({
+            visitNoteId: visit.id,
+            patientId: visit.patientId,
+            patientUserId: visit.patientUserId,
+            patientName: visit.patientName,
+            clinicianName: visit.clinicianName,
+            visitedAt: visit.visitedAt,
+            billedAmount: visit.visitCharge,
+            insurerPays: 0.00,
+            patientOwes: 0.00,
+            state: ClaimState.InReview
+        });
+        submitClaim(claim, card.memberId);
+    }
+
+    fn submitClaim(recordDb.InsuranceClaim claim, String memberId) {
+        try {
+            let ClaimAnswer answer = InsurerProvider.InsurerAPI.post.submitClaim(SubmitClaimRequest {
+                memberId: memberId,
+                visitReference: claim.visitNoteId.toString(),
+                billedAmount: claim.billedAmount,
+                idempotencyKey: #"claim-{claim.visitNoteId}"
+            });
+            applyAnswer(claim, answer);
+        } catch (Exception e) {
+            Log.warn("Claim not submitted", { claimId: claim.id });
+        }
+    }
+
+    fn applyAnswer(recordDb.InsuranceClaim claim, ClaimAnswer answer) {
+        claim.claimNumber = answer.id;
+        claim.state = stateOf(answer.decision);
+        claim.insurerPays = answer.insurerPays;
+        claim.patientOwes = answer.patientOwes;
+        claim.reason = answer.reason;
+        claim.save();
+    }
+
+    fn sendToPharmacy(recordDb.Prescription prescription, String key) {
+        try {
+            let PharmacyTicket ticket = PharmacyProvider.PharmacyAPI.post.sendPrescription(SendPrescriptionRequest {
+                patientName: prescription.patientName,
+                drugName: prescription.drugName,
+                directions: prescription.directions,
+                quantity: prescription.quantity,
+                idempotencyKey: key
+            });
+            prescription.ticketId = ticket.id;
+            prescription.status = PrescriptionStatus.Received;
+            prescription.save();
+        } catch (Exception e) {
+            Log.warn("Prescription not sent", { prescriptionId: prescription.id });
+        }
+    }
+
+    // What a clinician works with. Opening a chart is what gets written to the patient's access log.
+    rest_api ClinicalAPI : basePath('/api/v1/clinic/records'), rdbms(recordDb) {
+        resource VisitNote : only(list), auth(required, providers: [identity], roles: [clinician]);
+
+        @path('/charts/:patientId')
+        get chart(UUID patientId) : auth(required, providers: [identity], roles: [clinician]) -> PatientChart {
+            let PatientCard card = PatientService.PatientCardAPI.get.cardById(id: patientId);
+            ChartAccess.create({
+                patientId: patientId,
+                patientUserId: card.userId,
+                viewerName: Auth.identity.fullName ?? Auth.identity.email.toString(),
+                purpose: "Opened the chart"
+            });
+            return PatientChart {
+                patient: card,
+                notes: VisitNote.where(patientId: patientId).orderBy(visitedAt: desc).limit(50).all(),
+                prescriptions: Prescription.where(patientId: patientId).orderBy(createdAt: desc).limit(50).all(),
+                claims: InsuranceClaim.where(patientId: patientId).orderBy(visitedAt: desc).limit(50).all(),
+                accesses: ChartAccess.where(patientId: patientId).orderBy(createdAt: desc).limit(50).all()
+            };
+        }
+
+        @path('/notes/:id')
+        get noteById(UUID id) : auth(required, providers: [identity], roles: [clinician]) -> NoteView {
+            let VisitNote visit = VisitNote.findOrFail(id);
+            return NoteView { visit: visit, text: visit.note };
+        }
+
+        @path('/notes/write')
+        post writeNote(WriteNoteRequest request) : auth(required, providers: [identity], roles: [clinician]) -> VisitNote {
+            let VisitNote visit = VisitNote.findOrFail(request.id);
+            if (visit.status == NoteStatus.Signed) {
+                throw NoteSignedError();
+            }
+            visit.diagnosis = request.diagnosis;
+            visit.note = request.note;
+            visit.save();
+            return visit;
+        }
+
+        @path('/notes/:id/sign')
+        post signNote(UUID id) : auth(required, providers: [identity], roles: [clinician]) -> VisitNote {
+            let VisitNote visit = VisitNote.findOrFail(id);
+            if (visit.status == NoteStatus.Signed) {
+                throw NoteSignedError();
+            }
+            if (visit.note == null) {
+                throw NoteEmptyError();
+            }
+            visit.status = NoteStatus.Signed;
+            visit.signedAt = DateTime.now();
+            visit.save();
+            fileClaim(visit);
+            return visit;
+        }
+
+        @path('/prescriptions')
+        post prescribe(PrescribeRequest request) : auth(required, providers: [identity], roles: [clinician]) -> Prescription {
+            let PatientCard card = PatientService.PatientCardAPI.get.cardById(id: request.patientId);
+            let Prescription created = Prescription.create({
+                patientId: card.id,
+                patientUserId: card.userId,
+                patientName: card.fullName,
+                drugName: request.drugName,
+                directions: request.directions,
+                quantity: request.quantity,
+                refillsLeft: request.refills,
+                prescribedBy: Auth.identity.fullName ?? Auth.identity.email.toString()
+            });
+            sendToPharmacy(created, #"rx-{created.id}");
+            return created;
+        }
+    }
+
+    // What the front desk and the clinicians read about money.
+    rest_api BillingAPI : basePath('/api/v1/clinic/billing'), rdbms(recordDb) {
+        resource InsuranceClaim : only(list), auth(required, providers: [identity], roles: [clinician, frontDesk]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [clinician, frontDesk]) -> BillingSummary {
+            let Array<InsuranceClaim> claims = InsuranceClaim.orderBy(visitedAt: desc).limit(1000).all();
+            let Money billed = 0.00;
+            let Money fromInsurers = 0.00;
+            let Money fromPatients = 0.00;
+            foreach claim in claims {
+                billed = billed + claim.billedAmount;
+                fromInsurers = fromInsurers + claim.insurerPays;
+                fromPatients = fromPatients + claim.patientOwes;
+            }
+            let Int awaiting = claims.filter(c => c.state == ClaimState.InReview).length;
+            return BillingSummary {
+                billed: billed,
+                fromInsurers: fromInsurers,
+                fromPatients: fromPatients,
+                awaitingDecision: awaiting,
+                byState: [
+                    ClaimTotal { state: "Approved", count: claims.filter(c => c.state == ClaimState.Approved).length },
+                    ClaimTotal { state: "In review", count: awaiting },
+                    ClaimTotal { state: "Denied", count: claims.filter(c => c.state == ClaimState.Denied).length },
+                    ClaimTotal { state: "Self pay", count: claims.filter(c => c.state == ClaimState.SelfPay).length }
+                ]
+            };
+        }
+    }
+
+    // A patient's own record. Each route finds the rows by the sign-in, and a draft note stays with
+    // the clinician until it is signed.
+    rest_api MyRecordAPI : basePath('/api/v1/portal/record'), rdbms(recordDb) {
+        @path('/notes')
+        get myNotes() : auth(required, providers: [identity]) -> Array<VisitNote> {
+            return VisitNote.where(patientUserId: Auth.userId(), status: NoteStatus.Signed).orderBy(visitedAt: desc).limit(50).all();
+        }
+
+        @path('/notes/:id')
+        get myNote(UUID id) : auth(required, providers: [identity]) -> NoteView {
+            let VisitNote visit = VisitNote.where(id: id, patientUserId: Auth.userId(), status: NoteStatus.Signed).firstOrFail();
+            return NoteView { visit: visit, text: visit.note };
+        }
+
+        @path('/prescriptions')
+        get myPrescriptions() : auth(required, providers: [identity]) -> Array<Prescription> {
+            return Prescription.where(patientUserId: Auth.userId()).orderBy(createdAt: desc).limit(50).all();
+        }
+
+        @path('/prescriptions/:id/refill')
+        post requestRefill(UUID id) : auth(required, providers: [identity]) -> Prescription {
+            let Prescription prescription = Prescription.where(id: id, patientUserId: Auth.userId()).firstOrFail();
+            if (prescription.refillsLeft == 0) {
+                throw NoRefillsLeftError();
+            }
+            prescription.refillsLeft = prescription.refillsLeft - 1;
+            prescription.status = PrescriptionStatus.NotSent;
+            prescription.save();
+            sendToPharmacy(prescription, #"rx-{prescription.id}-refill-{prescription.refillsLeft}");
+            return prescription;
+        }
+
+        @path('/bills')
+        get myBills() : auth(required, providers: [identity]) -> Array<InsuranceClaim> {
+            return InsuranceClaim.where(patientUserId: Auth.userId()).orderBy(visitedAt: desc).limit(50).all();
+        }
+
+        @path('/access-log')
+        get whoOpenedMyChart() : auth(required, providers: [identity]) -> Array<ChartAccess> {
+            return ChartAccess.where(patientUserId: Auth.userId()).orderBy(createdAt: desc).limit(100).all();
+        }
+    }
+
+    jobs {
+        // The pharmacy does not call back, so this asks about every ticket still moving, and texts the
+        // patient once when one is ready.
+        job SyncPharmacy {
+            let Array<recordDb.Prescription> moving = recordDb.Prescription
+                .whereIn(status: [PrescriptionStatus.Received, PrescriptionStatus.Filling, PrescriptionStatus.ReadyForPickup])
+                .limit(200)
+                .all();
+            foreach prescription in moving {
+                if (prescription.ticketId != null) {
+                    try {
+                        let PharmacyTicket ticket = PharmacyProvider.PharmacyAPI.get.ticketById(id: prescription.ticketId);
+                        let PrescriptionStatus latest = PrescriptionStatus.Received;
+                        if (ticket.status == TicketStatus.Filling) {
+                            latest = PrescriptionStatus.Filling;
+                        } else if (ticket.status == TicketStatus.ReadyForPickup) {
+                            latest = PrescriptionStatus.ReadyForPickup;
+                        } else if (ticket.status == TicketStatus.PickedUp) {
+                            latest = PrescriptionStatus.PickedUp;
+                        } else if (ticket.status == TicketStatus.Rejected) {
+                            latest = PrescriptionStatus.Rejected;
+                        }
+                        if (latest != prescription.status) {
+                            prescription.status = latest;
+                            prescription.rejectionReason = ticket.rejectionReason;
+                            prescription.save();
+                            if (latest == PrescriptionStatus.ReadyForPickup) {
+                                textPatient(prescription.patientId, #"rx-ready-{prescription.ticketId}", #"Ferncrest Clinic: your {prescription.drugName} is ready at the pharmacy.");
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.warn("Pharmacy not reached", { prescriptionId: prescription.id });
+                    }
+                }
+            }
+        }
+
+        // Asks the insurer about claims a person is reviewing, and sends any it could not reach before.
+        job SettleClaims {
+            let Array<recordDb.InsuranceClaim> open = recordDb.InsuranceClaim.where(state: ClaimState.InReview).limit(200).all();
+            foreach claim in open {
+                if (claim.claimNumber != null) {
+                    try {
+                        applyAnswer(claim, InsurerProvider.InsurerAPI.get.claimById(id: claim.claimNumber));
+                    } catch (Exception e) {
+                        Log.warn("Insurer not reached", { claimId: claim.id });
+                    }
+                } else {
+                    let PatientCard card = PatientService.PatientCardAPI.get.cardById(id: claim.patientId);
+                    if (card.memberId != null) {
+                        submitClaim(claim, card.memberId);
+                    }
+                }
+            }
+        }
+    }
+
+    test("an approved decision becomes an approved claim") {
+        assert stateOf(ClaimDecision.Approved) == ClaimState.Approved;
+        assert stateOf(ClaimDecision.Denied) == ClaimState.Denied;
+    }
+}

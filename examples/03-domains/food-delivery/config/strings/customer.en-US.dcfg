@@ -1,0 +1,33 @@
+config strings fooddelivery.Customer locale "en-US" {
+  messages {
+    appName            = "Saltbox";
+    home               = "Back to restaurants";
+    notFoundTitle      = "Page not found";
+    restaurantsTitle   = "Hungry?";
+    restaurantsSubtitle = "Pick a kitchen near you.";
+    seeMenu            = "See the menu";
+    closedNow          = "This kitchen is closed right now.";
+    addToCart          = "Add to cart";
+    added              = "Added to your cart.";
+    removed            = "Removed from your cart.";
+    cartTitle          = "Your cart";
+    cartSubtitle       = "Prices come from the kitchen, and the delivery fee from your zone.";
+    remove             = "Remove";
+    subtotal           = "Subtotal";
+    checkoutTitle      = "Check out";
+    placed             = "Your order is in.";
+    ordersTitle        = "Your orders";
+    ordersSubtitle     = "Newest first.";
+    total              = "Total";
+    itemsTitle         = "What you ordered";
+    progressTitle      = "Progress";
+  }
+  labels {
+    page.Restaurants = "Restaurants";
+    page.Menu        = "Menu";
+    page.MyCart      = "Cart";
+    page.MyOrders    = "Orders";
+    page.OrderDetail = "Order";
+    page.NotFound    = "Not found";
+  }
+}

@@ -1,0 +1,433 @@
+from taskapp.ui import Brand, statRow, cardGrid;
+from taskapp.common import TaskStatus, Priority;
+
+/// Where a team works: what is on their plate, their projects and each project's board.
+app taskapp.Workspace('config/workspace-app.dcfg') : version('2.0.0') {
+    uses taskapp.ProjectService;
+    uses taskapp.TaskService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    // What the open dialogs work on: a form sends these values without showing them.
+    state UUID? openProjectId = null;
+    state UUID? openTaskId = null;
+    state Boolean startingProject = false;
+    state Boolean startingTask = false;
+    state Boolean startingMember = false;
+    state Boolean startingMilestone = false;
+    state Boolean assigning = false;
+    state Boolean commenting = false;
+    state Boolean blocking = false;
+
+    fn moveTask(UUID id, TaskStatus status) {
+        TaskService.TaskAPI.post.moveTask(id, { status: status });
+    }
+
+    layout Shell : default {
+        nav {
+            link Home : icon(today);
+            link Projects : icon(view_kanban);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    component TaskRow(String number, String title, Priority priority, TaskStatus status) {
+        view {
+            heading(Msg.taskLine(number: number, title: title));
+            badge(status);
+            badge(priority);
+        }
+    }
+
+    @path('/')
+    page Home() {
+        data {
+            summary = TaskService.TaskAPI.get.summary() : poll(30s);
+            mine = TaskService.TaskAPI.get.mine() : poll(30s);
+        }
+        view {
+            pageHeader(Msg.homeTitle, Msg.homeSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statOpen, Fmt.number(summary.open)) : icon(checklist);
+                stat(Msg.statDueSoon, Fmt.number(summary.dueSoon)) : icon(schedule), tone(warning);
+                stat(Msg.statOverdue, Fmt.number(summary.overdue)) : icon(warning), tone(danger);
+                stat(Msg.statDone, Fmt.number(summary.doneThisWeek)) : icon(task_alt), tone(success);
+            }
+            section(Msg.onYourPlate) {
+                when (mine.length == 0) {
+                    emptyState(Msg.nothingHere) : icon(self_improvement) { link(Msg.seeProjects, Projects) : kind(primary); }
+                }
+                list(data: mine) : onClick(Nav.to(TaskDetail, id: item.id)) {
+                    TaskRow(item.number, item.title, item.priority, item.status);
+                    text(item.projectName);
+                    when (item.dueAt != null) {
+                        text(Msg.dueLine(when: Fmt.relative(item.dueAt)));
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/projects')
+    page Projects() {
+        data { projects = ProjectService.ProjectAPI.get.mine() : poll(60s); }
+
+        fn startProject() {
+            startingProject = true;
+        }
+
+        fn stopProject() {
+            startingProject = false;
+            projects.refresh();
+        }
+
+        view {
+            pageHeader(Msg.projectsTitle, Msg.projectsSubtitle) {
+                button(Msg.newProject) : onClick(startProject()), kind(primary), icon(add);
+            }
+            when (projects.length == 0) {
+                emptyState(Msg.noProjects) : icon(view_kanban) { }
+            }
+            grid : style(cardGrid) {
+                foreach (project in projects) {
+                    card(project.name) {
+                        badge(project.myRole);
+                        text(project.summary);
+                        text(Msg.projectFacts(people: Fmt.number(project.people), milestones: Fmt.number(project.milestonesOpen)));
+                        link(Msg.openBoard, ProjectBoard, id: project.id) : kind(primary), icon(view_kanban);
+                    }
+                }
+            }
+            when (startingProject) {
+                dialog(Msg.newProject) : onClose(stopProject()) {
+                    form(NewProjectForm);
+                }
+            }
+        }
+    }
+
+    form NewProjectForm : submit(ProjectService.ProjectAPI.post.createProject) {
+        fn created(UUID id) {
+            startingProject = false;
+            Ui.toast(Msg.projectCreated, tone: success);
+            Nav.to(ProjectBoard, id: id);
+        }
+        field name;
+        field code;
+        field summary;
+        field chatChannel;
+        onSuccess(created(result.id));
+    }
+
+    @path('/projects/:id')
+    page ProjectBoard(UUID id) {
+        data {
+            page = ProjectService.ProjectAPI.get.page(id: id);
+            tasks = TaskService.TaskAPI.get.board(projectId: id) : poll(15s);
+            activity = TaskService.TaskAPI.get.activity(projectId: id) : poll(30s);
+        }
+
+        fn drop(UUID taskId, TaskStatus status) {
+            moveTask(taskId, status);
+            tasks.refresh();
+            activity.refresh();
+        }
+
+        fn startTask() {
+            openProjectId = id;
+            startingTask = true;
+        }
+
+        fn stopTask() {
+            startingTask = false;
+            tasks.refresh();
+            activity.refresh();
+        }
+
+        fn startMember() {
+            openProjectId = id;
+            startingMember = true;
+        }
+
+        fn stopMember() {
+            startingMember = false;
+            page.refresh();
+        }
+
+        fn startMilestone() {
+            openProjectId = id;
+            startingMilestone = true;
+        }
+
+        fn stopMilestone() {
+            startingMilestone = false;
+            page.refresh();
+        }
+
+        fn finishMilestone(UUID milestoneId) {
+            ProjectService.ProjectAPI.post.finishMilestone(id: milestoneId);
+            page.refresh();
+            Ui.toast(Msg.milestoneDone, tone: success);
+        }
+
+        fn removeMember(UUID memberId) {
+            ProjectService.ProjectAPI.post.removeMember(id: memberId);
+            page.refresh();
+            Ui.toast(Msg.memberRemoved, tone: info);
+        }
+
+        view {
+            pageHeader(page.project.name, page.project.summary) : back(Projects) {
+                badge(page.project.myRole);
+                when (page.canEdit) {
+                    button(Msg.newTask) : onClick(startTask()), kind(primary), icon(add_task);
+                }
+            }
+            tabs {
+                tab(Msg.tabBoard) : badge(tasks.length) {
+                    board(data: tasks, column: t => t.status) : onMove(drop(item.id, column)) {
+                        heading(item.title);
+                        text(item.number);
+                        badge(item.priority);
+                        when (item.assigneeName != null) {
+                            text(item.assigneeName);
+                        }
+                        when (item.openBlockers > 0) {
+                            callout(Msg.blockedLine(count: Fmt.number(item.openBlockers))) : tone(danger);
+                        }
+                        link(Msg.openTask, TaskDetail, id: item.id);
+                    }
+                }
+                tab(Msg.tabMilestones) : badge(page.milestones.length) {
+                    when (page.canEdit) {
+                        button(Msg.newMilestone) : onClick(startMilestone()), icon(flag);
+                    }
+                    list(data: page.milestones) {
+                        heading(item.name);
+                        text(Msg.dueLine(when: Fmt.date(item.dueAt)));
+                        when (item.isDone) {
+                            callout(Msg.milestoneReached) : tone(success);
+                        }
+                        when (!item.isDone && page.canEdit) {
+                            button(Msg.markReached) : onClick(finishMilestone(item.id)), icon(task_alt);
+                        }
+                    }
+                }
+                tab(Msg.tabPeople) : badge(page.people.length) {
+                    when (page.canManage) {
+                        button(Msg.addPerson) : onClick(startMember()), icon(person_add);
+                    }
+                    list(data: page.people) {
+                        heading(item.personName);
+                        badge(item.role);
+                        when (page.canManage) {
+                            button(Msg.removePerson) : onClick(removeMember(item.id)), icon(person_remove), tone(danger);
+                        }
+                    }
+                }
+                tab(Msg.tabActivity) {
+                    timeline(data: activity, at: a => a.createdAt) {
+                        text(Msg.activityLine(who: item.actorName, number: item.taskNumber, what: item.summary));
+                    }
+                }
+            }
+            when (startingTask) {
+                dialog(Msg.newTask) : onClose(stopTask()) {
+                    form(NewTaskForm);
+                }
+            }
+            when (startingMember) {
+                dialog(Msg.addPerson) : onClose(stopMember()) {
+                    form(NewMemberForm);
+                }
+            }
+            when (startingMilestone) {
+                dialog(Msg.newMilestone) : onClose(stopMilestone()) {
+                    form(NewMilestoneForm);
+                }
+            }
+        }
+    }
+
+    form NewTaskForm : submit(TaskService.TaskAPI.post.createTask) {
+        fn created() {
+            startingTask = false;
+            Ui.toast(Msg.taskCreated, tone: success);
+        }
+        field projectId : fixed(openProjectId);
+        field title;
+        field description;
+        field priority;
+        field dueAt;
+        onSuccess(created());
+    }
+
+    form NewMemberForm : submit(ProjectService.ProjectAPI.post.addMember) {
+        fn added() {
+            startingMember = false;
+            Ui.toast(Msg.memberAdded, tone: success);
+        }
+        field projectId : fixed(openProjectId);
+        field personName;
+        field email;
+        field role;
+        onSuccess(added());
+    }
+
+    form NewMilestoneForm : submit(ProjectService.ProjectAPI.post.addMilestone) {
+        fn added() {
+            startingMilestone = false;
+            Ui.toast(Msg.milestoneAdded, tone: success);
+        }
+        field projectId : fixed(openProjectId);
+        field name;
+        field dueAt;
+        onSuccess(added());
+    }
+
+    @path('/tasks/:id')
+    page TaskDetail(UUID id) {
+        data { page = TaskService.TaskAPI.get.page(id: id) : poll(30s); }
+
+        fn assignTo(String personName, String email) {
+            TaskService.TaskAPI.post.assign({ taskId: id, personName: personName, email: email });
+            assigning = false;
+            page.refresh();
+            Ui.toast(Msg.taskAssigned, tone: success);
+        }
+
+        fn startAssigning() {
+            assigning = true;
+        }
+
+        fn stopAssigning() {
+            assigning = false;
+        }
+
+        fn startCommenting() {
+            openTaskId = id;
+            commenting = true;
+        }
+
+        fn stopCommenting() {
+            commenting = false;
+            page.refresh();
+        }
+
+        fn startBlocking() {
+            openTaskId = id;
+            blocking = true;
+        }
+
+        fn stopBlocking() {
+            blocking = false;
+            page.refresh();
+        }
+
+        view {
+            pageHeader(page.task.title, page.task.number) : back(Projects) {
+                badge(page.task.status);
+                badge(page.task.priority);
+                when (page.canEdit) {
+                    button(Msg.assign) : onClick(startAssigning()), icon(person);
+                    button(Msg.addBlocker) : onClick(startBlocking()), icon(block);
+                }
+                button(Msg.addComment) : onClick(startCommenting()), kind(primary), icon(comment);
+            }
+            grid : style(statRow) {
+                stat(Msg.statProject, page.task.projectName) : icon(view_kanban);
+                stat(Msg.statAssignee, page.task.assigneeName ?? Msg.nobody) : icon(person);
+                stat(Msg.statBlockers, Fmt.number(page.task.openBlockers)) : icon(block);
+                when (page.task.dueAt != null) {
+                    stat(Msg.statDue, Fmt.date(page.task.dueAt)) : icon(event);
+                }
+            }
+            card { markdown(page.task.description); }
+            when (page.blockers.length > 0) {
+                section(Msg.waitingOn) {
+                    list(data: page.blockers) {
+                        heading(Msg.taskLine(number: item.blockerNumber, title: item.blockerTitle));
+                    }
+                }
+            }
+            section(Msg.commentsTitle) {
+                when (page.comments.length == 0) {
+                    emptyState(Msg.noComments) : icon(comment) { }
+                }
+                timeline(data: page.comments, at: c => c.createdAt) {
+                    heading(item.authorName);
+                    markdown(item.body);
+                }
+            }
+            when (assigning) {
+                dialog(Msg.assign) : onClose(stopAssigning()) {
+                    foreach (person in page.people) {
+                        button(person.personName) : onClick(assignTo(person.personName, person.email)), icon(person);
+                    }
+                }
+            }
+            when (commenting) {
+                dialog(Msg.addComment) : onClose(stopCommenting()) {
+                    form(NewCommentForm);
+                }
+            }
+            when (blocking) {
+                dialog(Msg.addBlocker) : onClose(stopBlocking()) {
+                    form(NewBlockerForm);
+                }
+            }
+        }
+    }
+
+    form NewCommentForm : submit(TaskService.TaskAPI.post.addComment) {
+        fn added() {
+            commenting = false;
+        }
+        field taskId : fixed(openTaskId);
+        field body;
+        onSuccess(added());
+    }
+
+    form NewBlockerForm : submit(TaskService.TaskAPI.post.addBlocker) {
+        fn added() {
+            blocking = false;
+            Ui.toast(Msg.blockerAdded, tone: info);
+        }
+        field taskId : fixed(openTaskId);
+        field blockerNumber;
+        onSuccess(added());
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.backHome, Home); }
+        }
+    }
+
+    test("the projects page opens") {
+        let Screen screen = render(Projects);
+        assert screen.shows(Msg.projectsTitle);
+    }
+}

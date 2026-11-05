@@ -1,0 +1,40 @@
+config service realestate.EmailMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8092;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms emailDb from postgresContainer(id: "6dc8df95-b8e3-425a-bb2a-1390bd27d805", database: "realestate_email_mock");
+    httpSecurity from localHttpSecurity(host: "realestate-email-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

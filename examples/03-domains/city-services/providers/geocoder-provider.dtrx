@@ -1,0 +1,28 @@
+// The contract of the address lookup vendor, which turns what a resident typed into coordinates.
+// An address it does not recognise is an answer, not an error.
+extern service cityservices.GeocoderProvider('config/providers/geocoder-provider.dcfg')
+    : version('1.0.0'), description('Street address lookup') {
+
+    struct GeocodeRequest {
+        String(300) query;
+    }
+
+    struct GeocodeResult {
+        Boolean matched;
+        Float? latitude;
+        Float? longitude;
+        String(300)? formattedAddress;
+    }
+
+    rest_api GeocoderAPI : basePath('/v1') {
+        @path('/geocode')
+        post geocode(GeocodeRequest request) -> GeocodeResult;
+    }
+
+    errors {
+        InvalidQuery(String message);
+    }
+
+    auth : apiKey(header: 'X-Geocoder-Api-Key');
+    health : path('/health');
+}

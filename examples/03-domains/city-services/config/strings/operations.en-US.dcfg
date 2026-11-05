@@ -1,0 +1,74 @@
+config strings cityservices.Operations locale "en-US" {
+  messages {
+    appName           = "Port Alder Operations";
+    navRequests       = "Requests";
+    navCity           = "City";
+    navVendors        = "Vendors";
+    account           = "Account";
+    signOut           = "Sign out";
+    home              = "Back to the board";
+    notFoundTitle     = "Page not found";
+    boardTitle        = "Today's board";
+    boardSubtitle     = "Open problems across the city.";
+    statOpen          = "Open";
+    statAssigned      = "Assigned";
+    statInProgress    = "In progress";
+    statNeedsLocation = "Needs a location";
+    queueTitle        = "All requests";
+    queueSubtitle     = "Every report, by state, priority and category.";
+    raisePriority     = "Raise priority";
+    priorityRaised    = "Priority raised.";
+    assign            = "Assign";
+    start             = "Start work";
+    resolve           = "Resolve";
+    close             = "Close";
+    needsLocation     = "The address vendor could not place this report. Check the address with the resident.";
+    historyTitle      = "History";
+    districtsTitle    = "Districts";
+    districtsSubtitle = "Area comes from each boundary, computed by PostGIS.";
+    districtLine      = "{population} people across {area} square kilometres";
+    open              = "Open";
+    closed            = "Closed";
+    placed            = "Placed";
+    notPlaced         = "Not placed";
+    facilitiesTitle   = "Facilities";
+    facilitiesSubtitle = "A closed facility drops off the public map.";
+    facilityChanged   = "Facility updated.";
+    textsTitle        = "Texts sent";
+    textsSubtitle     = "Every text the application sent. None of them reached a phone.";
+    lookupsTitle      = "Address lookups";
+    lookupsSubtitle   = "What the application asked the address vendor, and what it knows.";
+    tabLookups        = "Lookups";
+    tabAddresses      = "Known addresses";
+    addAddress        = "Add an address";
+    addressAdded      = "Address added.";
+  }
+  labels {
+    page.Board         = "Board";
+    page.Queue         = "All requests";
+    page.RequestDetail = "Request";
+    page.Districts     = "Districts";
+    page.Facilities    = "Facilities";
+    page.Texts         = "Texts sent";
+    page.Lookups       = "Address lookups";
+    page.NotFound      = "Not found";
+    field.ServiceRequest.createdAt     = "Reported";
+    field.ServiceRequest.requestNumber = "Reference";
+    field.ServiceRequest.districtName  = "District";
+    field.Facility.isOperational       = "Status";
+    field.SentSms.createdAt            = "Sent";
+    field.SentSms.body                 = "Message";
+    field.Lookup.createdAt             = "When";
+    field.Lookup.query                 = "Address asked";
+    field.Lookup.matched               = "Result";
+    field.KnownAddress.formattedAddress = "Address";
+    filter.Requests.status          = "Status";
+    filter.Requests.priority        = "Priority";
+    filter.Requests.category        = "Category";
+    filter.Requests.title           = "Title";
+    filter.FacilityList.type        = "Type";
+    filter.FacilityList.isOperational = "Open";
+    filter.TextList.status          = "Status";
+    filter.LookupList.matched       = "Matched";
+  }
+}

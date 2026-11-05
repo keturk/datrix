@@ -1,0 +1,34 @@
+// API keys of the e-signature vendor. mode = self: SignatureMock issues and verifies them itself, and
+// only the SHA-256 hash of a key is stored.
+config identity signatureKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "workforce";
+    apiKey {
+      header = "X-Signature-Api-Key";
+      store = "hr.SignatureMock";
+      storeBlock = "signatureDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+      }
+      lastUsedResolutionSeconds = 60;
+      serviceProviders = ["machine"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

@@ -1,0 +1,235 @@
+from lms.ui import Brand, statRow, cardGrid;
+
+/// Where a student learns, on the web and on a phone. The catalog is open to anyone; paying, reading a
+/// lesson and asking the tutor start a sign-in.
+app lms.Student('config/student-app.dcfg') : version('2.0.0') {
+    uses lms.CourseService;
+    uses lms.EnrollmentService;
+    uses lms.TutorService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    state UUID? enrollingIn = null;
+    state UUID? openEnrollment = null;
+    state UUID? openLesson = null;
+    state Boolean answering = false;
+    state Boolean asking = false;
+    state String tutorAnswer = "";
+
+    layout Site : default {
+        nav {
+            link Catalog : icon(school);
+            link MyLearning : icon(menu_book);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Catalog() {
+        data { courses = CourseService.CatalogAPI.get.published(); }
+        view {
+            pageHeader(Msg.catalogTitle, Msg.catalogSubtitle);
+            when (courses.length == 0) {
+                emptyState(Msg.noCourses) : icon(school);
+            }
+            grid : style(cardGrid) {
+                foreach (course in courses) {
+                    card(course.title) {
+                        badge(course.level);
+                        text(course.summary);
+                        text(Msg.taughtBy(name: course.instructorName));
+                        text(Msg.courseFacts(lessons: Fmt.number(course.lessonCount), minutes: Fmt.number(course.totalMinutes)));
+                        text(Fmt.money(course.price));
+                        link(Msg.seeCourse, CourseDetail, id: course.id) : kind(primary), icon(arrow_forward);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/courses/:id')
+    page CourseDetail(UUID id) {
+        data { course = CourseService.CatalogAPI.get.courseById(id: id); }
+        state Boolean enrolling = false;
+
+        fn startEnrolling() {
+            enrollingIn = id;
+            enrolling = true;
+        }
+
+        fn stopEnrolling() {
+            enrolling = false;
+        }
+
+        view {
+            pageHeader(course.title, course.instructorName) : back(Catalog) {
+                badge(course.level);
+                button(Msg.enrollFor(price: Fmt.money(course.price))) : onClick(startEnrolling()), kind(primary), icon(shopping_cart);
+            }
+            when (enrolling) {
+                dialog(Msg.enrollTitle) : onClose(stopEnrolling()) {
+                    callout(Msg.testCardNote) : tone(info);
+                    form(Enroll);
+                }
+            }
+            card { markdown(course.summary); }
+            section(Msg.syllabus) {
+                list(data: course.lessons) {
+                    heading(item.title);
+                    text(Msg.minutesLine(minutes: Fmt.number(item.minutes)));
+                }
+            }
+        }
+    }
+
+    form Enroll : submit(EnrollmentService.LearnerAPI.post.enroll) {
+        fn enrolled(UUID id) {
+            Ui.toast(Msg.enrolled, tone: success);
+            Nav.to(LearnCourse, id: id);
+        }
+        field courseId : fixed(enrollingIn);
+        field card;
+        onSuccess(enrolled(result.id));
+    }
+
+    @path('/learning')
+    page MyLearning() {
+        data { enrollments = EnrollmentService.LearnerAPI.get.mine(); }
+        view {
+            pageHeader(Msg.learningTitle, Msg.learningSubtitle);
+            when (enrollments.length == 0) {
+                emptyState(Msg.notEnrolled) : icon(menu_book) { link(Msg.seeCatalog, Catalog) : kind(primary); }
+            }
+            list(data: enrollments) : onClick(Nav.to(LearnCourse, id: item.id)) {
+                heading(item.courseTitle);
+                badge(item.status);
+                text(Msg.progressLine(percent: Fmt.number(item.progressPercent)));
+                text(Fmt.relative(item.lastActiveAt));
+            }
+        }
+    }
+
+    @path('/learning/:id')
+    page LearnCourse(UUID id) {
+        data { journey = EnrollmentService.LearnerAPI.get.journey(id: id); }
+        view {
+            pageHeader(journey.enrollment.courseTitle, Msg.progressLine(percent: Fmt.number(journey.enrollment.progressPercent))) : back(MyLearning) {
+                badge(journey.enrollment.status);
+            }
+            when (journey.enrollment.certificateCode != null) {
+                callout(Msg.certificateLine(code: journey.enrollment.certificateCode)) : tone(success);
+            }
+            list(data: journey.steps) : onClick(Nav.to(ReadLesson, id: id, lessonId: item.lessonId)) {
+                heading(item.title);
+                when (item.passed) { badge(Msg.passed) : tone(success); }
+                when (!item.passed) { badge(Msg.notYet) : tone(neutral); }
+                text(Msg.minutesLine(minutes: Fmt.number(item.minutes)));
+            }
+        }
+    }
+
+    @path('/learning/:id/lessons/:lessonId')
+    page ReadLesson(UUID id, UUID lessonId) {
+        data { lesson = CourseService.LessonAPI.get.lessonById(id: lessonId); }
+
+        fn startAnswering() {
+            openEnrollment = id;
+            openLesson = lessonId;
+            answering = true;
+        }
+
+        fn startAsking() {
+            openEnrollment = id;
+            openLesson = lessonId;
+            tutorAnswer = "";
+            asking = true;
+        }
+
+        fn closeDialogs() {
+            answering = false;
+            asking = false;
+        }
+
+        view {
+            pageHeader(lesson.title, Msg.minutesLine(minutes: Fmt.number(lesson.minutes))) : back(MyLearning) {
+                link(Msg.backToCourse, LearnCourse, id: id) : icon(arrow_back);
+                button(Msg.askTutor) : onClick(startAsking()), icon(forum);
+            }
+            card { markdown(lesson.body); }
+            card(lesson.question) {
+                text(Msg.optionALine(text: lesson.optionA));
+                text(Msg.optionBLine(text: lesson.optionB));
+                text(Msg.optionCLine(text: lesson.optionC));
+                button(Msg.answerIt) : onClick(startAnswering()), kind(primary), icon(quiz);
+            }
+            when (answering) {
+                dialog(lesson.question) : onClose(closeDialogs()) {
+                    form(AnswerQuiz);
+                }
+            }
+            when (asking) {
+                dialog(Msg.askTutor) : onClose(closeDialogs()) {
+                    form(AskTutor);
+                    when (tutorAnswer != "") {
+                        callout(tutorAnswer) : tone(info);
+                    }
+                }
+            }
+        }
+    }
+
+    form AnswerQuiz : submit(EnrollmentService.LearnerAPI.post.answer) {
+        fn answered(Boolean correct) {
+            answering = false;
+            if (correct) {
+                Ui.toast(Msg.rightAnswer, tone: success);
+            } else {
+                Ui.toast(Msg.wrongAnswer, tone: warning);
+            }
+        }
+        field enrollmentId : fixed(openEnrollment);
+        field lessonId : fixed(openLesson);
+        field answer;
+        onSuccess(answered(result.correct));
+    }
+
+    form AskTutor : submit(TutorService.TutorAPI.post.ask) {
+        fn answered(String answer) {
+            tutorAnswer = answer;
+        }
+        field enrollmentId : fixed(openEnrollment);
+        field lessonId : fixed(openLesson);
+        field question;
+        onSuccess(answered(result.answer));
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Catalog); }
+        }
+    }
+
+    test("the catalog opens") {
+        let Screen screen = render(Catalog);
+        assert screen.shows(Msg.catalogTitle);
+    }
+}

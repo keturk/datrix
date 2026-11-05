@@ -1,0 +1,28 @@
+// The contract of the geocoding vendor: an address becomes a point on the map. It also says whether the
+// point is in Quayline's delivery area, which a real deployment would decide with its own polygon.
+// config/providers/geocode-provider.dcfg says where it is served.
+extern service logistics.GeocodeProvider('config/providers/geocode-provider.dcfg')
+    : version('1.0.0'), description('Addresses to points') {
+
+    struct GeocodeRequest {
+        String(300) address;
+        String(100) city;
+    }
+
+    struct GeocodedAddress {
+        Boolean found;
+        Float latitude;
+        Float longitude;
+        Boolean withinServiceArea;
+    }
+
+    rest_api GeocodeAPI : basePath('/v1') {
+        @path('/geocode')
+        post geocode(GeocodeRequest request) -> GeocodedAddress {
+            ensure request.city != "";
+        }
+    }
+
+    auth : apiKey(header: 'X-Geocode-Api-Key');
+    health : path('/health');
+}

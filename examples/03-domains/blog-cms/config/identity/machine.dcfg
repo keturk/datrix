@@ -1,0 +1,21 @@
+// Service-to-service callers. Issues the tokens that let a service reach a key-verifying mock;
+// never a browser.
+config identity machine {
+  base {
+    audience = "machine";
+    mode = "platformManaged";
+    jwksCacheTtlSeconds = 3600;
+    tokens {
+      accessToken = "15m";
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

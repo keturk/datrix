@@ -1,0 +1,40 @@
+config service fooddelivery.SmsMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8092;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms smsDb from postgresContainer(id: "f89170a3-c16a-4fea-af37-cba6fe800b51", database: "fooddelivery_sms_mock");
+    httpSecurity from localHttpSecurity(host: "fooddelivery-sms-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

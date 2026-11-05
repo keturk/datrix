@@ -1,802 +1,400 @@
+from taskapp.common import TaskStatus, Priority;
 
-from taskapp.common import Priority, MAX_TITLE_LENGTH;
+// Tasks on a board. The rule the board keeps: a task cannot start while another one blocks it, and finishing
+// a blocker frees everything waiting on it in one transaction. Every change is written to an append-only
+// activity feed and told to the notice service as an event. Reading from outside the app goes through GraphQL.
+service taskapp.TaskService('config/task-service.dcfg') : version('2.0.0'), description('Tasks, comments and activity') {
 
-service taskapp.TaskService('config/task-service.dcfg') : version('1.0.0'), description('task tracking and workflow management service') {
-    discovery {
-        ProjectService { loadBalance: roundRobin, healthyOnly: true }
-        UserService { loadBalance: roundRobin, healthyOnly: true }
-    }
+    discovery { }
 
-    enum TaskStatus {
-        Todo : value('todo'),
-        InProgress : value('in_progress'),
-        InReview : value('in_review'),
-        Done : value('done'),
-        Cancelled : value('cancelled')
-    }
+    uses ProjectService;
 
-    enum TaskLabel {
-        Bug : value('bug'),
-        Feature : value('feature'),
-        Improvement : value('improvement'),
-        Documentation : value('documentation'),
-        Chore : value('chore')
-    }
-
-    struct CreateTaskRequest {
-        UUID projectId;
-        String title;
-        Text? description;
-        Priority priority;
-        UUID? assigneeId;
-        DateTime? dueDate;
-        Decimal? estimatedHours;
-        TaskLabel? label;
-    }
-
-    struct UpdateTaskRequest {
-        String(200)? title;
-        Text? description;
-        Priority? priority;
-        UUID? assigneeId;
-        DateTime? dueDate;
-        Decimal? estimatedHours;
-        TaskLabel? label;
-    }
-
-    struct UpdateStatusRequest {
-        TaskStatus status;
-    }
-
-    struct AssignTaskRequest {
-        UUID assigneeId;
-    }
-
-    struct CreateCommentRequest {
-        Text content;
-    }
-
-    struct TaskStats {
-        Int totalTasks;
-        Int todoCount;
-        Int inProgressCount;
-        Int inReviewCount;
-        Int doneCount;
-        Int cancelledCount;
-        Int overdueCount;
+    exceptions {
+        NoSuchTaskError : status(404), message("Task not found");
+        ReadOnlyError : status(403), message("You can read this project but not change it");
+        BlockedError : status(409), message("Another task is blocking this one, so it cannot start yet");
+        SelfBlockError : status(422), message("A task cannot block itself");
+        LoopError : status(409), message("That task is already waiting on this one");
+        AlreadyBlockedError : status(409), message("That task is already blocking this one");
+        NotOnProjectError : status(422), message("That person is not on this project");
     }
 
     rdbms taskDb {
 
-        entity Task extends BaseEntity : audit {
+        entity Task extends BaseEntity {
+            /// WEB-42. The number people say out loud.
+            String(20) number : unique;
+            String(200) title : filterable;
+            String(120) projectName : filterable;
+            TaskStatus status : filterable = TaskStatus.Backlog;
+            Priority priority : filterable = Priority.Normal;
+            String(200)? assigneeName : filterable;
+            DateTime? dueAt;
+            DateTime? doneAt;
+            /// How many unfinished tasks block this one. Zero means it may start.
+            Int openBlockers = 0;
+            Text description;
+            /// The last day this task was reported overdue, so it is reported once a day.
+            DateTime? overdueToldAt;
+            /// Where this project's news goes, copied here so a job needs no other service to say it.
+            String(80) chatChannel;
             UUID projectId : index;
-            String(200) title : trim;
-            Text? description;
-            TaskStatus status = TaskStatus.Todo;
-            Priority priority = Priority.Medium;
-            UUID? assigneeId : index;
-            UUID? reporterId : index;
-            DateTime? dueDate;
-            DateTime? startedAt;
-            DateTime? completedAt;
-            Decimal(6, 2)? estimatedHours;
-            Decimal(6, 2)? actualHours;
-            TaskLabel? label;
-            String(20)? taskNumber;
-            Int commentCount = 0;
-            UUID? parentTaskId;
-            Int subtaskCount = 0;
-            Int completedSubtaskCount = 0;
+            Email? assigneeEmail : index;
 
-            // Computed fields
-            Boolean isOverdue := dueDate != null && dueDate < DateTime.now() && status != TaskStatus.Done && status != TaskStatus.Cancelled;
-            Boolean isBlocked := false;
-            Boolean isCompleted := status == TaskStatus.Done;
-            Boolean isOpen := status == TaskStatus.Todo || status == TaskStatus.InProgress || status == TaskStatus.InReview;
-            Boolean hasAssignee := assigneeId != null;
-
-            hasMany TaskComment as comments : cascade(delete);
-            hasMany TaskDependency as dependencies : cascade(delete);
-
-            index(projectId, status);
-            index(projectId, assigneeId);
-            index(projectId, priority);
-            index(status, dueDate);
-            index(assigneeId, status);
             fulltext(title, description);
-
-            validate {
-                if (title.trim().isEmpty())
-                ValidationError("Task title cannot be empty");
-                if (title.length() > MAX_TITLE_LENGTH)
-                ValidationError("Task title cannot exceed 200 characters");
-                if (estimatedHours != null && estimatedHours < 0)
-                ValidationError("Estimated hours cannot be negative");
-                if (actualHours != null && actualHours < 0)
-                ValidationError("Actual hours cannot be negative");
-            }
-
-            beforeCreate {
-                taskNumber = #"TASK-{Random.string(8).toUpperCase()}";
-            }
-
-            afterCreate {
-                dispatch TaskCreated(id, projectId, title, priority, assigneeId);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch TaskStatusChanged(id, projectId, oldValue(status), status);
-
-                    if (status == TaskStatus.InProgress && startedAt == null) {
-                        startedAt = DateTime.now();
-                    }
-
-                    if (status == TaskStatus.Done) {
-                        completedAt = DateTime.now();
-                        Log.info("Task completed", { taskId: id, projectId: projectId });
-                    }
-
-                }
-
-                if (isChanged(assigneeId)) {
-                    dispatch TaskAssigned(id, projectId, assigneeId);
-                    Log.info("Task assigned", { taskId: id, assigneeId: assigneeId });
-                }
-
-                if (isChanged(priority)) {
-                    Log.info("Task priority changed", {
-                        taskId: id,
-                        oldPriority: oldValue(priority),
-                        newPriority: priority
-                    });
-                }
-
-            }
-
         }
 
-        entity TaskComment extends BaseEntity {
-            UUID authorId : index;
-            Text content;
-
-            belongsTo Task : index;
-
-            index(taskId, createdAt);
-
-            validate {
-                if (content.trim().isEmpty())
-                ValidationError("Comment content cannot be empty");
-            }
-
-            afterCreate {
-                // Increment comment count on the task
-                let Task? task = taskDb.Task.find(taskId);
-                if (task != null) {
-                    task.commentCount = task.commentCount + 1;
-                    task.save();
-                }
-
-            }
-
+        entity Comment extends BaseEntity {
+            String(200) authorName;
+            Text body;
+            UUID taskId : index;
+            Email authorEmail;
         }
 
-        entity TaskDependency extends BaseEntity {
-            UUID dependsOnTaskId : index;
+        /// One task waiting on another. The names are copied here so a page never shows an id.
+        entity Blocker extends BaseEntity {
+            String(20) blockerNumber;
+            String(200) blockerTitle;
+            UUID taskId : index;
+            UUID blockerTaskId : index;
 
-            belongsTo Task : index;
-
-            index(taskId, dependsOnTaskId) : unique;
-
-            validate {
-                if (taskId == dependsOnTaskId)
-                ValidationError("A task cannot depend on itself");
-            }
-
+            index(taskId, blockerTaskId) : unique;
         }
 
+        /// Everything that happened on a project. Never changed once written.
+        entity Activity extends BaseEntity : appendOnly {
+            String(200) actorName;
+            String(20) taskNumber;
+            String(400) summary;
+            UUID projectId : index;
+        }
     }
 
     pubsub mq {
-
         topic TaskEvents {
-            publish TaskCreated(UUID taskId, UUID projectId, String title, Priority priority, UUID? assigneeId) {
-                ensure title.length > 0;
+            publish TaskAssigned(String number, String title, String projectName, String assigneeName, String assigneeEmail, String actorName) {
+                ensure assigneeEmail != "";
             }
-
-            publish TaskStatusChanged(UUID taskId, UUID projectId, TaskStatus oldStatus, TaskStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish TaskAssigned(UUID taskId, UUID projectId, UUID? assigneeId);
-            publish TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate);
-            publish TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId);
+            publish TaskFinished(String number, String title, String projectName, String channel, String actorName);
+            publish TaskOverdue(String number, String title, String projectName, String channel, String assigneeName);
         }
-
     }
 
-    subscribe TaskEvents {
-        on TaskCreated(UUID taskId, UUID projectId, String title, Priority priority, UUID? assigneeId) {
-            Log.info("Task created", {
-                taskId: taskId,
-                projectId: projectId,
-                title: title,
-                priority: priority
-            });
-        }
-
-        on TaskStatusChanged(UUID taskId, UUID projectId, TaskStatus oldStatus, TaskStatus newStatus) {
-            Log.info("Task status changed", {
-                taskId: taskId,
-                projectId: projectId,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-
-            // Update project task counts when task is completed
-            if (newStatus == TaskStatus.Done) {
-                try {
-                    let Project project = ProjectService.ProjectAPI.get.projectByIdInternal(projectId);
-                    Log.info("Task completed for project", { projectId: projectId, taskId: taskId });
-                } catch (Exception e) {
-                    Log.error(#"Failed to update project counts: {e}");
-                }
-
-            }
-
-        }
-
-        on TaskAssigned(UUID taskId, UUID projectId, UUID? assigneeId) {
-            if (assigneeId != null) {
-                Log.info("Task assigned to user", { taskId: taskId, assigneeId: assigneeId });
-            } else {
-                Log.info("Task unassigned", { taskId: taskId });
-            }
-
-        }
-
-        on TaskOverdue(UUID taskId, UUID projectId, DateTime dueDate) {
-            Log.warn("Task is overdue", {
-                taskId: taskId,
-                projectId: projectId,
-                dueDate: dueDate
-            });
-        }
-
-        on TaskCommentAdded(UUID taskId, UUID commentId, UUID authorId) {
-            Log.info("Comment added to task", {
-                taskId: taskId,
-                commentId: commentId,
-                authorId: authorId
-            });
-        }
-
+    struct NewTask {
+        UUID projectId;
+        String(200) title;
+        Text description;
+        Priority priority;
+        DateTime? dueAt;
     }
 
-    subscribe ProjectEvents {
-        on ProjectStatusChanged(UUID projectId, ProjectStatus oldStatus, ProjectStatus newStatus) {
-            Log.info("Project status changed, checking tasks", { projectId: projectId, newStatus: newStatus });
-
-            // If project is archived, cancel all open tasks
-            if (newStatus == ProjectStatus.Archived) {
-                let Array<Task> openTasks = taskDb.Task
-                .where(projectId: projectId)
-                .where(status: TaskStatus.Todo)
-                .all();
-
-                let Array<Task> inProgressTasks = taskDb.Task
-                .where(projectId: projectId)
-                .where(status: TaskStatus.InProgress)
-                .all();
-
-                foreach task in openTasks {
-                    task.status = TaskStatus.Cancelled;
-                    task.save();
-                }
-
-                foreach task in inProgressTasks {
-                    task.status = TaskStatus.Cancelled;
-                    task.save();
-                }
-
-                let Int cancelledCount = openTasks.length() + inProgressTasks.length();
-                if (cancelledCount > 0) {
-                    Log.info("Cancelled tasks for archived project", {
-                        projectId: projectId,
-                        cancelledCount: cancelledCount
-                    });
-                }
-
-            }
-
-        }
-
-        on ProjectArchived(UUID projectId) {
-            Log.info("Project archived, cancelling remaining tasks", { projectId: projectId });
-        }
-
+    struct MoveTask {
+        TaskStatus status;
     }
 
-    jobs {
-        job CheckOverdueTasks {
-            let Array<Task> overdueTasks = taskDb.Task
-            .where(status: TaskStatus.Todo)
-            .where(dueDate: lt(DateTime.now()))
-            .all();
-
-            let Array<Task> overdueInProgress = taskDb.Task
-            .where(status: TaskStatus.InProgress)
-            .where(dueDate: lt(DateTime.now()))
-            .all();
-
-            let Int count = 0;
-            foreach task in overdueTasks {
-                if (task.dueDate != null) {
-                    dispatch TaskOverdue(task.id, task.projectId, task.dueDate);
-                    count = count + 1;
-                }
-
-            }
-
-            foreach task in overdueInProgress {
-                if (task.dueDate != null) {
-                    dispatch TaskOverdue(task.id, task.projectId, task.dueDate);
-                    count = count + 1;
-                }
-
-            }
-
-            if (count > 0) {
-                Log.info("Found overdue tasks", { count: count });
-            }
-
-        }
-
+    struct AssignTask {
+        UUID taskId;
+        String(200) personName;
+        String(200) email;
     }
 
+    struct NewComment {
+        UUID taskId;
+        Text body;
+    }
+
+    struct NewBlocker {
+        UUID taskId;
+        String(20) blockerNumber;
+    }
+
+    struct TaskPage {
+        Task task;
+        Array<Comment> comments;
+        Array<Blocker> blockers;
+        Array<PersonRow> people;
+        Boolean canEdit;
+    }
+
+    struct PersonRow {
+        String personName;
+        String email;
+    }
+
+    struct MySummary {
+        Int open;
+        Int dueSoon;
+        Int overdue;
+        Int doneThisWeek;
+    }
+
+    fn actorName() -> String {
+        return (Auth.identity.fullName ?? Auth.identity.email).toString();
+    }
+
+    fn accessTo(UUID projectId) -> ProjectAccess {
+        let ProjectAccess access = ProjectService.ProjectInternalAPI.post.access({
+            projectId: projectId,
+            email: Auth.identity.email.toString()
+        });
+        if (!access.isMember) {
+            throw NoSuchTaskError();
+        }
+        return access;
+    }
+
+    fn editableAccess(UUID projectId) -> ProjectAccess {
+        let ProjectAccess access = accessTo(projectId);
+        if (!access.canEdit) {
+            throw ReadOnlyError();
+        }
+        return access;
+    }
+
+    fn logActivity(taskDb.Task task, String summary) {
+        taskDb.Activity.create({
+            projectId: task.projectId,
+            taskNumber: task.number,
+            actorName: actorName(),
+            summary: summary
+        });
+    }
+
+    /// Finishing a task frees whatever was waiting on it, in the same transaction as the task itself.
+    fn finish(taskDb.Task task) {
+        transaction(taskDb) {
+            let Array<taskDb.Blocker> waiting = taskDb.Blocker.where(blockerTaskId: task.id).all();
+            foreach edge in waiting {
+                let taskDb.Task freed = taskDb.Task.where(id: edge.taskId).forUpdate().firstOrFail();
+                freed.openBlockers = Math.max(freed.openBlockers - 1, 0);
+                freed.save();
+            }
+            task.doneAt = DateTime.now();
+            task.status = TaskStatus.Done;
+            task.save();
+        }
+        dispatch TaskFinished(task.number, task.title, task.projectName, task.chatChannel, actorName());
+    }
+
+    /// Reopening a finished task puts it back in the way of whatever it blocks.
+    fn reopenBlockers(taskDb.Task task) {
+        let Array<taskDb.Blocker> waiting = taskDb.Blocker.where(blockerTaskId: task.id).all();
+        foreach edge in waiting {
+            let taskDb.Task held = taskDb.Task.where(id: edge.taskId).firstOrFail();
+            held.openBlockers = held.openBlockers + 1;
+            held.save();
+        }
+    }
+
+    // What the app works with. Every route checks the person is on the task's project first.
     rest_api TaskAPI : basePath('/api/v1/tasks'), rdbms(taskDb) {
-
-        // List tasks with filtering
-        get(UUID? projectId, UUID? assigneeId, TaskStatus? status, Priority? priority, PageRequest page) : auth(required, providers: [identity]) -> Page<taskDb.Task> {
-            let JSON query = taskDb.Task;
-
-            if (projectId != null) {
-                query = query.where(projectId: projectId);
-            }
-
-            if (assigneeId != null) {
-                query = query.where(assigneeId: assigneeId);
-            }
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            if (priority != null) {
-                query = query.where(priority: priority);
-            }
-
-            return query.orderBy(createdAt: desc).page(page);
+        @path('/board/:projectId')
+        get board(UUID projectId) : auth(required, providers: [identity]) -> Array<Task> {
+            accessTo(projectId);
+            return Task.where(projectId: projectId).orderBy(createdAt: desc).limit(300).all();
         }
 
-        // Get a single task
-        @path('/:id')
-        get(UUID id) : auth(required, providers: [identity]) -> taskDb.Task {
-            return taskDb.Task.findOrFail(id);
+        @path('/activity/:projectId')
+        get activity(UUID projectId) : auth(required, providers: [identity]) -> Array<Activity> {
+            accessTo(projectId);
+            return Activity.where(projectId: projectId).orderBy(createdAt: desc).limit(50).all();
         }
 
-        // Create a new task
-        post(CreateTaskRequest request) : auth(required, providers: [identity]) -> taskDb.Task {
-            let UUID reporterId = Auth.user().id;
-
-            // Verify project exists
-            let Project project = ProjectService.ProjectAPI.get.projectByIdInternal(request.projectId);
-
-            // Verify assignee if provided
-            if (request.assigneeId != null) {
-                let User assignee = UserService.UserAPI.get.userByIdInternal(request.assigneeId);
-            }
-
-            let Task task = taskDb.Task.create({
-                projectId: request.projectId,
-                title: request.title,
-                description: request.description,
-                priority: request.priority,
-                assigneeId: request.assigneeId,
-                reporterId: reporterId,
-                dueDate: request.dueDate,
-                estimatedHours: request.estimatedHours,
-                label: request.label,
-                status: TaskStatus.Todo
-            });
-            task.save();
-
-            return task;
-        }
-
-        // Update a task
-        @path('/:id')
-        put(UUID id, UpdateTaskRequest request) : auth(required, providers: [identity]) -> taskDb.Task {
-            let Task task = taskDb.Task.findOrFail(id);
-
-            if (request.title != null) {
-                task.title = request.title;
-            }
-
-            if (request.description != null) {
-                task.description = request.description;
-            }
-
-            if (request.priority != null) {
-                task.priority = request.priority;
-            }
-
-            if (request.assigneeId != null) {
-                task.assigneeId = request.assigneeId;
-            }
-
-            if (request.dueDate != null) {
-                task.dueDate = request.dueDate;
-            }
-
-            if (request.estimatedHours != null) {
-                task.estimatedHours = request.estimatedHours;
-            }
-
-            if (request.label != null) {
-                task.label = request.label;
-            }
-
-            task.save();
-            return task;
-        }
-
-        // Update task status
-        @path('/:id/status')
-        put(UUID id, UpdateStatusRequest request) : auth(required, providers: [identity]) -> taskDb.Task {
-            let Task task = taskDb.Task.findOrFail(id);
-
-            // Validate status transitions
-            if (task.status == TaskStatus.Done || task.status == TaskStatus.Cancelled) {
-                if (request.status != TaskStatus.Todo) {
-                    throw ValidationException({
-                        code: "INVALID_STATUS_TRANSITION",
-                        message: #"Cannot transition from {task.status} to {request.status}. Reopen the task first."
-                    });
-                }
-
-            }
-
-            task.status = request.status;
-            task.save();
-
-            return task;
-        }
-
-        // Assign a task
-        @path('/:id/assign')
-        put(UUID id, AssignTaskRequest request) : auth(required, providers: [identity]) -> taskDb.Task {
-            let Task task = taskDb.Task.findOrFail(id);
-
-            // Verify assignee exists
-            let User assignee = UserService.UserAPI.get.userByIdInternal(request.assigneeId);
-
-            task.assigneeId = request.assigneeId;
-            task.save();
-
-            return task;
-        }
-
-        // Unassign a task
-        @path('/:id/unassign')
-        put(UUID id) : auth(required, providers: [identity]) -> taskDb.Task {
-            let Task task = taskDb.Task.findOrFail(id);
-            task.assigneeId = null;
-            task.save();
-
-            return task;
-        }
-
-        // Get comments on a task
-        @path('/:id/comments')
-        get(UUID id, PageRequest page) : auth(required, providers: [identity]) -> Page<taskDb.TaskComment> {
-            return taskDb.TaskComment
-            .where(taskId: id)
-            .orderBy(createdAt: asc)
-            .page(page);
-        }
-
-        // Add a comment to a task
-        @path('/:id/comments')
-        post(UUID id, CreateCommentRequest request) : auth(required, providers: [identity]) -> taskDb.TaskComment {
-            let UUID authorId = Auth.user().id;
-            let Task task = taskDb.Task.findOrFail(id);
-
-            let TaskComment comment = taskDb.TaskComment.create({
-                taskId: id,
-                authorId: authorId,
-                content: request.content
-            });
-            comment.save();
-
-            dispatch TaskCommentAdded(id, comment.id, authorId);
-
-            return comment;
-        }
-
-        // Search tasks by title or description
-        @path('/search')
-        get(String query, UUID? projectId, PageRequest page) : auth(required, providers: [identity]) -> Page<taskDb.Task> {
-            let JSON taskQuery = taskDb.Task.fulltext(query);
-
-            if (projectId != null) {
-                taskQuery = taskQuery.where(projectId: projectId);
-            }
-
-            return taskQuery.page(page);
-        }
-
-        // Get task statistics for a project
-        @path('/stats')
-        get(UUID projectId) : auth(required, providers: [identity]) -> TaskStats {
-            let Int totalTasks = taskDb.Task.where(projectId: projectId).count();
-            let Int todoCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Todo).count();
-            let Int inProgressCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InProgress).count();
-            let Int inReviewCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.InReview).count();
-            let Int doneCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Done).count();
-            let Int cancelledCount = taskDb.Task.where(projectId: projectId).where(status: TaskStatus.Cancelled).count();
-            let Int overdueCount = taskDb.Task
-            .where(projectId: projectId)
-            .where(dueDate: lt(DateTime.now()))
-            .where(status: TaskStatus.Todo)
-            .count();
-
-            return {
-                totalTasks: totalTasks,
-                todoCount: todoCount,
-                inProgressCount: inProgressCount,
-                inReviewCount: inReviewCount,
-                doneCount: doneCount,
-                cancelledCount: cancelledCount,
-                overdueCount: overdueCount
+        @path('/page/:id')
+        get page(UUID id) : auth(required, providers: [identity]) -> TaskPage {
+            let Task task = Task.findOrFail(id);
+            let ProjectAccess access = accessTo(task.projectId);
+            let ProjectPeople team = ProjectService.ProjectInternalAPI.post.people({ projectId: task.projectId });
+            return TaskPage {
+                task: task,
+                comments: Comment.where(taskId: id).orderBy(createdAt: asc).limit(200).all(),
+                blockers: Blocker.where(taskId: id).limit(50).all(),
+                people: team.people.map(p => PersonRow { personName: p.personName, email: p.email }),
+                canEdit: access.canEdit
             };
         }
 
-        // Get my assigned tasks
-        @path('/my-tasks')
-        get(TaskStatus? status, PageRequest page) : auth(required, providers: [identity]) -> Page<taskDb.Task> {
-            let UUID userId = Auth.user().id;
+        @path('/mine')
+        get mine() : auth(required, providers: [identity]) -> Array<Task> {
+            return Task.where(assigneeEmail: Auth.identity.email).whereIn(status: [TaskStatus.Todo, TaskStatus.InProgress, TaskStatus.Review]).orderBy(dueAt: asc).limit(100).all();
+        }
 
-            let JSON query = taskDb.Task.where(assigneeId: userId);
+        @path('/summary')
+        get summary() : auth(required, providers: [identity]) -> MySummary {
+            let String me = Auth.identity.email.toString();
+            let DateTime now = DateTime.now();
+            let Array<TaskStatus> openStates = [TaskStatus.Todo, TaskStatus.InProgress, TaskStatus.Review];
+            return MySummary {
+                open: Task.where(assigneeEmail: me).whereIn(status: openStates).count(),
+                dueSoon: Task.where(assigneeEmail: me).whereIn(status: openStates).where(dueAt: gte(now)).where(dueAt: lt(now.addDays(3))).count(),
+                overdue: Task.where(assigneeEmail: me).whereIn(status: openStates).where(dueAt: lt(now)).count(),
+                doneThisWeek: Task.where(assigneeEmail: me, status: TaskStatus.Done).where(doneAt: gte(now.addDays(-7))).count()
+            };
+        }
 
-            if (status != null) {
-                query = query.where(status: status);
+        @path('/search/:projectId')
+        get search(UUID projectId, String q) : auth(required, providers: [identity]) -> Array<Task> {
+            accessTo(projectId);
+            return Task.where(projectId: projectId).fulltext(q).limit(30).all();
+        }
+
+        @path('/new')
+        post createTask(NewTask request) : auth(required, providers: [identity]) -> Task {
+            let ProjectAccess access = editableAccess(request.projectId);
+            let TaskNumber issued = ProjectService.ProjectInternalAPI.post.nextNumber({ projectId: request.projectId });
+            let Task created = Task.create({
+                number: issued.number,
+                title: request.title,
+                description: request.description,
+                priority: request.priority,
+                dueAt: request.dueAt,
+                projectId: request.projectId,
+                projectName: access.projectName,
+                chatChannel: access.chatChannel
+            });
+            logActivity(created, #"created {created.title}");
+            return created;
+        }
+
+        // What a drag across the board calls.
+        @path('/:id/move')
+        post moveTask(UUID id, MoveTask request) : auth(required, providers: [identity]) -> Task {
+            let Task task = Task.findOrFail(id);
+            editableAccess(task.projectId);
+            let Boolean starting = request.status == TaskStatus.InProgress || request.status == TaskStatus.Review || request.status == TaskStatus.Done;
+            if (starting && task.openBlockers > 0) {
+                throw BlockedError();
             }
-
-            return query.orderBy(priority: desc).orderBy(dueDate: asc).page(page);
+            if (task.status == request.status) {
+                return task;
+            }
+            if (request.status == TaskStatus.Done) {
+                finish(task);
+            } else {
+                if (task.status == TaskStatus.Done) {
+                    reopenBlockers(task);
+                    task.doneAt = null;
+                }
+                task.status = request.status;
+                task.save();
+            }
+            logActivity(task, #"moved it to {request.status}");
+            return task;
         }
 
-        // Delete a task
-        @path('/:id')
-        delete(UUID id) : auth(required, providers: [identity]) -> Void {
-            let Task task = taskDb.Task.findOrFail(id);
-            task.status = TaskStatus.Cancelled;
+        @path('/assign')
+        post assign(AssignTask request) : auth(required, providers: [identity]) -> Task {
+            let Task task = Task.findOrFail(request.taskId);
+            editableAccess(task.projectId);
+            let ProjectAccess theirs = ProjectService.ProjectInternalAPI.post.access({ projectId: task.projectId, email: request.email });
+            if (!theirs.isMember) {
+                throw NotOnProjectError();
+            }
+            task.assigneeName = request.personName;
+            task.assigneeEmail = request.email;
             task.save();
+            logActivity(task, #"gave it to {request.personName}");
+            dispatch TaskAssigned(task.number, task.title, task.projectName, request.personName, request.email, actorName());
+            return task;
         }
 
-        // Internal endpoint
-        @path('/service/:id')
-        get taskByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> taskDb.Task {
-            return taskDb.Task.findOrFail(id);
+        @path('/comment')
+        post addComment(NewComment request) : auth(required, providers: [identity]) -> Comment {
+            let Task task = Task.findOrFail(request.taskId);
+            accessTo(task.projectId);
+            let Comment created = Comment.create({
+                taskId: task.id,
+                body: request.body,
+                authorName: actorName(),
+                authorEmail: Auth.identity.email
+            });
+            logActivity(task, "commented");
+            return created;
         }
 
+        @path('/block')
+        post addBlocker(NewBlocker request) : auth(required, providers: [identity]) -> Task {
+            let Task task = Task.findOrFail(request.taskId);
+            editableAccess(task.projectId);
+            let Task? blocker = Task.where(number: request.blockerNumber, projectId: task.projectId).first();
+            if (blocker == null) {
+                throw NoSuchTaskError();
+            }
+            if (blocker.id == task.id) {
+                throw SelfBlockError();
+            }
+            if (Blocker.where(taskId: blocker.id, blockerTaskId: task.id).first() != null) {
+                throw LoopError();
+            }
+            if (Blocker.where(taskId: task.id, blockerTaskId: blocker.id).first() != null) {
+                throw AlreadyBlockedError();
+            }
+            Blocker.create({
+                taskId: task.id,
+                blockerTaskId: blocker.id,
+                blockerNumber: blocker.number,
+                blockerTitle: blocker.title
+            });
+            if (blocker.status != TaskStatus.Done) {
+                task.openBlockers = task.openBlockers + 1;
+                task.save();
+            }
+            logActivity(task, #"is now waiting on {blocker.number}");
+            return task;
+        }
     }
 
-    test("validation rejects empty task title") {
-        assert throws(
-        () => taskDb.Task.create({
+    // Every task on every project, for someone looking after the whole installation.
+    rest_api TaskDeskAPI : basePath('/api/v1/desk/tasks'), rdbms(taskDb) {
+        resource Task : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    // For a person's own scripts and dashboards. It answers only with their own tasks.
+    graphql_api TaskGraph : basePath('/graphql/tasks'), rdbms(taskDb), auth(required, providers: [identity]) {
+        type TaskType {
+            String number;
+            String title;
+            String projectName;
+            TaskStatus status;
+            Priority priority;
+            DateTime? dueAt;
+        }
+
+        query myTasks() -> Array<TaskType> {
+            return taskDb.Task.where(assigneeEmail: Auth.identity.email).orderBy(dueAt: asc).limit(100).all();
+        }
+
+        query myTask(String number) -> TaskType {
+            return taskDb.Task.where(assigneeEmail: Auth.identity.email, number: number).firstOrFail();
+        }
+    }
+
+    jobs {
+        // Once a day per task, however often this runs.
+        job TellOverdueTasks {
+            let DateTime now = DateTime.now();
+            let Array<taskDb.Task> late = taskDb.Task.where(dueAt: lt(now)).whereIn(status: [TaskStatus.Todo, TaskStatus.InProgress, TaskStatus.Review]).limit(200).all();
+            foreach task in late {
+                if (task.overdueToldAt == null || task.overdueToldAt < now.startOfDay()) {
+                    task.overdueToldAt = now;
+                    task.save();
+                    dispatch TaskOverdue(task.number, task.title, task.projectName, task.chatChannel, task.assigneeName ?? "Nobody");
+                }
+            }
+        }
+    }
+
+    test("a new task starts in the backlog with nothing blocking it") {
+        let taskDb.Task created = taskDb.Task.create({
+            number: "TST-1",
+            title: "Test task",
+            description: "A test task.",
             projectId: uuid(),
-            title: "",
-            priority: Priority.Medium
-        }),
-        ValidationError("Task title cannot be empty")
-        );
-    }
-
-    test("validation rejects negative estimated hours") {
-        assert throws(
-        () => taskDb.Task.create({
-            projectId: uuid(),
-            title: "Test Task",
-            priority: Priority.Medium,
-            estimatedHours: -5.0
-        }),
-        ValidationError("Estimated hours cannot be negative")
-        );
-    }
-
-    test("validation rejects self-dependency") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Self Dep Task",
-            priority: Priority.Medium
+            projectName: "Test project",
+            chatChannel: "test"
         });
-        task.save();
-        assert throws(
-        () => taskDb.TaskDependency.create({
-            taskId: task.id,
-            dependsOnTaskId: task.id
-        }),
-        ValidationError("A task cannot depend on itself")
-        );
+        assert created.status == TaskStatus.Backlog;
+        assert created.openBlockers == 0;
+        assert created.assigneeName == null;
     }
-
-    test("validation rejects empty comment content") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Comment Task",
-            priority: Priority.Low
-        });
-        task.save();
-        assert throws(
-        () => taskDb.TaskComment.create({
-            taskId: task.id,
-            authorId: uuid(),
-            content: ""
-        }),
-        ValidationError("Comment content cannot be empty")
-        );
-    }
-
-    test("computed isOverdue for past due date") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Overdue Task",
-            priority: Priority.High,
-            dueDate: DateTime.now().addDays(-1),
-            status: TaskStatus.Todo
-        });
-        task.save();
-        assert task.isOverdue == true;
-    }
-
-    test("computed isOverdue is false for completed task") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Done Task",
-            priority: Priority.Medium,
-            dueDate: DateTime.now().addDays(-1),
-            status: TaskStatus.Done
-        });
-        task.save();
-        assert task.isOverdue == false;
-    }
-
-    test("afterCreate emits TaskCreated event") {
-        let UUID projectId = uuid();
-        let Task task = taskDb.Task.create({
-            projectId: projectId,
-            title: "Event Task",
-            priority: Priority.High
-        });
-        task.save();
-        assert emitted(TaskCreated(task.id, projectId, "Event Task", Priority.High, null));
-    }
-
-    test("status change emits TaskStatusChanged") {
-        let UUID projectId = uuid();
-        let Task task = taskDb.Task.create({
-            projectId: projectId,
-            title: "Status Task",
-            priority: Priority.Medium
-        });
-        task.save();
-        task.status = TaskStatus.InProgress;
-        task.save();
-        assert emitted(TaskStatusChanged(task.id, projectId, TaskStatus.Todo, TaskStatus.InProgress));
-    }
-
-    test("beforeCreate generates taskNumber") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Numbered Task",
-            priority: Priority.Low
-        });
-        task.save();
-        assert task.taskNumber != null;
-    }
-
-    test("computed isCompleted for Done status") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Completed Check Task",
-            priority: Priority.High,
-            status: TaskStatus.Done,
-            completedAt: DateTime.now()
-        });
-        task.save();
-        assert task.isCompleted == true;
-    }
-
-    test("computed isOpen for InProgress status") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "In Progress Check Task",
-            priority: Priority.Medium,
-            status: TaskStatus.InProgress,
-            startedAt: DateTime.now()
-        });
-        task.save();
-        assert task.isOpen == true;
-    }
-
-    test("computed isOpen for InReview status") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "In Review Check Task",
-            priority: Priority.Medium,
-            status: TaskStatus.InReview
-        });
-        task.save();
-        assert task.isOpen == true;
-    }
-
-    test("computed isOpen is false for Cancelled status") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Cancelled Check Task",
-            priority: Priority.Low,
-            status: TaskStatus.Cancelled
-        });
-        task.save();
-        assert task.isOpen == false;
-    }
-
-    test("computed hasAssignee when assigneeId is set") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Assigned Task",
-            priority: Priority.High,
-            assigneeId: uuid()
-        });
-        task.save();
-        assert task.hasAssignee == true;
-    }
-
-    test("computed hasAssignee is false when no assignee") {
-        let Task task = taskDb.Task.create({
-            projectId: uuid(),
-            title: "Unassigned Task",
-            priority: Priority.Medium
-        });
-        task.save();
-        assert task.hasAssignee == false;
-    }
-
-    test("validation rejects negative actual hours") {
-        assert throws(
-        () => taskDb.Task.create({
-            projectId: uuid(),
-            title: "Negative Actual Hours Task",
-            priority: Priority.Low,
-            actualHours: -2.5
-        }),
-        ValidationError("Actual hours cannot be negative")
-        );
-    }
-
-    test("assignee change emits TaskAssigned") {
-        let UUID projectId = uuid();
-        let UUID assigneeId = uuid();
-        let Task task = taskDb.Task.create({
-            projectId: projectId,
-            title: "Assignee Change Task",
-            priority: Priority.Medium
-        });
-        task.save();
-        task.assigneeId = assigneeId;
-        task.save();
-        assert emitted(TaskAssigned(task.id, projectId, assigneeId));
-    }
-
 }

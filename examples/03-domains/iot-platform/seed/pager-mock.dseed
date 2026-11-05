@@ -1,0 +1,12 @@
+// The key the telemetry service presents to the paging vendor. The key itself is the development default
+// of the service's secret; the vendor stores only its SHA-256 hash.
+seed service iot.PagerMock {
+  rdbms pagerDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                keyHash,                                                            ownerId,                 scopes,          isActive;
+        @uuid("pager-key"), "10979fe1a0d29e52482de6b9ff88c06d1eb9d4026aed0c8a1f27fb643079ab6c", @uuid("owner-coldframe"), ["pages:write"], true;
+      }
+    }
+  }
+}

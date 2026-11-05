@@ -1,0 +1,37 @@
+// The contract of the content moderation vendor. config/providers/moderation-provider.dcfg says where it is served.
+extern service social.ModerationProvider('config/providers/moderation-provider.dcfg')
+    : version('1.0.0'), description('Reviewing text before it is published') {
+
+    enum Verdict {
+        Allow,
+        Hold,
+        Reject
+    }
+
+    struct ReviewRequest {
+        String(2000) text;
+        /// The caller's key: asking again with the same key returns the first answer.
+        String(120) idempotencyKey;
+    }
+
+    struct ReviewResult {
+        String(40) id;
+        Verdict verdict;
+        /// Why, when the verdict is not Allow.
+        String(200)? reason;
+    }
+
+    rest_api ModerationAPI : basePath('/v1') {
+        @path('/reviews')
+        post review(ReviewRequest request) -> ReviewResult {
+            ensure request.idempotencyKey != "";
+        }
+    }
+
+    errors {
+        TextTooLong(String message);
+    }
+
+    auth : apiKey(header: 'X-Moderation-Api-Key');
+    health : path('/health');
+}

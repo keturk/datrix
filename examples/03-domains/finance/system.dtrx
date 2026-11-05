@@ -1,7 +1,20 @@
 include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/bank-provider.dtrx';
+include 'providers/kyc-provider.dtrx';
+include 'providers/sanctions-provider.dtrx';
 include 'account-service.dtrx';
 include 'transaction-service.dtrx';
 include 'compliance-service.dtrx';
+include 'mocks/bank-mock.dtrx';
+include 'mocks/kyc-mock.dtrx';
+include 'mocks/sanctions-mock.dtrx';
+include 'banking-app.dtrx';
+include 'back-office-app.dtrx';
 
-system finance('config/system.dcfg') : version('1.0.0') {
+/// Quillon Bank: customers open accounts and move money on the web or a phone, staff check
+/// customers and review alerts, and the ledger itself refuses an unbalanced posting. The payment
+/// network, the identity check and the sanctions list belong to outside vendors, played here by
+/// mocks in the same stack.
+system finance.System('config/system.dcfg') : version('2.0.0') {
 }

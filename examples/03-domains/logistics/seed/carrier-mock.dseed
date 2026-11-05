@@ -1,0 +1,16 @@
+// The key the shipment service presents to the partner carrier. The key itself is the development default
+// of the service's secret; the vendor stores only its SHA-256 hash.
+seed service logistics.CarrierMock {
+  rdbms carrierDb {
+    baseline {
+      PartnerConsignment table on(reference) {
+        id,                    trackingNumber,  recipientName, city,     weightKg, status,   reference,                 idempotencyKey;
+        @uuid("consign-seed"), "QL-M8QS4ZG6WA", "Ada Brook",   "Eugene", 3.1,      Accepted, "cons_quayline_seed_0001", "consign-seed-0001";
+      }
+      ApiKey table on(keyHash) {
+        id,                   keyHash,                                                            ownerId,               scopes,                 isActive;
+        @uuid("carrier-key"), "abcf36cdcc8dbfedb44b1023455ce43d3a61e69d6a20bb09c7ebc6c19430be9e", @uuid("owner-quayline"), ["consignments:write"], true;
+      }
+    }
+  }
+}

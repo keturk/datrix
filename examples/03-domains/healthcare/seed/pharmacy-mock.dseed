@@ -1,0 +1,16 @@
+// The key the clinic presents to the pharmacy. The key itself is the development default of the
+// service's secret; the pharmacy stores only its SHA-256 hash.
+seed service healthcare.PharmacyMock {
+  rdbms pharmacyDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                    keyHash,                                                            ownerId,                 scopes,                  isActive;
+        @uuid("pharmacy-key"), "c46d2ccbc73188ef8a2b4468426d4fab79c68402b5eb3ba598b7ebca1745bd64", @uuid("owner-ferncrest"), ["prescriptions:write"], true;
+      }
+      PrescriptionTicket table on(ticketId) {
+        id,                ticketId,        idempotencyKey,  patientName,    drugName,      directions,                      quantity, status;
+        @uuid("ticket-a"), "RX-1000000001", "seed-rx-a",     "Ana Ferreira", "Amoxicillin", "One capsule three times a day", 21,       ReadyForPickup;
+      }
+    }
+  }
+}

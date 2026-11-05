@@ -1,0 +1,69 @@
+config service realestate.DealService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8003;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms dealDb from postgresContainer(id: "5d578862-333d-48ca-b15c-e6d249dd8afb", database: "realestate_deal");
+    httpSecurity from localHttpSecurity(host: "realestate-deal-service");
+    serviceCredentialOps from machineCredential();
+    microserviceClientOps from peerClient();
+    retryBudgetOps from retryBudget();
+    jobs {
+      jobs {
+        SyncSignatures {
+          schedule = "*/2 * * * *";
+          timeout = "120s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+    secrets {
+      // The defaults only exist on a local stack, where they match the hashes seeded in seed/, so the
+      // example runs with nothing to configure. Any other deployment must supply the handles' values.
+      secret mortgage_provider_api_key {
+        required = true;
+        purpose = "API key for the lender (MortgageProvider contract).";
+        localDefault = "dev-only-mortgage-key-not-a-credential";
+      }
+      secret signature_provider_api_key {
+        required = true;
+        purpose = "API key for the e-signature vendor (SignatureProvider contract).";
+        localDefault = "dev-only-signature-key-not-a-credential";
+      }
+      secret email_provider_api_key {
+        required = true;
+        purpose = "API key for the email vendor (EmailProvider contract).";
+        localDefault = "dev-only-email-key-not-a-credential";
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

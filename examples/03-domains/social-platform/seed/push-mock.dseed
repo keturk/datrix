@@ -1,0 +1,12 @@
+// The key the notice service presents to the push vendor. The key itself is the development default of its
+// secret; the vendor stores only its SHA-256 hash.
+seed service social.PushMock {
+  rdbms pushDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                keyHash,                                                            ownerId,                scopes,               isActive;
+        @uuid("push-key"), "5425c664f1c6910b4a26a01f5c856d255118f4afbcd8a9154d1ee48303a1d30a", @uuid("owner-rookery"), ["messages:write"], true;
+      }
+    }
+  }
+}

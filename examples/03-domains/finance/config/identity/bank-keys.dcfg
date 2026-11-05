@@ -1,0 +1,34 @@
+// API keys of the payment network. mode = self: BankMock issues and verifies them itself, as a real
+// network would, and only the SHA-256 hash of a key is stored.
+config identity bankKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "workforce";
+    apiKey {
+      header = "X-Bank-Api-Key";
+      store = "finance.BankMock";
+      storeBlock = "bankDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+      }
+      lastUsedResolutionSeconds = 60;
+      serviceProviders = ["machine"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

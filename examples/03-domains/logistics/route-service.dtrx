@@ -1,715 +1,407 @@
+from logistics.common import ShipmentStatus;
 
-from logistics.common import GeoCoordinate, generateRouteCode, MAX_STOPS_PER_ROUTE;
+// A route is a van, a driver, a day and an ordered list of stops. A dispatcher fills a draft and sends it
+// out; a stop will not go on a route whose van cannot carry it. A driver sees only their own routes, and
+// each stop they finish is reported back to the parcel.
+service logistics.RouteService('config/route-service.dcfg') : version('2.0.0'), description('Routes and stops') {
 
-service logistics.RouteService('config/route-service.dcfg') : version('1.0.0'), description('route planning and optimization service') {
-    discovery {
-        FleetService { loadBalance: roundRobin, healthyOnly: true }
-        ShipmentService { loadBalance: roundRobin, healthyOnly: true }
+    discovery { }
+
+    uses ShipmentService;
+    uses FleetService;
+
+    exceptions {
+        OverCapacityError : status(409), message("That parcel would overload this van");
+        RouteNotOpenError : status(409), message("This route has already gone out");
+        StopTakenError : status(409), message("That parcel is already on a route");
+        EmptyRouteError : status(409), message("Add a stop before sending this route out");
+        NotYourRouteError : status(404), message("Route not found");
+        StopNotOpenError : status(409), message("This stop is already finished");
     }
 
     enum RouteStatus {
-        Planned,
-        Active,
-        Completed,
-        Cancelled
+        Draft : tone(warning),
+        Out : tone(info),
+        Finished : tone(success)
     }
 
     enum StopStatus {
-        Pending,
-        Arrived,
-        Completed,
-        Skipped
+        Waiting : tone(warning),
+        Planned : tone(info),
+        OnTheRoad : tone(info),
+        Delivered : tone(success),
+        Failed : tone(danger)
     }
 
-    struct CreateRouteRequest {
-        UUID vehicleId;
-        UUID driverId;
-        String(500) startLocation;
-        String(500) endLocation;
-        Decimal(10, 2) plannedDistance;
+    /// Why a driver could not hand a parcel over.
+    enum MissReason {
+        NobodyHome,
+        AddressWrong,
+        Refused,
+        CouldNotReach
     }
 
-    struct AddStopRequest {
-        UUID shipmentId;
-        String(500) address;
-        Int sequence;
-        DateTime? estimatedArrival;
-    }
-
-    struct OptimizeRouteRequest {
-        UUID routeId;
-    }
-
-    struct RouteProgress {
-        UUID routeId;
-        RouteStatus status;
-        Int completedStops;
-        Int totalStops;
-        Decimal progressPercent;
-    }
+    const KM_PER_DEGREE = 111.0;
+    const ROAD_FACTOR = 1.3;
 
     rdbms routeDb {
 
-        entity Route extends BaseEntity {
-            String(30) routeCode : unique;
-            UUID vehicleId : index;
-            UUID driverId : index;
-            RouteStatus status = RouteStatus.Planned;
-            String(500) startLocation;
-            String(500) endLocation;
-            Decimal(10, 2) plannedDistance;
-            Decimal(10, 2)? actualDistance;
-            DateTime? startedAt;
-            DateTime? completedAt;
-
-            Int duration := calculateDuration();
-            Boolean isActive := status == RouteStatus.Active;
-            Boolean isCompleted := status == RouteStatus.Completed;
-
-            hasMany RouteStop as stops;
-
-            index(vehicleId, status);
-            index(driverId, status);
-            index(status, createdAt);
-
-            validate {
-                if (plannedDistance <= 0)
-                ValidationError("Planned distance must be greater than zero");
-                if (startLocation.trim().isEmpty())
-                ValidationError("Start location cannot be empty");
-                if (endLocation.trim().isEmpty())
-                ValidationError("End location cannot be empty");
-            }
-
-            afterCreate {
-                dispatch RouteCreated(id, routeCode, vehicleId, driverId);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch RouteStatusChanged(id, routeCode, oldValue(status), status);
-                }
-
-            }
-
-            fn calculateDuration() -> Int {
-                if (startedAt == null) return 0;
-                if (completedAt == null) return DateTime.diffInMinutes(startedAt, DateTime.now());
-                return DateTime.diffInMinutes(startedAt, completedAt);
-            }
-
-            fn start() {
-                status = RouteStatus.Active;
-                startedAt = DateTime.now();
-                this.save();
-            }
-
-            fn complete(Decimal distance) {
-                status = RouteStatus.Completed;
-                completedAt = DateTime.now();
-                actualDistance = distance;
-                this.save();
-            }
-
+        entity DeliveryRoute extends BaseEntity {
+            String(120) name : filterable;
+            DateTime runsOn;
+            RouteStatus status : filterable = RouteStatus.Draft;
+            String(200) driverName : filterable;
+            String(60) vehicleName;
+            Int stopCount = 0;
+            Int doneCount = 0;
+            Float loadKg = 0.0;
+            Float capacityKg;
+            Float distanceKm = 0.0;
+            Email driverEmail : index;
+            UUID vehicleId;
         }
 
-        entity RouteStop extends BaseEntity {
-            UUID shipmentId : index;
-            String(500) address;
-            Int sequence;
-            StopStatus status = StopStatus.Pending;
-            DateTime? estimatedArrival;
-            DateTime? actualArrival;
-
-            belongsTo Route : index;
-
-            index(routeId, sequence);
-            index(shipmentId);
-
-            validate {
-                if (sequence < 1)
-                ValidationError("Stop sequence must be at least 1");
-                if (address.trim().isEmpty())
-                ValidationError("Stop address cannot be empty");
-            }
-
-            fn markArrived() {
-                status = StopStatus.Arrived;
-                actualArrival = DateTime.now();
-                this.save();
-            }
-
-            fn markCompleted() {
-                status = StopStatus.Completed;
-                if (actualArrival == null) {
-                    actualArrival = DateTime.now();
-                }
-
-                this.save();
-            }
-
+        entity Stop extends BaseEntity {
+            String(20) trackingNumber : filterable;
+            String(200) recipientName : filterable;
+            String(300) address;
+            String(100) city : filterable;
+            Float weightKg;
+            StopStatus status : filterable = StopStatus.Waiting;
+            Int sequence = 0;
+            String(200)? deliveredTo;
+            MissReason? missReason;
+            UUID shipmentId : unique;
+            UUID? routeId : index;
+            Float latitude;
+            Float longitude;
         }
-
     }
 
-    cache redis {
-
-        hash ActiveRouteCache : prefix('route:active:'), ttl(600) {
-            UUID routeId : primaryKey;
-            RouteStatus status;
-            Int completedStops;
-            Int totalStops;
-        }
-
-        counter ActiveRouteCount : prefix('routes:active:');
-    }
-
-    pubsub mq {
-
-        topic RouteEvents {
-            publish RouteCreated(UUID routeId, String routeCode, UUID vehicleId, UUID driverId);
-            publish RouteStatusChanged(UUID routeId, String routeCode, RouteStatus oldStatus, RouteStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish RouteOptimized(UUID routeId, Int totalStops);
-            publish StopCompleted(UUID routeId, UUID stopId, UUID shipmentId);
-        }
-
-    }
-
-    subscribe FleetEvents {
-
-        on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
-            if (newStatus == VehicleStatus.Maintenance || newStatus == VehicleStatus.Retired) {
-                let Array<Route> activeRoutes = routeDb.Route
-                .where(vehicleId: vehicleId)
-                .where(status: RouteStatus.Active)
-                .all();
-
-                foreach route in activeRoutes {
-                    Log.warn("Active route affected by vehicle status change", {
-                        routeId: route.id,
-                        routeCode: route.routeCode,
-                        vehicleId: vehicleId,
-                        vehicleStatus: newStatus
-                    });
-                }
-
-            }
-
-        }
-
-        on DriverAssigned(UUID vehicleId, UUID driverId, String vehicleNumber) {
-            Log.info("Driver assigned to vehicle, available for routing", {
-                vehicleId: vehicleId,
-                driverId: driverId,
-                vehicleNumber: vehicleNumber
-            });
-        }
-
-    }
-
-    subscribe RouteEvents {
-
-        on RouteCreated(UUID routeId, String routeCode, UUID vehicleId, UUID driverId) {
-            Log.info("Route created", {
-                routeId: routeId,
-                routeCode: routeCode,
-                vehicleId: vehicleId,
-                driverId: driverId
-            });
-        }
-
-        on RouteStatusChanged(UUID routeId, String routeCode, RouteStatus oldStatus, RouteStatus newStatus) {
-            Log.info("Route status changed", {
-                routeId: routeId,
-                routeCode: routeCode,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-
-            if (newStatus == RouteStatus.Active) {
-                redis.ActiveRouteCount.incr("total");
-            } else if (oldStatus == RouteStatus.Active) {
-                redis.ActiveRouteCount.decr("total");
-            }
-
-        }
-
-        on RouteOptimized(UUID routeId, Int totalStops) {
-            Log.info("Route optimized", {
-                routeId: routeId,
-                totalStops: totalStops
-            });
-        }
-
-        on StopCompleted(UUID routeId, UUID stopId, UUID shipmentId) {
-            Log.info("Route stop completed", {
-                routeId: routeId,
-                stopId: stopId,
-                shipmentId: shipmentId
-            });
-        }
-
-    }
-
-    rest_api RouteAPI : basePath('/api/v1/routes'), rdbms(routeDb) {
-
-        // Creation is not a plain resource verb here: the explicit post(...) below
-        // claims POST /api/v1/routes so it can generate the unique routeCode and
-        // take a CreateRouteRequest rather than the whole Route entity. Leaving
-        // 'create' in the expansion would give one route two declarations, and
-        // only the first would be reachable.
-        resource routeDb.Route : auth(required, providers: [identity]), only(list, get, update, delete);
-
-        post(CreateRouteRequest request) : auth(required, providers: [identity]) -> routeDb.Route {
-            let Route route = routeDb.Route.create({
-                routeCode: generateRouteCode(),
-                vehicleId: request.vehicleId,
-                driverId: request.driverId,
-                startLocation: request.startLocation,
-                endLocation: request.endLocation,
-                plannedDistance: request.plannedDistance,
-                status: RouteStatus.Planned
-            });
-
-            Log.info("Route created", {
-                routeId: route.id,
-                routeCode: route.routeCode,
-                vehicleId: request.vehicleId,
-                driverId: request.driverId
-            });
-
-            return route;
-        }
-
-        @path('/:id/stops')
-        post(UUID id, AddStopRequest request) : auth(required, providers: [identity]) -> routeDb.RouteStop {
-            let Route route = routeDb.Route.findOrFail(id);
-
-            if (route.status != RouteStatus.Planned) {
-                throw ValidationException({
-                    code: "ROUTE_NOT_EDITABLE",
-                    message: "Can only add stops to routes in Planned status"
+    subscribe ShipmentEvents {
+        // The same parcel comes back here after a failed attempt, and waits again.
+        on ShipmentBooked(UUID shipmentId, String trackingNumber, String recipientName, String address, String city, Float latitude, Float longitude, Float weightKg) {
+            let routeDb.Stop? known = routeDb.Stop.where(shipmentId: shipmentId).first();
+            if (known == null) {
+                routeDb.Stop.create({
+                    shipmentId: shipmentId,
+                    trackingNumber: trackingNumber,
+                    recipientName: recipientName,
+                    address: address,
+                    city: city,
+                    weightKg: weightKg,
+                    latitude: latitude,
+                    longitude: longitude
                 });
+            } else {
+                known.status = StopStatus.Waiting;
+                known.routeId = null;
+                known.missReason = null;
+                known.save();
             }
+        }
+    }
 
-            let Int currentStops = routeDb.RouteStop.where(routeId: route.id).count();
-            if (currentStops >= MAX_STOPS_PER_ROUTE) {
-                throw ValidationException({
-                    code: "MAX_STOPS_REACHED",
-                    message: #"Route cannot have more than {MAX_STOPS_PER_ROUTE} stops"
-                });
+    struct NewRoute {
+        String(120) name;
+        DateTime runsOn;
+        UUID driverId;
+        UUID vehicleId;
+    }
+
+    struct AddStopRequest {
+        UUID stopId;
+        UUID routeId;
+    }
+
+    struct DeliveredRequest {
+        UUID stopId;
+        String(200) deliveredTo;
+    }
+
+    struct MissedRequest {
+        UUID stopId;
+        MissReason reason;
+    }
+
+    struct StopPin {
+        UUID id;
+        Int sequence;
+        String recipientName;
+        String address;
+        String city;
+        String trackingNumber;
+        Float weightKg;
+        StopStatus status;
+        GeoPoint point;
+    }
+
+    struct RouteView {
+        routeDb.DeliveryRoute route;
+        Array<StopPin> stops;
+        Array<GeoPoint> line;
+    }
+
+    fn legKm(Float fromLatitude, Float fromLongitude, Float toLatitude, Float toLongitude) -> Float {
+        let Float northSouth = Math.abs(fromLatitude - toLatitude) * KM_PER_DEGREE;
+        let Float eastWest = Math.abs(fromLongitude - toLongitude) * KM_PER_DEGREE * 0.7;
+        return Math.sqrt(northSouth * northSouth + eastWest * eastWest) * ROAD_FACTOR;
+    }
+
+    fn pinOf(routeDb.Stop stop) -> StopPin {
+        return StopPin {
+            id: stop.id,
+            sequence: stop.sequence,
+            recipientName: stop.recipientName,
+            address: stop.address,
+            city: stop.city,
+            trackingNumber: stop.trackingNumber,
+            weightKg: stop.weightKg,
+            status: stop.status,
+            point: GeoPoint { latitude: stop.latitude, longitude: stop.longitude }
+        };
+    }
+
+    fn viewOf(routeDb.DeliveryRoute route) -> RouteView {
+        let Array<routeDb.Stop> stops = routeDb.Stop.where(routeId: route.id).orderBy(sequence: asc).limit(100).all();
+        return RouteView {
+            route: route,
+            stops: stops.map(s => pinOf(s)),
+            line: stops.map(s => GeoPoint { latitude: s.latitude, longitude: s.longitude })
+        };
+    }
+
+    /// The load, the count and the distance always come from the stops themselves.
+    fn recount(routeDb.DeliveryRoute route) {
+        let Array<routeDb.Stop> stops = routeDb.Stop.where(routeId: route.id).orderBy(sequence: asc).limit(100).all();
+        let Float load = 0.0;
+        let Float distance = 0.0;
+        let Boolean first = true;
+        let Float lastLatitude = 0.0;
+        let Float lastLongitude = 0.0;
+        foreach stop in stops {
+            load = load + stop.weightKg;
+            if (!first) {
+                distance = distance + legKm(lastLatitude, lastLongitude, stop.latitude, stop.longitude);
             }
+            first = false;
+            lastLatitude = stop.latitude;
+            lastLongitude = stop.longitude;
+        }
+        route.stopCount = stops.length;
+        route.loadKg = load;
+        route.distanceKm = Math.round(distance, 1);
+        route.save();
+    }
 
-            let RouteStop stop = routeDb.RouteStop.create({
-                routeId: route.id,
-                shipmentId: request.shipmentId,
-                address: request.address,
-                sequence: request.sequence,
-                estimatedArrival: request.estimatedArrival,
-                status: StopStatus.Pending
+    fn ownRoute(UUID id) -> routeDb.DeliveryRoute {
+        let routeDb.DeliveryRoute route = routeDb.DeliveryRoute.findOrFail(id);
+        if (route.driverEmail.toString() != Auth.identity.email.toString()) {
+            throw NotYourRouteError();
+        }
+        return route;
+    }
+
+    fn ownOpenStop(UUID id) -> routeDb.Stop {
+        let routeDb.Stop stop = routeDb.Stop.findOrFail(id);
+        if (stop.routeId == null) {
+            throw NotYourRouteError();
+        }
+        ownRoute(stop.routeId);
+        if (stop.status != StopStatus.OnTheRoad) {
+            throw StopNotOpenError();
+        }
+        return stop;
+    }
+
+    /// A stop finished: count it, and when it was the last one, the van has done the distance.
+    fn stopFinished(routeDb.Stop stop) {
+        if (stop.routeId != null) {
+            let routeDb.DeliveryRoute route = routeDb.DeliveryRoute.findOrFail(stop.routeId);
+            route.doneCount = route.doneCount + 1;
+            if (route.doneCount >= route.stopCount) {
+                route.status = RouteStatus.Finished;
+                FleetService.FleetInternalAPI.post.addDistance({ vehicleId: route.vehicleId, distanceKm: Math.ceil(route.distanceKm).toInteger() });
+            }
+            route.save();
+        }
+    }
+
+    // How a dispatcher plans the day.
+    rest_api PlanningAPI : basePath('/api/v1/desk/routes'), rdbms(routeDb) {
+        resource DeliveryRoute : only(list), auth(required, providers: [identity], roles: [dispatcher]);
+        resource Stop : only(list), auth(required, providers: [identity], roles: [dispatcher]);
+
+        @path('/open')
+        get openRoutes() : auth(required, providers: [identity], roles: [dispatcher]) -> Array<DeliveryRoute> {
+            return DeliveryRoute.where(status: RouteStatus.Draft).orderBy(runsOn: asc).limit(50).all();
+        }
+
+        @path('/running')
+        get running() : auth(required, providers: [identity], roles: [dispatcher]) -> Array<DeliveryRoute> {
+            return DeliveryRoute.where(runsOn: gte(DateTime.now().startOfDay())).orderBy(runsOn: asc).limit(50).all();
+        }
+
+        @path('/waiting')
+        get waiting() : auth(required, providers: [identity], roles: [dispatcher]) -> Array<Stop> {
+            return Stop.where(status: StopStatus.Waiting).orderBy(createdAt: asc).limit(100).all();
+        }
+
+        @path('/route/:id')
+        get detail(UUID id) : auth(required, providers: [identity], roles: [dispatcher]) -> RouteView {
+            return viewOf(DeliveryRoute.findOrFail(id));
+        }
+
+        @path('/new')
+        post createRoute(NewRoute request) : auth(required, providers: [identity], roles: [dispatcher]) -> DeliveryRoute {
+            let Assignment assigned = FleetService.FleetInternalAPI.get.assignment(driverId: request.driverId, vehicleId: request.vehicleId);
+            return DeliveryRoute.create({
+                name: request.name,
+                runsOn: request.runsOn,
+                driverName: assigned.driverName,
+                driverEmail: assigned.driverEmail,
+                vehicleName: assigned.vehicleName,
+                vehicleId: request.vehicleId,
+                capacityKg: assigned.capacityKg
             });
+        }
 
+        // Two dispatchers adding to one van at once cannot overload it, because each locks the route.
+        @path('/stops/add')
+        post addStop(AddStopRequest request) : auth(required, providers: [identity], roles: [dispatcher]) -> DeliveryRoute {
+            transaction(routeDb) {
+                let DeliveryRoute route = DeliveryRoute.where(id: request.routeId).forUpdate().firstOrFail();
+                let Stop stop = Stop.where(id: request.stopId).forUpdate().firstOrFail();
+                if (route.status != RouteStatus.Draft) {
+                    throw RouteNotOpenError();
+                }
+                if (stop.status != StopStatus.Waiting) {
+                    throw StopTakenError();
+                }
+                if (route.loadKg + stop.weightKg > route.capacityKg) {
+                    throw OverCapacityError();
+                }
+                stop.routeId = route.id;
+                stop.status = StopStatus.Planned;
+                stop.sequence = route.stopCount + 1;
+                stop.save();
+                recount(route);
+            }
+            let Stop placed = Stop.findOrFail(request.stopId);
+            let DeliveryRoute updated = DeliveryRoute.findOrFail(request.routeId);
+            ShipmentService.ShipmentInternalAPI.post.report({
+                shipmentId: placed.shipmentId,
+                status: ShipmentStatus.Planned,
+                note: #"Planned for delivery on {updated.runsOn.format('MMM dd')}"
+            });
+            return updated;
+        }
+
+        @path('/stops/:id/remove')
+        post removeStop(UUID id) : auth(required, providers: [identity], roles: [dispatcher]) -> Stop {
+            let Stop stop = Stop.findOrFail(id);
+            if (stop.routeId == null) {
+                throw RouteNotOpenError();
+            }
+            let DeliveryRoute route = DeliveryRoute.findOrFail(stop.routeId);
+            if (route.status != RouteStatus.Draft) {
+                throw RouteNotOpenError();
+            }
+            stop.routeId = null;
+            stop.status = StopStatus.Waiting;
+            stop.sequence = 0;
+            stop.save();
+            recount(route);
+            ShipmentService.ShipmentInternalAPI.post.report({ shipmentId: stop.shipmentId, status: ShipmentStatus.Booked, note: "Waiting for a route" });
             return stop;
         }
 
-        @path('/:id/stops')
-        get(UUID id) : auth(required, providers: [identity]) -> Array<routeDb.RouteStop> {
-            let Route route = routeDb.Route.findOrFail(id);
-            return routeDb.RouteStop
-            .where(routeId: route.id)
-            .orderBy(sequence: asc)
-            .all();
-        }
-
-        @path('/:id/start')
-        post(UUID id) : auth(required, providers: [identity]) -> routeDb.Route {
-            let Route route = routeDb.Route.findOrFail(id);
-
-            if (route.status != RouteStatus.Planned) {
-                throw ValidationException({
-                    code: "ROUTE_NOT_PLANNED",
-                    message: "Only planned routes can be started"
+        @path('/route/:id/send')
+        post send(UUID id) : auth(required, providers: [identity], roles: [dispatcher]) -> DeliveryRoute {
+            let DeliveryRoute route = DeliveryRoute.findOrFail(id);
+            if (route.status != RouteStatus.Draft) {
+                throw RouteNotOpenError();
+            }
+            if (route.stopCount == 0) {
+                throw EmptyRouteError();
+            }
+            route.status = RouteStatus.Out;
+            route.save();
+            let Array<Stop> stops = Stop.where(routeId: id).limit(100).all();
+            foreach stop in stops {
+                stop.status = StopStatus.OnTheRoad;
+                stop.save();
+                ShipmentService.ShipmentInternalAPI.post.report({
+                    shipmentId: stop.shipmentId,
+                    status: ShipmentStatus.OutForDelivery,
+                    note: "Out for delivery today",
+                    driverName: route.driverName
                 });
             }
-
-            let Int stopCount = routeDb.RouteStop.where(routeId: route.id).count();
-            if (stopCount == 0) {
-                throw ValidationException({
-                    code: "NO_STOPS",
-                    message: "Route must have at least one stop before starting"
-                });
-            }
-
-            route.start();
-
-            redis.ActiveRouteCache.set(route.id, {
-                routeId: route.id,
-                status: RouteStatus.Active,
-                completedStops: 0,
-                totalStops: stopCount
-            });
-
-            Log.info("Route started", {
-                routeId: route.id,
-                routeCode: route.routeCode,
-                totalStops: stopCount
-            });
-
             return route;
         }
+    }
 
-        @path('/:id/complete')
-        post(UUID id) : auth(required, providers: [identity]) -> routeDb.Route {
-            let Route route = routeDb.Route.findOrFail(id);
-
-            if (route.status != RouteStatus.Active) {
-                throw ValidationException({
-                    code: "ROUTE_NOT_ACTIVE",
-                    message: "Only active routes can be completed"
-                });
-            }
-
-            let Decimal distance = route.plannedDistance;
-            route.complete(distance);
-
-            redis.ActiveRouteCache.delete(route.id);
-
-            Log.info("Route completed", {
-                routeId: route.id,
-                routeCode: route.routeCode,
-                durationMinutes: route.duration
-            });
-
-            return route;
+    // What a driver works with. Every read and write is checked against the signed-in driver's address.
+    rest_api DriverRouteAPI : basePath('/api/v1/driver'), rdbms(routeDb) {
+        @path('/routes')
+        get myRoutes() : auth(required, providers: [identity], roles: [driver]) -> Array<DeliveryRoute> {
+            return DeliveryRoute.where(driverEmail: Auth.identity.email).orderBy(runsOn: desc).limit(30).all();
         }
 
-        @path('/:id/stops/:stopId/complete')
-        post(UUID id, UUID stopId) : auth(required, providers: [identity]) -> routeDb.RouteStop {
-            let Route route = routeDb.Route.findOrFail(id);
-            let RouteStop stop = routeDb.RouteStop.findOrFail(stopId);
+        @path('/routes/:id')
+        get run(UUID id) : auth(required, providers: [identity], roles: [driver]) -> RouteView {
+            return viewOf(ownRoute(id));
+        }
 
-            if (route.status != RouteStatus.Active) {
-                throw ValidationException({
-                    code: "ROUTE_NOT_ACTIVE",
-                    message: "Can only complete stops on active routes"
-                });
-            }
-
-            stop.markCompleted();
-
-            dispatch StopCompleted(route.id, stop.id, stop.shipmentId);
-
-            let Int completedStops = routeDb.RouteStop
-            .where(routeId: route.id)
-            .where(status: StopStatus.Completed)
-            .count();
-            let Int totalStops = routeDb.RouteStop.where(routeId: route.id).count();
-
-            redis.ActiveRouteCache.set(route.id, {
-                routeId: route.id,
-                status: route.status,
-                completedStops: completedStops,
-                totalStops: totalStops
+        @path('/stops/delivered')
+        post delivered(DeliveredRequest request) : auth(required, providers: [identity], roles: [driver]) -> Stop {
+            let Stop stop = ownOpenStop(request.stopId);
+            stop.status = StopStatus.Delivered;
+            stop.deliveredTo = request.deliveredTo;
+            stop.save();
+            ShipmentService.ShipmentInternalAPI.post.report({
+                shipmentId: stop.shipmentId,
+                status: ShipmentStatus.Delivered,
+                note: "Delivered",
+                deliveredTo: request.deliveredTo
             });
-
-            Log.info("Route stop completed", {
-                routeId: route.id,
-                stopId: stop.id,
-                completedStops: completedStops,
-                totalStops: totalStops
-            });
-
+            stopFinished(stop);
             return stop;
         }
 
-        @path('/:id/progress')
-        get(UUID id) : auth(required, providers: [identity]) -> RouteProgress {
-            let Route route = routeDb.Route.findOrFail(id);
-            let Int completedStops = routeDb.RouteStop
-            .where(routeId: route.id)
-            .where(status: StopStatus.Completed)
-            .count();
-            let Int totalStops = routeDb.RouteStop.where(routeId: route.id).count();
-            let Decimal progress = totalStops > 0 ? (completedStops * 100.0 / totalStops) : 0.0;
-
-            return {
-                routeId: route.id,
-                status: route.status,
-                completedStops: completedStops,
-                totalStops: totalStops,
-                progressPercent: progress
-            };
+        @path('/stops/missed')
+        post missed(MissedRequest request) : auth(required, providers: [identity], roles: [driver]) -> Stop {
+            let Stop stop = ownOpenStop(request.stopId);
+            stop.status = StopStatus.Failed;
+            stop.missReason = request.reason;
+            stop.save();
+            ShipmentService.ShipmentInternalAPI.post.report({
+                shipmentId: stop.shipmentId,
+                status: ShipmentStatus.Failed,
+                note: "We could not deliver today",
+                failureReason: request.reason.toString()
+            });
+            stopFinished(stop);
+            return stop;
         }
-
-        @path('/vehicle/:vehicleId')
-        get(UUID vehicleId, RouteStatus? status) : auth(required, providers: [identity]) -> Array<routeDb.Route> {
-            let JSON query = routeDb.Route.where(vehicleId: vehicleId);
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            return query.orderBy(createdAt: desc).limit(20).all();
-        }
-
-        @path('/driver/:driverId')
-        get(UUID driverId, RouteStatus? status) : auth(required, providers: [identity]) -> Array<routeDb.Route> {
-            let JSON query = routeDb.Route.where(driverId: driverId);
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            return query.orderBy(createdAt: desc).limit(20).all();
-        }
-
     }
 
-    test("computed isActive reflects Active status") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-001",
+    test("a road is longer than the straight line") {
+        assert legKm(45.50, -122.60, 45.60, -122.60) > 11.1;
+    }
+
+    test("a new route has nothing on it") {
+        let routeDb.DeliveryRoute route = routeDb.DeliveryRoute.create({
+            name: "North loop",
+            runsOn: DateTime.now(),
+            driverName: "Ines Calder",
+            driverEmail: "ines@quayline.example.com",
+            vehicleName: "Van 1",
             vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Warehouse A",
-            endLocation: "Distribution Center B",
-            plannedDistance: 125.50,
-            status: RouteStatus.Active,
-            startedAt: DateTime.now()
+            capacityKg: 900.0
         });
-        route.save();
-        assert route.isActive == true;
+        assert route.status == RouteStatus.Draft;
+        assert route.stopCount == 0;
     }
-
-    test("validation rejects zero planned distance") {
-        assert throws(
-        () => routeDb.Route.create({
-            routeCode: "RT-TEST-002",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Origin",
-            endLocation: "Destination",
-            plannedDistance: 0
-        }),
-        ValidationError("Planned distance must be greater than zero")
-        );
-    }
-
-    test("afterCreate emits RouteCreated") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-003",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Start Point",
-            endLocation: "End Point",
-            plannedDistance: 75.00
-        });
-        route.save();
-        assert emitted(RouteCreated(route.id, route.routeCode, route.vehicleId, route.driverId));
-    }
-
-    test("validation rejects stop with zero sequence") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-004",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Hub A",
-            endLocation: "Hub B",
-            plannedDistance: 50.00
-        });
-        route.save();
-        assert throws(
-        () => routeDb.RouteStop.create({
-            routeId: route.id,
-            shipmentId: uuid(),
-            address: "123 Main St",
-            sequence: 0
-        }),
-        ValidationError("Stop sequence must be at least 1")
-        );
-    }
-
-    test("computed isCompleted for Completed status") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-005",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Depot C",
-            endLocation: "Depot D",
-            plannedDistance: 200.00,
-            status: RouteStatus.Completed,
-            startedAt: DateTime.now().addHours(-3),
-            completedAt: DateTime.now(),
-            actualDistance: 195.50
-        });
-        route.save();
-        assert route.isCompleted == true;
-        assert route.isActive == false;
-    }
-
-    test("computed isActive is false for Planned status") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-006",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Terminal E",
-            endLocation: "Terminal F",
-            plannedDistance: 80.00,
-            status: RouteStatus.Planned
-        });
-        route.save();
-        assert route.isActive == false;
-    }
-
-    test("start fn sets status to Active and startedAt") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-007",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Base G",
-            endLocation: "Base H",
-            plannedDistance: 150.00,
-            status: RouteStatus.Planned
-        });
-        route.save();
-        route.start();
-        assert route.status == RouteStatus.Active;
-        assert route.startedAt != null;
-    }
-
-    test("complete fn sets status, completedAt, and actualDistance") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-008",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Center I",
-            endLocation: "Center J",
-            plannedDistance: 100.00,
-            status: RouteStatus.Active,
-            startedAt: DateTime.now()
-        });
-        route.save();
-        route.complete(105.25);
-        assert route.status == RouteStatus.Completed;
-        assert route.completedAt != null;
-        assert route.actualDistance == 105.25;
-    }
-
-    test("status change emits RouteStatusChanged") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-009",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Point K",
-            endLocation: "Point L",
-            plannedDistance: 60.00,
-            status: RouteStatus.Planned
-        });
-        route.save();
-        route.status = RouteStatus.Active;
-        route.save();
-        assert emitted(RouteStatusChanged(route.id, route.routeCode, RouteStatus.Planned, RouteStatus.Active));
-    }
-
-    test("validation rejects empty start location") {
-        assert throws(
-        () => routeDb.Route.create({
-            routeCode: "RT-TEST-010",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "",
-            endLocation: "Valid End",
-            plannedDistance: 50.00
-        }),
-        ValidationError("Start location cannot be empty")
-        );
-    }
-
-    test("validation rejects empty end location") {
-        assert throws(
-        () => routeDb.Route.create({
-            routeCode: "RT-TEST-011",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Valid Start",
-            endLocation: "",
-            plannedDistance: 50.00
-        }),
-        ValidationError("End location cannot be empty")
-        );
-    }
-
-    test("validation rejects empty stop address") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-012",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Start M",
-            endLocation: "End N",
-            plannedDistance: 40.00
-        });
-        route.save();
-        assert throws(
-        () => routeDb.RouteStop.create({
-            routeId: route.id,
-            shipmentId: uuid(),
-            address: "",
-            sequence: 1
-        }),
-        ValidationError("Stop address cannot be empty")
-        );
-    }
-
-    test("markArrived sets stop status and actualArrival") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-013",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Hub O",
-            endLocation: "Hub P",
-            plannedDistance: 90.00,
-            status: RouteStatus.Active,
-            startedAt: DateTime.now()
-        });
-        route.save();
-        let RouteStop stop = routeDb.RouteStop.create({
-            routeId: route.id,
-            shipmentId: uuid(),
-            address: "456 Delivery Ave",
-            sequence: 1,
-            status: StopStatus.Pending
-        });
-        stop.save();
-        stop.markArrived();
-        assert stop.status == StopStatus.Arrived;
-        assert stop.actualArrival != null;
-    }
-
-    test("markCompleted sets stop status to Completed") {
-        let Route route = routeDb.Route.create({
-            routeCode: "RT-TEST-014",
-            vehicleId: uuid(),
-            driverId: uuid(),
-            startLocation: "Hub Q",
-            endLocation: "Hub R",
-            plannedDistance: 70.00,
-            status: RouteStatus.Active,
-            startedAt: DateTime.now()
-        });
-        route.save();
-        let RouteStop stop = routeDb.RouteStop.create({
-            routeId: route.id,
-            shipmentId: uuid(),
-            address: "789 Pickup Blvd",
-            sequence: 1,
-            status: StopStatus.Arrived,
-            actualArrival: DateTime.now()
-        });
-        stop.save();
-        stop.markCompleted();
-        assert stop.status == StopStatus.Completed;
-    }
-
 }

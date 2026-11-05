@@ -1,34 +1,28 @@
-
-// Shared module - defines reusable types for HR platform services
-// BaseEntity is provided by the Datrix standard library.
+// What the Alderbrook services share.
 module hr.common {
 
-    // Extends stdlib BaseEntity with audit tracking fields
-    abstract entity AuditedEntity extends BaseEntity {
-        UUID? performedBy;
-        String(500)? auditNote;
-    }
-
-    // Department classification used across all HR services
     enum Department {
-        Engineering : value('engineering'),
-        Marketing : value('marketing'),
-        Sales : value('sales'),
-        HR : value('hr'),
-        Finance : value('finance'),
-        Operations : value('operations'),
-        Legal : value('legal'),
-        CustomerSupport : value('customer_support')
+        Engineering,
+        Design,
+        Sales,
+        People,
+        Finance,
+        Operations
     }
 
-    // Generate a unique employee number
+    enum EmploymentType {
+        FullTime,
+        PartTime,
+        Contract
+    }
+
+    /// A number a person can read out, printed on a badge.
     fn generateEmployeeNumber() -> String {
-        return #"EMP-{DateTime.now().format('YYYY')}-{Random.string(6, '0123456789')}";
+        return #"AB-{Random.string(6, '0123456789')}";
     }
 
-    // Generate a payroll run reference
-    fn generatePayrollRef() -> String {
-        return #"PAY-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(4).toUpperCase()}";
+    /// What a candidate quotes to follow an application. Long enough that nobody can guess another's.
+    fn generateReference() -> String {
+        return #"APP-{Random.string(14, '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ')}";
     }
-
 }

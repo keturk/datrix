@@ -1,0 +1,122 @@
+// Implements the SignatureProvider contract in the stack. An operator plays the buyer from the Console,
+// signing or declining by hand, and the deal service finds out the way it would from a real vendor: by asking.
+service realestate.SignatureMock('config/mocks/signature-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the e-signature vendor') {
+
+    discovery { }
+
+    exceptions {
+        NoSuchEnvelopeError : status(404), message("There is no envelope with that id");
+    }
+
+    enum EnvelopeStatus {
+        Sent : tone(warning),
+        Signed : tone(success),
+        Declined : tone(danger)
+    }
+
+    rdbms signatureDb {
+
+        /// A document waiting for a signature.
+        entity VendorEnvelope extends BaseEntity {
+            String(200) signerName : filterable;
+            String(200) documentTitle : filterable;
+            EnvelopeStatus status : filterable = EnvelopeStatus.Sent;
+            DateTime? settledAt;
+            Text documentBody;
+            Email signerEmail;
+            String(40) envelopeId : unique;
+            String(120) idempotencyKey : unique;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct SendEnvelopeRequest {
+        String(200) signerName;
+        Email signerEmail;
+        String(200) documentTitle;
+        Text documentBody;
+        String(120) idempotencyKey;
+    }
+
+    struct Envelope {
+        String(40) id;
+        EnvelopeStatus status;
+    }
+
+    fn answerOf(signatureDb.VendorEnvelope envelope) -> Envelope {
+        return Envelope { id: envelope.envelopeId, status: envelope.status };
+    }
+
+    // The vendor's public API: exactly the SignatureProvider contract.
+    rest_api SignatureAPI : basePath('/v1'), rdbms(signatureDb) {
+        @path('/envelopes')
+        post sendEnvelope(SendEnvelopeRequest request) : auth(required, providers: [signatureKeys]) -> Envelope {
+            let VendorEnvelope? existing = VendorEnvelope.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            return answerOf(VendorEnvelope.create({
+                envelopeId: #"env_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                signerName: request.signerName,
+                signerEmail: request.signerEmail,
+                documentTitle: request.documentTitle,
+                documentBody: request.documentBody
+            }));
+        }
+
+        @path('/envelopes/:id')
+        get envelopeById(String id) : auth(required, providers: [signatureKeys]) -> Envelope {
+            let VendorEnvelope? envelope = VendorEnvelope.where(envelopeId: id).first();
+            if (envelope == null) {
+                throw NoSuchEnvelopeError();
+            }
+            return answerOf(envelope);
+        }
+    }
+
+    // What the operator pages in the Console show, and what the signer does.
+    rest_api SignatureDeskAPI : basePath('/api/v1/desk/signature'), rdbms(signatureDb) {
+        resource VendorEnvelope : only(list), auth(required, providers: [identity], roles: [operator]);
+
+        @path('/sign/:id')
+        post sign(UUID id) : auth(required, providers: [identity], roles: [operator]) -> VendorEnvelope {
+            let VendorEnvelope envelope = VendorEnvelope.findOrFail(id);
+            envelope.status = EnvelopeStatus.Signed;
+            envelope.settledAt = DateTime.now();
+            envelope.save();
+            return envelope;
+        }
+
+        @path('/decline/:id')
+        post decline(UUID id) : auth(required, providers: [identity], roles: [operator]) -> VendorEnvelope {
+            let VendorEnvelope envelope = VendorEnvelope.findOrFail(id);
+            envelope.status = EnvelopeStatus.Declined;
+            envelope.settledAt = DateTime.now();
+            envelope.save();
+            return envelope;
+        }
+    }
+
+    test("a new envelope waits for its signer") {
+        let VendorEnvelope envelope = signatureDb.VendorEnvelope.create({
+            envelopeId: "env_0001",
+            idempotencyKey: "contract-1",
+            signerName: "Theo Marsh",
+            signerEmail: "theo@example.com",
+            documentTitle: "Contract of sale",
+            documentBody: "Theo agrees to buy a home."
+        });
+        assert envelope.status == EnvelopeStatus.Sent;
+    }
+}

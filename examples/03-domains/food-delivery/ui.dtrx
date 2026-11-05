@@ -1,0 +1,52 @@
+// What the Saltbox apps share: the brand and the shape of a page.
+module fooddelivery.ui {
+
+    theme Brand {
+        color primary      = '#b4431f';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#1f1a17';
+        color background   = '#fdf8f3';
+        color onBackground = '#1f1a17';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#57534e';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 12;
+        font body          = font('Inter', 16, 400);
+        font heading       = font('Inter', 24, 700);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#292524';
+            color onSurface    = '#f5f5f4';
+            color background   = '#1c1917';
+            color onBackground = '#f5f5f4';
+            color primary      = '#fdba74';
+            color onPrimary    = '#431407';
+        }
+    }
+
+    /// Restaurants in one column on a phone and three from a tablet up.
+    style cardGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 3; }
+    }
+
+    /// Figures across the top of a dashboard.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+}

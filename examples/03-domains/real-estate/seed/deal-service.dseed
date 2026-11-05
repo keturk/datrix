@@ -1,0 +1,12 @@
+// Two buyers want the same terrace house, so accepting one shows the other being turned down.
+seed service realestate.DealService {
+  rdbms dealDb {
+    baseline {
+      Offer table on(id) {
+        id,                  listingId,         listingTitle,         buyerName,     buyerEmail,         agentEmail,                     amount,    financing, status,    lenderReference;
+        @uuid("offer-ruth"), @uuid("home-row"), "End of the terrace", "Ruth Ellery", "ruth@example.com", "dana@cobblestone.example.com", 470000.00, Cash,      Submitted, null;
+        @uuid("offer-owen"), @uuid("home-row"), "End of the terrace", "Owen Park",   "owen@example.com", "dana@cobblestone.example.com", 479000.00, Mortgage,  Submitted, "pre_seeded_owen_0001";
+      }
+    }
+  }
+}

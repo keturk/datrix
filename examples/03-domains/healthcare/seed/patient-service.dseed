@@ -1,0 +1,14 @@
+// Three invented patients, so the clinic has a day to run on first start. A real patient appears the
+// first time someone signs in to the Portal.
+seed service healthcare.PatientService {
+  rdbms patientDb {
+    baseline {
+      Patient table on(recordNumber) {
+        id,                   recordNumber, fullName,        dateOfBirth,  phone,          allergies,    memberId,   planName, coverage,   copay;
+        @uuid("patient-ana"), "FC-100001",  "Ana Ferreira",  "1985-03-14", "+14155550101", "Penicillin", "SIL-1001", "Silver", Active,     25.00;
+        @uuid("patient-ben"), "FC-100002",  "Ben Oyelaran",  "1972-11-02", "+14155550102", null,         "GLD-2001", "Gold",   Active,     10.00;
+        @uuid("patient-lea"), "FC-100003",  "Lea Marchetti", "1996-07-23", "+14155550103", null,         "SIL-1002", null,     Inactive,   null;
+      }
+    }
+  }
+}

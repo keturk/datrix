@@ -1,0 +1,459 @@
+from hr.ui import Brand, statRow;
+
+/// Where HR works: who is here and who is away, the pay runs, and every candidate on a board. Only an
+/// operator reaches the vendor pages, which show what was sent to the mocked bank and vendors and play
+/// their people.
+app hr.Console('config/console-app.dcfg') : version('2.0.0') {
+    uses hr.EmployeeService;
+    uses hr.PayrollService;
+    uses hr.RecruitmentService;
+    uses hr.BankMock;
+    uses hr.CheckMock;
+    uses hr.SignatureMock;
+
+    theme extends Brand { }
+
+    // What the open dialog works on: a form sends this value without showing it.
+    state UUID? openApplicationId = null;
+    state Boolean offering = false;
+
+    fn approveTimeOff(UUID id) {
+        EmployeeService.PeopleAPI.post.approveTimeOff(id: id);
+        Ui.toast(Msg.timeOffApproved, tone: success);
+    }
+
+    fn declineTimeOff(UUID id) {
+        EmployeeService.PeopleAPI.post.declineTimeOff(id: id);
+        Ui.toast(Msg.timeOffDeclined);
+    }
+
+    fn closePosting(UUID id) {
+        if (Ui.confirm(Msg.confirmClose)) {
+            RecruitmentService.PipelineAPI.post.closePosting(id: id);
+            Ui.toast(Msg.postingClosed);
+        }
+    }
+
+    fn clearCheck(UUID id) {
+        CheckMock.CheckDeskAPI.post.clear(id: id);
+        Ui.toast(Msg.checkSettled, tone: success);
+    }
+
+    fn flagCheck(UUID id) {
+        CheckMock.CheckDeskAPI.post.flag(id: id);
+        Ui.toast(Msg.checkSettled);
+    }
+
+    fn signEnvelope(UUID id) {
+        SignatureMock.SignatureDeskAPI.post.sign(id: id);
+        Ui.toast(Msg.envelopeSettled, tone: success);
+    }
+
+    fn declineEnvelope(UUID id) {
+        SignatureMock.SignatureDeskAPI.post.decline(id: id);
+        Ui.toast(Msg.envelopeSettled);
+    }
+
+    layout Shell : default {
+        nav {
+            link Dashboard : icon(dashboard), group(Msg.navOverview);
+            link People : icon(groups), group(Msg.navPeople);
+            link TimeOffQueue : icon(event_available), group(Msg.navPeople);
+            link PayRuns : icon(payments), group(Msg.navPay);
+            link PayProfiles : icon(account_balance_wallet), group(Msg.navPay);
+            link Postings : icon(work), group(Msg.navHiring);
+            link Payouts : icon(account_balance), group(Msg.navVendors);
+            link Checks : icon(fact_check), group(Msg.navVendors);
+            link Envelopes : icon(draw), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Dashboard() {
+        data {
+            people = EmployeeService.PeopleAPI.get.summary() : poll(30s);
+            hiring = RecruitmentService.PipelineAPI.get.summary() : poll(30s);
+        }
+        view {
+            pageHeader(Msg.dashboardTitle, Msg.dashboardSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statHeadcount, Fmt.number(people.headcount)) : icon(groups);
+                stat(Msg.statOnLeave, Fmt.number(people.onLeave)) : icon(beach_access), tone(warning);
+                stat(Msg.statPendingTimeOff, Fmt.number(people.pendingTimeOff)) : icon(event_available), tone(info);
+                stat(Msg.statOpenRoles, Fmt.number(hiring.openRoles)) : icon(work), tone(success);
+                stat(Msg.statInPipeline, Fmt.number(hiring.inPipeline)) : icon(person_search);
+                stat(Msg.statOffersOut, Fmt.number(hiring.offersOut)) : icon(draw), tone(warning);
+            }
+            section(Msg.byDepartmentTitle) {
+                chart(bar, data: people.byDepartment, x: d => d.department, y: d => d.people);
+            }
+        }
+    }
+
+    @path('/people')
+    page People() {
+        view {
+            pageHeader(Msg.peopleTitle, Msg.peopleSubtitle);
+            table(PeopleList);
+            card(Msg.addEmployee) { form(AddEmployee); }
+        }
+    }
+
+    table PeopleList : source(EmployeeService.PeopleAPI.employeeDb.Employee.list), pageSizes(10, 25, 50) {
+        column employeeNumber;
+        column fullName;
+        column jobTitle;
+        column department;
+        column employmentType;
+        column status;
+        column hiredOn : format(date);
+        column vacationDaysLeft : format(number);
+        filter fullName : live;
+        filter department;
+        filter status;
+        filter employmentType;
+    }
+
+    form AddEmployee : submit(EmployeeService.PeopleAPI.post.addEmployee) {
+        field fullName;
+        field jobTitle;
+        field department;
+        field employmentType;
+        field workEmail;
+        field hiredOn;
+        onSuccess(Ui.toast(Msg.employeeAdded, tone: success));
+    }
+
+    @path('/time-off')
+    page TimeOffQueue() {
+        data { approved = EmployeeService.PeopleAPI.get.timeOffCalendar(); }
+        view {
+            pageHeader(Msg.timeOffTitle, Msg.timeOffSubtitle);
+            tabs {
+                tab(Msg.tabRequests) { table(TimeOffList); }
+                tab(Msg.tabCalendar) {
+                    calendar(data: approved, at: r => r.firstDay, until: r => r.lastDay) {
+                        text(item.employeeName);
+                    }
+                }
+            }
+        }
+    }
+
+    table TimeOffList : source(EmployeeService.PeopleAPI.employeeDb.TimeOffRequest.list), poll(30s) {
+        column employeeName;
+        column department;
+        column kind;
+        column firstDay : format(date);
+        column lastDay : format(date);
+        column days : format(number);
+        column note;
+        column status;
+        column decidedBy;
+        filter status;
+        filter kind;
+        filter department;
+        rowAction approve : onClick(approveTimeOff(row.id));
+        rowAction decline : onClick(declineTimeOff(row.id));
+    }
+
+    @path('/pay')
+    page PayRuns() {
+        view {
+            pageHeader(Msg.payRunsTitle, Msg.payRunsSubtitle);
+            card(Msg.prepareRun) { form(PrepareRun); }
+            table(RunList);
+        }
+    }
+
+    form PrepareRun : submit(PayrollService.PayrollAPI.post.prepare) {
+        fn prepared(UUID id) {
+            Ui.toast(Msg.runPrepared, tone: success);
+            Nav.to(RunPage, id: id);
+        }
+        field period;
+        onSuccess(prepared(result.id));
+    }
+
+    table RunList : source(PayrollService.PayrollAPI.payrollDb.PayRun.list), poll(30s) {
+        column period;
+        column status;
+        column people : format(number);
+        column totalGross : format(money);
+        column totalNet : format(money);
+        column preparedByName;
+        column approvedByName;
+        column paidAt : format(date);
+        filter status;
+        rowAction open : onClick(Nav.to(RunPage, id: row.id));
+    }
+
+    @path('/pay/:id')
+    page RunPage(UUID id) {
+        data { detail = PayrollService.PayrollAPI.get.runDetail(id: id); }
+
+        fn approve() {
+            PayrollService.PayrollAPI.post.approve(id: id);
+            detail.refresh();
+            Ui.toast(Msg.runApproved, tone: success);
+        }
+
+        fn pay() {
+            if (Ui.confirm(Msg.confirmPay)) {
+                PayrollService.PayrollAPI.post.pay(id: id);
+                detail.refresh();
+                Ui.toast(Msg.runPaid, tone: success);
+            }
+        }
+
+        view {
+            pageHeader(detail.run.period, Msg.preparedByLine(name: detail.run.preparedByName)) : back(PayRuns) {
+                badge(detail.run.status);
+                when (detail.run.status == RunStatus.Draft) {
+                    button(Msg.approve) : onClick(approve()), kind(primary), icon(verified);
+                }
+                when (detail.run.status == RunStatus.Approved) {
+                    button(Msg.pay) : onClick(pay()), kind(primary), icon(payments);
+                }
+            }
+            grid : style(statRow) {
+                stat(Msg.statPeople, Fmt.number(detail.run.people)) : icon(groups);
+                stat(Msg.statGross, Fmt.money(detail.run.totalGross)) : icon(payments);
+                stat(Msg.statNet, Fmt.money(detail.run.totalNet)) : icon(account_balance), tone(success);
+            }
+            section(Msg.payslipsTitle) {
+                list(data: detail.payslips) {
+                    heading(item.employeeName);
+                    badge(item.status);
+                    text(Msg.netLine(amount: Fmt.money(item.net)));
+                    when (item.failureReason != null) {
+                        callout(item.failureReason) : tone(danger);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/pay/profiles')
+    page PayProfiles() {
+        view {
+            pageHeader(Msg.profilesTitle, Msg.profilesSubtitle);
+            table(ProfileList);
+        }
+    }
+
+    table ProfileList : source(PayrollService.PayrollAPI.payrollDb.PayProfile.list) {
+        column employeeName;
+        column department;
+        column annualSalary : format(money);
+        column isActive : render(ActiveBadge);
+        filter employeeName : live;
+        filter department;
+    }
+
+    component ActiveBadge(Boolean isActive) {
+        view {
+            when (isActive) { badge(Msg.onPayroll) : tone(success); }
+            when (!isActive) { badge(Msg.offPayroll) : tone(neutral); }
+        }
+    }
+
+    @path('/roles')
+    page Postings() {
+        view {
+            pageHeader(Msg.postingsTitle, Msg.postingsSubtitle);
+            table(PostingList);
+            card(Msg.addPosting) { form(AddPosting); }
+        }
+    }
+
+    table PostingList : source(RecruitmentService.PipelineAPI.recruitDb.JobPosting.list) {
+        column title;
+        column department;
+        column location;
+        column salaryFrom : format(money);
+        column salaryTo : format(money);
+        column status;
+        filter status;
+        filter department;
+        rowAction openBoard : onClick(Nav.to(PipelineBoard, postingId: row.id));
+        rowAction close : onClick(closePosting(row.id));
+    }
+
+    form AddPosting : submit(RecruitmentService.PipelineAPI.recruitDb.JobPosting.create) {
+        field title;
+        field department;
+        field location;
+        field salaryFrom;
+        field salaryTo;
+        field description;
+        onSuccess(Ui.toast(Msg.postingAdded, tone: success));
+    }
+
+    // A move the service refuses leaves the card where it was, and the toast says why.
+    @path('/roles/:postingId')
+    page PipelineBoard(UUID postingId) {
+        data { applications = RecruitmentService.PipelineAPI.get.boardOf(id: postingId) : poll(15s); }
+
+        fn moveApplication(UUID id, ApplicationStatus column) {
+            RecruitmentService.PipelineAPI.post.moveApplication(id, { status: column });
+        }
+
+        view {
+            pageHeader(Msg.boardTitle, Msg.boardSubtitle) : back(Postings);
+            board(data: applications, column: a => a.status) : onMove(moveApplication(item.id, column)) {
+                heading(item.candidateName);
+                badge(item.checkState);
+                badge(item.offerState);
+                link(Msg.openApplication, Candidate, id: item.id);
+            }
+        }
+    }
+
+    @path('/candidates/:id')
+    page Candidate(UUID id) {
+        data { application = RecruitmentService.PipelineAPI.recruitDb.JobApplication.get(id: id) : poll(15s); }
+
+        fn startCheck() {
+            RecruitmentService.PipelineAPI.post.startCheck(id: id);
+            application.refresh();
+            Ui.toast(Msg.checkStarted, tone: success);
+        }
+
+        fn startOffer() {
+            openApplicationId = id;
+            offering = true;
+        }
+
+        fn closeDialog() {
+            offering = false;
+        }
+
+        view {
+            pageHeader(application.candidateName, application.postingTitle) : back(Postings) {
+                badge(application.status);
+                when (application.checkState == CheckState.NotStarted) {
+                    button(Msg.startCheck) : onClick(startCheck()), icon(fact_check);
+                }
+                when (application.checkState == CheckState.Clear && application.offerState == OfferState.NotSent) {
+                    button(Msg.makeOffer) : onClick(startOffer()), kind(primary), icon(draw);
+                }
+            }
+            when (offering) {
+                dialog(Msg.makeOffer) : onClose(closeDialog()) {
+                    form(MakeOffer);
+                }
+            }
+            grid : style(statRow) {
+                card(Msg.checkTitle) { badge(application.checkState); }
+                card(Msg.offerTitle) {
+                    badge(application.offerState);
+                    when (application.offeredSalary != null) {
+                        text(Fmt.money(application.offeredSalary));
+                    }
+                }
+            }
+            card(Msg.contactTitle) {
+                text(application.candidateEmail);
+                when (application.candidatePhone != null) {
+                    text(application.candidatePhone);
+                }
+            }
+            card(Msg.coverTitle) { text(application.coverNote) : preserveLines; }
+        }
+    }
+
+    form MakeOffer : submit(RecruitmentService.PipelineAPI.post.makeOffer) {
+        fn sent() {
+            offering = false;
+            Ui.toast(Msg.offerSent, tone: success);
+        }
+        field id : fixed(openApplicationId);
+        field salary;
+        field accountNumber;
+        onSuccess(sent());
+    }
+
+    @path('/vendors/bank')
+    page Payouts() {
+        view {
+            pageHeader(Msg.payoutsTitle, Msg.payoutsSubtitle);
+            table(PayoutList);
+        }
+    }
+
+    table PayoutList : source(BankMock.BankDeskAPI.bankDb.BankPayout.list), poll(15s) {
+        column createdAt : format(relative);
+        column accountEnding;
+        column amount : format(money);
+        column reference;
+        column status;
+        column rejectionReason;
+        filter status;
+    }
+
+    @path('/vendors/checks')
+    page Checks() {
+        view {
+            pageHeader(Msg.checksTitle, Msg.checksSubtitle);
+            table(CheckList);
+        }
+    }
+
+    table CheckList : source(CheckMock.CheckDeskAPI.checkDb.VendorCheck.list), poll(15s) {
+        column createdAt : format(relative);
+        column candidateName;
+        column outcome;
+        filter outcome;
+        rowAction clear : onClick(clearCheck(row.id));
+        rowAction flag : onClick(flagCheck(row.id));
+    }
+
+    @path('/vendors/signatures')
+    page Envelopes() {
+        view {
+            pageHeader(Msg.envelopesTitle, Msg.envelopesSubtitle);
+            table(EnvelopeList);
+        }
+    }
+
+    table EnvelopeList : source(SignatureMock.SignatureDeskAPI.signatureDb.VendorEnvelope.list), poll(15s) {
+        column createdAt : format(relative);
+        column signerName;
+        column documentTitle;
+        column status;
+        column settledAt : format(relative);
+        filter status;
+        rowAction sign : onClick(signEnvelope(row.id));
+        rowAction decline : onClick(declineEnvelope(row.id));
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Dashboard); }
+        }
+    }
+
+    test("the people page opens") {
+        let Screen screen = render(People);
+        assert screen.shows(Msg.peopleTitle);
+    }
+}

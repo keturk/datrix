@@ -1,0 +1,387 @@
+from iot.ui import Brand, statRow;
+
+/// Where the operations team watches the fleet: what is in trouble now, each device's temperature, the
+/// sites on a map, and firmware going out. Only an operator reaches the simulator, which opens fridge
+/// doors and unplugs things so an alert can be watched from start to end.
+app iot.Operations('config/operations-app.dcfg') : version('2.0.0') {
+    uses iot.DeviceService;
+    uses iot.TelemetryService;
+    uses iot.FirmwareService;
+    uses iot.FleetMock;
+    uses iot.PagerMock;
+
+    theme extends Brand { }
+
+    fn openDoor(UUID id) {
+        FleetMock.SimulatorDeskAPI.post.openDoor(id: id);
+        Ui.toast(Msg.doorOpened, tone: warning);
+    }
+
+    fn closeDoor(UUID id) {
+        FleetMock.SimulatorDeskAPI.post.closeDoor(id: id);
+        Ui.toast(Msg.doorClosed, tone: success);
+    }
+
+    fn unplug(UUID id) {
+        FleetMock.SimulatorDeskAPI.post.unplug(id: id);
+        Ui.toast(Msg.unplugged, tone: warning);
+    }
+
+    fn plugIn(UUID id) {
+        FleetMock.SimulatorDeskAPI.post.plugIn(id: id);
+        Ui.toast(Msg.pluggedIn, tone: success);
+    }
+
+    fn claimAlert(UUID id) {
+        TelemetryService.AlertAPI.post.claim(id: id);
+        Ui.toast(Msg.alertClaimed, tone: success);
+    }
+
+    layout Shell : default {
+        nav {
+            link Overview : icon(dashboard), group(Msg.navWatch);
+            link Sites : icon(map), group(Msg.navWatch);
+            link Devices : icon(sensors), group(Msg.navWatch);
+            link Alerts : icon(notification_important), group(Msg.navWatch);
+            link Firmware : icon(system_update), group(Msg.navFleet);
+            link Simulator : icon(science), group(Msg.navVendors);
+            link Commands : icon(terminal), group(Msg.navVendors);
+            link Pages : icon(campaign), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Overview() {
+        data {
+            fleet = DeviceService.FleetAPI.get.summary() : poll(15s);
+            alerts = TelemetryService.AlertAPI.get.summary() : poll(15s);
+            queue = TelemetryService.AlertAPI.get.queue() : poll(15s);
+        }
+        view {
+            pageHeader(Msg.overviewTitle, Msg.overviewSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statOnline, Fmt.number(fleet.online)) : icon(sensors), tone(success);
+                stat(Msg.statOffline, Fmt.number(fleet.offline)) : icon(sensors_off), tone(danger);
+                stat(Msg.statOpenAlerts, Fmt.number(alerts.open)) : icon(notification_important), tone(danger);
+                stat(Msg.statClaimed, Fmt.number(alerts.claimed)) : icon(engineering), tone(warning);
+            }
+            when (alerts.openBySite.length > 0) {
+                section(Msg.bySiteTitle) {
+                    chart(bar, data: alerts.openBySite, x: c => c.siteName, y: c => c.alerts);
+                }
+            }
+            section(Msg.queueTitle) {
+                when (queue.length == 0) {
+                    emptyState(Msg.allQuiet) : icon(check_circle);
+                }
+                list(data: queue) : onClick(Nav.to(Alerts)) {
+                    heading(item.deviceName);
+                    badge(item.kind);
+                    badge(item.status);
+                    text(item.siteName);
+                    text(Fmt.relative(item.createdAt));
+                }
+            }
+        }
+    }
+
+    @path('/sites')
+    page Sites() {
+        data { pins = DeviceService.FleetAPI.get.pins(); }
+        view {
+            pageHeader(Msg.sitesTitle, Msg.sitesSubtitle);
+            map {
+                foreach (pin in pins) {
+                    marker(pin.point, pin.name);
+                }
+            }
+            table(SiteList);
+        }
+    }
+
+    table SiteList : source(DeviceService.FleetAPI.deviceDb.Site.list) {
+        column name;
+        column city;
+    }
+
+    @path('/devices')
+    page Devices() {
+        view {
+            pageHeader(Msg.devicesTitle, Msg.devicesSubtitle);
+            table(DeviceList);
+            card(Msg.registerDevice) { form(RegisterDevice); }
+        }
+    }
+
+    table DeviceList : source(DeviceService.FleetAPI.deviceDb.Device.list), pageSizes(10, 25, 50), poll(30s) {
+        column serialNumber;
+        column name;
+        column kind;
+        column siteName;
+        column status;
+        column firmwareVersion;
+        column lastSeenAt : format(relative);
+        filter name : live;
+        filter siteName;
+        filter status;
+        filter kind;
+        rowAction open : onClick(Nav.to(DeviceDetail, id: row.id));
+    }
+
+    form RegisterDevice : submit(DeviceService.FleetAPI.post.register) {
+        field serialNumber;
+        field name;
+        field kind;
+        field siteId : options(DeviceService.FleetAPI.deviceDb.Site.list, value: s => s.id, label: s => s.name);
+        field firmwareVersion;
+        field minTemperature;
+        field maxTemperature;
+        onSuccess(Ui.toast(Msg.deviceRegistered, tone: success));
+    }
+
+    @path('/devices/:id')
+    page DeviceDetail(UUID id) {
+        data { device = DeviceService.FleetAPI.deviceDb.Device.get(id: id) : poll(30s); }
+        view {
+            pageHeader(device.name, device.serialNumber) : back(Devices) {
+                badge(device.status);
+            }
+            DeviceReadings(device.serialNumber);
+        }
+    }
+
+    // Loaded once the device's serial number is known.
+    component DeviceReadings(String serialNumber) {
+        data {
+            latest = TelemetryService.ReadingAPI.get.latest(serialNumber: serialNumber) : poll(30s);
+            recent = TelemetryService.ReadingAPI.get.recent(serialNumber: serialNumber) : poll(60s);
+            history = TelemetryService.AlertAPI.get.ofDevice(serialNumber: serialNumber) : poll(30s);
+        }
+        view {
+            when (latest.temperature != null) {
+                stat(Msg.statNow, Fmt.number(latest.temperature)) : icon(device_thermostat);
+            }
+            section(Msg.chartTitle) {
+                chart(line, data: recent, x: r => r.takenAt, y: r => r.temperature);
+            }
+            section(Msg.historyTitle) {
+                when (history.length == 0) {
+                    emptyState(Msg.noAlerts) : icon(check_circle);
+                }
+                timeline(data: history, at: a => a.createdAt) {
+                    badge(item.kind);
+                    badge(item.status);
+                    when (item.resolution != null) {
+                        text(item.resolution);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/alerts')
+    page Alerts() {
+        view {
+            pageHeader(Msg.alertsTitle, Msg.alertsSubtitle);
+            table(AlertList);
+        }
+    }
+
+    table AlertList : source(TelemetryService.AlertAPI.alertDb.Alert.list), pageSizes(10, 25, 50), poll(15s) {
+        column createdAt : format(relative);
+        column deviceName;
+        column siteName;
+        column kind;
+        column temperature : format(number);
+        column status;
+        column claimedByName;
+        column resolution;
+        filter status;
+        filter kind;
+        filter siteName;
+        rowAction claim : onClick(claimAlert(row.id));
+    }
+
+    @path('/firmware')
+    page Firmware() {
+        view {
+            pageHeader(Msg.firmwareTitle, Msg.firmwareSubtitle);
+            card(Msg.startRollout) { form(StartRollout); }
+            section(Msg.rolloutsTitle) { table(RolloutList); }
+            section(Msg.releasesTitle) {
+                table(ReleaseList);
+                card(Msg.addRelease) { form(AddRelease); }
+            }
+        }
+    }
+
+    form StartRollout : submit(FirmwareService.FirmwareAPI.post.start) {
+        fn started(UUID id) {
+            Ui.toast(Msg.rolloutStarted, tone: success);
+            Nav.to(RolloutDetailPage, id: id);
+        }
+        field version : options(FirmwareService.FirmwareAPI.firmwareDb.FirmwareRelease.list, value: r => r.version, label: r => r.version);
+        onSuccess(started(result.id));
+    }
+
+    table RolloutList : source(FirmwareService.FirmwareAPI.firmwareDb.Rollout.list), poll(30s) {
+        column createdAt : format(relative);
+        column version;
+        column status;
+        column devices : format(number);
+        column updated : format(number);
+        column refused : format(number);
+        column startedByName;
+        filter status;
+        rowAction open : onClick(Nav.to(RolloutDetailPage, id: row.id));
+    }
+
+    table ReleaseList : source(FirmwareService.FirmwareAPI.firmwareDb.FirmwareRelease.list) {
+        column version;
+        column notes;
+        column createdAt : format(date);
+    }
+
+    form AddRelease : submit(FirmwareService.FirmwareAPI.firmwareDb.FirmwareRelease.create) {
+        field version;
+        field notes;
+        onSuccess(Ui.toast(Msg.releaseAdded, tone: success));
+    }
+
+    @path('/firmware/rollouts/:id')
+    page RolloutDetailPage(UUID id) {
+        data { detail = FirmwareService.FirmwareAPI.get.detail(id: id) : poll(15s); }
+
+        fn resume() {
+            FirmwareService.FirmwareAPI.post.resume(id: id);
+            detail.refresh();
+            Ui.toast(Msg.rolloutResumed, tone: success);
+        }
+
+        view {
+            pageHeader(detail.rollout.version, Msg.startedByLine(name: detail.rollout.startedByName)) : back(Firmware) {
+                badge(detail.rollout.status);
+                when (detail.rollout.status == RolloutStatus.Paused) {
+                    button(Msg.resume) : onClick(resume()), kind(primary);
+                }
+            }
+            when (detail.rollout.status == RolloutStatus.Paused) {
+                callout(Msg.pausedNotice) : tone(warning);
+            }
+            grid : style(statRow) {
+                stat(Msg.statDevices, Fmt.number(detail.rollout.devices)) : icon(sensors);
+                stat(Msg.statUpdated, Fmt.number(detail.rollout.updated)) : icon(check_circle), tone(success);
+                stat(Msg.statRefused, Fmt.number(detail.rollout.refused)) : icon(block), tone(danger);
+            }
+            list(data: detail.steps) {
+                heading(item.deviceName);
+                badge(item.status);
+                text(item.siteName);
+                when (item.refusal != null) {
+                    text(item.refusal);
+                }
+            }
+        }
+    }
+
+    @path('/vendors/simulator')
+    page Simulator() {
+        view {
+            pageHeader(Msg.simulatorTitle, Msg.simulatorSubtitle);
+            table(SimulatedList);
+        }
+    }
+
+    component DoorBadge(Boolean doorOpen) {
+        view {
+            when (doorOpen) { badge(Msg.doorIsOpen) : tone(danger); }
+            when (!doorOpen) { badge(Msg.doorIsClosed) : tone(success); }
+        }
+    }
+
+    component PowerBadge(Boolean poweredOn) {
+        view {
+            when (poweredOn) { badge(Msg.powerOn) : tone(success); }
+            when (!poweredOn) { badge(Msg.powerOff) : tone(danger); }
+        }
+    }
+
+    table SimulatedList : source(FleetMock.SimulatorDeskAPI.fleetDb.SimulatedDevice.list), poll(15s) {
+        column serialNumber;
+        column name;
+        column normalTemperature : format(number);
+        column lastTemperature : format(number);
+        column doorOpen : render(DoorBadge);
+        column poweredOn : render(PowerBadge);
+        column firmwareVersion;
+        filter name : live;
+        rowAction openDoor : onClick(openDoor(row.id));
+        rowAction closeDoor : onClick(closeDoor(row.id));
+        rowAction unplug : onClick(unplug(row.id));
+        rowAction plugIn : onClick(plugIn(row.id));
+    }
+
+    @path('/vendors/commands')
+    page Commands() {
+        view {
+            pageHeader(Msg.commandsTitle, Msg.commandsSubtitle);
+            table(CommandList);
+        }
+    }
+
+    table CommandList : source(FleetMock.SimulatorDeskAPI.fleetDb.GatewayCommand.list), poll(15s) {
+        column createdAt : format(relative);
+        column serialNumber;
+        column kind;
+        column firmwareVersion;
+        column status;
+        column rejectionReason;
+        filter status;
+    }
+
+    @path('/vendors/pages')
+    page Pages() {
+        view {
+            pageHeader(Msg.pagesTitle, Msg.pagesSubtitle);
+            table(PageList);
+        }
+    }
+
+    table PageList : source(PagerMock.PagerDeskAPI.pagerDb.SentPage.list), poll(15s) {
+        column createdAt : format(relative);
+        column severity;
+        column title;
+        column body;
+        column status;
+        filter status;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Overview); }
+        }
+    }
+
+    test("the alerts page opens") {
+        let Screen screen = render(Alerts);
+        assert screen.shows(Msg.alertsTitle);
+    }
+}

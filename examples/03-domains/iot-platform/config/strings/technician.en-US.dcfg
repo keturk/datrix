@@ -1,0 +1,27 @@
+config strings iot.Technician locale "en-US" {
+  messages {
+    appName         = "Coldframe";
+    account         = "Account";
+    signOut         = "Sign out";
+    home            = "Back to the queue";
+    notFoundTitle   = "Page not found";
+    queueTitle      = "What needs someone";
+    queueSubtitle   = "Take one, go and fix it, and say what you did.";
+    allQuiet        = "All quiet";
+    claim           = "Take this";
+    claimed         = "It is yours.";
+    resolve         = "Mark as fixed";
+    resolved        = "Fixed. Thank you.";
+    temperatureLine = "Last reading: {value} degrees";
+    openedLine      = "Opened {when}";
+    claimedByLine   = "Taken by {name}";
+    whereTitle      = "Where";
+    whereSubtitle   = "Every site.";
+  }
+  labels {
+    page.Queue     = "Queue";
+    page.AlertPage = "Alert";
+    page.Where     = "Sites";
+    page.NotFound  = "Not found";
+  }
+}

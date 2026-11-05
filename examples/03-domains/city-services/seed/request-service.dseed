@@ -1,0 +1,27 @@
+// Reports in each state a dispatcher sees, including one the address vendor could not place. The
+// reporter numbers are in the range reserved for fiction.
+seed service cityservices.RequestService {
+  rdbms requestDb {
+    baseline {
+      ServiceRequest table on(requestNumber) {
+        id,                    requestNumber,     title,                          description,                                             category,    priority, status,     address,            latitude, longitude, districtId,                districtName,    reporterPhone;
+        @uuid("req-pothole"),  "311-SEED-POTHOLE", "Deep pothole by the school",  "It takes the whole lane, and the bus swerves around it.", Pothole,     High,     Open,       "30 School Lane",   44.625,   -124.020,  @uuid("district-heights"), "Alder Heights", "+15555550111";
+        @uuid("req-light"),    "311-SEED-LIGHT",   "Streetlight out on Main",     "Dark since Tuesday, right at the crossing.",             Streetlight, Medium,   Assigned,   "12 Main Street",   44.635,   -124.045,  @uuid("district-oldtown"), "Old Town",      null;
+        @uuid("req-flood"),    "311-SEED-FLOOD",   "Water over Dock Road",        "High tide reaches the pavement twice a day.",            Flooding,    Critical, InProgress, "4 Dock Road",      44.620,   -124.080,  @uuid("district-harbor"),  "Harbor",        "+15555550112";
+        @uuid("req-tree"),     "311-SEED-TREE",    "Fallen tree on Hill Avenue",  "Blocking one lane, already cut up.",                     FallenTree,  Medium,   Resolved,   "88 Hill Avenue",   44.645,   -124.015,  @uuid("district-heights"), "Alder Heights", null;
+        @uuid("req-unplaced"), "311-SEED-UNPLACED", "Graffiti behind the old mill", "On the wall that faces the footpath.",                 Graffiti,    Low,      Open,       "behind the old mill", null,     null,      null,                      null,            null;
+      }
+      RequestUpdate table on(id) {
+        id,                    requestId,            status,     note;
+        @uuid("upd-pothole"),  @uuid("req-pothole"), Open,       "Report received";
+        @uuid("upd-light-1"),  @uuid("req-light"),   Open,       "Report received";
+        @uuid("upd-light-2"),  @uuid("req-light"),   Assigned,   "Assigned to a crew";
+        @uuid("upd-flood-1"),  @uuid("req-flood"),   Open,       "Report received";
+        @uuid("upd-flood-2"),  @uuid("req-flood"),   InProgress, "Crew on site with pumps";
+        @uuid("upd-tree-1"),   @uuid("req-tree"),    Open,       "Report received";
+        @uuid("upd-tree-2"),   @uuid("req-tree"),    Resolved,   "Tree cleared";
+        @uuid("upd-unplaced"), @uuid("req-unplaced"), Open,      "Report received; the address could not be placed";
+      }
+    }
+  }
+}

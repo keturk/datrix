@@ -1,0 +1,31 @@
+config strings logistics.Driver locale "en-US" {
+  messages {
+    appName         = "Quayline Driver";
+    account         = "Account";
+    signOut         = "Sign out";
+    home            = "Back to my routes";
+    notFoundTitle   = "Page not found";
+    routesTitle     = "My routes";
+    routesSubtitle  = "Everything planned for you, the newest first.";
+    noRoutes        = "Nothing planned for you yet";
+    progressLine    = "{done} of {total} stops done";
+    stopHeading     = "{number}. {name}";
+    delivered       = "Delivered";
+    couldNotDeliver = "Could not deliver";
+    deliveredDone   = "Done. The recipient has been told.";
+    missedDone      = "Noted. Dispatch will sort it out.";
+  }
+  labels {
+    page.MyRoutes = "My routes";
+    page.RunRoute = "Route";
+    page.NotFound = "Not found";
+    field.DeliveredRequest.deliveredTo = "Who signed for it";
+    field.MissedRequest.reason = "What happened";
+    enum.RouteStatus.Out = "Out on the road";
+    enum.StopStatus.OnTheRoad = "On the road";
+    enum.MissReason.NobodyHome = "Nobody home";
+    enum.MissReason.AddressWrong = "The address is wrong";
+    enum.MissReason.Refused = "They refused it";
+    enum.MissReason.CouldNotReach = "I could not get there";
+  }
+}

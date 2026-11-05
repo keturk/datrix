@@ -1,0 +1,35 @@
+// Seven invented parcels. Each one that is on the road or waiting has a stop with the same shipment id in
+// seed/route-service.dseed, and the one with the partner has a consignment in seed/carrier-mock.dseed, so
+// it finishes by itself a few minutes after the stack starts. The phone numbers are in the range reserved
+// for fiction.
+seed service logistics.ShipmentService {
+  rdbms shipmentDb {
+    baseline {
+      Shipment table on(trackingNumber) {
+        id,                 trackingNumber,  shipperName,           recipientName,   recipientPhone, recipientAddress,     city,        weightKg, status,         promisedBy,             driverName,    carrierReference, latitude, longitude;
+        @uuid("ship-mara"), "QL-7KM2PQ9XTR", "Bramble and Sons",    "Mara Oyelaran", "+15035550101", "12 Alder Street",    "Portland",  4.5,      OutForDelivery, @datetime("+1d 18:00"), "Ines Calder", null,             45.521,   -122.681;
+        @uuid("ship-theo"), "QL-H4WNC8ZD3B", "Bramble and Sons",    "Theo Marsh",    "+15035550102", "88 Burnside Road",   "Gresham",   12.0,     OutForDelivery, @datetime("+1d 18:00"), "Ines Calder", null,             45.498,   -122.431;
+        @uuid("ship-noor"), "QL-RP6T3VJ9KS", "Fennel Kitchenware",  "Noor Haddad",   "+15035550103", "3 Canyon Court",     "Beaverton", 2.2,      OutForDelivery, @datetime("+1d 18:00"), "Ines Calder", null,             45.487,   -122.803;
+        @uuid("ship-lena"), "QL-Y9DX2MB7QF", "Fennel Kitchenware",  "Lena Sorrel",   "+15035550104", "41 Main Street",     "Hillsboro", 6.0,      Booked,         @datetime("+2d 18:00"), null,          null,             45.523,   -122.989;
+        @uuid("ship-owen"), "QL-C3GH8NW5ZL", "Tamarack Outfitters", "Owen Park",     "+15035550105", "7 Pacific Highway",  "Tigard",    31.5,     Booked,         @datetime("+2d 18:00"), null,          null,             45.431,   -122.771;
+        @uuid("ship-ruth"), "QL-T5LF9RK2HE", "Tamarack Outfitters", "Ruth Ellery",   "+15035550106", "19 Division Street", "Portland",  8.8,      Booked,         @datetime("+3d 18:00"), null,          null,             45.505,   -122.640;
+        @uuid("ship-ada"),  "QL-M8QS4ZG6WA", "Tamarack Outfitters", "Ada Brook",     "+15035550107", "5 Willamette Way",   "Eugene",    3.1,      WithPartner,    @datetime("+4d 18:00"), null,          "cons_quayline_seed_0001", 44.052, -123.087;
+      }
+      TrackingEvent table on(id) {
+        id,                    shipmentId,         status,         note;
+        @uuid("event-mara-1"), @uuid("ship-mara"), Booked,         "Booked with Quayline";
+        @uuid("event-mara-2"), @uuid("ship-mara"), Planned,        "Planned for delivery";
+        @uuid("event-mara-3"), @uuid("ship-mara"), OutForDelivery, "Out for delivery today";
+        @uuid("event-theo-1"), @uuid("ship-theo"), Booked,         "Booked with Quayline";
+        @uuid("event-theo-2"), @uuid("ship-theo"), OutForDelivery, "Out for delivery today";
+        @uuid("event-noor-1"), @uuid("ship-noor"), Booked,         "Booked with Quayline";
+        @uuid("event-noor-2"), @uuid("ship-noor"), OutForDelivery, "Out for delivery today";
+        @uuid("event-lena-1"), @uuid("ship-lena"), Booked,         "Booked with Quayline";
+        @uuid("event-owen-1"), @uuid("ship-owen"), Booked,         "Booked with Quayline";
+        @uuid("event-ruth-1"), @uuid("ship-ruth"), Booked,         "Booked with Quayline";
+        @uuid("event-ada-1"),  @uuid("ship-ada"),  Booked,         "Booked with Quayline";
+        @uuid("event-ada-2"),  @uuid("ship-ada"),  WithPartner,    "With our delivery partner for Eugene";
+      }
+    }
+  }
+}

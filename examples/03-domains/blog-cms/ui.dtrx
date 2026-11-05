@@ -1,0 +1,52 @@
+// What the Fieldnotes apps share: the brand and the shape of a page.
+module blog.ui {
+
+    theme Brand {
+        color primary      = '#1f5f5b';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#1c1917';
+        color background   = '#faf8f5';
+        color onBackground = '#1c1917';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#57534e';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 10;
+        font body          = font('Source Serif 4', 17, 400);
+        font heading       = font('Inter', 24, 600);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#1c1917';
+            color onSurface    = '#e7e5e4';
+            color background   = '#0c0a09';
+            color onBackground = '#e7e5e4';
+            color primary      = '#5eead4';
+            color onPrimary    = '#042f2e';
+        }
+    }
+
+    /// Articles in one column on a phone and three from a tablet up.
+    style articleGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 3; }
+    }
+
+    /// Figures across the top of a dashboard.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+}

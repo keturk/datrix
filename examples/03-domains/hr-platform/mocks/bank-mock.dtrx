@@ -1,0 +1,96 @@
+// Implements the BankProvider contract in the stack, so payroll sends real requests and needs no bank:
+// every payout lands in a log the Console shows, and no money moves. An account number ending in 0000
+// is rejected, so a failed payout can be tried.
+service hr.BankMock('config/mocks/bank-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the payroll bank') {
+
+    discovery { }
+
+    enum PayoutStatus {
+        Settled : tone(success),
+        Rejected : tone(danger)
+    }
+
+    rdbms bankDb {
+
+        /// A payout the bank answered.
+        entity BankPayout extends BaseEntity {
+            String(40) payoutId : unique;
+            String(120) idempotencyKey : unique;
+            String(34) accountNumber : hidden;
+            String(4) accountEnding;
+            Money amount;
+            String(60) reference : filterable;
+            PayoutStatus status : filterable;
+            String(200)? rejectionReason;
+        }
+
+        /// API keys the bank issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct CreatePayoutRequest {
+        String(34) accountNumber;
+        Money amount;
+        String(60) reference;
+        String(120) idempotencyKey;
+    }
+
+    struct Payout {
+        String(40) id;
+        PayoutStatus status;
+        String(200)? rejectionReason;
+    }
+
+    fn answerOf(bankDb.BankPayout payout) -> Payout {
+        return Payout { id: payout.payoutId, status: payout.status, rejectionReason: payout.rejectionReason };
+    }
+
+    // The bank's public API: exactly the BankProvider contract.
+    rest_api BankAPI : basePath('/v1'), rdbms(bankDb) {
+        @path('/payouts')
+        post createPayout(CreatePayoutRequest request) : auth(required, providers: [bankKeys]) -> Payout {
+            let BankPayout? existing = BankPayout.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            let String ending = request.accountNumber.substring(request.accountNumber.length - 4);
+            let Boolean rejected = ending == "0000";
+            return answerOf(BankPayout.create({
+                payoutId: #"po_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                accountNumber: request.accountNumber,
+                accountEnding: ending,
+                amount: request.amount,
+                reference: request.reference,
+                status: rejected ? PayoutStatus.Rejected : PayoutStatus.Settled,
+                rejectionReason: rejected ? "This account is closed" : null
+            }));
+        }
+    }
+
+    // What the operator pages in the Console show.
+    rest_api BankDeskAPI : basePath('/api/v1/desk/bank'), rdbms(bankDb) {
+        resource BankPayout : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a settled payout has no reason attached") {
+        let BankPayout created = bankDb.BankPayout.create({
+            payoutId: "po_0001",
+            idempotencyKey: "pay-1",
+            accountNumber: "GB00BANK12345678",
+            accountEnding: "5678",
+            amount: 4000.00,
+            reference: "Salary 2026-01",
+            status: PayoutStatus.Settled
+        });
+        assert created.rejectionReason == null;
+    }
+}

@@ -1,0 +1,12 @@
+// The key AccountService presents to the identity check vendor. The key itself is the development
+// default of the service's secret; the vendor stores only its SHA-256 hash.
+seed service finance.KycMock {
+  rdbms kycDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                keyHash,                                                            ownerId,                         scopes,           isActive;
+        @uuid("kyc-key"),  "dc9501cb10bdfa073c950aa4cbbefb33db6848e5106c92d5599500d6cba61465", @uuid("owner-account-service"), ["checks:write"], true;
+      }
+    }
+  }
+}

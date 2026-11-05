@@ -1,0 +1,25 @@
+config strings cityservices.Citizen locale "en-US" {
+  messages {
+    appName        = "Port Alder 311";
+    home           = "Report a problem";
+    reportTitle    = "Report a problem";
+    reportSubtitle = "Tell us what is wrong and where. No account needed.";
+    reportReceived = "We have your report.";
+    findTitle      = "Track a report";
+    findSubtitle   = "Enter the reference you were given.";
+    referenceLabel = "Reference";
+    findAction     = "Find my report";
+    handledBy      = "Handled by {district}";
+    placesTitle    = "City places";
+    placesSubtitle = "Libraries, fire stations, community centers and clinics that are open.";
+    notFoundTitle  = "Page not found";
+    notFoundBody   = "That page does not exist or has moved.";
+  }
+  labels {
+    page.Report   = "Report";
+    page.Find     = "Track";
+    page.Track    = "Your report";
+    page.Places   = "Places";
+    page.NotFound = "Not found";
+  }
+}

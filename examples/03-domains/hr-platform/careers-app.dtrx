@@ -1,0 +1,145 @@
+from hr.ui import Brand, cardGrid;
+
+/// The public careers site. Nobody signs in: read the open roles, apply, and follow the application
+/// with the reference it gives you.
+app hr.Careers('config/careers-app.dcfg') : version('2.0.0') {
+    uses hr.RecruitmentService;
+
+    theme extends Brand { }
+
+    assets {
+        image logo = 'assets/logo.svg';
+    }
+
+    state UUID? applyingTo = null;
+    state String lastReference = '';
+
+    layout Site : default {
+        nav {
+            link Roles : icon(work);
+            link Track : icon(search);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName) { image(logo, Msg.logoAlt); }
+                    spacer;
+                    nav;
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Roles() {
+        data { roles = RecruitmentService.CareersAPI.get.openRoles(); }
+        view {
+            pageHeader(Msg.rolesTitle, Msg.rolesSubtitle);
+            when (roles.length == 0) {
+                emptyState(Msg.noRoles) : icon(work_off);
+            }
+            grid : style(cardGrid) {
+                foreach (role in roles) {
+                    card {
+                        heading(role.title);
+                        badge(role.department);
+                        text(role.location);
+                        text(Msg.salaryLine(from: Fmt.money(role.salaryFrom), to: Fmt.money(role.salaryTo)));
+                        link(Msg.readMore, Role, id: role.id);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/roles/:id')
+    page Role(UUID id) {
+        data { role = RecruitmentService.CareersAPI.get.roleById(id: id); }
+
+        fn startApplying() {
+            applyingTo = id;
+        }
+
+        view {
+            pageHeader(role.title, role.location) : back(Roles) {
+                badge(role.department);
+                button(Msg.applyNow) : onClick(startApplying()), kind(primary);
+            }
+            when (applyingTo != null) {
+                card(Msg.applyTitle) { form(Apply); }
+            }
+            card {
+                text(Msg.salaryLine(from: Fmt.money(role.salaryFrom), to: Fmt.money(role.salaryTo)));
+                markdown(role.description);
+            }
+        }
+    }
+
+    form Apply : submit(RecruitmentService.CareersAPI.post.apply) {
+        fn applied(String reference) {
+            lastReference = reference;
+            applyingTo = null;
+            Nav.to(Thanks);
+        }
+        field postingId : fixed(applyingTo);
+        field candidateName;
+        field candidateEmail;
+        field candidatePhone;
+        field coverNote;
+        onSuccess(applied(result.reference));
+    }
+
+    @path('/thanks')
+    page Thanks() {
+        view {
+            pageHeader(Msg.thanksTitle, Msg.thanksSubtitle);
+            card(Msg.referenceTitle) {
+                heading(lastReference);
+                text(Msg.referenceHint);
+            }
+            link(Msg.trackIt, Track);
+        }
+    }
+
+    @path('/track')
+    page Track() {
+        state String reference = '';
+        state String foundTitle = '';
+        state String foundStatus = '';
+
+        fn lookUp() {
+            try {
+                let ApplicationReceipt receipt = RecruitmentService.CareersAPI.get.track(reference: reference);
+                foundTitle = receipt.postingTitle;
+                foundStatus = receipt.status.toString();
+            } catch (NotFoundError e) {
+                foundTitle = '';
+                foundStatus = '';
+                Ui.toast(Msg.notFoundReference);
+            }
+        }
+
+        view {
+            pageHeader(Msg.trackTitle, Msg.trackSubtitle);
+            card {
+                input(Msg.referenceTitle) : bind(reference);
+                button(Msg.lookUp) : onClick(lookUp()), kind(primary);
+            }
+            when (foundTitle != '') {
+                card(foundTitle) { text(foundStatus); }
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Roles); }
+        }
+    }
+
+    test("anyone can read the open roles") {
+        let Screen screen = render(Roles);
+        assert screen.shows(Msg.rolesTitle);
+    }
+}

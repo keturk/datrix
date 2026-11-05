@@ -1,0 +1,52 @@
+// What the Cobblestone apps share: the brand and the shape of a page.
+module realestate.ui {
+
+    theme Brand {
+        color primary      = '#8a3b22';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#2b211c';
+        color background   = '#f8f4ef';
+        color onBackground = '#2b211c';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#6a5d55';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 12;
+        font body          = font('Lora', 16, 400);
+        font heading       = font('Lora', 26, 600);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#2a211c';
+            color onSurface    = '#f0e7e0';
+            color background   = '#1c1612';
+            color onBackground = '#f0e7e0';
+            color primary      = '#e6a98f';
+            color onPrimary    = '#4a1c0c';
+        }
+    }
+
+    /// Figures across the top of a page.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+
+    /// Homes in a search.
+    style cardGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 3; }
+    }
+}

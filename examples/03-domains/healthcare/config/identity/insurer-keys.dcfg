@@ -1,0 +1,34 @@
+// API keys of the insurer. mode = self: InsurerMock issues and verifies them itself, as a real insurer
+// would, and only the SHA-256 hash of a key is stored.
+config identity insurerKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "workforce";
+    apiKey {
+      header = "X-Insurer-Api-Key";
+      store = "healthcare.InsurerMock";
+      storeBlock = "insurerDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+      }
+      lastUsedResolutionSeconds = 60;
+      serviceProviders = ["machine"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

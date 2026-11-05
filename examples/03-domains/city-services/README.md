@@ -1,79 +1,73 @@
-# City Services
+# Port Alder 311
 
-A city government platform managing districts, public facilities, parks, and citizen service requests with spatial data. This example demonstrates the **geo extension** for PostGIS-backed spatial operations.
+A city's service desk, built as a complete application: residents report a problem from a street address on the web or a phone, and city staff work the queue, with spatial answers from PostGIS. The text and address vendors run as mocks in the same stack, so nothing here needs an account with anyone. Port Alder is invented.
 
-## Services
+## What it shows
 
-| Service | Port | Description |
-|---------|------|-------------|
-| DistrictService | 8001 | City districts and zoning areas with polygon boundaries |
-| FacilityService | 8002 | Public facilities (point locations) and parks (polygon boundaries) |
-| RequestService | 8003 | Citizen service requests with location context |
+| Feature | Where |
+|---|---|
+| A public app with no sign-in, on web and mobile, from one app definition | [citizen-app.dtrx](citizen-app.dtrx) |
+| A staff app whose sign-in and roles follow from the routes each page reaches | [operations-app.dtrx](operations-app.dtrx) |
+| Spatial columns and queries: point in polygon, distance, area | `GeoSql` in [district-service.dtrx](district-service.dtrx), [facility-service.dtrx](facility-service.dtrx) |
+| Maps with markers on both clients | `Places` in [citizen-app.dtrx](citizen-app.dtrx), `Board` in [operations-app.dtrx](operations-app.dtrx) |
+| A job that turns seeded text into spatial columns | `ConvertBoundaries`, `ConvertShapes` |
+| A service calling a peer with a machine credential | `forLocation`, `auth(service, providers: [machine])` |
+| A status history the database keeps append-only | `RequestUpdate` in [request-service.dtrx](request-service.dtrx) |
+| Texts sent from an event through a transactional outbox, once per key | `RequestStatusChanged` |
+| Third parties behind `extern service` contracts | [providers/](providers/) |
+| Mock vendors that authenticate callers with API keys, storing only hashes | [mocks/](mocks/) |
+| A failure that stays safe: a report the vendor cannot place is kept and flagged | `place` in [request-service.dtrx](request-service.dtrx) |
 
-## Geo Extension Features
+## The parts
 
-This example requires `use extension geo;` in the system block and demonstrates:
+| Part | Port | What it does |
+|---|---|---|
+| Citizen app | 4200 | Report a problem, track it by reference, find city places on a map |
+| Operations app | 4300 | The board, the queue, districts, facilities, and what the vendors received |
+| `DistrictService` | 8001 | Districts and zoning, and the application's identity block |
+| `FacilityService` | 8002 | Public places and parks |
+| `RequestService` | 8003 | Service requests and their history |
+| `SmsMock` | 8090 | Stands in for the text message vendor |
+| `GeocoderMock` | 8091 | Stands in for the address vendor |
 
-### GeoSql (SQL-level spatial queries)
+## Third parties
 
-| Function | Usage |
-|----------|-------|
-| `GeoSql.containsPoint(boundary, lat, lng)` | Find districts/parks containing a point |
-| `GeoSql.withinDistanceMeters(location, lat, lng, meters)` | Find nearby facilities and requests |
-| `GeoSql.distanceMeters(location, lat, lng)` | Order results by proximity |
-| `GeoSql.area(boundary)` | Order districts/parks by area |
-| `GeoSql.centroid(boundary)` | Compute district centroids |
+The product services call a contract and do not know a mock answers it. To use a real vendor, point the URL in [config/providers/](config/providers/) at it and supply the secret. No `.dtrx` file changes.
 
-### GeoShape (value-level geometry operations)
+| Contract | Mock | What the mock does |
+|---|---|---|
+| `SmsProvider` | `SmsMock` | Keeps every text in a log. A number starting `+1555010` fails |
+| `GeocoderProvider` | `GeocoderMock` | Answers from its table of known addresses, which staff can extend. Anything else does not match |
 
-| Function | Usage |
-|----------|-------|
-| `GeoShape.area(geometry)` | Compute area for a single entity |
-| `GeoShape.centroid(geometry)` | Compute centroid for a single entity |
-| `GeoShape.containsPoint(geometry, lat, lng)` | Check if a point falls inside a boundary |
-| `GeoShape.toGeoJson(geometry)` | Convert boundary to GeoJSON for map rendering |
-| `GeoShape.fromGeoJson(geojsonText)` | Accept GeoJSON input from citizens |
-| `GeoShape.toWkt(geometry)` | Convert geometry to WKT format |
-| `GeoShape.fromWkt(wktText)` | Parse WKT string to geometry |
-
-## Infrastructure
-
-- **Databases**: PostgreSQL with PostGIS extension (one per service)
-- **Message Queue**: Kafka for event-driven communication
-- **Cache**: Redis for district and facility caching
-- **Service Discovery**: Consul
-- **Observability**: Prometheus, Jaeger, Loki, Grafana
-
-## Key Features
-
-- Spatial entity fields with automatic GiST index generation
-- SQL-level spatial predicates for efficient database queries
-- Value-level geometry operations for application logic
-- GeoJSON conversion for map rendering integration
-- Cross-service event subscriptions for location-aware routing
-- Full-text search on service request titles and descriptions
-
-## Usage
+## Run it
 
 ```bash
-# Generate Python service
-datrix generate examples/03-domains/city-services/system.dtrx -l python -p docker
-
-# Generate TypeScript service
-datrix generate examples/03-domains/city-services/system.dtrx -l typescript -p docker
+datrix generate -s examples/03-domains/city-services/system.dtrx -L python
+cd <the generated output>
+cp .env.example .env
+./scripts/deploy.sh        # Windows: scripts\deploy.ps1
 ```
 
-## Files
+TypeScript generates from the same source with `-L typescript`. Only one example can hold the default ports at a time, and `.env` moves them.
 
-### Datrix Files
-- `system.dtrx` — Entry point with geo extension declaration
-- `common.dtrx` — Shared enums and utility functions
-- `district-service.dtrx` — District and zoning management
-- `facility-service.dtrx` — Facility and park management
-- `request-service.dtrx` — Service request management
+Then open:
 
-### Configuration
-- `config/system.dcfg` — System-level configuration
-- `config/district-service.dcfg` — District service configuration
-- `config/facility-service.dcfg` — Facility service configuration
-- `config/request-service.dcfg` — Request service configuration
+- Citizen: <http://localhost:4200>
+- Operations: <http://localhost:4300>
+
+## Things to try
+
+1. **Report a problem.** In the Citizen app, report a pothole at `12 Main Street` and leave a phone number. You get a reference, the report lands in Old Town because the point falls inside that district's polygon, and a text appears in Operations under Texts sent.
+2. **Report from nowhere.** Use the address `behind the old mill`. The report is still kept, and the board counts it under Needs a location. Add the address under Address lookups and the next report from there is placed.
+3. **Work a request.** In Operations, open a request from the queue, assign it, start work and resolve it. The history keeps every step, and each change texts the reporter once.
+4. **Close a facility.** Close a facility in Operations and it drops off the public map.
+
+## Sign-in and roles
+
+Sign-in runs on the Zitadel in the stack, so nothing here handles a password. Residents need no account. Staff accounts are not self-service: sign in to the Zitadel console at <http://localhost:8085/ui/console> as the admin named in `.env`, create the user, then grant `dispatcher`, `admin` or `operator` on the `portalder-identity` project. The vendor pages need `operator`.
+
+## The development keys
+
+`config/request-service.dcfg` carries a `localDefault` for each vendor key, named `dev-only-…-not-a-credential`, and `seed/` holds its SHA-256 hash. Both only let this stack's services reach this stack's mocks. Any other deployment has to supply its own value.
+
+Every person, place and phone number in the seed data is invented.

@@ -1,0 +1,107 @@
+// Implements the ModerationProvider contract in the stack. Its verdicts are predictable, so a
+// walkthrough can show each one: a term on the blocked list is blocked, a link goes to review, and
+// anything else is allowed. The Provider Desk shows every check and edits the list.
+service blog.ModerationMock('config/mocks/moderation-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the content moderation vendor') {
+
+    discovery { }
+
+    enum Verdict {
+        Allow : tone(success),
+        Review : tone(warning),
+        Block : tone(danger)
+    }
+
+    rdbms moderationDb {
+
+        /// One check the vendor answered, kept so a repeat answers the same.
+        entity ModerationCheck extends BaseEntity {
+            String(40) checkId : unique;
+            String(120) reference : unique;
+            Text content;
+            Verdict verdict : filterable;
+            String(200) reason;
+        }
+
+        /// A term that gets a comment blocked.
+        entity BlockedTerm extends BaseEntity {
+            String(80) term : unique, lowercase, trim;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct CheckRequest {
+        String(120) reference;
+        Text content;
+    }
+
+    struct CheckResult {
+        String(40) id;
+        String(120) reference;
+        Verdict verdict;
+        String(200) reason;
+    }
+
+    fn toResult(ModerationCheck check) -> CheckResult {
+        return CheckResult {
+            id: check.checkId,
+            reference: check.reference,
+            verdict: check.verdict,
+            reason: check.reason
+        };
+    }
+
+    // The vendor's public API: exactly the ModerationProvider contract.
+    rest_api ModerationAPI : basePath('/v1'), rdbms(moderationDb) {
+        @path('/checks')
+        post(CheckRequest request) : auth(required, providers: [moderationKeys]) -> CheckResult {
+            let ModerationCheck? existing = ModerationCheck.where(reference: request.reference).first();
+            if (existing != null) {
+                return toResult(existing);
+            }
+
+            let String text = request.content.toLowerCase();
+            let Verdict verdict = Verdict.Allow;
+            let String reason = "";
+            if (text.contains("http://") || text.contains("https://")) {
+                verdict = Verdict.Review;
+                reason = "Contains a link";
+            }
+            foreach blocked in BlockedTerm.all() {
+                if (text.contains(blocked.term)) {
+                    verdict = Verdict.Block;
+                    reason = #"Contains the blocked term '{blocked.term}'";
+                }
+            }
+
+            let ModerationCheck created = ModerationCheck.create({
+                checkId: #"chk_{Random.string(24, '0123456789abcdef')}",
+                reference: request.reference,
+                content: request.content,
+                verdict: verdict,
+                reason: reason
+            });
+            return toResult(created);
+        }
+    }
+
+    // What the Provider Desk shows and edits.
+    rest_api ModerationDeskAPI : basePath('/api/v1/desk/moderation'), rdbms(moderationDb) {
+        resource ModerationCheck : only(list, get), auth(required, providers: [identity], roles: [operator]);
+        resource BlockedTerm : only(list, create, delete), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a blocked term is stored in lower case") {
+        let BlockedTerm term = moderationDb.BlockedTerm.create({ term: "  CASINO " });
+        assert term.term == "casino";
+    }
+}

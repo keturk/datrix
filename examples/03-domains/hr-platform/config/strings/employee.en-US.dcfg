@@ -1,0 +1,42 @@
+config strings hr.Employee locale "en-US" {
+  messages {
+    appName         = "Alderbrook";
+    logoAlt         = "Alderbrook";
+    account         = "Account";
+    signOut         = "Sign out";
+    home            = "Back home";
+    notFoundTitle   = "Page not found";
+    welcome         = "Hello, {name}";
+    askForTimeOff   = "Ask for time off";
+    statVacation    = "Vacation days left";
+    statRequests    = "Requests";
+    statPayslips    = "Payslips";
+    aboutMe         = "About you";
+    numberLine      = "Employee number {number}";
+    departmentLine  = "Department: {department}";
+    hiredLine       = "Joined {when}";
+    timeOffTitle    = "Time off";
+    timeOffSubtitle = "Vacation comes out of your balance when it is approved.";
+    myRequests      = "Your requests";
+    noRequests      = "You have not asked for any time off";
+    rangeLine       = "{from} to {to}";
+    daysLine        = "{days} days";
+    decidedByLine   = "Decided by {name}";
+    requestSent     = "Your request went to HR.";
+    payslipsTitle   = "Payslips";
+    payslipsSubtitle = "One for every month you have been paid.";
+    noPayslips      = "You have no payslips yet";
+    grossLine       = "Gross: {amount}";
+    taxLine         = "Tax: {amount}";
+    netLine         = "You receive: {amount}";
+    directoryTitle  = "Directory";
+    directorySubtitle = "Everyone at Alderbrook.";
+  }
+  labels {
+    page.Home      = "Home";
+    page.TimeOff   = "Time off";
+    page.Payslips  = "Payslips";
+    page.Directory = "Directory";
+    page.NotFound  = "Not found";
+  }
+}

@@ -1,32 +1,33 @@
-
-// Shared module - defines reusable types for financial services
-// BaseEntity is provided by the Datrix standard library.
+// What the Quillon Bank services share.
 module finance.common {
 
-    // Extends stdlib BaseEntity with audit tracking fields for compliance
-    abstract entity AuditedEntity extends BaseEntity {
-        UUID? performedBy;
-        String(500)? auditNote;
+    enum AccountType {
+        Checking,
+        Savings
     }
 
-    // Currency enum for multi-currency support
-    enum Currency {
-        USD,
-        EUR,
-        GBP,
-        JPY,
-        CHF,
-        CAD
+    enum AccountStatus {
+        Active : tone(success),
+        Frozen : tone(danger),
+        Closed : tone(neutral)
     }
 
-    // Shared utility: generate a unique reference number for financial operations
-    fn generateReference(String prefix) -> String {
-        return #"{prefix}-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+    enum TransferStatus {
+        Posted : tone(success),
+        Held : tone(warning),
+        Rejected : tone(danger)
     }
 
-    // Format currency amount with symbol
-    fn formatAmount(Money amount, Currency currency) -> String {
-        return #"{currency} {amount.amount}";
+    /// A transfer at or above this amount is reviewed by compliance.
+    const REVIEW_THRESHOLD = 10000.00;
+
+    /// An account number nobody can guess or count through.
+    fn generateAccountNumber() -> String {
+        return #"QB{Random.string(10, '0123456789')}";
     }
 
+    /// A reference a customer can quote.
+    fn generateTransferReference() -> String {
+        return #"TR-{DateTime.now().format('yyyyMMdd')}-{Random.string(6, '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ')}";
+    }
 }

@@ -1,0 +1,37 @@
+// What the Port Alder apps share: the brand and the shape of a dashboard.
+module cityservices.ui {
+
+    theme Brand {
+        color primary      = '#0b4f8a';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#14213d';
+        color background   = '#f4f6f9';
+        color onBackground = '#14213d';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#92400e';
+        color onWarning    = '#ffffff';
+        color info         = '#1d4ed8';
+        color onInfo       = '#ffffff';
+        color danger       = '#b91c1c';
+        color onDanger     = '#ffffff';
+        color neutral      = '#475569';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 8;
+        font body          = font('Inter', 16, 400);
+        font heading       = font('Inter', 24, 600);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+    }
+
+    /// Figures across the top of a dashboard.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+}

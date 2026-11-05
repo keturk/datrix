@@ -1,0 +1,246 @@
+from cityservices.ui import Brand, statRow;
+
+/// Where city staff work the queue. Each page's sign-in and role come from the routes it reaches.
+/// The vendor pages show what the application sent to the mocked vendors, and only the operator
+/// role reaches them.
+app cityservices.Operations('config/operations-app.dcfg') : version('2.0.0') {
+    uses cityservices.RequestService;
+    uses cityservices.DistrictService;
+    uses cityservices.FacilityService;
+    uses cityservices.SmsMock;
+    uses cityservices.GeocoderMock;
+
+    theme extends Brand { }
+
+    fn setOperational(UUID id, Boolean isOperational) {
+        FacilityService.FacilityAPI.post.setOperational(id, { isOperational: isOperational });
+        Ui.toast(Msg.facilityChanged, tone: success);
+    }
+
+    layout Shell : default {
+        nav {
+            link Board : icon(dashboard), group(Msg.navRequests);
+            link Queue : icon(list_alt), group(Msg.navRequests);
+            link Districts : icon(map), group(Msg.navCity);
+            link Facilities : icon(apartment), group(Msg.navCity);
+            link Texts : icon(sms), group(Msg.navVendors);
+            link Lookups : icon(travel_explore), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Board() {
+        data {
+            summary = RequestService.QueueAPI.get.summary();
+            pins = RequestService.QueueAPI.get.pins();
+        }
+        view {
+            pageHeader(Msg.boardTitle, Msg.boardSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statOpen, Fmt.number(summary.open)) : icon(report_problem), tone(warning);
+                stat(Msg.statAssigned, Fmt.number(summary.assigned)) : icon(assignment_ind), tone(info);
+                stat(Msg.statInProgress, Fmt.number(summary.inProgress)) : icon(construction), tone(info);
+                stat(Msg.statNeedsLocation, Fmt.number(summary.needsLocation)) : icon(wrong_location), tone(danger);
+            }
+            map {
+                foreach (pin in pins) {
+                    marker(pin.point, pin.title) : onClick(Nav.to(RequestDetail, id: pin.id));
+                }
+            }
+        }
+    }
+
+    @path('/queue')
+    page Queue() {
+        view {
+            pageHeader(Msg.queueTitle, Msg.queueSubtitle);
+            table(Requests);
+        }
+    }
+
+    table Requests : source(RequestService.QueueAPI.requestDb.ServiceRequest.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column requestNumber;
+        column title;
+        column category;
+        column priority;
+        column status;
+        column districtName;
+        filter status;
+        filter priority;
+        filter category;
+        filter title : live;
+        rowAction open : onClick(Nav.to(RequestDetail, id: row.id));
+    }
+
+    @path('/requests/:id')
+    page RequestDetail(UUID id) {
+        data {
+            request = RequestService.QueueAPI.get.request(id: id);
+            history = RequestService.QueueAPI.get.history(id: id);
+        }
+
+        fn raisePriority() {
+            RequestService.QueueAPI.post.setPriority(id, { priority: RequestPriority.High });
+            Ui.toast(Msg.priorityRaised);
+        }
+
+        view {
+            pageHeader(request.title, request.requestNumber) : back(Queue) {
+                badge(request.status);
+                badge(request.priority);
+                when (request.status == RequestStatus.Open) {
+                    button(Msg.raisePriority) : onClick(raisePriority());
+                    button(Msg.assign) : onClick(RequestService.QueueAPI.post.assign(id: id)), kind(primary);
+                }
+                when (request.status == RequestStatus.Assigned) {
+                    button(Msg.start) : onClick(RequestService.QueueAPI.post.start(id: id)), kind(primary);
+                }
+                when (request.status == RequestStatus.InProgress) {
+                    button(Msg.resolve) : onClick(RequestService.QueueAPI.post.resolve(id: id)), kind(primary);
+                }
+                when (request.status == RequestStatus.Resolved) {
+                    button(Msg.close) : onClick(RequestService.QueueAPI.post.close(id: id));
+                }
+            }
+            when (request.needsLocation) {
+                callout(Msg.needsLocation) : tone(warning);
+            }
+            card {
+                text(request.description) : preserveLines;
+                text(request.address);
+            }
+            section(Msg.historyTitle) {
+                timeline(data: history, at: h => h.createdAt) {
+                    text(item.note);
+                }
+            }
+        }
+    }
+
+    @path('/districts')
+    page Districts() {
+        data { facts = DistrictService.DistrictAPI.get.facts(); }
+        view {
+            pageHeader(Msg.districtsTitle, Msg.districtsSubtitle);
+            chart(bar, data: facts, x: f => f.name, y: f => f.population);
+            list(data: facts) {
+                heading(item.name);
+                text(Msg.districtLine(population: Fmt.number(item.population), area: Fmt.number(item.areaSquareKilometres)));
+            }
+        }
+    }
+
+    @path('/facilities')
+    page Facilities() {
+        view {
+            pageHeader(Msg.facilitiesTitle, Msg.facilitiesSubtitle);
+            table(FacilityList);
+        }
+    }
+
+    component OpenBadge(Boolean isOpen) {
+        view {
+            when (isOpen) { badge(Msg.open) : tone(success); }
+            when (!isOpen) { badge(Msg.closed) : tone(neutral); }
+        }
+    }
+
+    component MatchBadge(Boolean matched) {
+        view {
+            when (matched) { badge(Msg.placed) : tone(success); }
+            when (!matched) { badge(Msg.notPlaced) : tone(warning); }
+        }
+    }
+
+    table FacilityList : source(FacilityService.FacilityAPI.facilityDb.Facility.list) {
+        column name;
+        column type;
+        column address;
+        column phone;
+        column isOperational : render(OpenBadge);
+        filter type;
+        filter isOperational;
+        rowAction closeFacility : onClick(setOperational(row.id, false));
+        rowAction reopenFacility : onClick(setOperational(row.id, true));
+    }
+
+    @path('/vendors/texts')
+    page Texts() {
+        view {
+            pageHeader(Msg.textsTitle, Msg.textsSubtitle);
+            table(TextList);
+        }
+    }
+
+    table TextList : source(SmsMock.SmsDeskAPI.smsDb.SentSms.list), poll(15s) {
+        column createdAt : format(relative);
+        column recipient;
+        column body;
+        column status;
+        filter status;
+    }
+
+    @path('/vendors/lookups')
+    page Lookups() {
+        view {
+            pageHeader(Msg.lookupsTitle, Msg.lookupsSubtitle);
+            tabs {
+                tab(Msg.tabLookups) { table(LookupList); }
+                tab(Msg.tabAddresses) {
+                    card(Msg.addAddress) { form(AddAddress); }
+                    table(AddressList);
+                }
+            }
+        }
+    }
+
+    table LookupList : source(GeocoderMock.GeocoderDeskAPI.geocoderDb.Lookup.list), poll(15s) {
+        column createdAt : format(relative);
+        column query;
+        column matched : render(MatchBadge);
+        filter matched;
+    }
+
+    table AddressList : source(GeocoderMock.GeocoderDeskAPI.geocoderDb.KnownAddress.list) {
+        column formattedAddress;
+        rowAction remove : onClick(GeocoderMock.GeocoderDeskAPI.geocoderDb.KnownAddress.delete(id: row.id));
+    }
+
+    form AddAddress : submit(GeocoderMock.GeocoderDeskAPI.geocoderDb.KnownAddress.create) {
+        field address;
+        field formattedAddress;
+        field latitude;
+        field longitude;
+        onSuccess(Ui.toast(Msg.addressAdded, tone: success));
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Board); }
+        }
+    }
+
+    test("the queue page opens") {
+        let Screen screen = render(Queue);
+        assert screen.shows(Msg.queueTitle);
+    }
+}

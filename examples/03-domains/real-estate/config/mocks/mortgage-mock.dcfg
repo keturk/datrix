@@ -1,0 +1,40 @@
+config service realestate.MortgageMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8090;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms mortgageDb from postgresContainer(id: "35b7f362-48ab-4e81-a9ce-575fd502d52f", database: "realestate_mortgage_mock");
+    httpSecurity from localHttpSecurity(host: "realestate-mortgage-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

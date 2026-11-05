@@ -1,0 +1,52 @@
+// What the Rookery apps share: the brand and the shape of a page.
+module social.ui {
+
+    theme Brand {
+        color primary      = '#1f6f5c';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#1c2925';
+        color background   = '#f2f6f4';
+        color onBackground = '#1c2925';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#55645f';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 14;
+        font body          = font('Source Sans 3', 16, 400);
+        font heading       = font('Source Sans 3', 24, 600);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#1f2a26';
+            color onSurface    = '#e4eeea';
+            color background   = '#141c19';
+            color onBackground = '#e4eeea';
+            color primary      = '#7fd3bd';
+            color onPrimary    = '#0b3a2e';
+        }
+    }
+
+    /// Figures across the top of a page.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+
+    /// People on the people pages.
+    style cardGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 3; }
+    }
+}

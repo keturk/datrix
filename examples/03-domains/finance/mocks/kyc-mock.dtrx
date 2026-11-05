@@ -1,0 +1,92 @@
+// Implements the KycProvider contract in the stack. The mock's rule shows every outcome from the
+// last digits of a document number, and it keeps those digits only, as a careful vendor would.
+service finance.KycMock('config/mocks/kyc-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the identity check vendor') {
+
+    discovery { }
+
+    enum CheckOutcome {
+        Clear : tone(success),
+        Review : tone(warning),
+        Declined : tone(danger)
+    }
+
+    rdbms kycDb {
+
+        /// One identity check the vendor answered.
+        entity IdentityCheck extends BaseEntity {
+            String(40) checkId : unique;
+            String(200) fullName : filterable;
+            String(4) documentLast4;
+            CheckOutcome outcome : filterable;
+            String(200)? reason;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct CreateCheckRequest {
+        String(200) fullName;
+        Date dateOfBirth;
+        String(40) documentNumber;
+    }
+
+    struct Check {
+        String(40) id;
+        CheckOutcome outcome;
+        String(200)? reason;
+    }
+
+    /// A document ending in this is declined, and one ending in the other goes to a person.
+    const DECLINED_SUFFIX = "0000";
+    const REVIEW_SUFFIX = "9999";
+
+    fn outcomeFor(String documentNumber) -> CheckOutcome {
+        if (documentNumber.endsWith(DECLINED_SUFFIX)) {
+            return CheckOutcome.Declined;
+        }
+        return documentNumber.endsWith(REVIEW_SUFFIX) ? CheckOutcome.Review : CheckOutcome.Clear;
+    }
+
+    fn reasonFor(CheckOutcome outcome) -> String? {
+        if (outcome == CheckOutcome.Declined) {
+            return "The document could not be verified";
+        }
+        return outcome == CheckOutcome.Review ? "A person needs to look at this document" : null;
+    }
+
+    // The vendor's public API: exactly the KycProvider contract.
+    rest_api KycAPI : basePath('/v1'), rdbms(kycDb) {
+        @path('/checks')
+        post(CreateCheckRequest request) : auth(required, providers: [kycKeys]) -> Check {
+            let CheckOutcome outcome = outcomeFor(request.documentNumber);
+            let IdentityCheck created = IdentityCheck.create({
+                checkId: #"chk_{Random.string(24, '0123456789abcdef')}",
+                fullName: request.fullName,
+                documentLast4: request.documentNumber.substring(request.documentNumber.length - 4),
+                outcome: outcome,
+                reason: reasonFor(outcome)
+            });
+            return Check { id: created.checkId, outcome: created.outcome, reason: created.reason };
+        }
+    }
+
+    // What the Back Office shows: every check.
+    rest_api KycDeskAPI : basePath('/api/v1/desk/kyc'), rdbms(kycDb) {
+        resource IdentityCheck : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a document ending in zeros is declined") {
+        assert outcomeFor("AB120000") == CheckOutcome.Declined;
+        assert outcomeFor("AB129999") == CheckOutcome.Review;
+        assert outcomeFor("AB121234") == CheckOutcome.Clear;
+    }
+}

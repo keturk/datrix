@@ -1,0 +1,59 @@
+config service blog.NewsletterService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8004;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms newsletterDb from postgresContainer(id: "a4d9c6e8-1b2f-4c3d-8e7f-90a1b2c3d4e5", database: "blog_newsletter");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "blog-newsletter-service");
+    kafkaOps from kafkaPolling();
+    jobs {
+      jobs {
+        SendPendingDeliveries {
+          schedule = "* * * * *";
+          timeout = "60s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+    secrets {
+      // The default only exists on a local stack, where it matches the hash seeded in
+      // seed/mail-mock.dseed, so the example runs with nothing to configure. Any other
+      // deployment must supply the handle's value.
+      secret mail_provider_api_key {
+        required = true;
+        purpose = "API key for the email provider (MailProvider contract).";
+        localDefault = "dev-only-mail-api-key-not-a-credential";
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

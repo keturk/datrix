@@ -1,20 +1,39 @@
-// Platform-managed identity provider for 'identity'.
-// mode = platformManaged: the generator resolves the target-native provider at
-// generation time (docker → Keycloak, Azure → Entra, AWS → Cognito).
+// The people who work at Quayline. The generated stack hosts the sign-in: nothing here or in a service ever
+// handles a password. A recipient never signs in. Staff are granted the dispatcher, driver or operator role,
+// never self-assigned, so signing up alone reaches nothing.
 config identity identity {
   base {
-    audience = "customer";
+    audience = "workforce";
     mode = "platformManaged";
     jwksCacheTtlSeconds = 3600;
-  }
-
-  profile development as "dev" extends base {
+    signUp {
+      allowed = true;
+    }
+    publicClient {
+      flows = ["authorization_code"];
+    }
+    identityFields {
+      email {
+        claimPath = "email";
+        guarantee = "required";
+        syncPolicy = "syncOnAuth";
+      }
+      fullName {
+        claimPath = "name";
+        guarantee = "optional";
+        syncPolicy = "syncOnAuth";
+      }
+    }
+    roleSource {
+      claimPath = "urn:zitadel:iam:org:project:roles";
+      guarantee = "optional";
+    }
   }
 
   profile test as "test" extends base {
   }
 
-  profile staging as "stg" extends base {
+  profile development as "dev" extends base {
   }
 
   profile production as "prod" extends base {

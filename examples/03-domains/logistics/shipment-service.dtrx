@@ -1,570 +1,344 @@
+from logistics.common import ShipmentStatus, newTrackingNumber;
 
-from logistics.common import GeoCoordinate, generateTrackingNumber;
+// The parcels. Booking one geocodes the address and decides who delivers it: inside the area it goes on
+// a route, outside it goes to the partner carrier. Every step lands in an append-only history, and a text
+// to the recipient goes on a queue so a slow vendor never holds up a dispatcher or a driver.
+service logistics.ShipmentService('config/shipment-service.dcfg') : version('2.0.0'), description('Parcels and their history') {
 
-service logistics.ShipmentService('config/shipment-service.dcfg') : version('1.0.0'), description('shipment tracking and management service') {
     discovery { }
 
     identity {
         provider identity config('config/identity/identity.dcfg') {
-            String email;
-            group "admins" as admin;
+            Email email;
+            String? fullName;
+            group "dispatcher" as dispatcher;
+            group "driver" as driver;
+            group "operator" as operator;
         }
-        provider platform config('config/identity/platform.dcfg') {
-        }
+        provider machine config('config/identity/machine.dcfg') { }
+        provider carrierKeys config('config/identity/carrier-keys.dcfg') { }
+        provider geocodeKeys config('config/identity/geocode-keys.dcfg') { }
+        provider smsKeys config('config/identity/sms-keys.dcfg') { }
     }
 
-    enum ShipmentStatus {
-        Created,
-        PickedUp,
-        InTransit,
-        OutForDelivery,
-        Delivered,
-        Failed,
-        Returned
-    }
+    uses GeocodeProvider;
+    uses CarrierProvider;
 
-    enum PackageSize {
-        Small,
-        Medium,
-        Large,
-        ExtraLarge,
-        Oversized
-    }
-
-    struct CreateShipmentRequest {
-        UUID senderId;
-        String(200) recipientName;
-        String(500) recipientAddress;
-        String(200) origin;
-        String(200) destination;
-        PackageSize packageSize;
-        Decimal(10, 2) weight;
-        DateTime? estimatedDelivery;
-    }
-
-    struct UpdateShipmentStatusRequest {
-        ShipmentStatus status;
-        String(200) location;
-        String? notes;
-    }
-
-    struct TrackingResponse {
-        String trackingNumber;
-        ShipmentStatus status;
-        String origin;
-        String destination;
-        DateTime? estimatedDelivery;
-        DateTime? actualDelivery;
-        Array<shipmentDb.ShipmentEvent> events;
-    }
-
-    struct ShipmentSummary {
-        Int totalShipments;
-        Int inTransit;
-        Int delivered;
-        Int failed;
+    exceptions {
+        AddressNotFoundError : status(422), message("We could not find that address. Check the city.");
+        WrongStepError : status(409), message("This parcel is not at that step");
     }
 
     rdbms shipmentDb {
 
-        entity Shipment extends BaseEntity : audit {
-            String(50) trackingNumber : unique;
-            UUID senderId : index;
-            String(200) recipientName : trim;
-            String(500) recipientAddress;
-            String(200) origin;
-            String(200) destination;
-            ShipmentStatus status = ShipmentStatus.Created;
-            PackageSize packageSize;
-            Decimal(10, 2) weight;
-            DateTime? estimatedDelivery;
-            DateTime? actualDelivery;
+        entity Shipment extends BaseEntity {
+            String(20) trackingNumber : unique, filterable;
+            String(200) shipperName : filterable;
+            String(200) recipientName : filterable;
+            String(300) recipientAddress;
+            String(100) city : filterable;
+            Float weightKg;
+            ShipmentStatus status : filterable = ShipmentStatus.Booked;
+            DateTime promisedBy;
+            String(100)? driverName;
+            DateTime? deliveredAt;
+            String(200)? deliveredTo;
+            String(300)? failureReason;
+            String(40)? carrierReference;
+            /// Only ever used to text the recipient, so no response carries it.
+            Phone recipientPhone : sensitive;
+            Float latitude;
+            Float longitude;
 
-            Boolean isDelivered := status == ShipmentStatus.Delivered;
-            Boolean isLate := estimatedDelivery != null && actualDelivery != null && actualDelivery > estimatedDelivery;
-            Boolean isActive := status == ShipmentStatus.InTransit || status == ShipmentStatus.OutForDelivery;
-
-            hasMany ShipmentEvent as events;
-
-            index(senderId, status);
-            index(status, createdAt);
-            index(trackingNumber);
-
-            validate {
-                if (weight <= 0)
-                ValidationError("Shipment weight must be greater than zero");
-                if (recipientName.trim().isEmpty())
-                ValidationError("Recipient name cannot be empty");
-                if (origin.trim().isEmpty())
-                ValidationError("Origin cannot be empty");
-                if (destination.trim().isEmpty())
-                ValidationError("Destination cannot be empty");
-            }
-
-            afterCreate {
-                dispatch ShipmentCreated(id, trackingNumber, senderId, origin, destination);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch ShipmentStatusChanged(id, trackingNumber, oldValue(status), status);
-
-                    if (status == ShipmentStatus.Delivered) {
-                        actualDelivery = DateTime.now();
-                    }
-
-                }
-
-            }
-
-            fn markDelivered() {
-                status = ShipmentStatus.Delivered;
-                actualDelivery = DateTime.now();
-                this.save();
-            }
-
-            fn markFailed(String reason) {
-                status = ShipmentStatus.Failed;
-                this.save();
-            }
-
+            index(status);
         }
 
-        entity ShipmentEvent extends BaseEntity {
-            String(100) eventType;
-            String(200) location;
-            DateTime timestamp = DateTime.now();
-            Text? notes;
-
-            belongsTo Shipment : index;
-
-            index(shipmentId, timestamp);
-        }
-
-    }
-
-    nosql docdb {
-
-        entity ShipmentTracking {
-            String(50) trackingNumber : index;
-            Decimal(10, 6) latitude;
-            Decimal(10, 6) longitude;
-            DateTime timestamp = DateTime.now();
-            Decimal(10, 2)? speed;
-            Decimal(5, 2)? heading;
-            JSON metadata;
-
-            index(trackingNumber, timestamp);
-        }
-
-    }
-
-    cache redis {
-
-        hash ShipmentStatusCache : prefix('shipment:status:'), ttl(1800) {
-            UUID shipmentId : primaryKey;
+        /// What happened to a parcel. Never changed once written.
+        entity TrackingEvent extends BaseEntity : appendOnly {
+            UUID shipmentId : index;
             ShipmentStatus status;
-            String location;
+            String(300) note;
         }
-
-        counter ActiveShipments : prefix('shipments:active:');
     }
 
     pubsub mq {
-
         topic ShipmentEvents {
-            publish ShipmentCreated(UUID shipmentId, String trackingNumber, UUID senderId, String origin, String destination) {
-                ensure trackingNumber.length > 0;
-                ensure origin.length > 0;
-                ensure destination.length > 0;
+            /// A parcel is waiting for a place on a route.
+            publish ShipmentBooked(UUID shipmentId, String trackingNumber, String recipientName, String address, String city, Float latitude, Float longitude, Float weightKg) {
+                ensure weightKg > 0;
             }
-
-            publish ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
         }
-
     }
 
-    subscribe ShipmentEvents {
-
-        on ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
-            Log.info("Shipment status changed", {
-                shipmentId: shipmentId,
-                trackingNumber: trackingNumber,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-
-            redis.ShipmentStatusCache.set(shipmentId, {
-                shipmentId: shipmentId,
-                status: newStatus,
-                location: "In Transit"
-            });
-
-            if (newStatus == ShipmentStatus.Delivered) {
-                redis.ActiveShipments.decr("total");
-            } else if (oldStatus == ShipmentStatus.Created && newStatus == ShipmentStatus.PickedUp) {
-                redis.ActiveShipments.incr("total");
-            }
-
+    queues {
+        queue TextRecipient(String trackingNumber, Phone phone, String noticeKey, String body) {
+            ensure noticeKey.length > 0;
         }
-
     }
 
-    rest_api ShipmentAPI : basePath('/api/v1/shipments'), rdbms(shipmentDb) {
+    struct BookRequest {
+        String(200) shipperName;
+        String(200) recipientName;
+        Phone recipientPhone;
+        String(300) recipientAddress;
+        String(100) city;
+        Float weightKg;
+        DateTime promisedBy;
+    }
 
-        resource shipmentDb.Shipment : auth(required, providers: [identity]), only(list, get);
+    /// What anyone holding a tracking number may see: where it has got to, and nothing about who it is for.
+    struct TrackingView {
+        String trackingNumber;
+        ShipmentStatus status;
+        String city;
+        DateTime promisedBy;
+        DateTime? deliveredAt;
+        GeoPoint area;
+        Array<TrackingStep> steps;
+    }
 
-        @path('/track/:trackingNumber')
-        get(String trackingNumber) : auth(public) -> TrackingResponse {
-            let JSON? cached = redis.ShipmentStatusCache.get(trackingNumber);
+    struct TrackingStep {
+        ShipmentStatus status;
+        String note;
+        DateTime at;
+    }
 
-            let Shipment shipment = shipmentDb.Shipment.where(trackingNumber: trackingNumber).firstOrFail();
-            let Array<ShipmentEvent> events = shipmentDb.ShipmentEvent
-            .where(shipmentId: shipment.id)
-            .orderBy(timestamp: asc)
-            .all();
+    struct ShipmentDetail {
+        shipmentDb.Shipment shipment;
+        GeoPoint point;
+        Array<shipmentDb.TrackingEvent> events;
+    }
 
-            return {
-                trackingNumber: trackingNumber,
+    struct DayCount {
+        String day;
+        Int booked;
+        Int delivered;
+    }
+
+    struct DeskSummary {
+        Int waiting;
+        Int onTheRoad;
+        Int failed;
+        Int withPartner;
+        Int deliveredToday;
+        Array<DayCount> lastWeek;
+    }
+
+    struct StopReport {
+        UUID shipmentId;
+        ShipmentStatus status;
+        String(300) note;
+        String(100)? driverName;
+        String(200)? deliveredTo;
+        String(300)? failureReason;
+    }
+
+    struct ReportAck {
+        String trackingNumber;
+    }
+
+    /// One step: the status, the history row and the text, together.
+    fn advance(shipmentDb.Shipment shipment, ShipmentStatus status, String note) {
+        shipment.status = status;
+        shipment.save();
+        shipmentDb.TrackingEvent.create({ shipmentId: shipment.id, status: status, note: note });
+        // The key is made here, once, so a delivery the broker repeats finds the text it already sent.
+        dispatch TextRecipient(shipment.trackingNumber, shipment.recipientPhone, #"{shipment.trackingNumber}-{Random.string(12, 'abcdefghijklmnopqrstuvwxyz0123456789')}", #"Quayline parcel {shipment.trackingNumber}: {note}");
+    }
+
+    /// What the partner says about a consignment, or nothing if it does not answer. A vendor being down
+    /// is only worth a line in the log, because the next run asks again.
+    fn askPartner(String reference) -> Consignment? {
+        try {
+            return CarrierProvider.CarrierAPI.get.consignment(reference: reference);
+        } catch (Exception e) {
+            Log.warn("Partner carrier did not answer", { reference: reference });
+            return null;
+        }
+    }
+
+    fn locate(String address, String city) -> GeocodedAddress {
+        let GeocodedAddress place = GeocodeProvider.GeocodeAPI.post.geocode(GeocodeRequest { address: address, city: city });
+        if (!place.found) {
+            throw AddressNotFoundError();
+        }
+        return place;
+    }
+
+    fn offerToRoutes(shipmentDb.Shipment shipment) {
+        dispatch ShipmentBooked(shipment.id, shipment.trackingNumber, shipment.recipientName, shipment.recipientAddress, shipment.city, shipment.latitude, shipment.longitude, shipment.weightKg);
+    }
+
+    fn handToCarrier(shipmentDb.Shipment shipment) {
+        let Consignment consignment = CarrierProvider.CarrierAPI.post.createConsignment(CreateConsignmentRequest {
+            trackingNumber: shipment.trackingNumber,
+            recipientName: shipment.recipientName,
+            address: shipment.recipientAddress,
+            city: shipment.city,
+            weightKg: shipment.weightKg,
+            idempotencyKey: #"consign-{shipment.id}"
+        });
+        shipment.carrierReference = consignment.reference;
+        advance(shipment, ShipmentStatus.WithPartner, #"With our delivery partner for {shipment.city}");
+    }
+
+    fn dayCount(Int daysAgo) -> DayCount {
+        let DateTime start = DateTime.now().startOfDay().addDays(-daysAgo);
+        let DateTime end = start.addDays(1);
+        return DayCount {
+            day: start.format('MMM dd'),
+            booked: shipmentDb.Shipment.where(createdAt: gte(start)).where(createdAt: lt(end)).count(),
+            delivered: shipmentDb.Shipment.where(deliveredAt: gte(start)).where(deliveredAt: lt(end)).count()
+        };
+    }
+
+    // The public page. A tracking number is the only key, the gateway limits how fast anyone can try
+    // them, and the answer names neither the recipient nor the street.
+    rest_api TrackingAPI : basePath('/api/v1/tracking'), rdbms(shipmentDb) {
+        @path('/:number')
+        get track(String number) : auth(public) -> TrackingView {
+            let Shipment shipment = Shipment.where(trackingNumber: number).firstOrFail();
+            let Array<TrackingEvent> events = TrackingEvent.where(shipmentId: shipment.id).orderBy(createdAt: desc).limit(50).all();
+            return TrackingView {
+                trackingNumber: shipment.trackingNumber,
                 status: shipment.status,
-                origin: shipment.origin,
-                destination: shipment.destination,
-                estimatedDelivery: shipment.estimatedDelivery,
-                actualDelivery: shipment.actualDelivery,
-                events: events
+                city: shipment.city,
+                promisedBy: shipment.promisedBy,
+                deliveredAt: shipment.deliveredAt,
+                area: GeoPoint { latitude: Math.round(shipment.latitude, 1), longitude: Math.round(shipment.longitude, 1) },
+                steps: events.map(e => TrackingStep { status: e.status, note: e.note, at: e.createdAt })
             };
         }
+    }
 
-        post(CreateShipmentRequest request) : auth(required, providers: [identity]) -> shipmentDb.Shipment {
-            let Shipment shipment = shipmentDb.Shipment.create({
-                trackingNumber: generateTrackingNumber(),
-                senderId: request.senderId,
-                recipientName: request.recipientName,
-                recipientAddress: request.recipientAddress,
-                origin: request.origin,
-                destination: request.destination,
-                packageSize: request.packageSize,
-                weight: request.weight,
-                status: ShipmentStatus.Created,
-                estimatedDelivery: request.estimatedDelivery
-            });
-
-            shipmentDb.ShipmentEvent.create({
-                shipment: shipment,
-                eventType: "CREATED",
-                location: request.origin,
-                timestamp: DateTime.now(),
-                notes: "Shipment created and awaiting pickup"
-            });
-
-            return shipment;
-        }
-
-        @path('/:id/status')
-        put(UUID id, UpdateShipmentStatusRequest request) : auth(required, providers: [identity]) -> shipmentDb.Shipment {
-            let Shipment shipment = shipmentDb.Shipment.findOrFail(id);
-            let ShipmentStatus oldStatus = shipment.status;
-
-            transaction(shipmentDb) {
-                shipment.status = request.status;
-                shipment.save();
-            }
-
-            shipmentDb.ShipmentEvent.create({
-                shipment: shipment,
-                eventType: #"STATUS_{request.status}",
-                location: request.location,
-                timestamp: DateTime.now(),
-                notes: request.notes
-            });
-
-            redis.ShipmentStatusCache.set(shipment.id, {
-                shipmentId: shipment.id,
-                status: request.status,
-                location: request.location
-            });
-
-            Log.info("Shipment status updated", {
-                shipmentId: id,
-                oldStatus: oldStatus,
-                newStatus: request.status,
-                location: request.location
-            });
-
-            return shipment;
-        }
-
-        @path('/sender/:senderId')
-        get(UUID senderId, ShipmentStatus? status) : auth(required, providers: [identity]) -> Array<shipmentDb.Shipment> {
-            let JSON query = shipmentDb.Shipment.where(senderId: senderId);
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            return query.orderBy(createdAt: desc).limit(50).all();
-        }
-
-        @path('/:id/events')
-        get(UUID id) : auth(required, providers: [identity]) -> Array<shipmentDb.ShipmentEvent> {
-            let Shipment shipment = shipmentDb.Shipment.findOrFail(id);
-            return shipmentDb.ShipmentEvent
-            .where(shipmentId: shipment.id)
-            .orderBy(timestamp: asc)
-            .all();
-        }
+    // The dispatch desk.
+    rest_api ShipmentDeskAPI : basePath('/api/v1/desk/shipments'), rdbms(shipmentDb) {
+        resource Shipment : only(list), auth(required, providers: [identity], roles: [dispatcher]);
 
         @path('/summary')
-        get shipmentSummary() : auth(service, providers: [platform]), hidden -> ShipmentSummary {
-            let Int total = shipmentDb.Shipment.count();
-            let Int inTransit = shipmentDb.Shipment
-            .whereIn(status: [ShipmentStatus.InTransit, ShipmentStatus.OutForDelivery])
-            .count();
-            let Int delivered = shipmentDb.Shipment.where(status: ShipmentStatus.Delivered).count();
-            let Int failed = shipmentDb.Shipment.where(status: ShipmentStatus.Failed).count();
-
-            return {
-                totalShipments: total,
-                inTransit: inTransit,
-                delivered: delivered,
-                failed: failed
+        get summary() : auth(required, providers: [identity], roles: [dispatcher]) -> DeskSummary {
+            let Array<Int> days = [6, 5, 4, 3, 2, 1, 0];
+            return DeskSummary {
+                waiting: Shipment.where(status: ShipmentStatus.Booked).count(),
+                onTheRoad: Shipment.where(status: ShipmentStatus.OutForDelivery).count(),
+                failed: Shipment.where(status: ShipmentStatus.Failed).count(),
+                withPartner: Shipment.where(status: ShipmentStatus.WithPartner).count(),
+                deliveredToday: Shipment.where(deliveredAt: gte(DateTime.now().startOfDay())).count(),
+                lastWeek: days.map(d => dayCount(d))
             };
         }
 
+        @path('/parcel/:id')
+        get detail(UUID id) : auth(required, providers: [identity], roles: [dispatcher]) -> ShipmentDetail {
+            let Shipment shipment = Shipment.findOrFail(id);
+            return ShipmentDetail {
+                shipment: shipment,
+                point: GeoPoint { latitude: shipment.latitude, longitude: shipment.longitude },
+                events: TrackingEvent.where(shipmentId: id).orderBy(createdAt: desc).limit(100).all()
+            };
+        }
+
+        @path('/book')
+        post book(BookRequest request) : auth(required, providers: [identity], roles: [dispatcher]) -> Shipment {
+            let GeocodedAddress place = locate(request.recipientAddress, request.city);
+            let Shipment created = Shipment.create({
+                trackingNumber: newTrackingNumber(),
+                shipperName: request.shipperName,
+                recipientName: request.recipientName,
+                recipientPhone: request.recipientPhone,
+                recipientAddress: request.recipientAddress,
+                city: request.city,
+                weightKg: request.weightKg,
+                promisedBy: request.promisedBy,
+                latitude: place.latitude,
+                longitude: place.longitude
+            });
+            advance(created, ShipmentStatus.Booked, "Booked with Quayline");
+            if (place.withinServiceArea) {
+                offerToRoutes(created);
+            } else {
+                handToCarrier(created);
+            }
+            return created;
+        }
+
+        // A failed parcel goes back in the queue for another route.
+        @path('/parcel/:id/retry')
+        post retry(UUID id) : auth(required, providers: [identity], roles: [dispatcher]) -> Shipment {
+            let Shipment shipment = Shipment.findOrFail(id);
+            if (shipment.status != ShipmentStatus.Failed) {
+                throw WrongStepError();
+            }
+            advance(shipment, ShipmentStatus.Booked, "We will try again");
+            offerToRoutes(shipment);
+            return shipment;
+        }
+
+        @path('/parcel/:id/to-partner')
+        post toPartner(UUID id) : auth(required, providers: [identity], roles: [dispatcher]) -> Shipment {
+            let Shipment shipment = Shipment.findOrFail(id);
+            if (shipment.status != ShipmentStatus.Failed) {
+                throw WrongStepError();
+            }
+            handToCarrier(shipment);
+            return shipment;
+        }
     }
 
-    test("computed isDelivered reflects Delivered status") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-001",
-            senderId: uuid(),
-            recipientName: "John Doe",
-            recipientAddress: "123 Main St",
-            origin: "Warehouse A",
-            destination: "Customer Location",
-            status: ShipmentStatus.Delivered,
-            packageSize: PackageSize.Medium,
-            weight: 5.50,
-            actualDelivery: DateTime.now()
+    // What the routes report as a van goes round.
+    rest_api ShipmentInternalAPI : basePath('/internal/shipments'), rdbms(shipmentDb) {
+        @path('/report')
+        post report(StopReport report) : auth(service, providers: [machine]) -> ReportAck {
+            let Shipment shipment = Shipment.findOrFail(report.shipmentId);
+            shipment.driverName = report.driverName ?? shipment.driverName;
+            shipment.failureReason = report.failureReason;
+            if (report.status == ShipmentStatus.Delivered) {
+                shipment.deliveredAt = DateTime.now();
+                shipment.deliveredTo = report.deliveredTo;
+            }
+            advance(shipment, report.status, report.note);
+            return ReportAck { trackingNumber: shipment.trackingNumber };
+        }
+    }
+
+    jobs {
+        // The partner has no way to call us, so anything with them is asked about every two minutes.
+        // One failed question must not stop the others.
+        job SyncPartnerConsignments {
+            let Array<shipmentDb.Shipment> held = shipmentDb.Shipment.where(status: ShipmentStatus.WithPartner).limit(200).all();
+            foreach shipment in held {
+                if (shipment.carrierReference != null) {
+                    let Consignment? consignment = askPartner(shipment.carrierReference);
+                    if (consignment != null && consignment.status == ConsignmentStatus.Delivered) {
+                        shipment.deliveredAt = DateTime.now();
+                        shipment.deliveredTo = consignment.signedBy;
+                        advance(shipment, ShipmentStatus.Delivered, "Delivered by our partner");
+                    }
+                }
+            }
+        }
+    }
+
+    test("a tracking number reads clearly and is not short") {
+        let String number = newTrackingNumber();
+        assert number.substring(0, 3) == "QL-";
+        assert number.length == 13;
+    }
+
+    test("a new shipment waits for a route") {
+        let shipmentDb.Shipment created = shipmentDb.Shipment.create({
+            trackingNumber: "QL-TEST000001",
+            shipperName: "Bramble and Sons",
+            recipientName: "Theo Marsh",
+            recipientPhone: "+15035550101",
+            recipientAddress: "12 Alder Street",
+            city: "Portland",
+            weightKg: 4.5,
+            promisedBy: DateTime.now().addDays(2),
+            latitude: 45.52,
+            longitude: -122.68
         });
-        shipment.save();
-        assert shipment.isDelivered == true;
+        assert created.status == ShipmentStatus.Booked;
+        assert created.deliveredAt == null;
     }
-
-    test("validation rejects zero weight") {
-        assert throws(
-        () => shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-002",
-            senderId: uuid(),
-            recipientName: "Jane Doe",
-            recipientAddress: "456 Oak Ave",
-            origin: "Warehouse B",
-            destination: "Customer Location",
-            packageSize: PackageSize.Small,
-            weight: 0
-        }),
-        ValidationError("Shipment weight must be greater than zero")
-        );
-    }
-
-    test("afterCreate emits ShipmentCreated event") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-003",
-            senderId: uuid(),
-            recipientName: "Bob Smith",
-            recipientAddress: "789 Elm St",
-            origin: "Distribution Center",
-            destination: "Retail Store",
-            packageSize: PackageSize.Large,
-            weight: 15.00
-        });
-        shipment.save();
-        assert emitted(ShipmentCreated(shipment.id, shipment.trackingNumber, shipment.senderId, shipment.origin, shipment.destination));
-    }
-
-    test("status change emits ShipmentStatusChanged") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-004",
-            senderId: uuid(),
-            recipientName: "Alice Johnson",
-            recipientAddress: "321 Pine Rd",
-            origin: "Warehouse C",
-            destination: "Office Building",
-            packageSize: PackageSize.Small,
-            weight: 2.00
-        });
-        shipment.save();
-        shipment.status = ShipmentStatus.InTransit;
-        shipment.save();
-        assert emitted(ShipmentStatusChanged(shipment.id, shipment.trackingNumber, ShipmentStatus.Created, ShipmentStatus.InTransit));
-    }
-
-    test("computed isDelivered is false for InTransit status") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-005",
-            senderId: uuid(),
-            recipientName: "Charlie Brown",
-            recipientAddress: "555 Cedar Ln",
-            origin: "Depot X",
-            destination: "Store Y",
-            status: ShipmentStatus.InTransit,
-            packageSize: PackageSize.Large,
-            weight: 20.00
-        });
-        shipment.save();
-        assert shipment.isDelivered == false;
-    }
-
-    test("computed isActive for InTransit shipment") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-006",
-            senderId: uuid(),
-            recipientName: "Diana Prince",
-            recipientAddress: "777 Hero Ave",
-            origin: "Central Hub",
-            destination: "Regional Center",
-            status: ShipmentStatus.InTransit,
-            packageSize: PackageSize.Medium,
-            weight: 8.50
-        });
-        shipment.save();
-        assert shipment.isActive == true;
-    }
-
-    test("computed isActive for OutForDelivery shipment") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-007",
-            senderId: uuid(),
-            recipientName: "Edward Stone",
-            recipientAddress: "888 Rock Blvd",
-            origin: "Local Hub",
-            destination: "Home Address",
-            status: ShipmentStatus.OutForDelivery,
-            packageSize: PackageSize.Small,
-            weight: 1.25
-        });
-        shipment.save();
-        assert shipment.isActive == true;
-    }
-
-    test("computed isActive is false for Delivered shipment") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-008",
-            senderId: uuid(),
-            recipientName: "Fiona Green",
-            recipientAddress: "999 Vine St",
-            origin: "Warehouse D",
-            destination: "Apartment Complex",
-            status: ShipmentStatus.Delivered,
-            packageSize: PackageSize.ExtraLarge,
-            weight: 45.00,
-            actualDelivery: DateTime.now()
-        });
-        shipment.save();
-        assert shipment.isActive == false;
-    }
-
-    test("validation rejects empty recipient name") {
-        assert throws(
-        () => shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-009",
-            senderId: uuid(),
-            recipientName: "",
-            recipientAddress: "123 Street",
-            origin: "Origin A",
-            destination: "Destination B",
-            packageSize: PackageSize.Small,
-            weight: 1.00
-        }),
-        ValidationError("Recipient name cannot be empty")
-        );
-    }
-
-    test("validation rejects empty origin") {
-        assert throws(
-        () => shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-010",
-            senderId: uuid(),
-            recipientName: "George Hill",
-            recipientAddress: "456 Road",
-            origin: "",
-            destination: "Destination C",
-            packageSize: PackageSize.Medium,
-            weight: 3.00
-        }),
-        ValidationError("Origin cannot be empty")
-        );
-    }
-
-    test("validation rejects empty destination") {
-        assert throws(
-        () => shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-011",
-            senderId: uuid(),
-            recipientName: "Helen Troy",
-            recipientAddress: "789 Path",
-            origin: "Origin D",
-            destination: "",
-            packageSize: PackageSize.Large,
-            weight: 12.00
-        }),
-        ValidationError("Destination cannot be empty")
-        );
-    }
-
-    test("markDelivered sets status and actualDelivery") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-012",
-            senderId: uuid(),
-            recipientName: "Ivan Cook",
-            recipientAddress: "101 Way",
-            origin: "Hub E",
-            destination: "Residence F",
-            status: ShipmentStatus.OutForDelivery,
-            packageSize: PackageSize.Small,
-            weight: 0.75
-        });
-        shipment.save();
-        shipment.markDelivered();
-        assert shipment.status == ShipmentStatus.Delivered;
-        assert shipment.actualDelivery != null;
-    }
-
-    test("markFailed sets status to Failed") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-013",
-            senderId: uuid(),
-            recipientName: "Julia Reed",
-            recipientAddress: "202 Lane",
-            origin: "Depot G",
-            destination: "Office H",
-            status: ShipmentStatus.InTransit,
-            packageSize: PackageSize.Medium,
-            weight: 5.00
-        });
-        shipment.save();
-        shipment.markFailed("Address not found");
-        assert shipment.status == ShipmentStatus.Failed;
-    }
-
-    test("computed isLate when actualDelivery exceeds estimatedDelivery") {
-        let Shipment shipment = shipmentDb.Shipment.create({
-            trackingNumber: "LGS-TEST-014",
-            senderId: uuid(),
-            recipientName: "Karen White",
-            recipientAddress: "303 Circle",
-            origin: "Warehouse I",
-            destination: "Storefront J",
-            status: ShipmentStatus.Delivered,
-            packageSize: PackageSize.Small,
-            weight: 2.50,
-            estimatedDelivery: DateTime.now().addDays(-2),
-            actualDelivery: DateTime.now()
-        });
-        shipment.save();
-        assert shipment.isLate == true;
-    }
-
 }

@@ -1,0 +1,12 @@
+// The firmware on the fleet, and a newer release to roll out.
+seed service iot.FirmwareService {
+  rdbms firmwareDb {
+    baseline {
+      FirmwareRelease table on(version) {
+        id,             version, notes;
+        @uuid("fw-140"), "1.4.0", "Reports humidity and battery.";
+        @uuid("fw-150"), "1.5.0", "Longer battery life, and a faster reconnect after a power cut.";
+      }
+    }
+  }
+}

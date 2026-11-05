@@ -1,0 +1,354 @@
+from blog.ui import Brand, statRow;
+from blog.ContentService import UpdatePostRequest;
+
+/// Where articles are written, reviewed and published, comments moderated and the audience
+/// looked after. Each page's sign-in and role come from the routes it reaches, so an author sees
+/// their own writing, and only an editor gets the queues.
+app blog.Studio('config/studio-app.dcfg') : version('2.0.0') {
+    uses blog.ContentService;
+    uses blog.CommentService;
+    uses blog.NewsletterService;
+    uses blog.AuthorService;
+
+    theme extends Brand { }
+
+    // The article the open dialog works on: a form sends these values without showing them.
+    state UUID? openPostId = null;
+    state String openTitle = '';
+    state String openExcerpt = '';
+    state String openBody = '';
+    state UUID? openCategoryId = null;
+    state Boolean editing = false;
+    state Boolean scheduling = false;
+
+    // Row actions of the moderation queue and the author list.
+    fn approveComment(UUID id) {
+        CommentService.ModerationQueueAPI.post.approve(id: id);
+        Ui.toast(Msg.commentApproved, tone: success);
+    }
+
+    fn rejectComment(UUID id) {
+        CommentService.ModerationQueueAPI.post.reject(id: id);
+        Ui.toast(Msg.commentRejected);
+    }
+
+    fn suspendAuthor(UUID id) {
+        if (Ui.confirm(Msg.confirmSuspend)) {
+            AuthorService.AuthorAPI.post.suspend(id: id);
+            Ui.toast(Msg.authorSuspended);
+        }
+    }
+
+    fn reinstateAuthor(UUID id) {
+        AuthorService.AuthorAPI.post.reinstate(id: id);
+        Ui.toast(Msg.authorReinstated, tone: success);
+    }
+
+    layout Shell : default {
+        nav {
+            link MyPosts : icon(edit_note), group(Msg.navWriting);
+            link NewPost : icon(add), group(Msg.navWriting);
+            link Desk : icon(dashboard), group(Msg.navEditing);
+            link Queue : icon(rule), group(Msg.navEditing);
+            link Moderation : icon(forum), group(Msg.navEditing);
+            link Audience : icon(mail), group(Msg.navAudience);
+            link Authors : icon(group), group(Msg.navAudience);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    // ---- Writing ---------------------------------------------------------------------------
+
+    @path('/')
+    page MyPosts() {
+        data { profile = AuthorService.AuthorAPI.get.me(); }
+        view {
+            pageHeader(Msg.myPostsTitle, Msg.signedInAs(name: profile.displayName)) {
+                link(Msg.newPost, NewPost) : kind(primary), icon(add);
+            }
+            table(MyPostList);
+        }
+    }
+
+    table MyPostList : source(ContentService.StudioAPI.get.myPosts) {
+        column updatedAt : format(relative);
+        column title;
+        column status;
+        column publishedAt : format(date);
+        column readingMinutes : format(number);
+        column commentCount : format(number);
+        rowAction open : onClick(Nav.to(PostDetail, id: row.id));
+    }
+
+    @path('/posts/new')
+    page NewPost() {
+        view {
+            pageHeader(Msg.newPost) : back(MyPosts);
+            form(WritePost);
+        }
+    }
+
+    form WritePost : submit(ContentService.StudioAPI.post.createPost) {
+        field title;
+        field excerpt;
+        field categoryId : options(ContentService.ReaderAPI.get.categories, value: c => c.id, label: c => c.name);
+        field body;
+        fn saved(UUID id) {
+            Ui.toast(Msg.draftSaved, tone: success);
+            Nav.to(PostDetail, id: id);
+        }
+        onSuccess(saved(result.id));
+    }
+
+    @path('/posts/:id')
+    page PostDetail(UUID id) {
+        data {
+            post = ContentService.StudioAPI.get.post(id: id);
+            revisions = ContentService.StudioAPI.get.revisions(id: id);
+        }
+
+        fn closeDialogs() {
+            editing = false;
+            scheduling = false;
+        }
+
+        fn openSchedule() {
+            openPostId = id;
+            scheduling = true;
+        }
+
+        fn openEditor() {
+            openPostId = id;
+            openTitle = post.title;
+            openExcerpt = post.excerpt;
+            openBody = post.body;
+            openCategoryId = post.categoryId;
+            editing = true;
+        }
+
+        fn submit() {
+            ContentService.StudioAPI.post.submit(id: id);
+            post.refresh();
+            Ui.toast(Msg.sentToReview, tone: success);
+        }
+
+        fn publish() {
+            ContentService.StudioAPI.post.publish(id: id);
+            post.refresh();
+            Ui.toast(Msg.published, tone: success);
+        }
+
+        fn sendBack() {
+            ContentService.StudioAPI.post.sendBack(id: id);
+            post.refresh();
+        }
+
+        fn archive() {
+            if (Ui.confirm(Msg.confirmArchive)) {
+                ContentService.StudioAPI.post.archive(id: id);
+                post.refresh();
+            }
+        }
+
+        view {
+            pageHeader(post.title, post.excerpt) : back(MyPosts) {
+                badge(post.status);
+                when (post.status == PostStatus.Draft) {
+                    button(Msg.edit) : onClick(openEditor()), icon(edit);
+                    button(Msg.submitForReview) : onClick(submit()), kind(primary);
+                }
+                when (post.status == PostStatus.InReview) {
+                    button(Msg.publish) : onClick(publish()), kind(primary);
+                    button(Msg.schedule) : onClick(openSchedule());
+                    button(Msg.sendBack) : onClick(sendBack());
+                }
+                when (post.status == PostStatus.Published) {
+                    button(Msg.archive) : onClick(archive()), tone(danger);
+                }
+            }
+            when (scheduling) {
+                dialog(Msg.schedule) : onClose(closeDialogs()) {
+                    form(SchedulePost);
+                }
+            }
+            when (editing) {
+                dialog(Msg.edit) : onClose(closeDialogs()) {
+                    form(RewritePost);
+                }
+            }
+            tabs {
+                tab(Msg.tabArticle) {
+                    markdown(post.body);
+                }
+                tab(Msg.tabHistory) : badge(revisions.length) {
+                    timeline(data: revisions, at: r => r.createdAt) {
+                        text(Msg.versionLine(version: item.version, title: item.title));
+                    }
+                }
+            }
+        }
+    }
+
+    form SchedulePost : submit(ContentService.StudioAPI.post.schedule) {
+        fn scheduled() {
+            scheduling = false;
+            Ui.toast(Msg.scheduledDone, tone: success);
+        }
+        field id : fixed(openPostId);
+        field publishAt;
+        onSuccess(scheduled());
+    }
+
+    form RewritePost : submit(ContentService.StudioAPI.post.updatePost) {
+        fn prefill(UpdatePostRequest d) {
+            d.title = openTitle;
+            d.excerpt = openExcerpt;
+            d.body = openBody;
+            if (openCategoryId != null) {
+                d.categoryId = openCategoryId;
+            }
+        }
+        fn saved() {
+            editing = false;
+            Ui.toast(Msg.draftSaved, tone: success);
+        }
+        onLoad(prefill(draft));
+        field id : fixed(openPostId);
+        field title;
+        field excerpt;
+        field categoryId : options(ContentService.ReaderAPI.get.categories, value: c => c.id, label: c => c.name);
+        field body;
+        onSuccess(saved());
+    }
+
+    // ---- Editing ---------------------------------------------------------------------------
+
+    @path('/desk')
+    page Desk() {
+        data { summary = ContentService.StudioAPI.get.summary(); }
+        view {
+            pageHeader(Msg.deskTitle, Msg.deskSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statDrafts, Fmt.number(summary.drafts)) : icon(edit_note);
+                stat(Msg.statInReview, Fmt.number(summary.inReview)) : icon(rule), tone(warning);
+                stat(Msg.statScheduled, Fmt.number(summary.scheduled)) : icon(schedule), tone(info);
+                stat(Msg.statPublished, Fmt.number(summary.published)) : icon(public), tone(success);
+            }
+        }
+    }
+
+    @path('/queue')
+    page Queue() {
+        view {
+            pageHeader(Msg.queueTitle, Msg.queueSubtitle);
+            table(AllPosts);
+        }
+    }
+
+    table AllPosts : source(ContentService.StudioAPI.contentDb.Post.list), pageSizes(10, 25, 50) {
+        column updatedAt : format(relative);
+        column authorName;
+        column title;
+        column status;
+        column scheduledFor : format(dateTime);
+        column publishedAt : format(date);
+        column commentCount : format(number);
+        filter status;
+        filter title : live;
+        rowAction open : onClick(Nav.to(PostDetail, id: row.id));
+    }
+
+    @path('/moderation')
+    page Moderation() {
+        view {
+            pageHeader(Msg.moderationTitle, Msg.moderationSubtitle);
+            table(Comments);
+        }
+    }
+
+    table Comments : source(CommentService.ModerationQueueAPI.commentDb.Comment.list), poll(30s) {
+        column createdAt : format(relative);
+        column authorName;
+        column body;
+        column status;
+        column moderationReason;
+        filter status;
+        rowAction approve : onClick(approveComment(row.id));
+        rowAction reject : onClick(rejectComment(row.id));
+    }
+
+    // ---- Audience --------------------------------------------------------------------------
+
+    @path('/audience')
+    page Audience() {
+        view {
+            pageHeader(Msg.audienceTitle, Msg.audienceSubtitle);
+            tabs {
+                tab(Msg.tabSubscribers) { table(Subscribers); }
+                tab(Msg.tabDeliveries) { table(Deliveries); }
+            }
+        }
+    }
+
+    table Subscribers : source(NewsletterService.AudienceAPI.newsletterDb.Subscriber.list) {
+        column createdAt : format(date);
+        column email;
+        column status;
+        column confirmedAt : format(date);
+        filter status;
+    }
+
+    table Deliveries : source(NewsletterService.AudienceAPI.newsletterDb.Delivery.list), poll(30s) {
+        column createdAt : format(relative);
+        column subject;
+        column status;
+        column attempts : format(number);
+        filter status;
+    }
+
+    @path('/authors')
+    page Authors() {
+        view {
+            pageHeader(Msg.authorsTitle);
+            table(AuthorTable);
+        }
+    }
+
+    table AuthorTable : source(AuthorService.AuthorAPI.authorDb.Author.list) {
+        column createdAt : format(date);
+        column displayName;
+        column status;
+        filter displayName : live;
+        filter status;
+        rowAction suspend : onClick(suspendAuthor(row.id));
+        rowAction reinstate : onClick(reinstateAuthor(row.id));
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, MyPosts); }
+        }
+    }
+
+    test("a new article starts from an empty form") {
+        let Screen screen = render(NewPost);
+        assert screen.shows(Msg.newPost);
+    }
+}

@@ -1,0 +1,84 @@
+// Implements the RouteProvider contract in the stack: the straight line between two points, in
+// kilometres, plus a third for the turns, at a city driving speed. Good enough to drive the example,
+// and every plan lands in a log the Kitchen app shows.
+service fooddelivery.RouteMock('config/mocks/route-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the maps vendor') {
+
+    discovery { }
+
+    rdbms routeDb {
+
+        /// A route the vendor planned.
+        entity PlannedRoute extends BaseEntity {
+            String(40) planId : unique;
+            Float fromLatitude;
+            Float fromLongitude;
+            Float toLatitude;
+            Float toLongitude;
+            Float distanceKm;
+            Int minutes;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct PlanRouteRequest {
+        Float fromLatitude;
+        Float fromLongitude;
+        Float toLatitude;
+        Float toLongitude;
+    }
+
+    struct RoutePlan {
+        String(40) id;
+        Float distanceKm;
+        Int minutes;
+    }
+
+    const KM_PER_DEGREE = 111.0;
+    const ROAD_FACTOR = 1.3;
+    const MINUTES_PER_KM = 2.5;
+
+    /// The distance by road, near enough for a city: degrees to kilometres, then a factor for turns.
+    fn roadKm(PlanRouteRequest request) -> Float {
+        let Float northSouth = Math.abs(request.fromLatitude - request.toLatitude) * KM_PER_DEGREE;
+        let Float eastWest = Math.abs(request.fromLongitude - request.toLongitude) * KM_PER_DEGREE * 0.7;
+        return Math.sqrt(northSouth * northSouth + eastWest * eastWest) * ROAD_FACTOR;
+    }
+
+    // The vendor's public API: exactly the RouteProvider contract.
+    rest_api RouteAPI : basePath('/v1'), rdbms(routeDb) {
+        @path('/routes')
+        post planRoute(PlanRouteRequest request) : auth(required, providers: [routeKeys]) -> RoutePlan {
+            let Float distance = roadKm(request);
+            let PlannedRoute created = PlannedRoute.create({
+                planId: #"route_{Random.string(24, '0123456789abcdef')}",
+                fromLatitude: request.fromLatitude,
+                fromLongitude: request.fromLongitude,
+                toLatitude: request.toLatitude,
+                toLongitude: request.toLongitude,
+                distanceKm: distance,
+                minutes: Math.ceil(distance * MINUTES_PER_KM).toInteger()
+            });
+            return RoutePlan { id: created.planId, distanceKm: created.distanceKm, minutes: created.minutes };
+        }
+    }
+
+    // What the Kitchen app shows: every route planned.
+    rest_api RouteDeskAPI : basePath('/api/v1/desk/route'), rdbms(routeDb) {
+        resource PlannedRoute : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a road is longer than the straight line") {
+        let Float distance = roadKm(PlanRouteRequest { fromLatitude: 45.50, fromLongitude: -122.60, toLatitude: 45.60, toLongitude: -122.60 });
+        assert distance > 11.1;
+    }
+}

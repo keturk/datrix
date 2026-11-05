@@ -1,0 +1,12 @@
+// The key recruiting presents to the background check vendor. The key itself is the development default
+// of the service's secret; the vendor stores only its SHA-256 hash.
+seed service hr.CheckMock {
+  rdbms checkDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                keyHash,                                                            ownerId,                  scopes,           isActive;
+        @uuid("check-key"), "9e793997c99668048d7cde62f41c3b7504355c695df31e43741597396e7b736b", @uuid("owner-alderbrook"), ["checks:write"], true;
+      }
+    }
+  }
+}

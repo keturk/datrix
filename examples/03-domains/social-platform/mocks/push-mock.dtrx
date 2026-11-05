@@ -1,0 +1,78 @@
+// Implements the PushProvider contract in the stack: every push lands in a list the desk shows, and no phone
+// is ever reached. A token starting `dead-` is gone, to show a device being forgotten.
+service social.PushMock('config/mocks/push-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the push notification vendor') {
+
+    discovery { }
+
+    enum PushStatus {
+        Accepted : tone(success),
+        Gone : tone(neutral)
+    }
+
+    rdbms pushDb {
+
+        /// A push the vendor was asked to send. The device token is not kept.
+        entity SentPush extends BaseEntity {
+            String(120) title : filterable;
+            String(400) body;
+            PushStatus status : filterable;
+            String(40) receiptId : unique;
+            String(120) idempotencyKey : unique;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct SendPushRequest {
+        String(200) deviceToken;
+        String(120) title;
+        String(400) body;
+        String(120) idempotencyKey;
+    }
+
+    struct PushReceipt {
+        String(40) id;
+        PushStatus status;
+    }
+
+    /// The start of a token whose phone is no longer there.
+    const DEAD_TOKEN_PREFIX = "dead-";
+
+    // The vendor's public API: exactly the PushProvider contract.
+    rest_api PushAPI : basePath('/v1'), rdbms(pushDb) {
+        @path('/messages')
+        post sendPush(SendPushRequest request) : auth(required, providers: [pushKeys]) -> PushReceipt {
+            let SentPush? existing = SentPush.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return PushReceipt { id: existing.receiptId, status: existing.status };
+            }
+            let SentPush created = SentPush.create({
+                receiptId: #"psh_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                title: request.title,
+                body: request.body,
+                status: request.deviceToken.startsWith(DEAD_TOKEN_PREFIX) ? PushStatus.Gone : PushStatus.Accepted
+            });
+            return PushReceipt { id: created.receiptId, status: created.status };
+        }
+    }
+
+    // What the desk shows: every push.
+    rest_api PushDeskAPI : basePath('/api/v1/desk/push'), rdbms(pushDb) {
+        resource SentPush : only(list), auth(required, providers: [identity], roles: [moderator]);
+    }
+
+    test("a dead token is known") {
+        assert "dead-phone".startsWith(DEAD_TOKEN_PREFIX);
+        assert !"live-phone".startsWith(DEAD_TOKEN_PREFIX);
+    }
+}

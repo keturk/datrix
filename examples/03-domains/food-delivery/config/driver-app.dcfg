@@ -1,0 +1,25 @@
+config app fooddelivery.Driver {
+  base {
+    targets = ["angular", "flutter"];
+    clients {
+      angular {
+        scope = "@saltbox";
+      }
+    }
+    appId = "com.example.saltbox.driver";
+    strings = ["config/strings/driver.en-US.dcfg"];
+    map {
+      tiles = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+      attribution = "Map data from OpenStreetMap contributors";
+    }
+  }
+  profile test as "test" extends base {
+    web { port = 4400; }
+  }
+  profile development as "dev" extends base {
+    web { port = 4400; }
+  }
+  profile production as "prod" extends base {
+    web { port = 4400; }
+  }
+}

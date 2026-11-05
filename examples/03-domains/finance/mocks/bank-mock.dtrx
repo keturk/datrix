@@ -1,0 +1,106 @@
+// Implements the BankProvider contract in the stack, so the application sends real requests and
+// needs no banking relationship: every payment lands in a log the Back Office shows instead of
+// moving real money. Callers authenticate with an API key, as with a real network.
+service finance.BankMock('config/mocks/bank-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the payment network') {
+
+    discovery { }
+
+    enum PaymentStatus {
+        Accepted : tone(success),
+        Rejected : tone(danger)
+    }
+
+    rdbms bankDb {
+
+        /// A payment the network received.
+        entity SentPayment extends BaseEntity {
+            String(40) paymentId : unique;
+            String(120) idempotencyKey : unique;
+            String(34) iban : filterable;
+            String(200) beneficiaryName : filterable;
+            Money amount;
+            String(3) currency;
+            String(40) reference : filterable;
+            PaymentStatus status : filterable;
+            String(200)? failureReason;
+        }
+
+        /// API keys the network issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct CreatePaymentRequest {
+        String(34) iban;
+        String(200) beneficiaryName;
+        Money amount;
+        String(3) currency;
+        String(40) reference;
+        String(120) idempotencyKey;
+    }
+
+    struct Payment {
+        String(40) id;
+        PaymentStatus status;
+        String(200)? failureReason;
+    }
+
+    /// An IBAN starting with this country code is refused, so a failed payment can be shown.
+    const REJECTED_PREFIX = "XX";
+
+    fn answerOf(bankDb.SentPayment payment) -> Payment {
+        return Payment { id: payment.paymentId, status: payment.status, failureReason: payment.failureReason };
+    }
+
+    // The network's public API: exactly the BankProvider contract.
+    rest_api BankAPI : basePath('/v1'), rdbms(bankDb) {
+        @path('/payments')
+        post(CreatePaymentRequest request) : auth(required, providers: [bankKeys]) -> Payment {
+            let SentPayment? existing = SentPayment.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            let Boolean refused = request.iban.startsWith(REJECTED_PREFIX);
+            let SentPayment created = SentPayment.create({
+                paymentId: #"pay_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                iban: request.iban,
+                beneficiaryName: request.beneficiaryName,
+                amount: request.amount,
+                currency: request.currency,
+                reference: request.reference,
+                status: refused ? PaymentStatus.Rejected : PaymentStatus.Accepted,
+                failureReason: refused ? "The receiving bank does not recognise this account" : null
+            });
+            return answerOf(created);
+        }
+    }
+
+    // What the Back Office shows: every payment sent.
+    rest_api BankDeskAPI : basePath('/api/v1/desk/bank'), rdbms(bankDb) {
+        resource SentPayment : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a repeated idempotency key finds the first payment") {
+        let SentPayment first = bankDb.SentPayment.create({
+            paymentId: "pay_0001",
+            idempotencyKey: "transfer-1",
+            iban: "DE00000000000000000000",
+            beneficiaryName: "Lea Novak",
+            amount: 40.00,
+            currency: "USD",
+            reference: "TR-1",
+            status: PaymentStatus.Accepted
+        });
+        let SentPayment? again = bankDb.SentPayment.where(idempotencyKey: "transfer-1").first();
+        assert again != null;
+        assert again.paymentId == first.paymentId;
+    }
+}

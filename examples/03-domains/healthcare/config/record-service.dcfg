@@ -1,0 +1,76 @@
+config service healthcare.RecordService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8003;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms recordDb from postgresContainer(id: "c6675cf1-2c0b-4480-abc5-fece0245e3eb", database: "healthcare_record");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "healthcare-record-service");
+    kafkaOps from kafkaPolling();
+    serviceCredentialOps from machineCredential();
+    microserviceClientOps from peerClient();
+    retryBudgetOps from retryBudget();
+    jobs {
+      jobs {
+        SyncPharmacy {
+          schedule = "*/5 * * * *";
+          timeout = "120s";
+        }
+        SettleClaims {
+          schedule = "*/10 * * * *";
+          timeout = "120s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+    secrets {
+      // Each default only exists on a local stack, where it matches the hash seeded in that mock's
+      // seed file, so the example runs with nothing to configure. Any other deployment must supply
+      // the handle's value.
+      secret insurer_provider_api_key {
+        required = true;
+        purpose = "API key for the insurer (InsurerProvider contract).";
+        localDefault = "dev-only-insurer-key-not-a-credential";
+      }
+      secret pharmacy_provider_api_key {
+        required = true;
+        purpose = "API key for the pharmacy network (PharmacyProvider contract).";
+        localDefault = "dev-only-pharmacy-key-not-a-credential";
+      }
+      secret sms_provider_api_key {
+        required = true;
+        purpose = "API key for the text vendor (SmsProvider contract).";
+        localDefault = "dev-only-sms-key-not-a-credential";
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

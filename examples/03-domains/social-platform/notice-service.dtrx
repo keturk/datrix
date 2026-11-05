@@ -1,0 +1,252 @@
+// Tells people what happened. An event fans out to one row per person, then to their device and their inbox if
+// they want it. A device the vendor says is gone is forgotten. A weekly job emails anyone with unread notices.
+service social.NoticeService('config/notice-service.dcfg') : version('2.0.0'), description('Notifications, push and email') {
+
+    discovery { }
+
+    uses PeopleService;
+    uses PostService;
+    uses PushProvider;
+    uses EmailProvider;
+
+    exceptions {
+        NeedsHandleError : status(409), message("Choose a handle first");
+        NoSuchNoticeError : status(404), message("Notification not found");
+    }
+
+    enum NoticeKind {
+        NewPost : tone(info),
+        NewFollower : tone(success),
+        Liked : tone(success),
+        Commented : tone(info),
+        PostRemoved : tone(danger)
+    }
+
+    rdbms noticeDb {
+
+        entity Notice extends BaseEntity {
+            NoticeKind kind : filterable;
+            String(80) actorName;
+            String(200) summary;
+            Boolean isRead : filterable = false;
+            String(30) handle : index;
+            UUID? postId;
+
+            index(handle, isRead);
+        }
+
+        /// A phone to reach someone on. The token only ever goes to the push vendor.
+        entity Device extends BaseEntity {
+            String(30) handle : index;
+            String(200) token : unique, sensitive;
+        }
+
+        /// What someone wants to hear about. No row means the default: push yes, email yes.
+        entity Preference extends BaseEntity {
+            String(30) handle : unique;
+            Boolean pushOn = true;
+            Boolean emailOn = true;
+        }
+
+        /// A weekly digest already sent, so a job that runs twice sends one.
+        entity DigestSent extends BaseEntity : appendOnly {
+            String(60) digestKey : unique;
+        }
+    }
+
+    struct NewDevice {
+        String(200) token;
+    }
+
+    struct PreferenceChoice {
+        Boolean pushOn;
+        Boolean emailOn;
+    }
+
+    struct PreferenceView {
+        Boolean pushOn;
+        Boolean emailOn;
+    }
+
+    struct UnreadCount {
+        Int unread;
+    }
+
+    fn myHandle() -> String {
+        let AuthorFacts facts = PeopleService.PeopleInternalAPI.post.author({ email: Auth.identity.email.toString() });
+        if (!facts.exists) {
+            throw NeedsHandleError();
+        }
+        return facts.handle;
+    }
+
+    fn wantsPush(String handle) -> Boolean {
+        let noticeDb.Preference? choice = noticeDb.Preference.where(handle: handle).first();
+        return choice == null || choice.pushOn;
+    }
+
+    fn wantsEmail(String handle) -> Boolean {
+        let noticeDb.Preference? choice = noticeDb.Preference.where(handle: handle).first();
+        return choice == null || choice.emailOn;
+    }
+
+    /// A device the vendor no longer knows is removed, so it is never tried again.
+    fn pushTo(String handle, String title, String body, String key) {
+        if (wantsPush(handle)) {
+            let Array<noticeDb.Device> devices = noticeDb.Device.where(handle: handle).limit(10).all();
+            foreach device in devices {
+                try {
+                    let PushReceipt receipt = PushProvider.PushAPI.post.sendPush(SendPushRequest {
+                        deviceToken: device.token,
+                        title: title,
+                        body: body,
+                        idempotencyKey: #"{key}-{device.id}"
+                    });
+                    if (receipt.status == PushStatus.Gone) {
+                        device.delete();
+                    }
+                } catch (Exception e) {
+                    Log.warn("Push not sent", { handle: handle });
+                }
+            }
+        }
+    }
+
+    fn emailTo(String handle, String subject, String body, String key) {
+        if (wantsEmail(handle)) {
+            let Contact contact = PeopleService.PeopleInternalAPI.post.contact({ handle: handle });
+            if (contact.exists) {
+                try {
+                    EmailProvider.EmailAPI.post.sendEmail(SendEmailRequest { to: contact.email, subject: subject, body: body, idempotencyKey: key });
+                } catch (Exception e) {
+                    Log.warn("Email not sent", { key: key });
+                }
+            }
+        }
+    }
+
+    subscribe PostEvents {
+        on PostPublished(UUID postId, String authorHandle, String authorName, String excerpt) {
+            let Handles followers = PeopleService.PeopleInternalAPI.post.followersOf({ handle: authorHandle });
+            foreach follower in followers.handles {
+                noticeDb.Notice.create({ kind: NoticeKind.NewPost, handle: follower, actorName: authorName, summary: excerpt, postId: postId });
+                pushTo(follower, #"{authorName} posted", excerpt, #"post-{postId}");
+            }
+        }
+
+        on PostLiked(UUID postId, String authorHandle, String likerName, String excerpt) {
+            noticeDb.Notice.create({ kind: NoticeKind.Liked, handle: authorHandle, actorName: likerName, summary: excerpt, postId: postId });
+            pushTo(authorHandle, #"{likerName} liked your post", excerpt, #"like-{postId}-{likerName}");
+        }
+
+        on PostCommented(UUID postId, String authorHandle, String commenterName, String excerpt) {
+            noticeDb.Notice.create({ kind: NoticeKind.Commented, handle: authorHandle, actorName: commenterName, summary: excerpt, postId: postId });
+            pushTo(authorHandle, #"{commenterName} commented", excerpt, #"comment-{postId}-{commenterName}");
+        }
+
+        on PostRemoved(String authorHandle, String excerpt) {
+            noticeDb.Notice.create({ kind: NoticeKind.PostRemoved, handle: authorHandle, actorName: "Rookery", summary: excerpt });
+            emailTo(authorHandle, "We removed one of your posts", #"This post broke the rules: {excerpt}", #"removed-{authorHandle}-{Random.string(12, '0123456789abcdef')}");
+        }
+    }
+
+    subscribe PeopleEvents {
+        on PersonFollowed(String followerHandle, String followerName, String followedHandle) {
+            noticeDb.Notice.create({ kind: NoticeKind.NewFollower, handle: followedHandle, actorName: followerName, summary: #"@{followerHandle} follows you now" });
+            pushTo(followedHandle, "A new follower", #"{followerName} follows you now", #"follow-{followerHandle}-{followedHandle}");
+            emailTo(followedHandle, "You have a new follower", #"{followerName} (@{followerHandle}) follows you on Rookery.", #"follow-{followerHandle}-{followedHandle}");
+        }
+    }
+
+    // What someone signed in reads about themselves.
+    rest_api NoticeAPI : basePath('/api/v1/notices'), rdbms(noticeDb) {
+        @path('/mine')
+        get mine() : auth(required, providers: [identity]) -> Array<Notice> {
+            return Notice.where(handle: myHandle()).orderBy(createdAt: desc).limit(50).all();
+        }
+
+        @path('/unread')
+        get unread() : auth(required, providers: [identity]) -> UnreadCount {
+            return UnreadCount { unread: Notice.where(handle: myHandle(), isRead: false).count() };
+        }
+
+        @path('/read/:id')
+        post markRead(UUID id) : auth(required, providers: [identity]) -> Notice {
+            let Notice? notice = Notice.where(id: id, handle: myHandle()).first();
+            if (notice == null) {
+                throw NoSuchNoticeError();
+            }
+            notice.isRead = true;
+            notice.save();
+            return notice;
+        }
+
+        @path('/read-all')
+        put markAllRead() : auth(required, providers: [identity]) -> UnreadCount {
+            let Array<Notice> waiting = Notice.where(handle: myHandle(), isRead: false).limit(500).all();
+            foreach notice in waiting {
+                notice.isRead = true;
+                notice.save();
+            }
+            return UnreadCount { unread: 0 };
+        }
+
+        @path('/preferences')
+        get preferences() : auth(required, providers: [identity]) -> PreferenceView {
+            let Preference? choice = Preference.where(handle: myHandle()).first();
+            if (choice == null) {
+                return PreferenceView { pushOn: true, emailOn: true };
+            }
+            return PreferenceView { pushOn: choice.pushOn, emailOn: choice.emailOn };
+        }
+
+        @path('/preferences/choose')
+        post choosePreferences(PreferenceChoice request) : auth(required, providers: [identity]) -> PreferenceView {
+            let String handle = myHandle();
+            let Preference? choice = Preference.where(handle: handle).first();
+            if (choice == null) {
+                Preference.create({ handle: handle, pushOn: request.pushOn, emailOn: request.emailOn });
+            } else {
+                choice.pushOn = request.pushOn;
+                choice.emailOn = request.emailOn;
+                choice.save();
+            }
+            return PreferenceView { pushOn: request.pushOn, emailOn: request.emailOn };
+        }
+
+        // What a phone calls once it has a token from its platform.
+        @path('/devices')
+        post registerDevice(NewDevice request) : auth(required, providers: [identity]) -> UnreadCount {
+            let String handle = myHandle();
+            if (Device.where(token: request.token).first() == null) {
+                Device.create({ handle: handle, token: request.token });
+            }
+            return UnreadCount { unread: Notice.where(handle: handle, isRead: false).count() };
+        }
+    }
+
+    jobs {
+        // Monday morning: one email to anyone with something unread. The key makes a second run send nothing.
+        job SendWeeklyDigest {
+            let Array<noticeDb.Notice> unread = noticeDb.Notice.where(isRead: false).limit(1000).all();
+            let String week = DateTime.now().format('YYYYMMDD');
+            foreach notice in unread {
+                let String digestKey = #"digest-{notice.handle}-{week}";
+                if (noticeDb.DigestSent.where(digestKey: digestKey).first() == null) {
+                    noticeDb.DigestSent.create({ digestKey: digestKey });
+                    emailTo(notice.handle, "What you missed on Rookery", "You have notifications waiting for you.", digestKey);
+                }
+            }
+        }
+    }
+
+    test("a new notice is unread") {
+        let noticeDb.Notice created = noticeDb.Notice.create({
+            kind: NoticeKind.Liked,
+            handle: "tester",
+            actorName: "Someone",
+            summary: "A note."
+        });
+        assert created.isRead == false;
+    }
+}

@@ -1,0 +1,131 @@
+// Implements the CarrierProvider contract in the stack, so nothing here needs an account with a carrier:
+// no parcel moves. A consignment goes through its steps by the clock, in minutes, so the Dispatch app shows
+// a partner delivery finish while you watch.
+service logistics.CarrierMock('config/mocks/carrier-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the partner carrier') {
+
+    discovery { }
+
+    exceptions {
+        NoSuchConsignmentError : status(404), message("There is no consignment with that reference");
+    }
+
+    enum ConsignmentStatus {
+        Accepted : tone(info),
+        InTransit : tone(info),
+        Delivered : tone(success)
+    }
+
+    const MINUTES_TO_TRANSIT = 1;
+    const MINUTES_TO_DELIVERY = 4;
+
+    rdbms carrierDb {
+
+        /// A parcel the partner took.
+        entity PartnerConsignment extends BaseEntity {
+            String(20) trackingNumber : filterable;
+            String(200) recipientName;
+            String(100) city : filterable;
+            Float weightKg;
+            ConsignmentStatus status : filterable = ConsignmentStatus.Accepted;
+            String(40) reference : unique;
+            String(120) idempotencyKey : unique;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct CreateConsignmentRequest {
+        String(20) trackingNumber;
+        String(200) recipientName;
+        String(300) address;
+        String(100) city;
+        Float weightKg;
+        String(120) idempotencyKey;
+    }
+
+    struct Consignment {
+        String(40) reference;
+        ConsignmentStatus status;
+        String(200)? signedBy;
+    }
+
+    fn answerOf(carrierDb.PartnerConsignment row) -> Consignment {
+        return Consignment {
+            reference: row.reference,
+            status: row.status,
+            signedBy: row.status == ConsignmentStatus.Delivered ? row.recipientName : null
+        };
+    }
+
+    // The vendor's public API: exactly the CarrierProvider contract.
+    rest_api CarrierAPI : basePath('/v1'), rdbms(carrierDb) {
+        @path('/consignments')
+        post createConsignment(CreateConsignmentRequest request) : auth(required, providers: [carrierKeys]) -> Consignment {
+            let PartnerConsignment? existing = PartnerConsignment.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            let PartnerConsignment created = PartnerConsignment.create({
+                trackingNumber: request.trackingNumber,
+                recipientName: request.recipientName,
+                city: request.city,
+                weightKg: request.weightKg,
+                reference: #"cons_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey
+            });
+            return answerOf(created);
+        }
+
+        @path('/consignments/:reference')
+        get consignment(String reference) : auth(required, providers: [carrierKeys]) -> Consignment {
+            let PartnerConsignment? row = PartnerConsignment.where(reference: reference).first();
+            if (row == null) {
+                throw NoSuchConsignmentError();
+            }
+            return answerOf(row);
+        }
+    }
+
+    // What the Dispatch app shows: everything the partner took.
+    rest_api CarrierDeskAPI : basePath('/api/v1/desk/carrier'), rdbms(carrierDb) {
+        resource PartnerConsignment : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    jobs {
+        job AdvanceConsignments {
+            let DateTime transitBefore = DateTime.now().addMinutes(-MINUTES_TO_TRANSIT);
+            let DateTime deliveredBefore = DateTime.now().addMinutes(-MINUTES_TO_DELIVERY);
+            let Array<carrierDb.PartnerConsignment> open = carrierDb.PartnerConsignment
+                .whereIn(status: [ConsignmentStatus.Accepted, ConsignmentStatus.InTransit])
+                .where(createdAt: lt(transitBefore))
+                .limit(200)
+                .all();
+            foreach row in open {
+                row.status = row.createdAt < deliveredBefore ? ConsignmentStatus.Delivered : ConsignmentStatus.InTransit;
+                row.save();
+            }
+        }
+    }
+
+    test("a consignment starts accepted") {
+        let carrierDb.PartnerConsignment row = carrierDb.PartnerConsignment.create({
+            trackingNumber: "QL-TEST000001",
+            recipientName: "Theo Marsh",
+            city: "Eugene",
+            weightKg: 3.0,
+            reference: "cons_0001",
+            idempotencyKey: "consign-1"
+        });
+        assert row.status == ConsignmentStatus.Accepted;
+        assert answerOf(row).signedBy == null;
+    }
+}

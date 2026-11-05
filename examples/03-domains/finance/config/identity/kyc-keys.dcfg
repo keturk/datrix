@@ -1,0 +1,34 @@
+// API keys of the identity check vendor. mode = self: KycMock issues and verifies them itself, as a
+// real vendor would, and only the SHA-256 hash of a key is stored.
+config identity kycKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "workforce";
+    apiKey {
+      header = "X-Kyc-Api-Key";
+      store = "finance.KycMock";
+      storeBlock = "kycDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+      }
+      lastUsedResolutionSeconds = 60;
+      serviceProviders = ["machine"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

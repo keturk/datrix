@@ -1,0 +1,28 @@
+// Where the SignatureProvider contract is served. Every profile here points at the mock in the same stack;
+// pointing one at a real vendor changes only this file.
+config extern realestate.SignatureProvider {
+  base {
+    deployment = "external";
+    url = "http://realestate-signature-mock:8091";
+    auth {
+      type = "apiKey";
+      header = "X-Signature-Api-Key";
+      // A logical handle; the consuming service declares it and its value is never in a file here.
+      secret = "signature_provider_api_key";
+    }
+    timeout = "10s";
+    retry {
+      maxAttempts = 3;
+      backoff = "exponential";
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

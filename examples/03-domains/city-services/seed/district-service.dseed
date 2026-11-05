@@ -1,0 +1,22 @@
+// Port Alder has three districts side by side, west to east. Port Alder is invented, and its
+// boundaries are simple rectangles so the map reads at a glance. The job ConvertBoundaries turns
+// this text into PostGIS polygons within a minute of startup.
+seed service cityservices.DistrictService {
+  rdbms districtDb {
+    baseline {
+      District table on(code) {
+        id,                     name,            code,   population, description,                                 boundaryGeoJson;
+        @uuid("district-harbor"), "Harbor",      "HBR",  18400,      "The working waterfront and the old docks.", '{"type":"Polygon","coordinates":[[[-124.10,44.60],[-124.06,44.60],[-124.06,44.66],[-124.10,44.66],[-124.10,44.60]]]}';
+        @uuid("district-oldtown"), "Old Town",   "OLD",  26150,      "Shops, the library and City Hall.",         '{"type":"Polygon","coordinates":[[[-124.06,44.60],[-124.03,44.60],[-124.03,44.66],[-124.06,44.66],[-124.06,44.60]]]}';
+        @uuid("district-heights"), "Alder Heights", "ALH", 31900,    "Houses and schools on the hill.",           '{"type":"Polygon","coordinates":[[[-124.03,44.60],[-124.00,44.60],[-124.00,44.66],[-124.03,44.66],[-124.03,44.60]]]}';
+      }
+      ZoningArea table on(zoneCode) {
+        id,                   name,                zoneCode, type,        districtId,                 boundaryGeoJson;
+        @uuid("zone-docks"),  "Harbor Industrial", "HBR-I",  Industrial,  @uuid("district-harbor"),   '{"type":"Polygon","coordinates":[[[-124.10,44.60],[-124.06,44.60],[-124.06,44.63],[-124.10,44.63],[-124.10,44.60]]]}';
+        @uuid("zone-front"),  "Harbor Mixed Use",  "HBR-M",  MixedUse,    @uuid("district-harbor"),   '{"type":"Polygon","coordinates":[[[-124.10,44.63],[-124.06,44.63],[-124.06,44.66],[-124.10,44.66],[-124.10,44.63]]]}';
+        @uuid("zone-center"), "Old Town Center",   "OLD-C",  Commercial,  @uuid("district-oldtown"),  '{"type":"Polygon","coordinates":[[[-124.06,44.60],[-124.03,44.60],[-124.03,44.66],[-124.06,44.66],[-124.06,44.60]]]}';
+        @uuid("zone-hill"),   "Alder Hill",        "ALH-R",  Residential, @uuid("district-heights"),  '{"type":"Polygon","coordinates":[[[-124.03,44.60],[-124.00,44.60],[-124.00,44.66],[-124.03,44.66],[-124.03,44.60]]]}';
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+// A small audience, so the first published article has somewhere to go. The second address is
+// on the mail mock's bounce domain, so the Provider Desk can show a bounced delivery.
+seed service blog.NewsletterService {
+  rdbms newsletterDb {
+    baseline {
+      Subscriber table on(email) {
+        id,                   email,                        status,  confirmToken,                       unsubscribeToken,                   confirmedAt;
+        @uuid("sub-ana"),     "ana@example.com",            Active,  "seed-confirm-ana-not-a-secret",    "seed-leave-ana-not-a-secret",      @datetime("-30d 10:00");
+        @uuid("sub-bounce"),  "gone@bounce.example.com",    Active,  "seed-confirm-gone-not-a-secret",   "seed-leave-gone-not-a-secret",     @datetime("-20d 10:00");
+        @uuid("sub-waiting"), "new.reader@example.com",     Pending, "seed-confirm-new-not-a-secret",    "seed-leave-new-not-a-secret",      null;
+      }
+    }
+  }
+}

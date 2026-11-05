@@ -1,0 +1,111 @@
+// Implements the CheckProvider contract in the stack. An operator plays the vendor from the Console,
+// settling a check by hand, and HR finds out the way it would from a real vendor: by asking.
+service hr.CheckMock('config/mocks/check-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the background check vendor') {
+
+    discovery { }
+
+    exceptions {
+        NoSuchCheckError : status(404), message("There is no check with that id");
+    }
+
+    enum CheckOutcome {
+        InProgress : tone(warning),
+        Clear : tone(success),
+        Flagged : tone(danger)
+    }
+
+    rdbms checkDb {
+
+        /// A check the vendor is running.
+        entity VendorCheck extends BaseEntity {
+            String(40) checkId : unique;
+            String(120) idempotencyKey : unique;
+            String(200) candidateName : filterable;
+            Email candidateEmail;
+            CheckOutcome outcome : filterable = CheckOutcome.InProgress;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct StartCheckRequest {
+        String(200) candidateName;
+        Email candidateEmail;
+        String(120) idempotencyKey;
+    }
+
+    struct BackgroundCheck {
+        String(40) id;
+        CheckOutcome outcome;
+    }
+
+    fn answerOf(checkDb.VendorCheck check) -> BackgroundCheck {
+        return BackgroundCheck { id: check.checkId, outcome: check.outcome };
+    }
+
+    // The vendor's public API: exactly the CheckProvider contract.
+    rest_api CheckAPI : basePath('/v1'), rdbms(checkDb) {
+        @path('/checks')
+        post startCheck(StartCheckRequest request) : auth(required, providers: [checkKeys]) -> BackgroundCheck {
+            let VendorCheck? existing = VendorCheck.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            return answerOf(VendorCheck.create({
+                checkId: #"chk_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                candidateName: request.candidateName,
+                candidateEmail: request.candidateEmail
+            }));
+        }
+
+        @path('/checks/:id')
+        get checkById(String id) : auth(required, providers: [checkKeys]) -> BackgroundCheck {
+            let VendorCheck? check = VendorCheck.where(checkId: id).first();
+            if (check == null) {
+                throw NoSuchCheckError();
+            }
+            return answerOf(check);
+        }
+    }
+
+    // What the operator pages in the Console show, and the decision the vendor's people make.
+    rest_api CheckDeskAPI : basePath('/api/v1/desk/checks'), rdbms(checkDb) {
+        resource VendorCheck : only(list), auth(required, providers: [identity], roles: [operator]);
+
+        @path('/:id/clear')
+        post clear(UUID id) : auth(required, providers: [identity], roles: [operator]) -> VendorCheck {
+            let VendorCheck check = VendorCheck.findOrFail(id);
+            check.outcome = CheckOutcome.Clear;
+            check.save();
+            return check;
+        }
+
+        @path('/:id/flag')
+        post flag(UUID id) : auth(required, providers: [identity], roles: [operator]) -> VendorCheck {
+            let VendorCheck check = VendorCheck.findOrFail(id);
+            check.outcome = CheckOutcome.Flagged;
+            check.save();
+            return check;
+        }
+    }
+
+    test("a new check is in progress") {
+        let VendorCheck created = checkDb.VendorCheck.create({
+            checkId: "chk_0001",
+            idempotencyKey: "check-1",
+            candidateName: "Ana Ferreira",
+            candidateEmail: "ana@example.com"
+        });
+        assert created.outcome == CheckOutcome.InProgress;
+    }
+}

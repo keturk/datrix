@@ -1,0 +1,12 @@
+// A viewing waiting for Dana, and one she has already confirmed.
+seed service realestate.ViewingService {
+  rdbms viewingDb {
+    baseline {
+      Viewing table on(id) {
+        id,                 listingId,          listingTitle,           buyerName,    buyerEmail,         agentName,       agentEmail,                     startsAt,               endsAt,                 status,    note;
+        @uuid("view-theo"), @uuid("home-rose"), "Rose Street bungalow", "Theo Marsh", "theo@example.com", "Dana Whitlock", "dana@cobblestone.example.com", @datetime("+2d 10:00"), @datetime("+2d 10:30"), Requested, "Could we see the garden too?";
+        @uuid("view-mara"), @uuid("home-loft"), "Loft over the old mill", "Mara Oyelaran", "mara@example.com", "Dana Whitlock", "dana@cobblestone.example.com", @datetime("+1d 15:00"), @datetime("+1d 15:30"), Confirmed, null;
+      }
+    }
+  }
+}

@@ -1,0 +1,163 @@
+// The newsletter. A reader subscribes, confirms by email, and then gets one message per new
+// article. A send that fails stays Pending and the job tries it again, and the provider's
+// idempotency key means a retry never sends twice.
+service blog.NewsletterService('config/newsletter-service.dcfg') : version('1.0.0'), description('Newsletter subscriptions and delivery') {
+
+    discovery { }
+
+    uses MailProvider;
+
+    enum SubscriberStatus {
+        Pending : tone(warning),
+        Active : tone(success),
+        Unsubscribed : tone(neutral)
+    }
+
+    enum DeliveryStatus {
+        Pending : tone(warning),
+        Sent : tone(success),
+        Failed : tone(danger)
+    }
+
+    rdbms newsletterDb {
+
+        entity Subscriber extends BaseEntity {
+            Email email : unique, filterable;
+            SubscriberStatus status : filterable = SubscriberStatus.Pending;
+            /// Proves the person owns the address; never in an answer.
+            String(64) confirmToken : unique, hidden;
+            /// Lets a message's link end the subscription with no sign-in; never in an answer.
+            String(64) unsubscribeToken : unique, hidden;
+            DateTime? confirmedAt;
+        }
+
+        /// One article to one subscriber. The unique pair is what makes delivery safe to retry.
+        entity Delivery extends BaseEntity {
+            UUID subscriberId : index;
+            UUID postId : index;
+            String(200) subject;
+            Text body;
+            DeliveryStatus status : filterable = DeliveryStatus.Pending;
+            String(40)? providerMessageId;
+            Int attempts = 0;
+
+            index(subscriberId, postId) : unique;
+        }
+    }
+
+    struct SubscribeRequest {
+        Email email;
+    }
+
+    struct TokenRequest {
+        String(64) token;
+    }
+
+    /// The same answer whether the address is new or known, so nobody can probe who subscribes.
+    struct SubscribeResponse {
+        Boolean accepted;
+    }
+
+    fn send(String idempotencyKey, Email to, String subject, String body) -> String {
+        let Mail mail = MailProvider.MailAPI.post.sendMail(SendMailRequest {
+            to: to,
+            subject: subject,
+            body: body,
+            idempotencyKey: idempotencyKey
+        });
+        return mail.id;
+    }
+
+    fn sendDelivery(newsletterDb.Delivery delivery) {
+        let newsletterDb.Subscriber subscriber = newsletterDb.Subscriber.findOrFail(delivery.subscriberId);
+        delivery.attempts = delivery.attempts + 1;
+        try {
+            delivery.providerMessageId = send(#"article-{delivery.postId}-{delivery.subscriberId}", subscriber.email, delivery.subject, #"{delivery.body}
+
+To stop these messages, use this code on the unsubscribe page: {subscriber.unsubscribeToken}");
+            delivery.status = DeliveryStatus.Sent;
+        } catch (Exception e) {
+            delivery.status = delivery.attempts >= MAX_ATTEMPTS ? DeliveryStatus.Failed : DeliveryStatus.Pending;
+            Log.warn("Newsletter delivery failed", { deliveryId: delivery.id, attempts: delivery.attempts });
+        }
+        delivery.save();
+    }
+
+    const MAX_ATTEMPTS = 5;
+
+    subscribe ContentEvents {
+        // Every confirmed subscriber gets the new article; the job sends what this queues.
+        on PostPublished(UUID postId, String title, String excerpt, String authorName) {
+            foreach subscriber in newsletterDb.Subscriber.where(status: SubscriberStatus.Active).all() {
+                newsletterDb.Delivery.create({
+                    subscriberId: subscriber.id,
+                    postId: postId,
+                    subject: #"New on Fieldnotes: {title}",
+                    body: #"{authorName} wrote: {excerpt}"
+                });
+            }
+        }
+    }
+
+    jobs {
+        job SendPendingDeliveries {
+            foreach delivery in newsletterDb.Delivery.where(status: DeliveryStatus.Pending).limit(100).all() {
+                sendDelivery(delivery);
+            }
+        }
+    }
+
+    rest_api NewsletterAPI : basePath('/api/v1/newsletter'), rdbms(newsletterDb) {
+        @path('/subscribe')
+        post subscribe(SubscribeRequest request) : auth(public) -> SubscribeResponse {
+            let Subscriber? existing = Subscriber.where(email: request.email).first();
+            if (existing == null) {
+                let Subscriber created = Subscriber.create({
+                    email: request.email,
+                    confirmToken: Random.string(32, '0123456789abcdef'),
+                    unsubscribeToken: Random.string(32, '0123456789abcdef')
+                });
+                send(#"confirm-{created.id}", created.email, "Confirm your Fieldnotes subscription", #"Your confirmation code is {created.confirmToken}. Enter it on the newsletter page to finish subscribing.");
+            }
+            return SubscribeResponse { accepted: true };
+        }
+
+        @path('/confirm')
+        post confirm(TokenRequest request) : auth(public) -> SubscribeResponse {
+            let Subscriber subscriber = Subscriber.where(confirmToken: request.token).firstOrFail();
+            subscriber.status = SubscriberStatus.Active;
+            subscriber.confirmedAt = DateTime.now();
+            subscriber.save();
+            return SubscribeResponse { accepted: true };
+        }
+
+        @path('/unsubscribe')
+        post unsubscribe(TokenRequest request) : auth(public) -> SubscribeResponse {
+            let Subscriber subscriber = Subscriber.where(unsubscribeToken: request.token).firstOrFail();
+            subscriber.status = SubscriberStatus.Unsubscribed;
+            subscriber.save();
+            return SubscribeResponse { accepted: true };
+        }
+    }
+
+    rest_api AudienceAPI : basePath('/api/v1/audience'), rdbms(newsletterDb) {
+        resource Subscriber : only(list), auth(required, providers: [identity], roles: [editor, admin]);
+        resource Delivery : only(list), auth(required, providers: [identity], roles: [editor, admin]);
+    }
+
+    test("a new subscriber waits for confirmation") {
+        let Subscriber subscriber = newsletterDb.Subscriber.create({
+            email: "reader@example.com",
+            confirmToken: "confirm-1",
+            unsubscribeToken: "leave-1"
+        });
+        assert subscriber.status == SubscriberStatus.Pending;
+    }
+
+    test("an article is delivered once per subscriber") {
+        let UUID subscriberId = uuid();
+        let UUID postId = uuid();
+        newsletterDb.Delivery.create({ subscriberId: subscriberId, postId: postId, subject: "One", body: "Text" });
+        assert newsletterDb.Delivery.where(subscriberId: subscriberId, postId: postId).count() == 1;
+    }
+}

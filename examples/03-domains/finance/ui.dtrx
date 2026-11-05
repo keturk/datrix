@@ -1,0 +1,45 @@
+// What the Quillon Bank apps share: the brand and the shape of a page.
+module finance.ui {
+
+    theme Brand {
+        color primary      = '#1d3a6e';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#111827';
+        color background   = '#f5f6f8';
+        color onBackground = '#111827';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#4b5563';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 8;
+        font body          = font('Inter', 15, 400);
+        font heading       = font('Inter', 24, 600);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#1f2937';
+            color onSurface    = '#e5e7eb';
+            color background   = '#111827';
+            color onBackground = '#e5e7eb';
+            color primary      = '#93c5fd';
+            color onPrimary    = '#0b1b33';
+        }
+    }
+
+    /// Figures across the top of a dashboard.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+}

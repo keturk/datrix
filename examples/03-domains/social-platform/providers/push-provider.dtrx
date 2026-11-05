@@ -1,0 +1,37 @@
+// The contract of the push notification vendor. config/providers/push-provider.dcfg says where it is served.
+extern service social.PushProvider('config/providers/push-provider.dcfg')
+    : version('1.0.0'), description('Sending a push notification to a device') {
+
+    enum PushStatus {
+        Accepted,
+        /// The device is no longer there. Stop sending to it.
+        Gone
+    }
+
+    struct SendPushRequest {
+        String(200) deviceToken;
+        String(120) title;
+        String(400) body;
+        /// The caller's key: sending again with the same key returns the first answer.
+        String(120) idempotencyKey;
+    }
+
+    struct PushReceipt {
+        String(40) id;
+        PushStatus status;
+    }
+
+    rest_api PushAPI : basePath('/v1') {
+        @path('/messages')
+        post sendPush(SendPushRequest request) -> PushReceipt {
+            ensure request.idempotencyKey != "";
+        }
+    }
+
+    errors {
+        BadToken(String message);
+    }
+
+    auth : apiKey(header: 'X-Push-Api-Key');
+    health : path('/health');
+}

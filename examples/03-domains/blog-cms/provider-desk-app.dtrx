@@ -1,0 +1,108 @@
+from blog.ui import Brand;
+
+/// The outside world, visible. Everything the application sent to a provider shows up here, because
+/// the providers are mocks in the same stack: the emails nobody really received, every moderation
+/// verdict, and the list of terms that decides them.
+app blog.ProviderDesk('config/provider-desk-app.dcfg') : version('1.0.0') {
+    uses blog.MailMock;
+    uses blog.ModerationMock;
+
+    theme extends Brand { }
+
+    layout Shell : default {
+        nav {
+            link Inbox : icon(mail), group(Msg.navMail);
+            link Checks : icon(gavel), group(Msg.navModeration);
+            link Terms : icon(block), group(Msg.navModeration);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Inbox() {
+        view {
+            pageHeader(Msg.inboxTitle, Msg.inboxSubtitle);
+            table(Messages);
+        }
+    }
+
+    table Messages : source(MailMock.MailDeskAPI.mailDb.SentMail.list), poll(15s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column status;
+        filter subject : live;
+        rowAction open : onClick(Nav.to(Message, id: row.id));
+    }
+
+    @path('/mail/:id')
+    page Message(UUID id) {
+        data { mail = MailMock.MailDeskAPI.mailDb.SentMail.get(id: id); }
+        view {
+            pageHeader(mail.subject, mail.recipient) : back(Inbox) {
+                badge(mail.status);
+            }
+            card {
+                text(mail.body) : preserveLines;
+            }
+        }
+    }
+
+    @path('/moderation')
+    page Checks() {
+        view {
+            pageHeader(Msg.checksTitle, Msg.checksSubtitle);
+            table(CheckList);
+        }
+    }
+
+    table CheckList : source(ModerationMock.ModerationDeskAPI.moderationDb.ModerationCheck.list), poll(15s) {
+        column createdAt : format(relative);
+        column content;
+        column verdict;
+        column reason;
+        filter verdict;
+    }
+
+    @path('/moderation/terms')
+    page Terms() {
+        view {
+            pageHeader(Msg.termsTitle, Msg.termsSubtitle);
+            card(Msg.addTerm) { form(AddTerm); }
+            table(TermList);
+        }
+    }
+
+    form AddTerm : submit(ModerationMock.ModerationDeskAPI.moderationDb.BlockedTerm.create) {
+        field term;
+        onSuccess(Ui.toast(Msg.termAdded, tone: success));
+    }
+
+    table TermList : source(ModerationMock.ModerationDeskAPI.moderationDb.BlockedTerm.list) {
+        column term;
+        column createdAt : format(date);
+        rowAction remove : onClick(ModerationMock.ModerationDeskAPI.moderationDb.BlockedTerm.delete(id: row.id));
+    }
+
+    test("the desk opens on the inbox") {
+        let Screen screen = render(Terms);
+        assert screen.shows(Msg.termsTitle);
+    }
+}

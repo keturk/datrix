@@ -1,0 +1,24 @@
+// The cities the mock geocoder knows, and the key the shipment service presents to it. The key itself is
+// the development default of the service's secret; the vendor stores only its SHA-256 hash. Portland and
+// the towns around it are Quayline's own area; the rest go to the partner carrier.
+seed service logistics.GeocodeMock {
+  rdbms geocodeDb {
+    baseline {
+      KnownCity table on(nameKey) {
+        id,                   nameKey,     latitude, longitude, inServiceArea;
+        @uuid("city-pdx"),    "portland",  45.515,   -122.678,  true;
+        @uuid("city-bvt"),    "beaverton", 45.487,   -122.803,  true;
+        @uuid("city-gsh"),    "gresham",   45.498,   -122.431,  true;
+        @uuid("city-hio"),    "hillsboro", 45.523,   -122.989,  true;
+        @uuid("city-tgd"),    "tigard",    45.431,   -122.771,  true;
+        @uuid("city-eug"),    "eugene",    44.052,   -123.087,  false;
+        @uuid("city-bend"),   "bend",      44.058,   -121.315,  false;
+        @uuid("city-sea"),    "seattle",   47.606,   -122.332,  false;
+      }
+      ApiKey table on(keyHash) {
+        id,                   keyHash,                                                            ownerId,                 scopes,             isActive;
+        @uuid("geocode-key"), "7cf8d32a2654d54a3d3b9d0f3a2864c8256e50ec35a985563ef4c014312da07e", @uuid("owner-quayline"), ["geocode:read"],   true;
+      }
+    }
+  }
+}

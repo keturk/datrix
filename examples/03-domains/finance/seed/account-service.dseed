@@ -1,0 +1,21 @@
+// Two customers whose accounts match seed/transaction-service.dseed, and one waiting on an officer.
+// Every person and address here is invented, on the reserved example.com domain. A seeded customer
+// has no sign-in: registering in the Banking app creates your own.
+seed service finance.AccountService {
+  rdbms accountDb {
+    baseline {
+      Customer table on(userId) {
+        id,                    userId,               fullName,       email,                dateOfBirth,   documentLast4, kycStatus, kycReason;
+        @uuid("customer-mina"), @uuid("user-mina"),  "Mina Okafor",  "mina@example.com",   "1990-04-12",  "1234",        Clear,     null;
+        @uuid("customer-ben"),  @uuid("user-ben"),   "Ben Carter",   "ben@example.com",    "1984-11-02",  "5678",        Clear,     null;
+        @uuid("customer-lea"),  @uuid("user-lea"),   "Lea Novak",    "lea@example.com",    "1978-07-21",  "9999",        Pending,   "A person needs to look at this document";
+      }
+      Account table on(accountNumber) {
+        id,                     accountNumber,    customerName,  type,     status, customerId;
+        @uuid("account-mina"),  "QB1000000001",   "Mina Okafor", Checking, Active, @uuid("customer-mina");
+        @uuid("account-mina2"), "QB1000000002",   "Mina Okafor", Savings,  Active, @uuid("customer-mina");
+        @uuid("account-ben"),   "QB1000000003",   "Ben Carter",  Checking, Frozen, @uuid("customer-ben");
+      }
+    }
+  }
+}

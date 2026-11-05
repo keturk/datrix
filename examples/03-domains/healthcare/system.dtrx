@@ -1,7 +1,19 @@
 include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/insurer-provider.dtrx';
+include 'providers/pharmacy-provider.dtrx';
+include 'providers/sms-provider.dtrx';
 include 'patient-service.dtrx';
 include 'appointment-service.dtrx';
-include 'medical-record-service.dtrx';
+include 'record-service.dtrx';
+include 'mocks/insurer-mock.dtrx';
+include 'mocks/pharmacy-mock.dtrx';
+include 'mocks/sms-mock.dtrx';
+include 'portal-app.dtrx';
+include 'clinic-app.dtrx';
 
-system healthcare('config/system.dcfg') : version('1.0.0') {
+/// Ferncrest Clinic: a patient books a visit, the clinic runs the day from a board, a clinician signs
+/// the note and sends the prescription, and the insurer settles the claim. The insurer, the pharmacy
+/// and the text message vendor are outside the clinic, played here by mocks in the same stack.
+system healthcare.System('config/system.dcfg') : version('2.0.0') {
 }

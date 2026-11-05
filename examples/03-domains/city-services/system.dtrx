@@ -1,8 +1,18 @@
 include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/sms-provider.dtrx';
+include 'providers/geocoder-provider.dtrx';
 include 'district-service.dtrx';
 include 'facility-service.dtrx';
 include 'request-service.dtrx';
+include 'mocks/sms-mock.dtrx';
+include 'mocks/geocoder-mock.dtrx';
+include 'citizen-app.dtrx';
+include 'operations-app.dtrx';
 
-system cityservices('config/system.dcfg') : version('1.0.0') {
+/// Port Alder 311: residents report a problem from a street address, and the city routes it to the
+/// district that address falls in, using PostGIS for the spatial answers. Sending texts and looking
+/// up addresses belong to outside vendors, played here by mocks in the same stack.
+system cityservices.System('config/system.dcfg') : version('2.0.0') {
     use extension postgis;
 }

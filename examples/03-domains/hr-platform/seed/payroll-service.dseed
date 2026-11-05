@@ -1,0 +1,26 @@
+// What the same six invented people are paid, and last month's paid run. Noor's account ends in 0000,
+// so the mock bank rejects their payout and a run shows how a failure looks.
+seed service hr.PayrollService {
+  rdbms payrollDb {
+    baseline {
+      PayProfile table on(employeeId) {
+        id,                 employeeName,    department,  workEmail,                 annualSalary, accountNumber,      isActive, employeeId;
+        @uuid("pay-ana"),   "Ana Ferreira",  Engineering, "ana@alderbrook.example",  120000.00,    "GB29NWBK60161331", true,     @uuid("emp-ana");
+        @uuid("pay-ben"),   "Ben Oyelaran",  Design,      "ben@alderbrook.example",  84000.00,     "GB29NWBK60161332", true,     @uuid("emp-ben");
+        @uuid("pay-lea"),   "Lea Marchetti", Sales,       "lea@alderbrook.example",  78000.00,     "GB29NWBK60161333", true,     @uuid("emp-lea");
+        @uuid("pay-tom"),   "Tom Abara",     People,      "tom@alderbrook.example",  72000.00,     "GB29NWBK60161334", true,     @uuid("emp-tom");
+        @uuid("pay-rae"),   "Rae Lindqvist", Finance,     "rae@alderbrook.example",  96000.00,     "GB29NWBK60161335", true,     @uuid("emp-rae");
+        @uuid("pay-noor"),  "Noor Haddad",   Operations,  "noor@alderbrook.example", 60000.00,     "GB29NWBK60160000", true,     @uuid("emp-noor");
+      }
+      PayRun table on(period) {
+        id,               period,    status, people, totalGross, totalNet, preparedByName, approvedByName,  paidAt;
+        @uuid("run-old"), "2020-01", Paid,   2,      17000.00,   13260.00, "Tom Abara",    "Rae Lindqvist", @datetime("-30d 09:00");
+      }
+      Payslip table on(id) {
+        id,               period,    employeeName,    gross,    tax,     net,     status, workEmail,                employeeId,       payRunId;
+        @uuid("slip-a"),  "2020-01", "Ana Ferreira",  10000.00, 2200.00, 7800.00, Paid,   "ana@alderbrook.example", @uuid("emp-ana"), @uuid("run-old");
+        @uuid("slip-b"),  "2020-01", "Ben Oyelaran",  7000.00,  1540.00, 5460.00, Paid,   "ben@alderbrook.example", @uuid("emp-ben"), @uuid("run-old");
+      }
+    }
+  }
+}

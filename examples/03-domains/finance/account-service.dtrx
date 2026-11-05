@@ -1,577 +1,249 @@
+from finance.common import AccountType, AccountStatus, generateAccountNumber;
 
-from finance.common import AuditedEntity, Currency, generateReference;
+// Customers and their accounts, and the application's identity block. A customer's own routes read
+// the signed-in user's rows and nothing else, and staff routes need a staff role. The identity
+// document goes to the vendor and is never stored: only its last four characters stay here.
+service finance.AccountService('config/account-service.dcfg') : version('2.0.0'), description('Customers and accounts') {
 
-service finance.AccountService('config/account-service.dcfg') : version('1.0.0'), description('account and customer management service') {
     discovery { }
 
+    uses KycProvider;
+
     identity {
+        // Customers register themselves; staff roles are granted, never self-assigned. Sign-in
+        // belongs to the hosted identity provider, so nothing here handles a password.
         provider identity config('config/identity/identity.dcfg') {
-            group "admins" as admin;
+            Email email;
+            String? fullName;
+
+            group "teller" as teller;
+            group "officer" as officer;
+            group "operator" as operator;
         }
-        provider platform config('config/identity/platform.dcfg') {
+
+        // Service-to-service callers.
+        provider machine config('config/identity/machine.dcfg') {
+        }
+
+        // API keys the mocks issue, the way a real vendor authenticates its API callers.
+        provider bankKeys config('config/identity/bank-keys.dcfg') {
+        }
+
+        provider kycKeys config('config/identity/kyc-keys.dcfg') {
+        }
+
+        provider sanctionsKeys config('config/identity/sanctions-keys.dcfg') {
         }
     }
 
-    enum AccountType {
-        Checking : value('checking'),
-        Savings : value('savings'),
-        Investment : value('investment'),
-        CreditCard : value('credit_card')
-    }
-
-    enum AccountStatus {
-        Active : value('active'),
-        Frozen : value('frozen'),
-        Closed : value('closed'),
-        PendingApproval : value('pending_approval')
+    exceptions {
+        NotRegisteredError : status(409), message("Finish your identity check first");
+        AlreadyRegisteredError : status(409), message("You have already registered");
+        KycNotClearError : status(403), message("An account can be opened once your identity check is clear");
+        KycUnavailableError : status(503), message("The identity check is not available right now. Please try again shortly");
     }
 
     enum KycStatus {
-        Pending : value('pending'),
-        Verified : value('verified'),
-        Rejected : value('rejected'),
-        Expired : value('expired')
-    }
-
-    struct CreateAccountRequest {
-        UUID customerId;
-        AccountType type;
-        Currency currency;
-    }
-
-    struct FreezeAccountRequest {
-        String reason;
-    }
-
-    struct UpdateKycRequest {
-        KycStatus kycStatus;
-    }
-
-    struct AccountBalanceResponse {
-        UUID accountId;
-        String accountNumber;
-        Money balance;
-        Currency currency;
-        AccountStatus status;
+        Pending : tone(warning),
+        Clear : tone(success),
+        Declined : tone(danger)
     }
 
     rdbms accountDb {
-        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
-        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
-        // Customer entity stores personal information with field-level encryption
+        /// A person the bank knows. One signed-in user has at most one.
         entity Customer extends BaseEntity {
-            String(100) firstName : trim;
-            String(100) lastName : trim;
-            // Encrypted at rest, sensitive in logs/API responses
-            Email email : unique, encrypted;
-            String(11) ssn : encrypted, sensitive;
-            Phone? phone : sensitive;
-            DateTime dateOfBirth : sensitive;
-            KycStatus kycStatus = KycStatus.Pending;
-            String(500)? address;
-            Password? passwordHash;
-            String? emailVerificationToken;
+            UUID userId : unique;
+            String(200) fullName : trim, filterable, sortable;
+            Email email;
+            Date dateOfBirth : hidden;
+            String(4) documentLast4;
+            KycStatus kycStatus : filterable = KycStatus.Pending;
+            String(40)? kycCheckId;
+            String(200)? kycReason;
 
-            // Computed field for display name
-            String fullName := #"{firstName} {lastName}";
-
-            index(email);
-            index(kycStatus);
-
-            validate {
-                if (firstName.trim().isEmpty())
-                ValidationError("First name cannot be empty");
-                if (lastName.trim().isEmpty())
-                ValidationError("Last name cannot be empty");
-            }
-
-            afterCreate {
-                emailVerificationToken = Random.string(32);
-                Log.info("Customer created", { customerId: id, kycStatus: kycStatus });
-            }
-
-            afterUpdate {
-                if (isChanged(kycStatus)) {
-                    Log.info("KYC status changed", { customerId: id, oldStatus: oldValue(kycStatus), newStatus: kycStatus });
-                }
-
-            }
-
+            hasMany Account;
         }
 
-        // Account entity with financial constraints
-        entity Account extends AuditedEntity : audit {
-            String(20) accountNumber : unique;
-            AccountType type;
-            AccountStatus status = AccountStatus.PendingApproval;
-            Money balance;
-            Currency currency;
-            DateTime openedAt = DateTime.now();
-            DateTime? closedAt;
-            String(500)? closureReason;
-
-            // Computed fields
-            Boolean isActive := status == AccountStatus.Active;
-            Boolean isFrozen := status == AccountStatus.Frozen;
+        entity Account extends BaseEntity {
+            String(20) accountNumber : unique, filterable;
+            /// Beside the key, so a list of accounts reads as people.
+            String(200) customerName : filterable;
+            AccountType type : filterable;
+            AccountStatus status : filterable = AccountStatus.Active;
 
             belongsTo Customer : index;
-
-            index(customerId, status);
-            index(accountNumber);
-            index(status, type);
-
-            validate {
-                if (type == AccountType.Savings && balance.amount < 0)
-                ValidationError("Savings account balance cannot be negative");
-                if (accountNumber.trim().isEmpty())
-                ValidationError("Account number cannot be empty");
-            }
-
-            afterCreate {
-                dispatch AccountOpened(id, accountNumber, customerId, type, currency);
-            }
 
             afterUpdate {
                 if (isChanged(status)) {
                     dispatch AccountStatusChanged(id, accountNumber, oldValue(status), status);
-
-                    if (status == AccountStatus.Frozen) {
-                        Log.warn("Account frozen", { accountId: id, accountNumber: accountNumber });
-                    } else if (status == AccountStatus.Closed) {
-                        closedAt = DateTime.now();
-                        Log.info("Account closed", { accountId: id, accountNumber: accountNumber });
-                    }
-
                 }
-
             }
-
-            fn activate() {
-                if (status != AccountStatus.PendingApproval) {
-                    throw ValidationException("Only pending accounts can be activated");
-                }
-
-                status = AccountStatus.Active;
-                this.save();
-            }
-
-            fn freeze(String reason) {
-                if (status != AccountStatus.Active) {
-                    throw ValidationException("Only active accounts can be frozen");
-                }
-
-                status = AccountStatus.Frozen;
-                auditNote = reason;
-                this.save();
-            }
-
-            fn unfreeze() {
-                if (status != AccountStatus.Frozen) {
-                    throw ValidationException("Only frozen accounts can be unfrozen");
-                }
-
-                status = AccountStatus.Active;
-                auditNote = "Account unfrozen";
-                this.save();
-            }
-
-            fn close(String reason) {
-                if (status == AccountStatus.Closed) {
-                    throw ValidationException("Account is already closed");
-                }
-
-                if (balance.amount != 0) {
-                    throw ValidationException(#"Cannot close account with non-zero balance: {balance.amount}");
-                }
-
-                status = AccountStatus.Closed;
-                closureReason = reason;
-                this.save();
-            }
-
         }
-
     }
 
     pubsub mq {
-        alert consumerLag(max) over(5m) > 1000 @severity(critical);
-
         topic AccountEvents {
-            publish AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
-                ensure accountNumber.length > 0;
-            }
+            publish AccountOpened(UUID accountId, String accountNumber, UUID ownerUserId, AccountType type);
 
             publish AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-
         }
-
     }
 
-    subscribe AccountEvents {
-        on AccountOpened(UUID accountId, String accountNumber, UUID customerId, AccountType type, Currency currency) {
-            Log.info("Account opened event received", { accountId: accountId, accountNumber: accountNumber, type: type });
-        }
-
-        on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
-            Log.info("Account status changed", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
-        }
-
+    struct RegisterRequest {
+        String(200) fullName;
+        Date dateOfBirth;
+        /// Sent to the vendor for the check, and not kept.
+        String(40) documentNumber;
     }
 
-    rest_api AccountAPI : basePath('/api/v1/accounts'), rdbms(accountDb) {
-        alert responseTime(p95) over(5m) > 500ms @severity(warning);
-        alert errorRate(ratio) over(5m) > 5% @severity(critical);
+    struct OpenAccountRequest {
+        AccountType type;
+    }
 
-        resource accountDb.Customer : auth(public), only(list, get);
-        resource accountDb.Customer : auth(required, providers: [identity], roles: [admin]), only(create, update);
+    struct Profile {
+        Boolean registered;
+        String? fullName;
+        KycStatus? kycStatus;
+        String? kycReason;
+    }
 
-        // List accounts, a page at a time
-        get(PageRequest page, AccountStatus? status) : auth(required, providers: [identity]) -> Page<accountDb.Account> {
-            if (status != null) {
-                return accountDb.Account.where(status: status).orderBy(createdAt: desc).page(page);
-            }
-            return accountDb.Account.orderBy(createdAt: desc).page(page);
-        }
+    struct ReviewRequest {
+        UUID customerId;
+        String(200) reason;
+    }
 
-        @path('/:id')
-        get(UUID id) : auth(required, providers: [identity]) -> accountDb.Account {
-            return accountDb.Account.findOrFail(id);
-        }
+    fn outcomeOf(Check check) -> KycStatus {
+        return check.outcome == CheckOutcome.Clear
+            ? KycStatus.Clear
+            : (check.outcome == CheckOutcome.Declined ? KycStatus.Declined : KycStatus.Pending);
+    }
 
-        // Create a new account for a customer
-        post(CreateAccountRequest request) : auth(required, providers: [identity]) -> accountDb.Account {
-            let Customer customer = accountDb.Customer.findOrFail(request.customerId);
-
-            if (customer.kycStatus != KycStatus.Verified) {
-                throw ValidationException("Customer KYC must be verified before opening an account");
-            }
-
-            let Account account = accountDb.Account.create({
-                accountNumber: generateReference("ACC"),
-                customerId: request.customerId,
-                type: request.type,
-                status: AccountStatus.PendingApproval,
-                balance: Money.of(0),
-                currency: request.currency,
-                openedAt: DateTime.now()
+    /// No answer from the vendor means no customer yet: nothing is kept, and they can try again.
+    fn runCheck(RegisterRequest request) -> Check {
+        try {
+            return KycProvider.KycAPI.post.createCheck(CreateCheckRequest {
+                fullName: request.fullName,
+                dateOfBirth: request.dateOfBirth,
+                documentNumber: request.documentNumber
             });
-            account.save();
-
-            return account;
+        } catch (Exception e) {
+            Log.warn("The identity check could not be reached", { fullName: "withheld" });
+            throw KycUnavailableError();
         }
+    }
 
-        // Get account balance
-        @path('/:id/balance')
-        get(UUID id) : auth(required, providers: [identity]) -> AccountBalanceResponse {
-            let Account account = accountDb.Account.findOrFail(id);
-            return {
-                accountId: account.id,
-                accountNumber: account.accountNumber,
-                balance: account.balance,
-                currency: account.currency,
-                status: account.status
+    // A signed-in customer's own record.
+    rest_api MeAPI : basePath('/api/v1/me'), rdbms(accountDb) {
+        @path('/profile')
+        get profile() : auth(required, providers: [identity]) -> Profile {
+            let Customer? customer = Customer.where(userId: Auth.userId()).first();
+            if (customer == null) {
+                return Profile { registered: false };
+            }
+            return Profile {
+                registered: true,
+                fullName: customer.fullName,
+                kycStatus: customer.kycStatus,
+                kycReason: customer.kycReason
             };
         }
 
-        // Activate a pending account
-        @path('/:id/activate')
-        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Account {
-            let Account account = accountDb.Account.findOrFail(id);
-            account.activate();
-            return account;
+        @path('/register')
+        post register(RegisterRequest request) : auth(required, providers: [identity]) -> Profile {
+            if (Customer.where(userId: Auth.userId()).first() != null) {
+                throw AlreadyRegisteredError();
+            }
+            let Check check = runCheck(request);
+            let Customer created = Customer.create({
+                userId: Auth.userId(),
+                fullName: request.fullName,
+                email: Auth.identity.email,
+                dateOfBirth: request.dateOfBirth,
+                documentLast4: request.documentNumber.substring(request.documentNumber.length - 4),
+                kycStatus: outcomeOf(check),
+                kycCheckId: check.id,
+                kycReason: check.reason
+            });
+            return Profile { registered: true, fullName: created.fullName, kycStatus: created.kycStatus, kycReason: created.kycReason };
         }
 
-        // Freeze an account
-        @path('/:id/freeze')
-        put(UUID id, FreezeAccountRequest request) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Account {
-            let Account account = accountDb.Account.findOrFail(id);
-            account.freeze(request.reason);
-            return account;
+        @path('/accounts')
+        get myAccounts() : auth(required, providers: [identity]) -> Array<Account> {
+            let Customer? customer = Customer.where(userId: Auth.userId()).first();
+            if (customer == null) {
+                return [];
+            }
+            return Account.where(customerId: customer.id).all();
         }
 
-        // Unfreeze a frozen account
-        @path('/:id/unfreeze')
-        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Account {
-            let Account account = accountDb.Account.findOrFail(id);
-            account.unfreeze();
-            return account;
+        @path('/accounts')
+        post openAccount(OpenAccountRequest request) : auth(required, providers: [identity]) -> Account {
+            let Customer? customer = Customer.where(userId: Auth.userId()).first();
+            if (customer == null) {
+                throw NotRegisteredError();
+            }
+            if (customer.kycStatus != KycStatus.Clear) {
+                throw KycNotClearError();
+            }
+            let Account created = Account.create({ accountNumber: generateAccountNumber(), customerName: customer.fullName, customerId: customer.id, type: request.type });
+            dispatch AccountOpened(created.id, created.accountNumber, customer.userId, created.type);
+            return created;
         }
+    }
 
-        // Close an account
-        @path('/:id/close')
-        put(UUID id, FreezeAccountRequest request) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Account {
-            let Account account = accountDb.Account.findOrFail(id);
-            account.close(request.reason);
-            return account;
-        }
+    // What staff work with.
+    rest_api StaffAPI : basePath('/api/v1/staff'), rdbms(accountDb) {
+        resource Customer : only(list, get), auth(required, providers: [identity], roles: [teller, officer]);
+        resource Account : only(list, get), auth(required, providers: [identity], roles: [teller, officer]);
 
-        // Update customer KYC status
-        @path('/customers/:id/kyc')
-        put(UUID id, UpdateKycRequest request) : auth(required, providers: [identity], roles: [admin]) -> accountDb.Customer {
-            let Customer customer = accountDb.Customer.findOrFail(id);
-            customer.kycStatus = request.kycStatus;
+        @path('/customers/clear')
+        post clearCustomer(ReviewRequest request) : auth(required, providers: [identity], roles: [officer]) -> Customer {
+            let Customer customer = Customer.findOrFail(request.customerId);
+            customer.kycStatus = KycStatus.Clear;
+            customer.kycReason = request.reason;
             customer.save();
             return customer;
         }
 
-        // Get accounts by customer
-        @path('/by-customer/:customerId')
-        get(UUID customerId) : auth(required, providers: [identity]) -> Array<accountDb.Account> {
-            return accountDb.Account
-            .where(customerId: customerId)
-            .orderBy(openedAt: desc)
-            .all();
+        @path('/customers/decline')
+        post declineCustomer(ReviewRequest request) : auth(required, providers: [identity], roles: [officer]) -> Customer {
+            let Customer customer = Customer.findOrFail(request.customerId);
+            customer.kycStatus = KycStatus.Declined;
+            customer.kycReason = request.reason;
+            customer.save();
+            return customer;
         }
 
-        // Internal endpoint for cross-service lookups
-        @path('/service/:id')
-        get accountByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> accountDb.Account {
-            return accountDb.Account.findOrFail(id);
+        @path('/accounts/:id/freeze')
+        post freeze(UUID id) : auth(required, providers: [identity], roles: [officer]) -> Account {
+            let Account account = Account.findOrFail(id);
+            account.status = AccountStatus.Frozen;
+            account.save();
+            return account;
         }
 
-        @path('/service/by-number/:accountNumber')
-        get accountByNumberInternal(String accountNumber) : auth(service, providers: [platform]), hidden, idempotent -> accountDb.Account {
-            return accountDb.Account.where(accountNumber: accountNumber).firstOrFail();
+        @path('/accounts/:id/unfreeze')
+        post unfreeze(UUID id) : auth(required, providers: [identity], roles: [officer]) -> Account {
+            let Account account = Account.findOrFail(id);
+            account.status = AccountStatus.Active;
+            account.save();
+            return account;
         }
-
     }
 
-    test("computed isActive is true for Active status") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "John",
-            lastName: "Doe",
-            email: "john.doe@test.com",
-            ssn: "12345678901",
-            dateOfBirth: DateTime.parse("1990-01-01"),
-            kycStatus: KycStatus.Verified
+    test("a new account starts active with a generated number") {
+        let Customer customer = accountDb.Customer.create({
+            userId: uuid(),
+            fullName: "Mina Okafor",
+            email: "mina@example.com",
+            dateOfBirth: Date.parse("1990-04-12"),
+            documentLast4: "1234"
         });
-        cust.save();
-        let Account acct = accountDb.Account.create({
-            accountNumber: "ACC-TEST-001",
-            customerId: cust.id,
-            type: AccountType.Checking,
-            status: AccountStatus.Active,
-            balance: Money.of(1000),
-            currency: Currency.USD
-        });
-        acct.save();
-        assert acct.isActive == true;
+        let Account account = accountDb.Account.create({ accountNumber: generateAccountNumber(), customerName: customer.fullName, customerId: customer.id, type: AccountType.Checking });
+        assert account.status == AccountStatus.Active;
+        assert account.accountNumber.startsWith("QB");
     }
-
-    test("validation rejects negative savings balance") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "Jane",
-            lastName: "Doe",
-            email: "jane.doe@test.com",
-            ssn: "98765432101",
-            dateOfBirth: DateTime.parse("1985-05-15"),
-            kycStatus: KycStatus.Verified
-        });
-        cust.save();
-        assert throws(
-        () => accountDb.Account.create({
-            accountNumber: "ACC-TEST-002",
-            customerId: cust.id,
-            type: AccountType.Savings,
-            status: AccountStatus.Active,
-            balance: Money.of(-100),
-            currency: Currency.USD
-        }),
-        ValidationError("Savings account balance cannot be negative")
-        );
-    }
-
-    test("afterCreate emits AccountOpened event") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "Bob",
-            lastName: "Smith",
-            email: "bob.smith@test.com",
-            ssn: "11122233344",
-            dateOfBirth: DateTime.parse("1978-09-22"),
-            kycStatus: KycStatus.Verified
-        });
-        cust.save();
-        let Account acct = accountDb.Account.create({
-            accountNumber: "ACC-TEST-003",
-            customerId: cust.id,
-            type: AccountType.Checking,
-            status: AccountStatus.PendingApproval,
-            balance: Money.of(0),
-            currency: Currency.USD
-        });
-        acct.save();
-        assert emitted(AccountOpened(acct.id, acct.accountNumber, cust.id, AccountType.Checking, Currency.USD));
-    }
-
-    test("status change emits AccountStatusChanged") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "Alice",
-            lastName: "Johnson",
-            email: "alice.j@test.com",
-            ssn: "55566677788",
-            dateOfBirth: DateTime.parse("1992-03-10"),
-            kycStatus: KycStatus.Verified
-        });
-        cust.save();
-        let Account acct = accountDb.Account.create({
-            accountNumber: "ACC-TEST-004",
-            customerId: cust.id,
-            type: AccountType.Savings,
-            status: AccountStatus.Active,
-            balance: Money.of(5000),
-            currency: Currency.USD
-        });
-        acct.save();
-        acct.status = AccountStatus.Frozen;
-        acct.save();
-        assert emitted(AccountStatusChanged(acct.id, acct.accountNumber, AccountStatus.Active, AccountStatus.Frozen));
-    }
-
-    test("computed isFrozen is true when status is Frozen") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "Carlos",
-            lastName: "Rivera",
-            email: "carlos.rivera@test.com",
-            ssn: "33344455566",
-            dateOfBirth: DateTime.parse("1988-07-20"),
-            kycStatus: KycStatus.Verified
-        });
-        cust.save();
-        let Account acct = accountDb.Account.create({
-            accountNumber: "ACC-TEST-005",
-            customerId: cust.id,
-            type: AccountType.Checking,
-            status: AccountStatus.Frozen,
-            balance: Money.of(2500),
-            currency: Currency.USD
-        });
-        acct.save();
-        assert acct.isFrozen == true;
-    }
-
-    test("activate transitions from PendingApproval to Active") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "Diana",
-            lastName: "Park",
-            email: "diana.park@test.com",
-            ssn: "44455566677",
-            dateOfBirth: DateTime.parse("1995-11-03"),
-            kycStatus: KycStatus.Verified
-        });
-        cust.save();
-        let Account acct = accountDb.Account.create({
-            accountNumber: "ACC-TEST-006",
-            customerId: cust.id,
-            type: AccountType.Checking,
-            status: AccountStatus.PendingApproval,
-            balance: Money.of(0),
-            currency: Currency.USD
-        });
-        acct.save();
-        acct.activate();
-        assert acct.status == AccountStatus.Active;
-    }
-
-    test("freeze sets status to Frozen") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "Erik",
-            lastName: "Larsen",
-            email: "erik.larsen@test.com",
-            ssn: "55566677700",
-            dateOfBirth: DateTime.parse("1982-04-18"),
-            kycStatus: KycStatus.Verified
-        });
-        cust.save();
-        let Account acct = accountDb.Account.create({
-            accountNumber: "ACC-TEST-007",
-            customerId: cust.id,
-            type: AccountType.Savings,
-            status: AccountStatus.Active,
-            balance: Money.of(3000),
-            currency: Currency.USD
-        });
-        acct.save();
-        acct.freeze("Suspicious activity detected");
-        assert acct.status == AccountStatus.Frozen;
-    }
-
-    test("unfreeze restores Frozen account to Active") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "Fatima",
-            lastName: "Hassan",
-            email: "fatima.hassan@test.com",
-            ssn: "66677788811",
-            dateOfBirth: DateTime.parse("1991-08-25"),
-            kycStatus: KycStatus.Verified
-        });
-        cust.save();
-        let Account acct = accountDb.Account.create({
-            accountNumber: "ACC-TEST-008",
-            customerId: cust.id,
-            type: AccountType.Checking,
-            status: AccountStatus.Frozen,
-            balance: Money.of(1500),
-            currency: Currency.USD
-        });
-        acct.save();
-        acct.unfreeze();
-        assert acct.status == AccountStatus.Active;
-    }
-
-    test("close requires zero balance") {
-        let Customer cust = accountDb.Customer.create({
-            firstName: "George",
-            lastName: "Chen",
-            email: "george.chen@test.com",
-            ssn: "77788899922",
-            dateOfBirth: DateTime.parse("1979-12-30"),
-            kycStatus: KycStatus.Verified
-        });
-        cust.save();
-        let Account acct = accountDb.Account.create({
-            accountNumber: "ACC-TEST-009",
-            customerId: cust.id,
-            type: AccountType.Checking,
-            status: AccountStatus.Active,
-            balance: Money.of(500),
-            currency: Currency.USD
-        });
-        acct.save();
-        assert throws(
-        () => acct.close("Customer requested closure"),
-        ValidationException("Cannot close account with non-zero balance: 500")
-        );
-    }
-
-    test("validation rejects empty first name") {
-        assert throws(
-        () => accountDb.Customer.create({
-            firstName: "",
-            lastName: "Williams",
-            email: "empty.first@test.com",
-            ssn: "88899900033",
-            dateOfBirth: DateTime.parse("1993-06-14"),
-            kycStatus: KycStatus.Pending
-        }),
-        ValidationError("First name cannot be empty")
-        );
-    }
-
-    test("validation rejects empty last name") {
-        assert throws(
-        () => accountDb.Customer.create({
-            firstName: "Hannah",
-            lastName: "",
-            email: "empty.last@test.com",
-            ssn: "99900011144",
-            dateOfBirth: DateTime.parse("1987-02-08"),
-            kycStatus: KycStatus.Pending
-        }),
-        ValidationError("Last name cannot be empty")
-        );
-    }
-
 }

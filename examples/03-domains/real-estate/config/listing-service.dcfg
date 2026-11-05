@@ -1,134 +1,28 @@
-﻿config service realestate.ListingService {
+config service realestate.ListingService {
+  import "config/templates/infrastructure.dcfg";
+
   base {
-    port = 8002;
-    flavor = "compose";
+    port = 8001;
     replicas = 1;
-    resources {
-      requests {
-        cpu = "100m";
-        memory = "256Mi";
-      }
-      limits {
-        cpu = "500m";
-        memory = "512Mi";
-      }
-    }
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
-    rdbms listingDb {
-      id = "3bd1a12a-1386-49bd-8454-06f9fb0279ff";
-      engine = "postgres";
-      flavor = "container";
-      host = "localhost";
-      port = 5432;
-      database = "listing_db";
-      poolSize = 20;
-      maxOverflow = 20;
-      ssl = false;
-      healthCheckSql = "SELECT 1";
-      dockerImage = "postgres:17-alpine";
-      volumePath = "/var/lib/postgresql/data";
-      defaultUser = "postgres";
-    }
-    pubsub mq {
-      engine = "kafka";
-      flavor = "container";
-      brokers = ["localhost:9092"];
-      partitions = 3;
-      replicationFactor = 1;
-      retention = "7d";
-      port = 9092;
-      controllerPort = 9093;
-      dockerImage = "confluentinc/cp-kafka:7.6.0";
-      volumePath = "/var/lib/kafka/data";
-    }
-    storage store {
-      provider = "minio";
-      flavor = "garage";
-      endpoint = "http://localhost:3900";
-      bucket = "store";
-      region = "us-east-1";
-    }
-    registration {
-      tags = ["api", "library", "v1"];
-      meta = {};
-      healthCheck {
-        type = "http";
-        path = "/health";
-        interval = "10s";
-      }
-    }
+    rdbms listingDb from postgresContainer(id: "006bfb76-6012-4878-9e8a-06fd9636de60", database: "realestate_listing");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "realestate-listing-service");
+    outboxOps from outboxBatches();
+    kafkaOps from kafkaPolling();
+    serviceCredentialOps from machineCredential();
     resilience {
       defaults {
         timeout = "10s";
-        retry {
-          maxAttempts = 2;
-          backoff {
-            type = "exponential";
-            initial = "100ms";
-            multiplier = 2;
-          }
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
         }
       }
-    }
-    httpSecurity {
-      allowedHosts = ["listing-service.example.com", "localhost"];
-      corsOrigins = ["https://app.example.com"];
-      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
-      corsHeaders = ["Authorization", "Content-Type"];
-    }
-    cacheOps {
-      ttlSeconds = 300;
-      keyMaxLength = 100;
-      redisPoolSize = 10;
-    }
-    queueOps {
-      sqsPollWaitSeconds = 20;
-      sqsMaxMessagesPerPoll = 10;
-      servicebusMaxWaitSeconds = 5;
-    }
-    kafkaOps {
-      consumerPollTimeoutMs = 1000;
-      keepalivePollTimeoutMs = 1000;
-      maxPollIntervalMs = 600000;
-    }
-    messagingOps {
-      rabbitmqPrefetchCount = 10;
-    }
-    downloadOps {
-      timeoutSeconds = 300;
-      chunkSizeBytes = 65536;
-      maxRetries = 3;
-      retryDelaySeconds = 1.0;
-      retryableStatusCodes = [429, 500, 502, 503, 504];
-    }
-    remoteConfigOps {
-      consulTimeoutSeconds = 5.0;
-      appconfigMinPollSeconds = 15;
-    }
-    rateLimitOps {
-      windowSeconds = 60;
-    }
-    microserviceClientOps {
-      timeoutSeconds = 300;
-      circuitBreakerFailMax = 5;
-      circuitBreakerResetSeconds = 30;
-      bulkheadMaxConcurrent = 10;
-      integrationConnectTimeoutMs = 1000;
-      integrationReadTimeoutMs = 30000;
-      mailgunTimeoutSeconds = 30;
-    }
-    retryBudgetOps {
-      window = 100;
-      ratio = 0.1;
-    }
-    outboxOps {
-      flushBatchSize = 500;
-    }
-    serviceCredentialOps {
-      tokenExpirySkewSeconds = 30;
     }
   }
 
@@ -145,24 +39,5 @@
   profile production as "prod" extends base {
     alias env = "PROD";
     alias resource = "prod";
-
-    flavor = "ecs-fargate";
-    replicas = 2;
-    replace rdbms listingDb {
-      id = "3bd1a12a-1386-49bd-8454-06f9fb0279ff";
-      engine = "postgres";
-      flavor = "rds";
-      host = "postgres.internal";
-      database = "listing_db";
-      poolSize = 40;
-      maxOverflow = 20;
-      ssl = true;
-      healthCheckSql = "SELECT 1";
-    }
-    strategy {
-      rolling {
-        maxUnavailable = "25%";
-      }
-    }
   }
 }

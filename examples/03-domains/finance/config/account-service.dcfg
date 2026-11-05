@@ -1,127 +1,37 @@
-﻿config service finance.AccountService {
+config service finance.AccountService {
+  import "config/templates/infrastructure.dcfg";
+
   base {
     port = 8001;
-    flavor = "compose";
     replicas = 1;
-    resources {
-      requests {
-        cpu = "100m";
-        memory = "256Mi";
-      }
-      limits {
-        cpu = "500m";
-        memory = "512Mi";
-      }
-    }
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
-    rdbms accountDb {
-      id = "e35d42d1-b104-4438-a1ac-00c9ad13042e";
-      engine = "postgres";
-      flavor = "container";
-      host = "localhost";
-      port = 5432;
-      database = "account_db";
-      poolSize = 20;
-      maxOverflow = 20;
-      ssl = false;
-      healthCheckSql = "SELECT 1";
-      dockerImage = "postgres:17-alpine";
-      volumePath = "/var/lib/postgresql/data";
-      defaultUser = "postgres";
-    }
-    pubsub mq {
-      engine = "kafka";
-      flavor = "container";
-      brokers = ["localhost:9092"];
-      partitions = 3;
-      replicationFactor = 1;
-      retention = "7d";
-      port = 9092;
-      controllerPort = 9093;
-      dockerImage = "confluentinc/cp-kafka:7.6.0";
-      volumePath = "/var/lib/kafka/data";
-    }
-    registration {
-      tags = ["api", "library", "v1"];
-      meta = {};
-      healthCheck {
-        type = "http";
-        path = "/health";
-        interval = "10s";
-      }
-    }
+    rdbms accountDb from postgresContainer(id: "e35d42d1-b104-4438-a1ac-00c9ad13042e", database: "finance_account");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "finance-account-service");
+    outboxOps from outboxBatches();
+    kafkaOps from kafkaPolling();
     resilience {
       defaults {
         timeout = "10s";
-        retry {
-          maxAttempts = 2;
-          backoff {
-            type = "exponential";
-            initial = "100ms";
-            multiplier = 2;
-          }
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
         }
       }
     }
-    httpSecurity {
-      allowedHosts = ["account-service.example.com", "localhost"];
-      corsOrigins = ["https://app.example.com"];
-      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
-      corsHeaders = ["Authorization", "Content-Type"];
-    }
-    cacheOps {
-      ttlSeconds = 300;
-      keyMaxLength = 100;
-      redisPoolSize = 10;
-    }
-    queueOps {
-      sqsPollWaitSeconds = 20;
-      sqsMaxMessagesPerPoll = 10;
-      servicebusMaxWaitSeconds = 5;
-    }
-    kafkaOps {
-      consumerPollTimeoutMs = 1000;
-      keepalivePollTimeoutMs = 1000;
-      maxPollIntervalMs = 600000;
-    }
-    messagingOps {
-      rabbitmqPrefetchCount = 10;
-    }
-    downloadOps {
-      timeoutSeconds = 300;
-      chunkSizeBytes = 65536;
-      maxRetries = 3;
-      retryDelaySeconds = 1.0;
-      retryableStatusCodes = [429, 500, 502, 503, 504];
-    }
-    remoteConfigOps {
-      consulTimeoutSeconds = 5.0;
-      appconfigMinPollSeconds = 15;
-    }
-    rateLimitOps {
-      windowSeconds = 60;
-    }
-    microserviceClientOps {
-      timeoutSeconds = 300;
-      circuitBreakerFailMax = 5;
-      circuitBreakerResetSeconds = 30;
-      bulkheadMaxConcurrent = 10;
-      integrationConnectTimeoutMs = 1000;
-      integrationReadTimeoutMs = 30000;
-      mailgunTimeoutSeconds = 30;
-    }
-    retryBudgetOps {
-      window = 100;
-      ratio = 0.1;
-    }
-    outboxOps {
-      flushBatchSize = 500;
-    }
-    serviceCredentialOps {
-      tokenExpirySkewSeconds = 30;
+    secrets {
+      // The default only exists on a local stack, where it matches the hash seeded in
+      // seed/kyc-mock.dseed, so the example runs with nothing to configure. Any other deployment
+      // must supply the handle's value.
+      secret kyc_provider_api_key {
+        required = true;
+        purpose = "API key for the identity check vendor (KycProvider contract).";
+        localDefault = "dev-only-kyc-key-not-a-credential";
+      }
     }
   }
 
@@ -138,24 +48,5 @@
   profile production as "prod" extends base {
     alias env = "PROD";
     alias resource = "prod";
-
-    flavor = "ecs-fargate";
-    replicas = 2;
-    replace rdbms accountDb {
-      id = "e35d42d1-b104-4438-a1ac-00c9ad13042e";
-      engine = "postgres";
-      flavor = "rds";
-      host = "postgres.internal";
-      database = "account_db";
-      poolSize = 40;
-      maxOverflow = 20;
-      ssl = true;
-      healthCheckSql = "SELECT 1";
-    }
-    strategy {
-      rolling {
-        maxUnavailable = "25%";
-      }
-    }
   }
 }

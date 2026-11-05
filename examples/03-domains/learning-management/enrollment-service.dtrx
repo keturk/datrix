@@ -1,774 +1,337 @@
+from lms.common import QuizOption;
 
-from lms.common import MAX_SCORE, MIN_SCORE, PASSING_SCORE;
+// A student on a course: paying for it, passing its lessons, and getting a certificate or their money
+// back. A refund is proposed, by a student through the tutor, and only an instructor can grant it.
+service lms.EnrollmentService('config/enrollment-service.dcfg') : version('2.0.0'), description('Enrollments, progress and refunds') {
 
-service lms.EnrollmentService('config/enrollment-service.dcfg') : version('1.0.0'), description('enrollment and academic progress tracking service') {
-    discovery {
-        CourseService { loadBalance: roundRobin, healthyOnly: true }
-        StudentService { loadBalance: roundRobin, healthyOnly: true }
+    discovery { }
+
+    uses CourseService;
+    uses PaymentProvider;
+    uses EmailProvider;
+
+    exceptions {
+        CardDeclinedError : status(402), message("Your card was declined");
+        NotYoursError : status(404), message("You are not enrolled on that");
+        AlreadyEnrolledError : status(409), message("You are already on this course");
+        NotRefundableError : status(409), message("That enrollment cannot be refunded");
+        AlreadyDecidedError : status(409), message("That refund is already decided");
     }
 
     enum EnrollmentStatus {
-        Pending : value('pending'),
-        Active : value('active'),
-        Completed : value('completed'),
-        Dropped : value('dropped'),
-        Expired : value('expired')
+        Active : tone(info),
+        Completed : tone(success),
+        Refunded : tone(neutral)
     }
 
-    enum GradeStatus {
-        NotSubmitted : value('not_submitted'),
-        Submitted : value('submitted'),
-        Graded : value('graded'),
-        Returned : value('returned')
+    enum RefundStatus {
+        Proposed : tone(warning),
+        Granted : tone(success),
+        Declined : tone(danger)
+    }
+
+    /// Two cards to try, so a decline can be seen. No real card enters this application.
+    enum TestCard {
+        CardThatPays,
+        CardThatDeclines
+    }
+
+    /// How long a course can sit untouched before a reminder goes out, in days.
+    const REMINDER_AFTER_DAYS = 7;
+
+    rdbms enrollmentDb : audit {
+
+        entity Enrollment extends BaseEntity {
+            String(200) courseTitle : filterable;
+            String(200) studentName : filterable;
+            String(200) studentEmail : index, filterable;
+            EnrollmentStatus status : filterable = EnrollmentStatus.Active;
+            Int lessonsPassed = 0;
+            Int lessonsTotal;
+            Int progressPercent = 0;
+            Money paid;
+            String(40)? chargeId : hidden;
+            String(20)? certificateCode;
+            DateTime? completedAt;
+            DateTime lastActiveAt;
+            UUID courseId : index;
+
+            index(studentEmail, courseId);
+
+            // Runs before the write, so what it derives is written with the change.
+            beforeUpdate {
+                if (isChanged(lessonsPassed) && lessonsTotal > 0) {
+                    progressPercent = (lessonsPassed * 100 / lessonsTotal).toInteger();
+                }
+            }
+        }
+
+        /// A lesson someone has passed.
+        entity PassedLesson extends BaseEntity {
+            UUID enrollmentId : index;
+            UUID lessonId;
+
+            index(enrollmentId, lessonId) : unique;
+        }
+
+        entity RefundRequest extends BaseEntity {
+            String(200) courseTitle : filterable;
+            String(200) studentName : filterable;
+            Money amount;
+            String(500) reason;
+            RefundStatus status : filterable = RefundStatus.Proposed;
+            String(200)? decidedByName;
+            DateTime? decidedAt;
+            UUID enrollmentId : index;
+        }
     }
 
     struct EnrollRequest {
         UUID courseId;
+        TestCard card;
     }
 
-    struct DropRequest {
-        String? reason;
-    }
-
-    struct SubmitGradeRequest {
-        UUID moduleId;
-        Decimal score;
-        Text? feedback;
-    }
-
-    struct UpdateProgressRequest {
-        Int progress;
-    }
-
-    struct EnrollmentSummary {
+    struct AnswerRequest {
         UUID enrollmentId;
-        UUID studentId;
-        UUID courseId;
-        EnrollmentStatus status;
-        Int progress;
-        Decimal averageScore;
-        DateTime enrolledAt;
-        DateTime? completedAt;
+        UUID lessonId;
+        QuizOption answer;
     }
 
-    struct TranscriptEntry {
-        UUID courseId;
-        String courseName;
-        EnrollmentStatus status;
-        Decimal averageScore;
-        DateTime enrolledAt;
-        DateTime? completedAt;
+    struct AnswerResult {
+        Boolean correct;
+        Int progressPercent;
+        Boolean finished;
     }
 
-    rdbms enrollmentDb {
+    struct LessonStep {
+        UUID lessonId;
+        Int position;
+        String(200) title;
+        Int minutes;
+        Boolean passed;
+    }
 
-        entity Enrollment extends BaseEntity : audit {
-            UUID studentId : index;
-            UUID courseId : index;
-            EnrollmentStatus status = EnrollmentStatus.Pending;
-            DateTime enrolledAt = DateTime.now();
-            DateTime? completedAt;
-            DateTime? droppedAt;
-            Int progress = 0;
-            String? dropReason;
-            Decimal(5, 2) averageScore = 0.00;
-            Int gradeCount = 0;
-            DateTime? lastAccessedAt;
+    struct Journey {
+        enrollmentDb.Enrollment enrollment;
+        Array<LessonStep> steps;
+    }
 
-            // Computed fields
-            Boolean isActive := status == EnrollmentStatus.Active;
-            Boolean isCompleted := status == EnrollmentStatus.Completed;
-            Boolean canSubmitGrades := status == EnrollmentStatus.Active;
-            Boolean hasPassed := averageScore >= PASSING_SCORE;
-            Int remainingProgress := 100 - progress;
+    struct ProposeRefundRequest {
+        UUID enrollmentId;
+        String(200) studentEmail;
+        String(500) reason;
+    }
 
-            hasMany GradeRecord as grades : cascade(delete);
+    struct RefundReceipt {
+        UUID id;
+        RefundStatus status;
+    }
 
-            index(studentId, courseId) : unique;
-            index(studentId, status);
-            index(courseId, status);
-            index(status, enrolledAt);
+    struct TeachingSummary {
+        Int activeStudents;
+        Int completed;
+        Int refundsWaiting;
+        Money revenue;
+    }
 
-            validate {
-                if (progress < MIN_SCORE || progress > MAX_SCORE)
-                ValidationError("Progress must be between 0 and 100");
+    /// Mail is a courtesy here. A vendor outage must not undo an enrollment that has been paid for.
+    fn sendMail(String to, String subject, String body, String key) {
+        try {
+            EmailProvider.EmailAPI.post.sendEmail(SendEmailRequest { to: to, subject: subject, body: body, idempotencyKey: key });
+        } catch (Exception e) {
+            Log.warn("Email not sent", { key: key });
+        }
+    }
+
+    fn enrollmentOfCaller(UUID id) -> enrollmentDb.Enrollment {
+        let enrollmentDb.Enrollment? found = enrollmentDb.Enrollment.where(id: id, studentEmail: Auth.identity.email.toString()).first();
+        if (found == null) {
+            throw NotYoursError();
+        }
+        return found;
+    }
+
+    rest_api LearnerAPI : basePath('/api/v1/learning'), rdbms(enrollmentDb) {
+        @path('/enrollments')
+        get mine() : auth(required, providers: [identity]) -> Array<Enrollment> {
+            return Enrollment.where(studentEmail: Auth.identity.email.toString()).orderBy(lastActiveAt: desc).limit(100).all();
+        }
+
+        @path('/enroll')
+        post enroll(EnrollRequest request) : auth(required, providers: [identity]) -> Enrollment {
+            let String email = Auth.identity.email.toString();
+            if (Enrollment.where(studentEmail: email, courseId: request.courseId).first() != null) {
+                throw AlreadyEnrolledError();
             }
-
-            afterCreate {
-                dispatch StudentEnrolled(id, studentId, courseId);
+            let CourseCard course = CourseService.CourseInternalAPI.get.card(id: request.courseId);
+            let Charge charge = PaymentProvider.PaymentAPI.post.createCharge(CreateChargeRequest {
+                cardToken: request.card == TestCard.CardThatPays ? "tok_visa" : "tok_declined",
+                amount: course.price,
+                currency: "USD",
+                reference: course.title,
+                idempotencyKey: #"enroll-{email}-{request.courseId}"
+            });
+            if (charge.status == ChargeStatus.Declined) {
+                throw CardDeclinedError();
             }
+            let Enrollment created = Enrollment.create({
+                courseId: course.id,
+                courseTitle: course.title,
+                studentName: (Auth.identity.fullName ?? Auth.identity.email).toString(),
+                studentEmail: email,
+                lessonsTotal: course.lessonCount,
+                paid: course.price,
+                chargeId: charge.id,
+                lastActiveAt: DateTime.now()
+            });
+            sendMail(email, #"Welcome to {course.title}", "Your place is confirmed and your first lesson is ready.", #"welcome-{created.id}");
+            return created;
+        }
 
-            afterUpdate {
-                if (isChanged(progress)) {
-                    dispatch ProgressUpdated(id, studentId, courseId, oldValue(progress), progress);
+        @path('/journeys/:id')
+        get journey(UUID id) : auth(required, providers: [identity]) -> Journey {
+            let Enrollment enrollment = enrollmentOfCaller(id);
+            let Array<LessonOutline> outline = CourseService.CourseInternalAPI.get.outline(courseId: enrollment.courseId);
+            let Array<PassedLesson> passed = PassedLesson.where(enrollmentId: id).limit(500).all();
+            return Journey {
+                enrollment: enrollment,
+                steps: outline.map(l => LessonStep {
+                    lessonId: l.id,
+                    position: l.position,
+                    title: l.title,
+                    minutes: l.minutes,
+                    passed: passed.filter(p => p.lessonId == l.id).length > 0
+                })
+            };
+        }
 
-                    if (progress == MAX_SCORE && status != EnrollmentStatus.Completed) {
-                        status = EnrollmentStatus.Completed;
-                        completedAt = DateTime.now();
-                        this.save();
-                        dispatch EnrollmentCompleted(id, studentId, courseId, averageScore);
-
-                        Log.info("Enrollment completed", {
-                            enrollmentId: id,
-                            studentId: studentId,
-                            courseId: courseId,
-                            averageScore: averageScore
-                        });
-                    }
-
+        @path('/answers')
+        post answer(AnswerRequest request) : auth(required, providers: [identity]) -> AnswerResult {
+            let Enrollment enrollment = enrollmentOfCaller(request.enrollmentId);
+            let AnswerVerdict verdict = CourseService.CourseInternalAPI.post.checkAnswer({ lessonId: request.lessonId, answer: request.answer });
+            enrollment.lastActiveAt = DateTime.now();
+            if (verdict.correct && PassedLesson.where(enrollmentId: enrollment.id, lessonId: request.lessonId).first() == null) {
+                PassedLesson.create({ enrollmentId: enrollment.id, lessonId: request.lessonId });
+                enrollment.lessonsPassed = enrollment.lessonsPassed + 1;
+                if (enrollment.lessonsPassed >= enrollment.lessonsTotal && enrollment.status == EnrollmentStatus.Active) {
+                    enrollment.status = EnrollmentStatus.Completed;
+                    enrollment.completedAt = DateTime.now();
+                    enrollment.certificateCode = #"LH-{Random.string(10, 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789')}";
+                    sendMail(enrollment.studentEmail, #"You finished {enrollment.courseTitle}", #"Your certificate code is {enrollment.certificateCode}.", #"finished-{enrollment.id}");
                 }
-
-                if (isChanged(status)) {
-                    dispatch EnrollmentStatusChanged(id, studentId, courseId, oldValue(status), status);
-
-                    if (status == EnrollmentStatus.Dropped) {
-                        droppedAt = DateTime.now();
-                    }
-
-                }
-
             }
+            enrollment.save();
+            return AnswerResult {
+                correct: verdict.correct,
+                progressPercent: enrollment.progressPercent,
+                finished: enrollment.status == EnrollmentStatus.Completed
+            };
+        }
+    }
 
-            fn recalculateAverageScore() {
-                let Array<GradeRecord> allGrades = enrollmentDb.GradeRecord
-                .where(enrollmentId: id)
-                .where(status: GradeStatus.Graded)
+    // What instructors see and decide.
+    rest_api TeachingAPI : basePath('/api/v1/teaching'), rdbms(enrollmentDb) {
+        resource Enrollment : only(list), auth(required, providers: [identity], roles: [instructor]);
+        resource RefundRequest : only(list), auth(required, providers: [identity], roles: [instructor]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [instructor]) -> TeachingSummary {
+            let Array<Enrollment> everyone = Enrollment.limit(5000).all();
+            let Money earned = everyone.filter(e => e.status != EnrollmentStatus.Refunded).reduce((total, e) => total.add(e.paid), Money.zero());
+            return TeachingSummary {
+                activeStudents: everyone.filter(e => e.status == EnrollmentStatus.Active).length,
+                completed: everyone.filter(e => e.status == EnrollmentStatus.Completed).length,
+                refundsWaiting: RefundRequest.where(status: RefundStatus.Proposed).count(),
+                revenue: earned
+            };
+        }
+
+        @path('/refunds/:id/grant')
+        post grantRefund(UUID id) : auth(required, providers: [identity], roles: [instructor]) -> RefundRequest {
+            let RefundRequest refund = RefundRequest.findOrFail(id);
+            if (refund.status != RefundStatus.Proposed) {
+                throw AlreadyDecidedError();
+            }
+            let Enrollment enrollment = Enrollment.findOrFail(refund.enrollmentId);
+            if (enrollment.chargeId == null) {
+                throw NotRefundableError();
+            }
+            PaymentProvider.PaymentAPI.post.refundCharge(RefundChargeRequest { chargeId: enrollment.chargeId, idempotencyKey: #"refund-{refund.id}" });
+            enrollment.status = EnrollmentStatus.Refunded;
+            enrollment.save();
+            refund.status = RefundStatus.Granted;
+            refund.decidedByName = (Auth.identity.fullName ?? Auth.identity.email).toString();
+            refund.decidedAt = DateTime.now();
+            refund.save();
+            sendMail(enrollment.studentEmail, #"Your refund for {enrollment.courseTitle}", "Your refund is on its way to your card.", #"refunded-{refund.id}");
+            return refund;
+        }
+
+        @path('/refunds/:id/decline')
+        post declineRefund(UUID id) : auth(required, providers: [identity], roles: [instructor]) -> RefundRequest {
+            let RefundRequest refund = RefundRequest.findOrFail(id);
+            if (refund.status != RefundStatus.Proposed) {
+                throw AlreadyDecidedError();
+            }
+            refund.status = RefundStatus.Declined;
+            refund.decidedByName = (Auth.identity.fullName ?? Auth.identity.email).toString();
+            refund.decidedAt = DateTime.now();
+            refund.save();
+            return refund;
+        }
+    }
+
+    // What the tutor reaches. It says on whose behalf it asks, and the enrollment has to be theirs.
+    rest_api EnrollmentInternalAPI : basePath('/api/v1/internal/enrollments'), rdbms(enrollmentDb) {
+        @path('/refunds')
+        post proposeRefund(ProposeRefundRequest request) : auth(service, providers: [machine]) -> RefundReceipt {
+            let Enrollment? enrollment = Enrollment.where(id: request.enrollmentId, studentEmail: request.studentEmail).first();
+            if (enrollment == null) {
+                throw NotYoursError();
+            }
+            if (enrollment.status == EnrollmentStatus.Refunded) {
+                throw NotRefundableError();
+            }
+            let RefundRequest? open = RefundRequest.where(enrollmentId: enrollment.id, status: RefundStatus.Proposed).first();
+            if (open != null) {
+                return RefundReceipt { id: open.id, status: open.status };
+            }
+            let RefundRequest created = RefundRequest.create({
+                enrollmentId: enrollment.id,
+                courseTitle: enrollment.courseTitle,
+                studentName: enrollment.studentName,
+                amount: enrollment.paid,
+                reason: request.reason
+            });
+            return RefundReceipt { id: created.id, status: created.status };
+        }
+    }
+
+    jobs {
+        // Someone who has gone quiet gets one nudge a week, and the key keeps it to one.
+        job RemindQuietStudents {
+            let Array<enrollmentDb.Enrollment> quiet = enrollmentDb.Enrollment
+                .where(status: EnrollmentStatus.Active)
+                .where(lastActiveAt: lt(DateTime.now().addDays(-REMINDER_AFTER_DAYS)))
+                .limit(200)
                 .all();
-
-                if (allGrades.length() > 0) {
-                    let Decimal totalScore = 0;
-                    foreach grade in allGrades {
-                        totalScore = totalScore + grade.score;
-                    }
-
-                    averageScore = totalScore / allGrades.length();
-                    gradeCount = allGrades.length();
-                }
-
+            foreach enrollment in quiet {
+                sendMail(enrollment.studentEmail, #"{enrollment.courseTitle} is waiting for you", "You are part of the way through. Your next lesson is ready.", #"nudge-{enrollment.id}-{DateTime.now().format('YYYY-MM-DD')}");
             }
-
         }
-
-        entity GradeRecord extends BaseEntity {
-            UUID moduleId : index;
-            Decimal(5, 2) score;
-            GradeStatus status = GradeStatus.NotSubmitted;
-            Text? feedback;
-            DateTime? submittedAt;
-            DateTime? gradedAt;
-            UUID? gradedBy;
-
-            belongsTo Enrollment : index;
-
-            index(enrollmentId, moduleId) : unique;
-
-            validate {
-                if (score < MIN_SCORE || score > MAX_SCORE)
-                ValidationError("Score must be between 0 and 100");
-            }
-
-            afterCreate {
-                // Recalculate average score on the enrollment
-                let Enrollment? enrollment = enrollmentDb.Enrollment.find(enrollmentId);
-                if (enrollment != null) {
-                    enrollment.recalculateAverageScore();
-                    enrollment.save();
-                }
-
-            }
-
-        }
-
-        entity EnrollmentActivity extends BaseEntity {
-            UUID enrollmentId : index;
-            String(100) activityType;
-            JSON? metadata;
-            DateTime occurredAt = DateTime.now();
-
-            index(enrollmentId, occurredAt);
-        }
-
     }
 
-    pubsub mq {
-
-        topic EnrollmentEvents {
-            publish StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId);
-            publish EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish ProgressUpdated(UUID enrollmentId, UUID studentId, UUID courseId, Int oldProgress, Int newProgress) {
-                ensure newProgress >= 0;
-                ensure newProgress <= 100;
-            }
-
-            publish EnrollmentCompleted(UUID enrollmentId, UUID studentId, UUID courseId, Decimal averageScore) {
-                ensure averageScore >= 0;
-            }
-
-            publish StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason);
-            publish GradeSubmitted(UUID enrollmentId, UUID moduleId, Decimal score) {
-                ensure score >= 0;
-                ensure score <= 100;
-            }
-
-        }
-
-    }
-
-    subscribe EnrollmentEvents {
-        on StudentEnrolled(UUID enrollmentId, UUID studentId, UUID courseId) {
-            Log.info("Student enrolled in course", {
-                enrollmentId: enrollmentId,
-                studentId: studentId,
-                courseId: courseId
-            });
-
-            // Increment course enrollment count
-            try {
-                CourseService.CourseAPI.post.incrementEnrollment(courseId);
-            } catch (Exception e) {
-                Log.error(#"Failed to increment enrollment count: {e}");
-            }
-
-            // Track enrollment activity
-            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                enrollmentId: enrollmentId,
-                activityType: "enrolled"
-            });
-            activity.save();
-        }
-
-        on EnrollmentCompleted(UUID enrollmentId, UUID studentId, UUID courseId, Decimal averageScore) {
-            Log.info("Student completed course", {
-                enrollmentId: enrollmentId,
-                studentId: studentId,
-                courseId: courseId,
-                averageScore: averageScore
-            });
-
-            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                enrollmentId: enrollmentId,
-                activityType: "completed",
-                metadata: { averageScore: averageScore }
-            });
-            activity.save();
-        }
-
-        on StudentDropped(UUID enrollmentId, UUID studentId, UUID courseId, String? reason) {
-            Log.info("Student dropped from course", {
-                enrollmentId: enrollmentId,
-                studentId: studentId,
-                courseId: courseId,
-                reason: reason
-            });
-
-            // Decrement course enrollment count
-            try {
-                CourseService.CourseAPI.post.decrementEnrollment(courseId);
-            } catch (Exception e) {
-                Log.error(#"Failed to decrement enrollment count: {e}");
-            }
-
-        }
-
-        on EnrollmentStatusChanged(UUID enrollmentId, UUID studentId, UUID courseId, EnrollmentStatus oldStatus, EnrollmentStatus newStatus) {
-            Log.info("Enrollment status changed", {
-                enrollmentId: enrollmentId,
-                studentId: studentId,
-                courseId: courseId,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-
-            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                enrollmentId: enrollmentId,
-                activityType: "status_changed",
-                metadata: { oldStatus: oldStatus, newStatus: newStatus }
-            });
-            activity.save();
-        }
-
-        on ProgressUpdated(UUID enrollmentId, UUID studentId, UUID courseId, Int oldProgress, Int newProgress) {
-            Log.info("Enrollment progress updated", {
-                enrollmentId: enrollmentId,
-                studentId: studentId,
-                courseId: courseId,
-                oldProgress: oldProgress,
-                newProgress: newProgress
-            });
-
-            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                enrollmentId: enrollmentId,
-                activityType: "progress_updated",
-                metadata: { oldProgress: oldProgress, newProgress: newProgress }
-            });
-            activity.save();
-        }
-
-        on GradeSubmitted(UUID enrollmentId, UUID moduleId, Decimal score) {
-            Log.info("Grade submitted for enrollment", {
-                enrollmentId: enrollmentId,
-                moduleId: moduleId,
-                score: score
-            });
-
-            let EnrollmentActivity activity = enrollmentDb.EnrollmentActivity.create({
-                enrollmentId: enrollmentId,
-                activityType: "grade_submitted",
-                metadata: { moduleId: moduleId, score: score }
-            });
-            activity.save();
-        }
-
-    }
-
-    subscribe CourseEvents {
-        on CourseArchived(UUID courseId) {
-            Log.info("Course archived, expiring active enrollments", { courseId: courseId });
-
-            let Array<Enrollment> activeEnrollments = enrollmentDb.Enrollment
-            .where(courseId: courseId)
-            .where(status: EnrollmentStatus.Active)
-            .all();
-
-            foreach enrollment in activeEnrollments {
-                enrollment.status = EnrollmentStatus.Expired;
-                enrollment.save();
-            }
-
-            let Array<Enrollment> pendingEnrollments = enrollmentDb.Enrollment
-            .where(courseId: courseId)
-            .where(status: EnrollmentStatus.Pending)
-            .all();
-
-            foreach enrollment in pendingEnrollments {
-                enrollment.status = EnrollmentStatus.Expired;
-                enrollment.save();
-            }
-
-            let Int expiredCount = activeEnrollments.length() + pendingEnrollments.length();
-            if (expiredCount > 0) {
-                Log.info("Expired enrollments for archived course", {
-                    courseId: courseId,
-                    expiredCount: expiredCount
-                });
-            }
-
-        }
-
-        on CourseStatusChanged(UUID courseId, CourseStatus oldStatus, CourseStatus newStatus) {
-            Log.info("Course status changed", { courseId: courseId, oldStatus: oldStatus, newStatus: newStatus });
-        }
-
-    }
-
-    rest_api EnrollmentAPI : basePath('/api/v1/enrollments'), rdbms(enrollmentDb) {
-
-        // Enroll in a course
-        post(EnrollRequest request) : auth(required, providers: [identity]) -> enrollmentDb.Enrollment {
-            let UUID studentId = Auth.user().id;
-
-            // Verify student exists and is active
-            let Student student = StudentService.StudentAPI.get.studentByIdInternal(studentId);
-
-            // Verify course can accept enrollments
-            let Boolean canEnroll = CourseService.CourseAPI.get.canEnroll(request.courseId);
-
-            if (!canEnroll) {
-                throw ValidationException({
-                    code: "ENROLLMENT_NOT_AVAILABLE",
-                    message: "This course is not available for enrollment"
-                });
-            }
-
-            // Check for existing enrollment
-            let Enrollment? existing = enrollmentDb.Enrollment
-            .where(studentId: studentId)
-            .where(courseId: request.courseId)
-            .first();
-
-            if (existing != null && (existing.status == EnrollmentStatus.Active || existing.status == EnrollmentStatus.Pending)) {
-                throw ValidationException({
-                    code: "ALREADY_ENROLLED",
-                    message: "You are already enrolled in this course"
-                });
-            }
-
-            let Enrollment enrollment = enrollmentDb.Enrollment.create({
-                studentId: studentId,
-                courseId: request.courseId,
-                status: EnrollmentStatus.Active,
-                progress: 0
-            });
-            enrollment.save();
-
-            return enrollment;
-        }
-
-        // Get current user's enrollments
-        get(EnrollmentStatus? status, PageRequest page) : auth(required, providers: [identity]) -> Page<enrollmentDb.Enrollment> {
-            let UUID studentId = Auth.user().id;
-
-            let JSON query = enrollmentDb.Enrollment.where(studentId: studentId);
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            return query.orderBy(enrolledAt: desc).page(page);
-        }
-
-        // Get a single enrollment
-        @path('/:id')
-        get(UUID id) : auth(required, providers: [identity]) -> enrollmentDb.Enrollment {
-            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-            let UUID userId = Auth.user().id;
-
-            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("Access denied");
-            }
-
-            return enrollment;
-        }
-
-        // Drop an enrollment
-        @path('/:id/drop')
-        put(UUID id, DropRequest request) : auth(required, providers: [identity]) -> enrollmentDb.Enrollment {
-            let UUID userId = Auth.user().id;
-            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-
-            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("You can only drop your own enrollments");
-            }
-
-            if (enrollment.status != EnrollmentStatus.Active && enrollment.status != EnrollmentStatus.Pending) {
-                throw ValidationException({
-                    code: "CANNOT_DROP",
-                    message: #"Cannot drop enrollment with status: {enrollment.status}"
-                });
-            }
-
-            enrollment.status = EnrollmentStatus.Dropped;
-            enrollment.dropReason = request.reason ?? "Dropped by student";
-            enrollment.save();
-
-            dispatch StudentDropped(id, enrollment.studentId, enrollment.courseId, enrollment.dropReason);
-
-            return enrollment;
-        }
-
-        // Update progress
-        @path('/:id/progress')
-        put(UUID id, UpdateProgressRequest request) : auth(required, providers: [identity]) -> enrollmentDb.Enrollment {
-            let UUID userId = Auth.user().id;
-            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-
-            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("Access denied");
-            }
-
-            if (!enrollment.isActive) {
-                throw ValidationException({
-                    code: "ENROLLMENT_NOT_ACTIVE",
-                    message: "Cannot update progress on an inactive enrollment"
-                });
-            }
-
-            enrollment.progress = request.progress;
-            enrollment.lastAccessedAt = DateTime.now();
-            enrollment.save();
-
-            return enrollment;
-        }
-
-        // Submit a grade for a module
-        @path('/:id/grades')
-        post(UUID id, SubmitGradeRequest request) : auth(required, providers: [identity], roles: [admin]) -> enrollmentDb.GradeRecord {
-            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-
-            if (!enrollment.canSubmitGrades) {
-                throw ValidationException({
-                    code: "CANNOT_SUBMIT_GRADE",
-                    message: "Grades can only be submitted for active enrollments"
-                });
-            }
-
-            // Check if grade already exists for this module
-            let GradeRecord? existing = enrollmentDb.GradeRecord
-            .where(enrollmentId: id)
-            .where(moduleId: request.moduleId)
-            .first();
-
-            if (existing != null) {
-                throw ValidationException({
-                    code: "GRADE_EXISTS",
-                    message: "A grade already exists for this module"
-                });
-            }
-
-            let GradeRecord grade = enrollmentDb.GradeRecord.create({
-                enrollmentId: id,
-                moduleId: request.moduleId,
-                score: request.score,
-                feedback: request.feedback,
-                status: GradeStatus.Graded,
-                submittedAt: DateTime.now(),
-                gradedAt: DateTime.now(),
-                gradedBy: Auth.user().id
-            });
-            grade.save();
-
-            dispatch GradeSubmitted(id, request.moduleId, request.score);
-
-            return grade;
-        }
-
-        // Get grades for an enrollment
-        @path('/:id/grades')
-        get(UUID id) : auth(required, providers: [identity]) -> Array<enrollmentDb.GradeRecord> {
-            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-            let UUID userId = Auth.user().id;
-
-            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("Access denied");
-            }
-
-            return enrollmentDb.GradeRecord
-            .where(enrollmentId: id)
-            .orderBy(createdAt: asc)
-            .all();
-        }
-
-        // Get student transcript
-        @path('/transcript/:studentId')
-        get(UUID studentId) : auth(required, providers: [identity]) -> Array<enrollmentDb.Enrollment> {
-            let UUID userId = Auth.user().id;
-
-            if (studentId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("Access denied");
-            }
-
-            return enrollmentDb.Enrollment
-            .where(studentId: studentId)
-            .orderBy(enrolledAt: desc)
-            .all();
-        }
-
-        // Get enrollments for a specific course (admin)
-        @path('/course/:courseId')
-        get(UUID courseId, EnrollmentStatus? status, PageRequest page) : auth(required, providers: [identity], roles: [admin]) -> Page<enrollmentDb.Enrollment> {
-            let JSON query = enrollmentDb.Enrollment.where(courseId: courseId);
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            return query.orderBy(enrolledAt: desc).page(page);
-        }
-
-        // Get enrollment activity log
-        @path('/:id/activity')
-        get(UUID id) : auth(required, providers: [identity]) -> Array<enrollmentDb.EnrollmentActivity> {
-            let Enrollment enrollment = enrollmentDb.Enrollment.findOrFail(id);
-            let UUID userId = Auth.user().id;
-
-            if (enrollment.studentId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("Access denied");
-            }
-
-            return enrollmentDb.EnrollmentActivity
-            .where(enrollmentId: id)
-            .orderBy(occurredAt: desc)
-            .all();
-        }
-
-        // Internal endpoint
-        @path('/service/:id')
-        get enrollmentByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> enrollmentDb.Enrollment {
-            return enrollmentDb.Enrollment.findOrFail(id);
-        }
-
-    }
-
-    test("validation rejects progress out of range") {
-        assert throws(
-        () => enrollmentDb.Enrollment.create({
-            studentId: uuid(),
+    test("a new enrollment has nothing passed yet") {
+        let enrollmentDb.Enrollment created = enrollmentDb.Enrollment.create({
             courseId: uuid(),
-            status: EnrollmentStatus.Active,
-            progress: 101
-        }),
-        ValidationError(#"Progress must be between {MIN_SCORE} and {MAX_SCORE}")
-        );
-    }
-
-    test("validation rejects negative progress") {
-        assert throws(
-        () => enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Active,
-            progress: -1
-        }),
-        ValidationError(#"Progress must be between {MIN_SCORE} and {MAX_SCORE}")
-        );
-    }
-
-    test("validation rejects score out of range") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Active,
-            progress: 50
+            courseTitle: "Reading maps",
+            studentName: "Theo Marsh",
+            studentEmail: "theo@example.com",
+            lessonsTotal: 4,
+            paid: 40.00,
+            lastActiveAt: DateTime.now()
         });
-        enrollment.save();
-        assert throws(
-        () => enrollmentDb.GradeRecord.create({
-            enrollmentId: enrollment.id,
-            moduleId: uuid(),
-            score: 150.0
-        }),
-        ValidationError(#"Score must be between {MIN_SCORE} and {MAX_SCORE}")
-        );
+        assert created.status == EnrollmentStatus.Active;
+        assert created.progressPercent == 0;
     }
-
-    test("computed isActive for Active enrollment") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Active,
-            progress: 25
-        });
-        enrollment.save();
-        assert enrollment.isActive == true;
-        assert enrollment.canSubmitGrades == true;
-    }
-
-    test("computed isCompleted for Completed enrollment") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Completed,
-            progress: 100,
-            completedAt: DateTime.now()
-        });
-        enrollment.save();
-        assert enrollment.isCompleted == true;
-        assert enrollment.remainingProgress == 0;
-    }
-
-    test("computed hasPassed for passing score") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Completed,
-            progress: 100,
-            averageScore: 85.00
-        });
-        enrollment.save();
-        assert enrollment.hasPassed == true;
-    }
-
-    test("computed hasPassed is false for failing score") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Completed,
-            progress: 100,
-            averageScore: 45.00
-        });
-        enrollment.save();
-        assert enrollment.hasPassed == false;
-    }
-
-    test("afterCreate emits StudentEnrolled event") {
-        let UUID studentId = uuid();
-        let UUID courseId = uuid();
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: studentId,
-            courseId: courseId,
-            status: EnrollmentStatus.Active,
-            progress: 0
-        });
-        enrollment.save();
-        assert emitted(StudentEnrolled(enrollment.id, studentId, courseId));
-    }
-
-    test("computed remainingProgress calculation") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Active,
-            progress: 65
-        });
-        enrollment.save();
-        assert enrollment.remainingProgress == 35;
-    }
-
-    test("computed isActive is false for Dropped enrollment") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Dropped,
-            progress: 40
-        });
-        enrollment.save();
-        assert enrollment.isActive == false;
-        assert enrollment.canSubmitGrades == false;
-    }
-
-    test("computed canSubmitGrades is false for Completed enrollment") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Completed,
-            progress: 100,
-            completedAt: DateTime.now()
-        });
-        enrollment.save();
-        assert enrollment.canSubmitGrades == false;
-    }
-
-    test("computed remainingProgress is 100 for zero progress") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Active,
-            progress: 0
-        });
-        enrollment.save();
-        assert enrollment.remainingProgress == 100;
-    }
-
-    test("validation rejects negative score on grade") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Active,
-            progress: 50
-        });
-        enrollment.save();
-        assert throws(
-        () => enrollmentDb.GradeRecord.create({
-            enrollmentId: enrollment.id,
-            moduleId: uuid(),
-            score: -10.0
-        }),
-        ValidationError(#"Score must be between {MIN_SCORE} and {MAX_SCORE}")
-        );
-    }
-
-    test("computed isCompleted is false for Active enrollment") {
-        let Enrollment enrollment = enrollmentDb.Enrollment.create({
-            studentId: uuid(),
-            courseId: uuid(),
-            status: EnrollmentStatus.Active,
-            progress: 80
-        });
-        enrollment.save();
-        assert enrollment.isCompleted == false;
-    }
-
 }

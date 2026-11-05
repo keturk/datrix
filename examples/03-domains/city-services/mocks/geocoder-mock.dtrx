@@ -1,0 +1,80 @@
+// Implements the GeocoderProvider contract in the stack. It knows the addresses in its own table
+// and no others, so a walkthrough can show both answers. The Operations app shows every lookup
+// and can add an address.
+service cityservices.GeocoderMock('config/mocks/geocoder-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the address lookup vendor') {
+
+    discovery { }
+
+    rdbms geocoderDb {
+
+        /// An address the vendor recognises. The lookup key is lower case.
+        entity KnownAddress extends BaseEntity {
+            String(300) address : unique, lowercase, trim, filterable;
+            String(300) formattedAddress;
+            Float latitude;
+            Float longitude;
+        }
+
+        /// One lookup the vendor answered.
+        entity Lookup extends BaseEntity {
+            String(300) query : filterable;
+            Boolean matched : filterable;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct GeocodeRequest {
+        String(300) query;
+    }
+
+    struct GeocodeResult {
+        Boolean matched;
+        Float? latitude;
+        Float? longitude;
+        String(300)? formattedAddress;
+    }
+
+    // The vendor's public API: exactly the GeocoderProvider contract.
+    rest_api GeocoderAPI : basePath('/v1'), rdbms(geocoderDb) {
+        @path('/geocode')
+        post(GeocodeRequest request) : auth(required, providers: [geocoderKeys]) -> GeocodeResult {
+            let KnownAddress? known = KnownAddress.where(address: request.query.trim().toLowerCase()).first();
+            Lookup.create({ query: request.query, matched: known != null });
+            if (known == null) {
+                return GeocodeResult { matched: false };
+            }
+            return GeocodeResult {
+                matched: true,
+                latitude: known.latitude,
+                longitude: known.longitude,
+                formattedAddress: known.formattedAddress
+            };
+        }
+    }
+
+    // What the Operations app shows and changes.
+    rest_api GeocoderDeskAPI : basePath('/api/v1/desk/geocoder'), rdbms(geocoderDb) {
+        resource Lookup : only(list), auth(required, providers: [identity], roles: [operator]);
+        resource KnownAddress : only(list, create, delete), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a known address keeps its lower-case key") {
+        let KnownAddress known = geocoderDb.KnownAddress.create({
+            address: "12 Harbor Street",
+            formattedAddress: "12 Harbor Street, Port Alder",
+            latitude: 47.6,
+            longitude: -122.3
+        });
+        assert known.address == "12 harbor street";
+    }
+}

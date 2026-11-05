@@ -1,0 +1,37 @@
+// The contract of the identity check vendor. config/providers/kyc-provider.dcfg says where it is
+// served.
+extern service finance.KycProvider('config/providers/kyc-provider.dcfg')
+    : version('1.0.0'), description('Identity checks for new customers') {
+
+    enum CheckOutcome {
+        Clear,
+        Review,
+        Declined
+    }
+
+    struct CreateCheckRequest {
+        String(200) fullName;
+        Date dateOfBirth;
+        String(40) documentNumber;
+    }
+
+    struct Check {
+        String(40) id;
+        CheckOutcome outcome;
+        String(200)? reason;
+    }
+
+    rest_api KycAPI : basePath('/v1') {
+        @path('/checks')
+        post createCheck(CreateCheckRequest request) -> Check {
+            ensure request.documentNumber != "";
+        }
+    }
+
+    errors {
+        BadDocument(String message);
+    }
+
+    auth : apiKey(header: 'X-Kyc-Api-Key');
+    health : path('/health');
+}

@@ -1,7 +1,19 @@
 include 'common.dtrx';
-include 'student-service.dtrx';
+include 'ui.dtrx';
+include 'providers/payment-provider.dtrx';
+include 'providers/email-provider.dtrx';
+include 'providers/model-provider.dtrx';
 include 'course-service.dtrx';
 include 'enrollment-service.dtrx';
+include 'tutor-service.dtrx';
+include 'mocks/payment-mock.dtrx';
+include 'mocks/email-mock.dtrx';
+include 'mocks/model-mock.dtrx';
+include 'student-app.dtrx';
+include 'instructor-app.dtrx';
 
-system lms.System('config/system.dcfg') : version('1.0.0') {
+/// Larkhill Academy: a student finds a course, pays for it, reads each lesson and answers its question,
+/// asks a tutor when stuck, and gets a certificate or, if an instructor agrees, their money back. The card
+/// vendor, the email vendor and the model behind the tutor run as mocks in the same stack.
+system lms.System('config/system.dcfg') : version('2.0.0') {
 }

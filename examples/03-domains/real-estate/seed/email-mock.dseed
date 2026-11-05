@@ -1,0 +1,12 @@
+// The key the services present to the email vendor. The key itself is the development default of their
+// secret; the vendor stores only its SHA-256 hash.
+seed service realestate.EmailMock {
+  rdbms emailDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                 keyHash,                                                            ownerId,                    scopes,                isActive;
+        @uuid("email-key"), "8ebb0f49fb77982872cbe7909a416457f2e847b42cfc3cbb84abdeede8163761", @uuid("owner-cobblestone"), ["deliveries:write"], true;
+      }
+    }
+  }
+}

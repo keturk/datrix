@@ -1,7 +1,19 @@
 include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/mortgage-provider.dtrx';
+include 'providers/signature-provider.dtrx';
+include 'providers/email-provider.dtrx';
 include 'listing-service.dtrx';
 include 'viewing-service.dtrx';
-include 'contract-service.dtrx';
+include 'deal-service.dtrx';
+include 'mocks/mortgage-mock.dtrx';
+include 'mocks/signature-mock.dtrx';
+include 'mocks/email-mock.dtrx';
+include 'homes-app.dtrx';
+include 'console-app.dtrx';
 
-system realestate('config/system.dcfg') : version('1.0.0') {
+/// Cobblestone Homes: anyone can search the homes for sale; a buyer books a viewing and makes an offer, with
+/// a lender's pre-approval if they need one; an agent accepts one offer, and the contract goes out for
+/// signature. The lender, the e-signature vendor and the email vendor run as mocks in the same stack.
+system realestate.System('config/system.dcfg') : version('2.0.0') {
 }

@@ -1,0 +1,221 @@
+from social.ui import Brand, statRow;
+
+/// The Trust and Safety desk: what is waiting for a person, what people have reported, who is suspended, and what
+/// the mock vendors did. Every page needs the moderator role.
+app social.Desk('config/desk-app.dcfg') : version('2.0.0') {
+    uses social.PeopleService;
+    uses social.PostService;
+    uses social.ModerationMock;
+    uses social.PushMock;
+    uses social.EmailMock;
+
+    theme extends Brand { }
+
+    fn approvePost(UUID id) {
+        PostService.PostDeskAPI.post.approve(id: id);
+        Ui.toast(Msg.approved, tone: success);
+    }
+
+    fn removePost(UUID id) {
+        PostService.PostDeskAPI.post.remove(id: id);
+        Ui.toast(Msg.removed, tone: info);
+    }
+
+    fn upholdReport(UUID id) {
+        PostService.PostDeskAPI.post.uphold(id: id);
+        Ui.toast(Msg.upheld, tone: info);
+    }
+
+    fn dismissReport(UUID id) {
+        PostService.PostDeskAPI.post.dismiss(id: id);
+        Ui.toast(Msg.dismissed, tone: success);
+    }
+
+    fn suspendPerson(String handle) {
+        PeopleService.PeopleDeskAPI.post.suspend(handle: handle);
+        Ui.toast(Msg.suspended, tone: info);
+    }
+
+    fn restorePerson(String handle) {
+        PeopleService.PeopleDeskAPI.post.restore(handle: handle);
+        Ui.toast(Msg.restored, tone: success);
+    }
+
+    layout Shell : default {
+        nav {
+            link Dashboard : icon(dashboard), group(Msg.navWork);
+            link Posts : icon(fact_check), group(Msg.navWork);
+            link Reports : icon(flag), group(Msg.navWork);
+            link People : icon(group), group(Msg.navWork);
+            link Reviews : icon(policy), group(Msg.navVendors);
+            link Pushes : icon(notifications), group(Msg.navVendors);
+            link Outbox : icon(mail), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Dashboard() {
+        data { summary = PostService.PostDeskAPI.get.summary() : poll(20s); }
+        view {
+            pageHeader(Msg.dashboardTitle, Msg.dashboardSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statHeld, Fmt.number(summary.held)) : icon(hourglass_top), tone(warning);
+                stat(Msg.statReports, Fmt.number(summary.openReports)) : icon(flag), tone(danger);
+                stat(Msg.statToday, Fmt.number(summary.publishedToday)) : icon(today), tone(success);
+                stat(Msg.statRemoved, Fmt.number(summary.removedThisWeek)) : icon(delete);
+            }
+            when (summary.held > 0) {
+                callout(Msg.heldNotice) : tone(warning) { link(Msg.seePosts, Posts) : kind(primary); }
+            }
+            when (summary.openReports > 0) {
+                callout(Msg.reportsNotice) : tone(danger) { link(Msg.seeReports, Reports) : kind(primary); }
+            }
+        }
+    }
+
+    @path('/posts')
+    page Posts() {
+        view {
+            pageHeader(Msg.postsTitle, Msg.postsSubtitle);
+            table(PostList);
+        }
+    }
+
+    table PostList : source(PostService.PostDeskAPI.postDb.Post.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column authorName;
+        column authorHandle;
+        column body;
+        column status;
+        column heldReason;
+        column likes : format(number);
+        filter authorName : live;
+        filter authorHandle;
+        filter status;
+        rowAction approve : onClick(approvePost(row.id));
+        rowAction remove : onClick(removePost(row.id));
+    }
+
+    @path('/reports')
+    page Reports() {
+        view {
+            pageHeader(Msg.reportsTitle, Msg.reportsSubtitle);
+            table(ReportList);
+        }
+    }
+
+    table ReportList : source(PostService.PostDeskAPI.postDb.Report.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column excerpt;
+        column authorHandle;
+        column reason;
+        column status;
+        column reporterHandle;
+        filter authorHandle;
+        filter reason;
+        filter status;
+        rowAction uphold : onClick(upholdReport(row.id));
+        rowAction dismiss : onClick(dismissReport(row.id));
+    }
+
+    @path('/people')
+    page People() {
+        view {
+            pageHeader(Msg.peopleTitle, Msg.peopleSubtitle);
+            table(PersonList);
+        }
+    }
+
+    table PersonList : source(PeopleService.PeopleDeskAPI.peopleDb.Profile.list), pageSizes(10, 25, 50), poll(60s) {
+        column handle;
+        column displayName;
+        column followers : format(number);
+        column following : format(number);
+        column isSuspended;
+        column createdAt : format(date);
+        filter handle : live;
+        filter displayName;
+        filter isSuspended;
+        rowAction suspend : onClick(suspendPerson(row.handle));
+        rowAction restore : onClick(restorePerson(row.handle));
+    }
+
+    @path('/vendors/moderation')
+    page Reviews() {
+        view {
+            pageHeader(Msg.reviewsTitle, Msg.reviewsSubtitle);
+            table(ReviewList);
+        }
+    }
+
+    table ReviewList : source(ModerationMock.ModerationDeskAPI.moderationDb.VendorReview.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column excerpt;
+        column verdict;
+        column reason;
+        filter verdict;
+    }
+
+    @path('/vendors/push')
+    page Pushes() {
+        view {
+            pageHeader(Msg.pushesTitle, Msg.pushesSubtitle);
+            table(PushList);
+        }
+    }
+
+    table PushList : source(PushMock.PushDeskAPI.pushDb.SentPush.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column title;
+        column body;
+        column status;
+        filter title;
+        filter status;
+    }
+
+    @path('/vendors/outbox')
+    page Outbox() {
+        view {
+            pageHeader(Msg.outboxTitle, Msg.outboxSubtitle);
+            table(OutboxList);
+        }
+    }
+
+    table OutboxList : source(EmailMock.EmailDeskAPI.emailDb.Outbound.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column body;
+        column status;
+        filter recipient;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.backHome, Dashboard); }
+        }
+    }
+
+    test("the posts page opens") {
+        let Screen screen = render(Posts);
+        assert screen.shows(Msg.postsTitle);
+    }
+}

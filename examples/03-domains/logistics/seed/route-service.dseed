@@ -1,0 +1,20 @@
+// One route already out, driven by Ines, and the parcels still waiting for a place on a van.
+seed service logistics.RouteService {
+  rdbms routeDb {
+    baseline {
+      DeliveryRoute table on(id) {
+        id,                  name,          runsOn,                status, driverName,    driverEmail,                 vehicleName,      vehicleId,          stopCount, doneCount, loadKg, capacityKg, distanceKm;
+        @uuid("route-today"), "East side run", @datetime("+0d 08:00"), Out,    "Ines Calder", "ines@quayline.example.com", "Long wheelbase", @uuid("van-north"), 3,         0,         18.7,   1200.0,     41.3;
+      }
+      Stop table on(shipmentId) {
+        id,                 shipmentId,         trackingNumber,  recipientName,   address,              city,        weightKg, status,    sequence, routeId,              latitude, longitude;
+        @uuid("stop-noor"), @uuid("ship-noor"), "QL-RP6T3VJ9KS", "Noor Haddad",   "3 Canyon Court",     "Beaverton", 2.2,      OnTheRoad, 1,        @uuid("route-today"), 45.487,   -122.803;
+        @uuid("stop-mara"), @uuid("ship-mara"), "QL-7KM2PQ9XTR", "Mara Oyelaran", "12 Alder Street",    "Portland",  4.5,      OnTheRoad, 2,        @uuid("route-today"), 45.521,   -122.681;
+        @uuid("stop-theo"), @uuid("ship-theo"), "QL-H4WNC8ZD3B", "Theo Marsh",    "88 Burnside Road",   "Gresham",   12.0,     OnTheRoad, 3,        @uuid("route-today"), 45.498,   -122.431;
+        @uuid("stop-lena"), @uuid("ship-lena"), "QL-Y9DX2MB7QF", "Lena Sorrel",   "41 Main Street",     "Hillsboro", 6.0,      Waiting,   0,        null,                 45.523,   -122.989;
+        @uuid("stop-owen"), @uuid("ship-owen"), "QL-C3GH8NW5ZL", "Owen Park",     "7 Pacific Highway",  "Tigard",    31.5,     Waiting,   0,        null,                 45.431,   -122.771;
+        @uuid("stop-ruth"), @uuid("ship-ruth"), "QL-T5LF9RK2HE", "Ruth Ellery",   "19 Division Street", "Portland",  8.8,      Waiting,   0,        null,                 45.505,   -122.640;
+      }
+    }
+  }
+}

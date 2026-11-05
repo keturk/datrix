@@ -1,150 +1,33 @@
 ﻿config service cityservices.DistrictService {
-  template standardCachePolicy() {
-    availability = "required";
-    health = "ready";
-    operations {
-      read       { onFailure = "raise"; }
-      write      { onFailure = "raise"; }
-    }
-  }
+  import "config/templates/infrastructure.dcfg";
 
   base {
     port = 8001;
-    flavor = "compose";
     replicas = 1;
-    resources {
-      requests {
-        cpu = "100m";
-        memory = "256Mi";
-      }
-      limits {
-        cpu = "500m";
-        memory = "512Mi";
-      }
-    }
     healthCheck {
       path = "/health";
       initialDelay = "10s";
     }
-    rdbms districtDb {
-      id = "f4c6cf3e-c0de-432c-8fcb-7cf9831d29f5";
-      engine = "postgres";
-      flavor = "container";
-      host = "localhost";
-      port = 5432;
-      database = "cityservices_districts";
-      poolSize = 20;
-      maxOverflow = 20;
-      ssl = false;
-      healthCheckSql = "SELECT 1";
-      dockerImage = "postgis/postgis:17-3.5";
-      volumePath = "/var/lib/postgresql/data";
-      defaultUser = "postgres";
-    }
-    cache redis {
-      engine = "redis";
-      flavor = "container";
-      host = "localhost";
-      port = 6379;
-      dockerImage = "redis:7";
-      volumePath = "/data";
-      healthCheckCmd = "redis-cli ping";
-    }
-    pubsub mq {
-      engine = "kafka";
-      flavor = "container";
-      brokers = ["localhost:9092"];
-      partitions = 3;
-      replicationFactor = 1;
-      port = 9092;
-      dockerImage = "confluentinc/cp-kafka:7.6.0";
-      volumePath = "/var/lib/kafka/data";
-      retention = "7d";
-      controllerPort = 9093;
-    }
-    registration {
-      tags = ["api", "cityservices", "districts", "v1"];
-      meta = {};
-      healthCheck {
-        type = "http";
-        path = "/health";
-        interval = "10s";
+    rdbms districtDb from postgisContainer(id: "f4c6cf3e-c0de-432c-8fcb-7cf9831d29f5", database: "cityservices_district");
+    httpSecurity from localHttpSecurity(host: "cityservices-district-service");
+    serviceCredentialOps from machineCredential();
+    jobs {
+      jobs {
+        ConvertBoundaries {
+          schedule = "* * * * *";
+          timeout = "60s";
+        }
       }
     }
     resilience {
       defaults {
         timeout = "10s";
-        retry {
-          maxAttempts = 2;
-          backoff {
-            type = "exponential";
-            initial = "100ms";
-            multiplier = 2;
-          }
-        }
       }
       dependencyPolicy {
         defaults {
-          cache from standardCachePolicy();
+          rdbms from standardDatabasePolicy();
         }
       }
-    }
-    httpSecurity {
-      allowedHosts = ["district-service.example.com", "localhost"];
-      corsOrigins = ["https://app.example.com"];
-      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
-      corsHeaders = ["Authorization", "Content-Type"];
-    }
-    cacheOps {
-      ttlSeconds = 300;
-      keyMaxLength = 100;
-      redisPoolSize = 10;
-    }
-    queueOps {
-      sqsPollWaitSeconds = 20;
-      sqsMaxMessagesPerPoll = 10;
-      servicebusMaxWaitSeconds = 5;
-    }
-    kafkaOps {
-      consumerPollTimeoutMs = 1000;
-      keepalivePollTimeoutMs = 1000;
-      maxPollIntervalMs = 600000;
-    }
-    messagingOps {
-      rabbitmqPrefetchCount = 10;
-    }
-    downloadOps {
-      timeoutSeconds = 300;
-      chunkSizeBytes = 65536;
-      maxRetries = 3;
-      retryDelaySeconds = 1.0;
-      retryableStatusCodes = [429, 500, 502, 503, 504];
-    }
-    remoteConfigOps {
-      consulTimeoutSeconds = 5.0;
-      appconfigMinPollSeconds = 15;
-    }
-    rateLimitOps {
-      windowSeconds = 60;
-    }
-    microserviceClientOps {
-      timeoutSeconds = 300;
-      circuitBreakerFailMax = 5;
-      circuitBreakerResetSeconds = 30;
-      bulkheadMaxConcurrent = 10;
-      integrationConnectTimeoutMs = 1000;
-      integrationReadTimeoutMs = 30000;
-      mailgunTimeoutSeconds = 30;
-    }
-    retryBudgetOps {
-      window = 100;
-      ratio = 0.1;
-    }
-    outboxOps {
-      flushBatchSize = 500;
-    }
-    serviceCredentialOps {
-      tokenExpirySkewSeconds = 30;
     }
   }
 
@@ -161,24 +44,5 @@
   profile production as "prod" extends base {
     alias env = "PROD";
     alias resource = "prod";
-
-    flavor = "ecs-fargate";
-    replicas = 2;
-    replace rdbms districtDb {
-      id = "f4c6cf3e-c0de-432c-8fcb-7cf9831d29f5";
-      engine = "postgres";
-      flavor = "rds";
-      host = "postgres.internal";
-      database = "cityservices_districts";
-      poolSize = 40;
-      maxOverflow = 20;
-      ssl = true;
-      healthCheckSql = "SELECT 1";
-    }
-    strategy {
-      rolling {
-        maxUnavailable = "25%";
-      }
-    }
   }
 }

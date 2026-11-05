@@ -1,0 +1,76 @@
+// Implements the ChatProvider contract in the stack: every message lands in a channel the app shows, and
+// nothing leaves the machine. A channel named `closed` refuses messages, to show what happens when a vendor
+// says no: the notice stays undelivered and is tried again.
+service taskapp.ChatMock('config/mocks/chat-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the team chat vendor') {
+
+    discovery { }
+
+    exceptions {
+        ChannelClosedError : status(410), message("That channel is closed");
+    }
+
+    rdbms chatDb {
+
+        /// A message the vendor accepted.
+        entity ChannelPost extends BaseEntity {
+            String(80) channel : filterable;
+            String(2000) text;
+            String(40) messageId : unique;
+            String(120) idempotencyKey : unique;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct PostMessageRequest {
+        String(2000) text;
+        String(120) idempotencyKey;
+    }
+
+    struct PostedMessage {
+        String(40) id;
+        String(80) channel;
+    }
+
+    /// The channel that shows what a refusal looks like.
+    const CLOSED_CHANNEL = "closed";
+
+    // The vendor's public API: exactly the ChatProvider contract.
+    rest_api ChatAPI : basePath('/v1'), rdbms(chatDb) {
+        @path('/channels/:channel/messages')
+        post postMessage(String channel, PostMessageRequest request) : auth(required, providers: [chatKeys]) -> PostedMessage {
+            if (channel == CLOSED_CHANNEL) {
+                throw ChannelClosedError();
+            }
+            let ChannelPost? existing = ChannelPost.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return PostedMessage { id: existing.messageId, channel: existing.channel };
+            }
+            let ChannelPost created = ChannelPost.create({
+                channel: channel,
+                text: request.text,
+                messageId: #"msg_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey
+            });
+            return PostedMessage { id: created.messageId, channel: created.channel };
+        }
+    }
+
+    // What the app shows: every message.
+    rest_api ChatDeskAPI : basePath('/api/v1/desk/chat'), rdbms(chatDb) {
+        resource ChannelPost : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("the closed channel is known") {
+        assert CLOSED_CHANNEL == "closed";
+    }
+}

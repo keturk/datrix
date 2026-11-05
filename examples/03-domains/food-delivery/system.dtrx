@@ -1,8 +1,20 @@
 include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/payment-provider.dtrx';
+include 'providers/route-provider.dtrx';
+include 'providers/sms-provider.dtrx';
 include 'restaurant-service.dtrx';
-include 'menu-service.dtrx';
 include 'order-service.dtrx';
 include 'delivery-service.dtrx';
+include 'mocks/payment-mock.dtrx';
+include 'mocks/route-mock.dtrx';
+include 'mocks/sms-mock.dtrx';
+include 'customer-app.dtrx';
+include 'kitchen-app.dtrx';
+include 'driver-app.dtrx';
 
-system fooddelivery('config/system.dcfg') : version('1.0.0') {
+/// Saltbox: three audiences around one order. A customer orders from a phone, a kitchen moves it
+/// across a board, and a driver takes it to the door. Card payments, routes and texts belong to
+/// outside vendors, played here by mocks in the same stack.
+system fooddelivery.System('config/system.dcfg') : version('2.0.0') {
 }

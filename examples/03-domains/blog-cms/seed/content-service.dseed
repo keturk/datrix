@@ -1,0 +1,33 @@
+// A site that reads like a real one on first start: three sections, published articles dated
+// relative to the seed run so they always look recent, and one article waiting for each stage of
+// the workflow so the Studio has something to act on.
+seed service blog.ContentService {
+  rdbms contentDb {
+    reference {
+      Category table on(slug) {
+        id,                     name,        slug,        description;
+        @uuid("cat-coasts"),    "Coasts",    "coasts",    "Tides, harbours and shifting shorelines.";
+        @uuid("cat-maps"),      "Maps",      "maps",      "How places get drawn, and redrawn.";
+        @uuid("cat-farming"),   "Farming",   "farming",   "Small farms and what they keep alive.";
+      }
+    }
+    baseline {
+      Post table on(slug) {
+        id,                     authorId,                  authorName,        title,                                    slug,                       excerpt,                                                    body,                                                                                                                                                                                                                  status,    publishedAt,          scheduledFor,      readingMinutes, commentCount, version, categoryId;
+        @uuid("post-tide"),     @ref("seed:writer-mina"),  "Mina Okafor",     "The Town That Moved Inland",             "the-town-that-moved",      "A harbour town picked itself up, one street at a time.",    "# The Town That Moved Inland\n\nWhen the sea wall failed for the third time, the harbour council stopped asking how to hold the water back.\n\nThey asked how far back the town could go instead, and started with the school.",        Published, @datetime("-12d 09:00"), null,              3,              2,            1,       @uuid("cat-coasts");
+        @uuid("post-gauge"),    @ref("seed:writer-mina"),  "Mina Okafor",     "Reading a Tide Gauge by Hand",           "reading-a-tide-gauge",     "Automatic sensors drift. The old painted staff does not.",  "# Reading a Tide Gauge by Hand\n\nEvery morning for forty years, the same keeper has walked out to a painted staff.\n\nHer notebook is now the check against every sensor on the estuary.",                                           Published, @datetime("-5d 09:00"),  null,              2,              1,            1,       @uuid("cat-coasts");
+        @uuid("post-river"),    @ref("seed:writer-tomas"), "Tomas Lindqvist", "The River That Is Not on the Map",       "river-not-on-the-map",     "A survey line, an old error and a stream that was there.",  "# The River That Is Not on the Map\n\nThe survey line crossed dry ground on paper and wet boots in practice.\n\nThe error went back to one sheet from 1911, copied faithfully ever since.",                                         Published, @datetime("-9d 09:00"),  null,              4,              0,            1,       @uuid("cat-maps");
+        @uuid("post-seeds"),    @ref("seed:writer-priya"), "Priya Raman",     "A Seed Bank in a Barn",                  "seed-bank-in-a-barn",      "Three generations, eleven hundred jars, one cold room.",    "# A Seed Bank in a Barn\n\nThe labels are in three hands and two languages.\n\nNo catalogue exists outside the barn, which is the problem the family is finally starting to solve.",                                                  Published, @datetime("-2d 09:00"),  null,              3,              0,            1,       @uuid("cat-farming");
+        @uuid("post-review"),   @ref("seed:writer-priya"), "Priya Raman",     "What Rotation Is Really For",            "what-rotation-is-for",     "Crop rotation, explained by the people who still do it.",   "# What Rotation Is Really For\n\nAsk ten growers and you get ten answers, and most of them are about weeds rather than soil.",                                                                                                         InReview,  null,                 null,              2,              0,            1,       @uuid("cat-farming");
+        @uuid("post-draft"),    @ref("seed:writer-tomas"), "Tomas Lindqvist", "Notes on a Boundary Stone",              "notes-on-a-boundary-stone", "Draft: a stone, two parishes and a very old argument.",     "# Notes on a Boundary Stone\n\nStill checking the parish records before this goes to review.",                                                                                                                                         Draft,     null,                 null,              1,              0,            1,       @uuid("cat-maps");
+        @uuid("post-sched"),    @ref("seed:writer-mina"),  "Mina Okafor",     "The Last Ferry Timetable",               "the-last-ferry-timetable", "The bridge opens next month. The ferry keeps sailing.",     "# The Last Ferry Timetable\n\nThe crew have printed one more season of timetables, bridge or no bridge.",                                                                                                                              Scheduled, null,                 @datetime("+3d 08:00"), 2,              0,            1,       @uuid("cat-coasts");
+      }
+      PostRevision table on(postId, version) {
+        id,                     postId,               version, title,                                 body,                                                      editedBy;
+        @uuid("rev-tide-1"),    @uuid("post-tide"),   1,       "The Town That Moved Inland",          "First saved version.",                                    @ref("seed:writer-mina");
+        @uuid("rev-review-1"),  @uuid("post-review"), 1,       "What Rotation Is Really For",         "First saved version.",                                    @ref("seed:writer-priya");
+        @uuid("rev-draft-1"),   @uuid("post-draft"),  1,       "Notes on a Boundary Stone",           "First saved version.",                                    @ref("seed:writer-tomas");
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+// Two projects with a team on each. Maya owns the website, Sam owns the launch and Priya only reads the
+// website, which shows what a viewer cannot do. Nobody else can see either project. Sign up with one of these
+// addresses to step in.
+seed service taskapp.ProjectService {
+  rdbms projectDb {
+    baseline {
+      Project table on(code) {
+        id,                  name,            code,   summary,                                                state,  chatChannel, nextNumber;
+        @uuid("proj-web"),   "New website",   "WEB",  "The public site, rebuilt in time for the spring push.", Active, "website",   7;
+        @uuid("proj-launch"), "Spring launch", "LCH", "Everything that has to be ready on launch day.",        Active, "launch",    4;
+      }
+      Member table on(id) {
+        id,                   projectId,            personName,   email,                         role;
+        @uuid("m-web-maya"),  @uuid("proj-web"),    "Maya Ortiz", "maya@millrace.example.com",   Owner;
+        @uuid("m-web-sam"),   @uuid("proj-web"),    "Sam Whitley", "sam@millrace.example.com",   Editor;
+        @uuid("m-web-priya"), @uuid("proj-web"),    "Priya Nair", "priya@millrace.example.com",  Viewer;
+        @uuid("m-lch-sam"),   @uuid("proj-launch"), "Sam Whitley", "sam@millrace.example.com",   Owner;
+        @uuid("m-lch-maya"),  @uuid("proj-launch"), "Maya Ortiz", "maya@millrace.example.com",   Editor;
+      }
+      Milestone table on(id) {
+        id,                projectId,            name,              dueAt,                 isDone;
+        @uuid("ms-design"), @uuid("proj-web"),    "Design signed off", @datetime("-9d 17:00"),  true;
+        @uuid("ms-beta"),   @uuid("proj-web"),    "Beta for the team", @datetime("+6d 17:00"),  false;
+        @uuid("ms-live"),   @uuid("proj-web"),    "Site goes live",  @datetime("+21d 09:00"), false;
+        @uuid("ms-launch"), @uuid("proj-launch"), "Launch day",      @datetime("+28d 09:00"), false;
+      }
+    }
+  }
+}

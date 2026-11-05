@@ -1,798 +1,319 @@
+from iot.common import DeviceStatus;
 
-from iot.common import DEFAULT_ALERT_COOLDOWN_MINUTES;
+// Readings and alerts. Every reading goes into a document store built for a lot of small writes, the
+// latest one into a cache, and one out of range opens an alert and pages someone. A device back in
+// range closes an alert nobody has taken yet. A real device reports with its own API key.
+service iot.TelemetryService('config/telemetry-service.dcfg') : version('2.0.0'), description('Readings and alerts') {
 
-service iot.TelemetryService('config/telemetry-service.dcfg') : version('1.0.0'), description('telemetry data collection and alert management service') {
-    discovery {
-        DeviceService { loadBalance: roundRobin, healthyOnly: true }
+    discovery { }
+
+    uses DeviceService;
+    uses PagerProvider;
+
+    exceptions {
+        AlreadyClaimedError : status(409), message("Someone else has already taken this alert");
+        AlreadyResolvedError : status(409), message("This alert is already resolved");
     }
 
-    enum AlertSeverity {
-        Info,
-        Warning,
-        Error,
-        Critical
+    enum AlertKind {
+        TooWarm : tone(danger),
+        TooCold : tone(info),
+        DeviceOffline : tone(warning)
     }
 
     enum AlertStatus {
-        Active,
-        Acknowledged,
-        Resolved
-    }
-
-    enum ComparisonOperator {
-        GreaterThan,
-        LessThan,
-        Equals,
-        GreaterOrEqual,
-        LessOrEqual
-    }
-
-    struct IngestTelemetryRequest {
-        UUID deviceId;
-        Decimal? temperature;
-        Decimal? humidity;
-        Decimal? pressure;
-        Int? batteryLevel;
-        Int? signalStrength;
-        JSON metadata;
-    }
-
-    struct CreateAlertRuleRequest {
-        UUID? deviceId;
-        UUID? deviceGroupId;
-        String(100) metricName;
-        ComparisonOperator operator;
-        Decimal threshold;
-        AlertSeverity severity;
-    }
-
-    struct AcknowledgeAlertRequest {
-        String? notes;
-    }
-
-    struct TelemetrySummary {
-        UUID deviceId;
-        Decimal? avgTemperature;
-        Decimal? avgHumidity;
-        Int? minBatteryLevel;
-        Int readingCount;
-    }
-
-    struct LatestReadings {
-        UUID deviceId;
-        Decimal? temperature;
-        Decimal? humidity;
-        Decimal? pressure;
-        Int? batteryLevel;
-        Int? signalStrength;
-        DateTime timestamp;
+        Open : tone(danger),
+        Claimed : tone(warning),
+        Resolved : tone(success)
     }
 
     nosql docdb {
+        /// One temperature reading. Nothing relational reads these; a chart does.
+        entity TelemetryReading {
+            String(40) serialNumber : index;
+            DateTime takenAt;
+            Float temperature;
+            Float? humidity;
+            Int? batteryPercent;
 
-        entity TelemetryData {
-            UUID deviceId : index;
-            DateTime timestamp = DateTime.now();
-            Decimal(6, 2)? temperature;
-            Decimal(5, 2)? humidity;
-            Decimal(8, 2)? pressure;
-            Int? batteryLevel;
-            Int? signalStrength;
-            JSON metadata;
-
-            index(deviceId, timestamp);
+            index(serialNumber, takenAt);
         }
+    }
 
-        entity DeviceLog {
-            UUID deviceId : index;
-            String(20) level;
-            Text message;
-            DateTime timestamp = DateTime.now();
-            JSON? context;
-
-            index(deviceId, timestamp);
+    cache redis {
+        hash LatestReading : prefix('latest:'), ttl(3600) {
+            String serialNumber : key;
+            Float temperature;
+            DateTime takenAt;
         }
-
     }
 
     rdbms alertDb {
 
         entity Alert extends BaseEntity {
-            UUID deviceId : index;
-            AlertSeverity severity;
-            AlertStatus status = AlertStatus.Active;
-            String(200) condition;
-            Text message;
-            DateTime triggeredAt = DateTime.now();
-            DateTime? acknowledgedAt;
+            String(120) deviceName : filterable;
+            String(120) siteName : filterable;
+            AlertKind kind : filterable;
+            AlertStatus status : filterable = AlertStatus.Open;
+            Float? temperature;
+            String(200)? claimedByName;
             DateTime? resolvedAt;
-            Text? notes;
+            String(500)? resolution;
+            String(40) serialNumber : filterable;
+            UUID deviceId : index;
 
-            Boolean isActive := status == AlertStatus.Active;
-            Boolean isCritical := severity == AlertSeverity.Critical;
-
-            index(deviceId, status);
-            index(severity, status);
-            index(triggeredAt);
-
-            validate {
-                if (condition.trim().isEmpty())
-                ValidationError("Alert condition cannot be empty");
-                if (message.trim().isEmpty())
-                ValidationError("Alert message cannot be empty");
-            }
-
-            afterCreate {
-                dispatch AlertTriggered(id, deviceId, severity, condition, message);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch AlertStatusChanged(id, deviceId, oldValue(status), status);
-                }
-
-            }
-
-            fn acknowledge(String? acknowledgeNotes) {
-                status = AlertStatus.Acknowledged;
-                acknowledgedAt = DateTime.now();
-                notes = acknowledgeNotes;
-                this.save();
-            }
-
-            fn resolve() {
-                status = AlertStatus.Resolved;
-                resolvedAt = DateTime.now();
-                this.save();
-            }
-
+            index(serialNumber, status);
         }
 
-        entity AlertRule extends BaseEntity {
-            UUID? deviceId : index;
-            UUID? deviceGroupId : index;
-            String(100) metricName;
-            ComparisonOperator operator;
-            Decimal(10, 4) threshold;
-            AlertSeverity severity;
-            Boolean isEnabled = true;
-            DateTime? lastTriggeredAt;
-
-            Boolean isDeviceRule := deviceId != null;
-            Boolean isGroupRule := deviceGroupId != null;
-
-            index(metricName, isEnabled);
-
-            validate {
-                if (metricName.trim().isEmpty())
-                ValidationError("Metric name cannot be empty");
-                if (deviceId == null && deviceGroupId == null)
-                ValidationError("Alert rule must target either a device or a device group");
-            }
-
-            fn shouldTrigger(Decimal value) -> Boolean {
-                if (!isEnabled) return false;
-
-                if (operator == ComparisonOperator.GreaterThan) return value > threshold;
-                if (operator == ComparisonOperator.LessThan) return value < threshold;
-                if (operator == ComparisonOperator.Equals) return value == threshold;
-                if (operator == ComparisonOperator.GreaterOrEqual) return value >= threshold;
-                if (operator == ComparisonOperator.LessOrEqual) return value <= threshold;
-
-                return false;
-            }
-
-            fn isInCooldown() -> Boolean {
-                if (lastTriggeredAt == null) return false;
-                return DateTime.diffInMinutes(lastTriggeredAt, DateTime.now()) < DEFAULT_ALERT_COOLDOWN_MINUTES;
-            }
-
+        /// The keys real devices report with. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
         }
-
-    }
-
-    cache redis {
-
-        hash LatestTelemetryCache : prefix('telemetry:latest:'), ttl(300) {
-            UUID deviceId : primaryKey;
-            Decimal temperature;
-            Decimal humidity;
-            Int batteryLevel;
-            DateTime timestamp;
-        }
-
-        counter TelemetryIngestCount : prefix('telemetry:ingest:'), ttl(86400);
-    }
-
-    pubsub mq {
-
-        topic TelemetryEvents {
-            publish TelemetryIngested(UUID deviceId, DateTime timestamp, JSON readings);
-            publish AlertTriggered(UUID alertId, UUID deviceId, AlertSeverity severity, String condition, String message) {
-                ensure condition.length > 0;
-                ensure message.length > 0;
-            }
-
-            publish AlertStatusChanged(UUID alertId, UUID deviceId, AlertStatus oldStatus, AlertStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-        }
-
     }
 
     subscribe DeviceEvents {
+        // A device that stops reporting is an alert in its own right.
+        on DeviceStatusChanged(UUID deviceId, String serialNumber, String deviceName, String siteName, DeviceStatus oldStatus, DeviceStatus newStatus) {
+            if (newStatus == DeviceStatus.Offline) {
+                openAlert(deviceId, serialNumber, deviceName, siteName, AlertKind.DeviceOffline, null);
+            }
+            if (oldStatus == DeviceStatus.Offline && newStatus == DeviceStatus.Online) {
+                closeUnclaimed(serialNumber, AlertKind.DeviceOffline);
+            }
+        }
+    }
 
-        on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
-            Log.info("New device registered, ready for telemetry", {
-                deviceId: deviceId,
-                serialNumber: serialNumber,
-                name: name,
-                type: type
+    struct ReadingRequest {
+        String(40) serialNumber;
+        Float temperature;
+        Float? humidity;
+        Int? batteryPercent;
+    }
+
+    /// One point on a chart.
+    struct ReadingPoint {
+        String(20) takenAt;
+        Float temperature;
+    }
+
+    struct LatestView {
+        String(40) serialNumber;
+        Float? temperature;
+    }
+
+    struct WatchDeviceRequest {
+        String(40) serialNumber;
+    }
+
+    struct ResolveAlertRequest {
+        UUID id;
+        String(500) resolution;
+    }
+
+    struct SiteAlertCount {
+        String(120) siteName;
+        Int alerts;
+    }
+
+    struct AlertSummary {
+        Int open;
+        Int claimed;
+        Int resolvedToday;
+        Array<SiteAlertCount> openBySite;
+    }
+
+    /// How a person would say it, for a page that wakes someone up.
+    fn describe(AlertKind kind) -> String {
+        if (kind == AlertKind.TooWarm) {
+            return "too warm";
+        }
+        if (kind == AlertKind.TooCold) {
+            return "too cold";
+        }
+        return "stopped reporting";
+    }
+
+    /// At most one alert of a kind is open per device, so a warm fridge pages once and not every minute.
+    fn openAlert(UUID deviceId, String serialNumber, String deviceName, String siteName, AlertKind kind, Float? temperature) {
+        let alertDb.Alert? existing = alertDb.Alert.where(serialNumber: serialNumber, kind: kind).whereIn(status: [AlertStatus.Open, AlertStatus.Claimed]).first();
+        if (existing != null) {
+            return;
+        }
+        let alertDb.Alert created = alertDb.Alert.create({
+            deviceId: deviceId,
+            serialNumber: serialNumber,
+            deviceName: deviceName,
+            siteName: siteName,
+            kind: kind,
+            temperature: temperature
+        });
+        try {
+            PagerProvider.PagerAPI.post.sendPage(SendPageRequest {
+                severity: kind == AlertKind.DeviceOffline ? "warning" : "critical",
+                title: #"{deviceName} at {siteName}: {describe(kind)}",
+                body: temperature != null ? #"Last reading {Math.round(temperature, 1)} degrees" : "No readings for five minutes",
+                idempotencyKey: #"alert-{created.id}"
             });
+        } catch (Exception e) {
+            Log.warn("Page not sent", { alertId: created.id });
+        }
+    }
+
+    fn closeUnclaimed(String serialNumber, AlertKind kind) {
+        let Array<alertDb.Alert> open = alertDb.Alert.where(serialNumber: serialNumber, kind: kind, status: AlertStatus.Open).limit(10).all();
+        foreach alert in open {
+            alert.status = AlertStatus.Resolved;
+            alert.resolvedAt = DateTime.now();
+            alert.resolution = "Back to normal without anyone stepping in";
+            alert.save();
+        }
+    }
+
+    fn recordReading(ReadingRequest request) {
+        let DeviceCard card = DeviceService.DeviceCardAPI.post.seen({ serialNumber: request.serialNumber });
+        let DateTime now = DateTime.now();
+        docdb.TelemetryReading.insert({
+            serialNumber: request.serialNumber,
+            takenAt: now,
+            temperature: request.temperature,
+            humidity: request.humidity,
+            batteryPercent: request.batteryPercent
+        });
+        redis.LatestReading.set(request.serialNumber, {
+            serialNumber: request.serialNumber,
+            temperature: request.temperature,
+            takenAt: now
+        });
+        if (request.temperature > card.maxTemperature) {
+            openAlert(card.id, card.serialNumber, card.name, card.siteName, AlertKind.TooWarm, request.temperature);
+        } else if (request.temperature < card.minTemperature) {
+            openAlert(card.id, card.serialNumber, card.name, card.siteName, AlertKind.TooCold, request.temperature);
+        } else {
+            closeUnclaimed(card.serialNumber, AlertKind.TooWarm);
+            closeUnclaimed(card.serialNumber, AlertKind.TooCold);
+        }
+    }
+
+    // What a real device calls, with its own key.
+    rest_api DeviceIngestAPI : basePath('/api/v1/ingest'), rdbms(alertDb) {
+        @path('/readings')
+        post reading(ReadingRequest request) : auth(required, providers: [deviceKeys]) -> Void {
+            recordReading(request);
+        }
+    }
+
+    // What the simulated fleet calls. Only a service with a machine credential reaches this.
+    rest_api SimulatorIngestAPI : basePath('/api/v1/internal/ingest'), rdbms(alertDb) {
+        @path('/readings')
+        post simulatedReading(ReadingRequest request) : auth(service, providers: [machine]) -> Void {
+            recordReading(request);
+        }
+    }
+
+    // What people read and do.
+    rest_api AlertAPI : basePath('/api/v1/alerts'), rdbms(alertDb) {
+        resource Alert : only(list, get), auth(required, providers: [identity], roles: [opsLead, technician]);
+
+        @path('/queue')
+        get queue() : auth(required, providers: [identity], roles: [opsLead, technician]) -> Array<Alert> {
+            return Alert.whereIn(status: [AlertStatus.Open, AlertStatus.Claimed]).orderBy(createdAt: desc).limit(100).all();
         }
 
-        on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
-            if (newStatus == DeviceStatus.Decommissioned) {
-                let Array<Alert> activeAlerts = alertDb.Alert
-                .where(deviceId: deviceId)
-                .where(status: AlertStatus.Active)
-                .all();
-
-                foreach alert in activeAlerts {
-                    alert.resolve();
-                    Log.info("Auto-resolved alert for decommissioned device", {
-                        alertId: alert.id,
-                        deviceId: deviceId
-                    });
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [opsLead, technician]) -> AlertSummary {
+            let Array<Alert> live = Alert.whereIn(status: [AlertStatus.Open, AlertStatus.Claimed]).limit(1000).all();
+            let Array<SiteAlertCount> bySite = [];
+            foreach alert in live {
+                let Int found = bySite.findIndex(c => c.siteName == alert.siteName);
+                if (found < 0) {
+                    bySite = bySite.append(SiteAlertCount { siteName: alert.siteName, alerts: live.filter(a => a.siteName == alert.siteName).length });
                 }
-
             }
-
-            if (newStatus == DeviceStatus.Inactive) {
-                redis.LatestTelemetryCache.delete(deviceId);
-            }
-
-        }
-
-        on DeviceHeartbeat(UUID deviceId, String serialNumber, String firmwareVersion) {
-            Log.debug("Device heartbeat received in telemetry service", {
-                deviceId: deviceId,
-                serialNumber: serialNumber,
-                firmwareVersion: firmwareVersion
-            });
-        }
-
-    }
-
-    subscribe TelemetryEvents {
-
-        on TelemetryIngested(UUID deviceId, DateTime timestamp, JSON readings) {
-            Log.info("Telemetry ingested", {
-                deviceId: deviceId,
-                timestamp: timestamp
-            });
-        }
-
-        on AlertTriggered(UUID alertId, UUID deviceId, AlertSeverity severity, String condition, String message) {
-            Log.info("Alert triggered", {
-                alertId: alertId,
-                deviceId: deviceId,
-                severity: severity,
-                condition: condition
-            });
-
-            if (severity == AlertSeverity.Critical) {
-                Log.error("CRITICAL alert triggered", {
-                    alertId: alertId,
-                    deviceId: deviceId,
-                    message: message
-                });
-            }
-
-        }
-
-        on AlertStatusChanged(UUID alertId, UUID deviceId, AlertStatus oldStatus, AlertStatus newStatus) {
-            Log.info("Alert status changed", {
-                alertId: alertId,
-                deviceId: deviceId,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-        }
-
-    }
-
-    rest_api TelemetryAPI : basePath('/api/v1/telemetry'), rdbms(alertDb) {
-
-        @path('/ingest')
-        post ingestTelemetry(IngestTelemetryRequest request) : auth(service, providers: [platform]) -> JSON {
-            docdb.TelemetryData.insert({
-                deviceId: request.deviceId,
-                timestamp: DateTime.now(),
-                temperature: request.temperature,
-                humidity: request.humidity,
-                pressure: request.pressure,
-                batteryLevel: request.batteryLevel,
-                signalStrength: request.signalStrength,
-                metadata: request.metadata
-            });
-
-            if (request.temperature != null || request.humidity != null || request.batteryLevel != null) {
-                redis.LatestTelemetryCache.set(request.deviceId, {
-                    deviceId: request.deviceId,
-                    temperature: request.temperature ?? 0,
-                    humidity: request.humidity ?? 0,
-                    batteryLevel: request.batteryLevel ?? 0,
-                    timestamp: DateTime.now()
-                });
-            }
-
-            redis.TelemetryIngestCount.incr(DateTime.now().format('YYYY-MM-DD'));
-
-            dispatch TelemetryIngested(request.deviceId, DateTime.now(), {
-                temperature: request.temperature,
-                humidity: request.humidity,
-                pressure: request.pressure,
-                batteryLevel: request.batteryLevel,
-                signalStrength: request.signalStrength
-            });
-
-            return { status: "ingested", deviceId: request.deviceId, timestamp: DateTime.now() };
-        }
-
-        @path('/device/:deviceId/latest')
-        get(UUID deviceId) : auth(required, providers: [identity]) -> LatestReadings {
-            let JSON? cached = redis.LatestTelemetryCache.get(deviceId);
-
-            if (cached != null) {
-                return {
-                    deviceId: deviceId,
-                    temperature: cached.temperature,
-                    humidity: cached.humidity,
-                    pressure: null,
-                    batteryLevel: cached.batteryLevel,
-                    signalStrength: null,
-                    timestamp: cached.timestamp
-                };
-            }
-
-            let JSON? latest = docdb.TelemetryData
-            .where(deviceId: deviceId)
-            .orderBy(timestamp: desc)
-            .first();
-
-            if (latest == null) {
-                throw ValidationException({
-                    code: "NO_TELEMETRY_DATA",
-                    message: #"No telemetry data found for device {deviceId}"
-                });
-            }
-
-            return {
-                deviceId: deviceId,
-                temperature: latest.temperature,
-                humidity: latest.humidity,
-                pressure: latest.pressure,
-                batteryLevel: latest.batteryLevel,
-                signalStrength: latest.signalStrength,
-                timestamp: latest.timestamp
+            return AlertSummary {
+                open: live.filter(a => a.status == AlertStatus.Open).length,
+                claimed: live.filter(a => a.status == AlertStatus.Claimed).length,
+                resolvedToday: Alert.where(status: AlertStatus.Resolved).where(resolvedAt: gte(DateTime.now().startOfDay())).count(),
+                openBySite: bySite
             };
         }
 
-        @path('/device/:deviceId/history')
-        get(UUID deviceId, DateTime? from, DateTime? to, Int? limit) : auth(required, providers: [identity]) -> Array<JSON> {
-            let JSON query = docdb.TelemetryData.where(deviceId: deviceId);
-
-            if (from != null) {
-                query = query.where(timestamp: gte(from));
-            }
-
-            if (to != null) {
-                query = query.where(timestamp: lte(to));
-            }
-
-            return query
-            .orderBy(timestamp: desc)
-            .limit(limit ?? 100)
-            .all();
+        @path('/of-device/:serialNumber')
+        get ofDevice(String serialNumber) : auth(required, providers: [identity], roles: [opsLead, technician]) -> Array<Alert> {
+            return Alert.where(serialNumber: serialNumber).orderBy(createdAt: desc).limit(20).all();
         }
 
-        @path('/alerts')
-        get(AlertStatus? status, AlertSeverity? severity) : auth(required, providers: [identity]) -> Array<alertDb.Alert> {
-            let JSON query = alertDb.Alert.all();
-
-            if (status != null) {
-                query = alertDb.Alert.where(status: status);
+        @path('/:id/claim')
+        post claim(UUID id) : auth(required, providers: [identity], roles: [opsLead, technician]) -> Alert {
+            transaction(alertDb) {
+                let alertDb.Alert alert = alertDb.Alert.where(id: id).forUpdate().firstOrFail();
+                if (alert.status == AlertStatus.Claimed) {
+                    throw AlreadyClaimedError();
+                }
+                if (alert.status == AlertStatus.Resolved) {
+                    throw AlreadyResolvedError();
+                }
+                alert.status = AlertStatus.Claimed;
+                alert.claimedByName = (Auth.identity.fullName ?? Auth.identity.email).toString();
+                alert.save();
+                return alert;
             }
-
-            if (severity != null) {
-                query = query.where(severity: severity);
-            }
-
-            return query.orderBy(triggeredAt: desc).limit(100).all();
         }
 
-        @path('/alerts/:id')
-        get(UUID id) : auth(required, providers: [identity]) -> alertDb.Alert {
-            return alertDb.Alert.findOrFail(id);
-        }
-
-        @path('/alerts/:id/acknowledge')
-        post(UUID id, AcknowledgeAlertRequest request) : auth(required, providers: [identity]) -> alertDb.Alert {
-            let Alert alert = alertDb.Alert.findOrFail(id);
-
-            if (!alert.isActive) {
-                throw ValidationException({
-                    code: "ALERT_NOT_ACTIVE",
-                    message: "Can only acknowledge active alerts"
-                });
+        @path('/resolve')
+        post resolve(ResolveAlertRequest request) : auth(required, providers: [identity], roles: [opsLead, technician]) -> Alert {
+            let Alert alert = Alert.findOrFail(request.id);
+            if (alert.status == AlertStatus.Resolved) {
+                throw AlreadyResolvedError();
             }
-
-            alert.acknowledge(request.notes);
-
-            Log.info("Alert acknowledged", {
-                alertId: alert.id,
-                deviceId: alert.deviceId,
-                severity: alert.severity
-            });
-
+            alert.status = AlertStatus.Resolved;
+            alert.resolvedAt = DateTime.now();
+            alert.resolution = request.resolution;
+            alert.save();
             return alert;
         }
+    }
 
-        @path('/alerts/:id/resolve')
-        post(UUID id) : auth(required, providers: [identity]) -> alertDb.Alert {
-            let Alert alert = alertDb.Alert.findOrFail(id);
-            alert.resolve();
-
-            Log.info("Alert resolved", {
-                alertId: alert.id,
-                deviceId: alert.deviceId
-            });
-
-            return alert;
+    rest_api ReadingAPI : basePath('/api/v1/readings'), rdbms(alertDb) {
+        // The last few hours for a chart, oldest first. This one reads the document store.
+        @path('/:serialNumber/recent')
+        get recent(String serialNumber) : auth(required, providers: [identity], roles: [opsLead, technician]) -> Array<ReadingPoint> {
+            let Array<docdb.TelemetryReading> rows = docdb.TelemetryReading.where(serialNumber: serialNumber).orderBy(takenAt: desc).limit(120).all();
+            return rows.reverse().map(r => ReadingPoint { takenAt: r.takenAt.format('HH:mm'), temperature: r.temperature });
         }
 
-        @path('/alerts/device/:deviceId')
-        get(UUID deviceId, AlertStatus? status) : auth(required, providers: [identity]) -> Array<alertDb.Alert> {
-            let JSON query = alertDb.Alert.where(deviceId: deviceId);
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            return query.orderBy(triggeredAt: desc).limit(50).all();
+        @path('/:serialNumber/latest')
+        get latest(String serialNumber) : auth(required, providers: [identity], roles: [opsLead, technician]) -> LatestView {
+            let JSON? cached = redis.LatestReading.get(serialNumber);
+            return LatestView { serialNumber: serialNumber, temperature: cached != null ? JSON.get(cached, "temperature") : null };
         }
+    }
 
-        @path('/alert-rules')
-        get() : auth(required, providers: [identity]) -> Array<alertDb.AlertRule> {
-            return alertDb.AlertRule.where(isEnabled: true).all();
+    // The same reading on a socket, for a wall display or a client that would rather not poll.
+    websocket_api LiveFeed : basePath("/ws/live"), rdbms(alertDb),
+        auth(required, providers: [identity], roles: [opsLead]) {
+
+        event LatestReadingSeen(LatestView payload);
+
+        on WatchDevice(WatchDeviceRequest payload) replies LatestReadingSeen {
+            let JSON? cached = redis.LatestReading.get(payload.serialNumber);
+            return LatestView { serialNumber: payload.serialNumber, temperature: cached != null ? JSON.get(cached, "temperature") : null };
         }
-
-        @path('/alert-rules')
-        post(CreateAlertRuleRequest request) : auth(required, providers: [identity], roles: [admin]) -> alertDb.AlertRule {
-            let AlertRule rule = alertDb.AlertRule.create({
-                deviceId: request.deviceId,
-                deviceGroupId: request.deviceGroupId,
-                metricName: request.metricName,
-                operator: request.operator,
-                threshold: request.threshold,
-                severity: request.severity,
-                isEnabled: true
-            });
-
-            Log.info("Alert rule created", {
-                ruleId: rule.id,
-                metricName: rule.metricName,
-                operator: rule.operator,
-                threshold: rule.threshold,
-                severity: rule.severity
-            });
-
-            return rule;
-        }
-
-        @path('/device/:deviceId/logs')
-        get(UUID deviceId, Int? limit) : auth(required, providers: [identity]) -> Array<JSON> {
-            return docdb.DeviceLog
-            .where(deviceId: deviceId)
-            .orderBy(timestamp: desc)
-            .limit(limit ?? 100)
-            .all();
-        }
-
     }
 
-    jobs {
-
-        job CheckAlertRules {
-            let Array<AlertRule> rules = alertDb.AlertRule
-            .where(isEnabled: true)
-            .all();
-
-            let Int alertsTriggered = 0;
-
-            foreach rule in rules {
-                if (rule.isInCooldown()) {
-                    continue;
-                }
-
-                let Array<UUID> targetDeviceIds = [];
-
-                if (rule.deviceId != null) {
-                    targetDeviceIds.push(rule.deviceId);
-                } else if (rule.deviceGroupId != null) {
-                    let Array<Device> members = DeviceService.DeviceAPI.get.devicesByGroup(rule.deviceGroupId);
-                    foreach member in members {
-                        targetDeviceIds.push(member.id);
-                    }
-
-                }
-
-                foreach targetDeviceId in targetDeviceIds {
-                    try {
-                        let JSON? cached = redis.LatestTelemetryCache.get(targetDeviceId);
-                        if (cached == null) continue;
-
-                        let Decimal? metricValue = null;
-                        if (rule.metricName == "temperature") metricValue = cached.temperature;
-                        if (rule.metricName == "humidity") metricValue = cached.humidity;
-                        if (rule.metricName == "batteryLevel") metricValue = cached.batteryLevel;
-
-                        if (metricValue != null && rule.shouldTrigger(metricValue)) {
-                            let Alert alert = alertDb.Alert.create({
-                                deviceId: targetDeviceId,
-                                severity: rule.severity,
-                                condition: #"{rule.metricName} {rule.operator} {rule.threshold}",
-                                message: #"Alert: {rule.metricName} value {metricValue} triggered rule (threshold: {rule.threshold})",
-                                triggeredAt: DateTime.now()
-                            });
-                            alert.save();
-
-                            rule.lastTriggeredAt = DateTime.now();
-                            rule.save();
-
-                            alertsTriggered = alertsTriggered + 1;
-                        }
-
-                    } catch (Exception e) {
-                        Log.error("Failed to evaluate alert rule for device", {
-                            ruleId: rule.id,
-                            deviceId: targetDeviceId,
-                            error: e.message
-                        });
-                    }
-
-                }
-
-            }
-
-            Log.info("Alert rules check completed", { rulesEvaluated: rules.length(), alertsTriggered: alertsTriggered });
-        }
-
-        job AggregateHourlyStats {
-            let DateTime oneHourAgo = DateTime.now().subtractHours(1);
-
-            let Array<JSON> recentData = docdb.TelemetryData
-            .where(timestamp: gte(oneHourAgo))
-            .all();
-
-            let Int totalReadings = recentData.length();
-            let Int uniqueDevices = 0;
-
-            Log.info("Hourly telemetry aggregation completed", {
-                totalReadings: totalReadings,
-                uniqueDevices: uniqueDevices,
-                periodStart: oneHourAgo,
-                periodEnd: DateTime.now()
-            });
-        }
-
-    }
-
-    test("computed isActive reflects Active alert status") {
-        let Alert alert = alertDb.Alert.create({
+    test("a new alert is open") {
+        let alertDb.Alert created = alertDb.Alert.create({
             deviceId: uuid(),
-            severity: AlertSeverity.Warning,
-            status: AlertStatus.Active,
-            condition: "temperature > 50",
-            message: "Temperature exceeds threshold"
+            serialNumber: "CF-0001",
+            deviceName: "Dairy fridge",
+            siteName: "Harbor Street",
+            kind: AlertKind.TooWarm,
+            temperature: 11.5
         });
-        alert.save();
-        assert alert.isActive == true;
+        assert created.status == AlertStatus.Open;
     }
-
-    test("computed isCritical reflects Critical severity") {
-        let Alert alert = alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Critical,
-            status: AlertStatus.Active,
-            condition: "batteryLevel < 5",
-            message: "Battery critically low"
-        });
-        alert.save();
-        assert alert.isCritical == true;
-    }
-
-    test("validation rejects empty alert condition") {
-        assert throws(
-        () => alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Warning,
-            condition: "",
-            message: "Test alert"
-        }),
-        ValidationError("Alert condition cannot be empty")
-        );
-    }
-
-    test("afterCreate emits AlertTriggered") {
-        let Alert alert = alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Error,
-            condition: "humidity > 90",
-            message: "Humidity too high"
-        });
-        alert.save();
-        assert emitted(AlertTriggered(alert.id, alert.deviceId, AlertSeverity.Error, alert.condition, alert.message));
-    }
-
-    test("validation rejects rule without device or group") {
-        assert throws(
-        () => alertDb.AlertRule.create({
-            metricName: "temperature",
-            operator: ComparisonOperator.GreaterThan,
-            threshold: 50.0,
-            severity: AlertSeverity.Warning
-        }),
-        ValidationError("Alert rule must target either a device or a device group")
-        );
-    }
-
-    test("computed isActive is false for Acknowledged alert") {
-        let Alert alert = alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Info,
-            status: AlertStatus.Acknowledged,
-            condition: "signalStrength < 20",
-            message: "Weak signal detected"
-        });
-        alert.save();
-        assert alert.isActive == false;
-    }
-
-    test("computed isCritical is false for Warning severity") {
-        let Alert alert = alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Warning,
-            status: AlertStatus.Active,
-            condition: "temperature > 40",
-            message: "Temperature above normal"
-        });
-        alert.save();
-        assert alert.isCritical == false;
-    }
-
-    test("validation rejects empty alert message") {
-        assert throws(
-        () => alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Error,
-            condition: "humidity > 95",
-            message: ""
-        }),
-        ValidationError("Alert message cannot be empty")
-        );
-    }
-
-    test("acknowledge sets status and acknowledgedAt") {
-        let Alert alert = alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Warning,
-            status: AlertStatus.Active,
-            condition: "pressure < 900",
-            message: "Low pressure warning"
-        });
-        alert.save();
-        alert.acknowledge("Investigating the issue");
-        assert alert.status == AlertStatus.Acknowledged;
-        assert alert.acknowledgedAt != null;
-        assert alert.notes == "Investigating the issue";
-    }
-
-    test("resolve sets status to Resolved and resolvedAt") {
-        let Alert alert = alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Error,
-            status: AlertStatus.Active,
-            condition: "batteryLevel < 10",
-            message: "Battery low"
-        });
-        alert.save();
-        alert.resolve();
-        assert alert.status == AlertStatus.Resolved;
-        assert alert.resolvedAt != null;
-    }
-
-    test("status change emits AlertStatusChanged") {
-        let Alert alert = alertDb.Alert.create({
-            deviceId: uuid(),
-            severity: AlertSeverity.Warning,
-            status: AlertStatus.Active,
-            condition: "humidity > 80",
-            message: "High humidity alert"
-        });
-        alert.save();
-        alert.status = AlertStatus.Resolved;
-        alert.save();
-        assert emitted(AlertStatusChanged(alert.id, alert.deviceId, AlertStatus.Active, AlertStatus.Resolved));
-    }
-
-    test("computed isDeviceRule when deviceId is set") {
-        let AlertRule rule = alertDb.AlertRule.create({
-            deviceId: uuid(),
-            metricName: "temperature",
-            operator: ComparisonOperator.GreaterThan,
-            threshold: 45.0,
-            severity: AlertSeverity.Warning
-        });
-        rule.save();
-        assert rule.isDeviceRule == true;
-        assert rule.isGroupRule == false;
-    }
-
-    test("computed isGroupRule when deviceGroupId is set") {
-        let AlertRule rule = alertDb.AlertRule.create({
-            deviceGroupId: uuid(),
-            metricName: "humidity",
-            operator: ComparisonOperator.LessThan,
-            threshold: 20.0,
-            severity: AlertSeverity.Info
-        });
-        rule.save();
-        assert rule.isGroupRule == true;
-        assert rule.isDeviceRule == false;
-    }
-
-    test("shouldTrigger returns true when value exceeds GreaterThan threshold") {
-        let AlertRule rule = alertDb.AlertRule.create({
-            deviceId: uuid(),
-            metricName: "temperature",
-            operator: ComparisonOperator.GreaterThan,
-            threshold: 50.0,
-            severity: AlertSeverity.Critical,
-            isEnabled: true
-        });
-        rule.save();
-        assert rule.shouldTrigger(55.0) == true;
-        assert rule.shouldTrigger(50.0) == false;
-        assert rule.shouldTrigger(45.0) == false;
-    }
-
-    test("shouldTrigger returns false when rule is disabled") {
-        let AlertRule rule = alertDb.AlertRule.create({
-            deviceId: uuid(),
-            metricName: "batteryLevel",
-            operator: ComparisonOperator.LessThan,
-            threshold: 10.0,
-            severity: AlertSeverity.Warning,
-            isEnabled: false
-        });
-        rule.save();
-        assert rule.shouldTrigger(5.0) == false;
-    }
-
-    test("validation rejects empty metric name on rule") {
-        assert throws(
-        () => alertDb.AlertRule.create({
-            deviceId: uuid(),
-            metricName: "",
-            operator: ComparisonOperator.GreaterThan,
-            threshold: 100.0,
-            severity: AlertSeverity.Warning
-        }),
-        ValidationError("Metric name cannot be empty")
-        );
-    }
-
 }

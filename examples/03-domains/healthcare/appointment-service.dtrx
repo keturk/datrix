@@ -1,849 +1,315 @@
+from healthcare.common import AppointmentStatus, VisitKind;
 
-from healthcare.common import APPOINTMENT_DURATION_DEFAULT;
+// The calendar. A patient takes an open slot, and a row lock lets exactly one patient have it. The
+// front desk moves a visit through the day from a board, a job texts a reminder the day before, and
+// a visit nobody came to becomes a no-show.
+service healthcare.AppointmentService('config/appointment-service.dcfg') : version('2.0.0'), description('Clinicians, slots and visits') {
 
-service healthcare.AppointmentService('config/appointment-service.dcfg') : version('1.0.0'), description('appointment management service') {
-    // discovery block declares dependencies on other services
-    discovery {
-        PatientService { loadBalance: roundRobin, healthyOnly: true }
-    }
+    discovery { }
 
-    enum AppointmentStatus {
-        Scheduled,
-        Confirmed,
-        CheckedIn,
-        InProgress,
-        Completed,
-        Cancelled,
-        NoShow
-    }
+    uses PatientService;
+    uses SmsProvider;
 
-    enum AppointmentType {
-        Consultation,
-        FollowUp,
-        Checkup,
-        Procedure,
-        Emergency,
-        Telehealth
-    }
-
-    struct AppointmentSlot {
-        DateTime startTime;
-        DateTime endTime;
-        Boolean available;
-        UUID? providerId;
-        String? providerName;
-    }
-
-    struct ScheduleAppointmentRequest {
-        UUID patientId;
-        String providerName;
-        DateTime scheduledAt;
-        AppointmentType type;
-        String? reason;
-        Int? durationMinutes;
-        UUID? providerId;
-        String? department;
-        String? location;
-    }
-
-    struct UpdateAppointmentRequest {
-        DateTime? scheduledAt;
-        String? providerName;
-        String? notes;
-        Int? durationMinutes;
-        String? location;
-    }
-
-    struct CompleteAppointmentRequest {
-        String? notes;
-    }
-
-    struct CancelAppointmentRequest {
-        String? reason;
+    exceptions {
+        SlotTakenError : status(409), message("Someone else just took that time. Pick another");
+        SlotPastError : status(409), message("That time has already passed");
+        TooLateToCancelError : status(409), message("This visit starts within two hours. Call the clinic to cancel");
+        NoSuchMoveError : status(409), message("A visit cannot move there from where it is");
     }
 
     rdbms appointmentDb {
 
+        entity Clinician extends BaseEntity {
+            String(200) name : filterable;
+            String(100) specialty : filterable;
+            String(400) bio;
+            String(40) room;
+            Money visitCharge;
+            Boolean acceptingPatients = true;
+        }
+
+        /// A bookable half hour.
+        entity OpenSlot extends BaseEntity {
+            UUID clinicianId : index;
+            String(200) clinicianName;
+            DateTime startsAt;
+            DateTime endsAt;
+            Boolean isTaken = false;
+
+            index(clinicianId, startsAt);
+        }
+
         entity Appointment extends BaseEntity {
-            UUID patientId : index;
-            UUID? providerId : index;
-            String(100) providerName;
-            String(100)? department;
-            String(100)? location;
-
-            AppointmentType type = AppointmentType.Consultation;
-            AppointmentStatus status = AppointmentStatus.Scheduled;
-
-            DateTime scheduledAt;
-            DateTime? startedAt;
-            DateTime? completedAt;
-            Int durationMinutes = 30;
-
-            String(500)? reason;
-            String(1000)? notes;
-            String(500)? cancellationReason;
-
-            Boolean reminderSent = false;
+            DateTime startsAt : index;
+            DateTime endsAt;
+            String(200) patientName : filterable;
+            String(200) clinicianName : filterable;
+            String(100) specialty;
+            String(40) room;
+            AppointmentStatus status : filterable = AppointmentStatus.Booked;
+            VisitKind kind : filterable = VisitKind.InPerson;
+            String(300) reason;
+            Money visitCharge;
             DateTime? reminderSentAt;
-
-            // Computed fields for scheduling logic
-            DateTime scheduledEndAt := scheduledAt.addMinutes(durationMinutes);
-            Boolean isUpcoming := scheduledAt > DateTime.now() && status == AppointmentStatus.Scheduled;
-            Boolean isPast := scheduledAt < DateTime.now() || status == AppointmentStatus.Completed;
-            Boolean canCancel := status == AppointmentStatus.Scheduled || status == AppointmentStatus.Confirmed;
-            Boolean canStart := status == AppointmentStatus.Confirmed || status == AppointmentStatus.CheckedIn;
-            Int minutesUntil := DateTime.diffInMinutes(DateTime.now(), scheduledAt);
-
-            index(patientId, scheduledAt);
-            index(providerId, scheduledAt);
-            index(status, scheduledAt);
-            index(scheduledAt);
-
-            validate {
-                if (status == AppointmentStatus.Scheduled && !Validator.isFutureDate(scheduledAt))
-                ValidationError("Appointment must be scheduled in the future");
-                if (durationMinutes < 5)
-                ValidationError("Appointment must be at least 5 minutes");
-
-                if (durationMinutes > 480)
-                ValidationError("Appointment cannot exceed 8 hours");
-            }
-
-            afterCreate {
-                dispatch AppointmentScheduled(id, patientId, providerId, scheduledAt, type);
-
-                Log.info("Appointment scheduled", {
-                    appointmentId: id,
-                    patientId: patientId,
-                    scheduledAt: scheduledAt,
-                    action: "appointment.create"
-                });
-            }
+            UUID patientId : index;
+            UUID? patientUserId : index, hidden;
+            UUID clinicianId : index;
+            UUID slotId;
 
             afterUpdate {
                 if (isChanged(status)) {
-                    dispatch AppointmentStatusChanged(id, patientId, oldValue(status), status);
-
-                    if (status == AppointmentStatus.Completed) {
-                        dispatch AppointmentCompleted(id, patientId, providerId, providerName, type);
-                    } else if (status == AppointmentStatus.Cancelled) {
-                        dispatch AppointmentCancelled(id, patientId, cancellationReason);
-                    }
-
-                    Log.info("Appointment status changed", {
-                        appointmentId: id,
-                        patientId: patientId,
-                        oldStatus: oldValue(status),
-                        newStatus: status,
-                        action: "appointment.update"
-                    });
+                    dispatch AppointmentStatusChanged(id, patientId, patientUserId, patientName, clinicianName, specialty, reason, startsAt, visitCharge, oldValue(status), status);
                 }
-
             }
-
-            // Entity methods for state machine transitions
-            fn checkIn() {
-                if (status != AppointmentStatus.Confirmed && status != AppointmentStatus.Scheduled) {
-                    throw ValidationException("Cannot check in - invalid status");
-                }
-
-                status = AppointmentStatus.CheckedIn;
-                this.save();
-            }
-
-            fn start() {
-                if (!canStart) {
-                    throw ValidationException("Cannot start appointment - invalid status");
-                }
-
-                status = AppointmentStatus.InProgress;
-                startedAt = DateTime.now();
-                this.save();
-            }
-
-            fn complete(String? completionNotes) {
-                if (status != AppointmentStatus.InProgress) {
-                    throw ValidationException("Cannot complete - appointment not in progress");
-                }
-
-                status = AppointmentStatus.Completed;
-                completedAt = DateTime.now();
-                if (completionNotes != null) {
-                    notes = completionNotes;
-                }
-
-                this.save();
-            }
-
-            fn cancel(String reason) {
-                if (!canCancel) {
-                    throw ValidationException(#"Cannot cancel appointment in status: {status}");
-                }
-
-                status = AppointmentStatus.Cancelled;
-                cancellationReason = reason;
-                this.save();
-            }
-
-            fn markNoShow() {
-                if (status != AppointmentStatus.Scheduled && status != AppointmentStatus.Confirmed) {
-                    throw ValidationException("Cannot mark as no-show");
-                }
-
-                status = AppointmentStatus.NoShow;
-                this.save();
-            }
-
         }
-
-    }
-
-    cache redis {
-        hash AppointmentCache : prefix('appointment:'), ttl(1800) {
-            UUID appointmentId : key;
-            UUID patientId;
-            DateTime scheduledAt;
-            AppointmentStatus status;
-        }
-
-        // 'set' is an unordered collection of unique members
-        set ProviderSchedule : prefix('provider:schedule:') {
-            String slot;
-        }
-
     }
 
     pubsub mq {
         topic AppointmentEvents {
-            publish AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type) {
-                ensure type.length > 0;
-            }
-
-            publish AppointmentStatusChanged(UUID appointmentId, UUID patientId, String oldStatus, String newStatus) {
+            publish AppointmentStatusChanged(UUID appointmentId, UUID patientId, UUID? patientUserId, String patientName, String clinicianName, String specialty, String reason, DateTime startsAt, Money visitCharge, AppointmentStatus oldStatus, AppointmentStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-
-            publish AppointmentCompleted(UUID appointmentId, UUID patientId, UUID? providerId, String providerName, String type) {
-                ensure providerName.length > 0;
-                ensure type.length > 0;
-            }
-
-            publish AppointmentCancelled(UUID appointmentId, UUID patientId, String? reason) {
-                ensure reason == null || reason.length > 0;
-            }
-
         }
-
-        // React to patient events from another service
     }
 
-    subscribe AppointmentEvents {
-
-        on AppointmentScheduled(UUID appointmentId, UUID patientId, UUID? providerId, DateTime scheduledAt, String type) {
-            Log.info("Appointment scheduled", { appointmentId: appointmentId, patientId: patientId, providerId: providerId, scheduledAt: scheduledAt, type: type });
-        }
-
-        on AppointmentStatusChanged(UUID appointmentId, UUID patientId, String oldStatus, String newStatus) {
-            Log.info("Appointment status changed", { appointmentId: appointmentId, patientId: patientId, oldStatus: oldStatus, newStatus: newStatus });
-        }
-
-        on AppointmentCancelled(UUID appointmentId, UUID patientId, String? reason) {
-            Log.info("Appointment cancelled", { appointmentId: appointmentId, patientId: patientId, reason: reason });
-        }
-
+    struct BookVisitRequest {
+        UUID slotId;
+        VisitKind kind;
+        String(300) reason;
     }
 
-    subscribe PatientEvents {
+    struct BookWalkInRequest {
+        UUID patientId;
+        UUID slotId;
+        String(300) reason;
+    }
 
-        // Auto-cancel appointments when patient becomes inactive
-        on PatientStatusChanged(UUID patientId, String mrn, String oldStatus, String newStatus) {
-            if (newStatus == "Inactive" || newStatus == "Deceased") {
-                let Array<Appointment> pendingAppointments = appointmentDb.Appointment
-                .where(patientId: patientId)
-                .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
-                .all();
+    struct MoveVisitRequest {
+        AppointmentStatus status;
+    }
 
-                foreach appointment in pendingAppointments {
-                    appointment.cancel(#"Patient status changed to {newStatus}");
-                }
+    /// One choice in the front desk's list of open times.
+    struct SlotChoice {
+        UUID id;
+        String(120) label;
+    }
 
-                if (pendingAppointments.length() > 0) {
-                    Log.info("Cancelled appointments for inactive patient", {
-                        patientId: patientId,
-                        mrn: mrn,
-                        cancelledCount: pendingAppointments.length(),
-                        newStatus: newStatus
-                    });
-                }
+    struct DaySummary {
+        Int booked;
+        Int inClinic;
+        Int completed;
+        Int noShows;
+    }
 
+    /// Takes the slot under a lock, so two patients pressing the button together get one visit.
+    fn takeSlot(UUID slotId, UUID patientId, UUID? patientUserId, String patientName, VisitKind kind, String reason) -> appointmentDb.Appointment {
+        transaction(appointmentDb) {
+            let appointmentDb.OpenSlot slot = appointmentDb.OpenSlot.where(id: slotId).forUpdate().firstOrFail();
+            if (slot.isTaken) {
+                throw SlotTakenError();
             }
-
-        }
-
-    }
-
-    test("validation rejects short appointments") {
-        assert throws(
-        () => appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Spec",
-            scheduledAt: DateTime.now().addDays(1),
-            durationMinutes: 2
-        }),
-        ValidationError("Appointment must be at least 5 minutes")
-        );
-    }
-
-    test("validation rejects excessively long appointments") {
-        assert throws(
-        () => appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Spec",
-            scheduledAt: DateTime.now().addDays(1),
-            durationMinutes: 500
-        }),
-        ValidationError("Appointment cannot exceed 8 hours")
-        );
-    }
-
-    test("afterCreate emits AppointmentScheduled event") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Smith",
-            scheduledAt: DateTime.now().addDays(7),
-            durationMinutes: 30
-        });
-        appt.save();
-        assert emitted(AppointmentScheduled(appt.id, appt.patientId, appt.providerId, appt.scheduledAt, appt.type));
-    }
-
-    test("computed isUpcoming for future scheduled appointment") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Nguyen",
-            scheduledAt: DateTime.now().addDays(14),
-            durationMinutes: 45,
-            status: AppointmentStatus.Scheduled
-        });
-        appt.save();
-        assert appt.isUpcoming == true;
-    }
-
-    test("computed canCancel for Scheduled appointment") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Patel",
-            scheduledAt: DateTime.now().addDays(5),
-            durationMinutes: 30,
-            status: AppointmentStatus.Scheduled
-        });
-        appt.save();
-        assert appt.canCancel == true;
-    }
-
-    test("computed canStart for Confirmed appointment") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Olsen",
-            scheduledAt: DateTime.now().addDays(3),
-            durationMinutes: 30,
-            status: AppointmentStatus.Confirmed
-        });
-        appt.save();
-        assert appt.canStart == true;
-    }
-
-    test("checkIn transitions to CheckedIn status") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Kimura",
-            scheduledAt: DateTime.now().addDays(1),
-            durationMinutes: 30,
-            status: AppointmentStatus.Confirmed
-        });
-        appt.save();
-        appt.checkIn();
-        assert appt.status == AppointmentStatus.CheckedIn;
-    }
-
-    test("start transitions to InProgress") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Fernandez",
-            scheduledAt: DateTime.now().addDays(2),
-            durationMinutes: 30,
-            status: AppointmentStatus.CheckedIn
-        });
-        appt.save();
-        appt.start();
-        assert appt.status == AppointmentStatus.InProgress;
-    }
-
-    test("complete sets status and completionNotes") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Whitfield",
-            scheduledAt: DateTime.now().addDays(1),
-            durationMinutes: 30,
-            status: AppointmentStatus.InProgress
-        });
-        appt.save();
-        appt.complete("Patient responded well to treatment");
-        assert appt.status == AppointmentStatus.Completed;
-        assert appt.notes == "Patient responded well to treatment";
-    }
-
-    test("cancel sets status and cancellationReason") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Chang",
-            scheduledAt: DateTime.now().addDays(10),
-            durationMinutes: 30,
-            status: AppointmentStatus.Scheduled
-        });
-        appt.save();
-        appt.cancel("Patient requested reschedule");
-        assert appt.status == AppointmentStatus.Cancelled;
-        assert appt.cancellationReason == "Patient requested reschedule";
-    }
-
-    test("markNoShow sets NoShow status") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Alvarez",
-            scheduledAt: DateTime.now().addDays(1),
-            durationMinutes: 30,
-            status: AppointmentStatus.Scheduled
-        });
-        appt.save();
-        appt.markNoShow();
-        assert appt.status == AppointmentStatus.NoShow;
-    }
-
-    test("afterCreate emits AppointmentScheduled with all fields") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Bergstrom",
-            scheduledAt: DateTime.now().addDays(21),
-            durationMinutes: 60,
-            type: AppointmentType.FollowUp
-        });
-        appt.save();
-        assert emitted(AppointmentScheduled(appt.id, appt.patientId, appt.providerId, appt.scheduledAt, appt.type));
-    }
-
-    test("afterUpdate emits AppointmentCompleted when Completed") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Rossi",
-            scheduledAt: DateTime.now().addDays(1),
-            durationMinutes: 30,
-            status: AppointmentStatus.InProgress
-        });
-        appt.save();
-        appt.complete("Examination completed successfully");
-        assert emitted(AppointmentCompleted(appt.id, appt.patientId, appt.providerId, appt.providerName, appt.type));
-    }
-
-    test("afterUpdate emits AppointmentCancelled when Cancelled") {
-        let Appointment appt = appointmentDb.Appointment.create({
-            patientId: uuid(),
-            providerName: "Dr. Hartley",
-            scheduledAt: DateTime.now().addDays(8),
-            durationMinutes: 30,
-            status: AppointmentStatus.Scheduled
-        });
-        appt.save();
-        appt.cancel("Provider unavailable");
-        assert emitted(AppointmentCancelled(appt.id, appt.patientId, appt.cancellationReason));
-    }
-
-    rest_api AppointmentAPI : basePath('/api/v1/appointments'), rdbms(appointmentDb) {
-
-        // List with multiple optional filters
-        get(UUID? patientId, UUID? providerId, AppointmentStatus? status, DateTime? startDate, DateTime? endDate, PageRequest page) : auth(required, providers: [identity]) -> Page<appointmentDb.Appointment> {
-            let JSON query = appointmentDb.Appointment.query();
-
-            if (patientId != null) {
-                query = query.where(patientId: patientId);
+            if (slot.startsAt < DateTime.now()) {
+                throw SlotPastError();
             }
-
-            if (providerId != null) {
-                query = query.where(providerId: providerId);
-            }
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            if (startDate != null) {
-                // 'gte(...)' is a comparison filter: greater than or equal
-                query = query.where(scheduledAt: gte(startDate));
-            }
-
-            if (endDate != null) {
-                // 'lte(...)' is a comparison filter: less than or equal
-                query = query.where(scheduledAt: lte(endDate));
-            }
-
-            return query.orderBy(scheduledAt: asc).page(page);
-        }
-
-        @path('/:id')
-        get(UUID id) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
-            return appointmentDb.Appointment.findOrFail(id);
-        }
-
-        post(ScheduleAppointmentRequest request) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
-            // Cross-service call to validate the patient exists and is active
-            let Boolean patientValid = PatientService.PatientAPI.post.validatePatient({ patientId: request.patientId });
-            if (!patientValid) {
-                throw ValidationException("Patient not found or inactive");
-            }
-
-            // '??' null-coalescing operator provides a default value
-            let Int duration = request.durationMinutes ?? APPOINTMENT_DURATION_DEFAULT;
-            // Check for scheduling conflicts
-            let Appointment? conflict = appointmentDb.Appointment
-            .where(patientId: request.patientId)
-            .where(scheduledAt: gte(request.scheduledAt))
-            .where(scheduledAt: lt(request.scheduledAt.addMinutes(duration)))
-            .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
-            .first();
-
-            if (conflict != null) {
-                throw ValidationException("Patient has a conflicting appointment at this time");
-            }
-
-            let Appointment appointment = appointmentDb.Appointment.create({
-                patientId: request.patientId,
-                providerId: request.providerId,
-                providerName: request.providerName,
-                department: request.department,
-                location: request.location,
-                type: request.type,
-                scheduledAt: request.scheduledAt,
-                durationMinutes: duration,
-                reason: request.reason,
-                status: AppointmentStatus.Scheduled
+            let appointmentDb.Clinician clinician = appointmentDb.Clinician.findOrFail(slot.clinicianId);
+            slot.isTaken = true;
+            slot.save();
+            return appointmentDb.Appointment.create({
+                startsAt: slot.startsAt,
+                endsAt: slot.endsAt,
+                patientId: patientId,
+                patientUserId: patientUserId,
+                patientName: patientName,
+                clinicianId: clinician.id,
+                clinicianName: clinician.name,
+                specialty: clinician.specialty,
+                room: clinician.room,
+                visitCharge: clinician.visitCharge,
+                slotId: slot.id,
+                kind: kind,
+                reason: reason
             });
-
-            redis.AppointmentCache.set(appointment.id, {
-                appointmentId: appointment.id,
-                patientId: request.patientId,
-                scheduledAt: request.scheduledAt,
-                status: appointment.status
-            });
-
-            sendAppointmentConfirmation(appointment);
-
-            return appointment;
         }
-
-        @path('/:id')
-        put(UUID id, UpdateAppointmentRequest request) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
-            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
-
-            if (!appointment.canCancel) {
-                throw ValidationException(#"Cannot modify appointment in status: {appointment.status}");
-            }
-
-            if (request.scheduledAt != null) appointment.scheduledAt = request.scheduledAt;
-            if (request.providerName != null) appointment.providerName = request.providerName;
-            if (request.notes != null) appointment.notes = request.notes;
-            if (request.durationMinutes != null) appointment.durationMinutes = request.durationMinutes;
-            if (request.location != null) appointment.location = request.location;
-
-            appointment.save();
-
-            redis.AppointmentCache.set(appointment.id, {
-                appointmentId: appointment.id,
-                patientId: appointment.patientId,
-                scheduledAt: appointment.scheduledAt,
-                status: appointment.status
-            });
-
-            return appointment;
-        }
-
-        // State transition endpoints
-        @path('/:id/confirm')
-        put(UUID id) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
-            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
-
-            if (appointment.status != AppointmentStatus.Scheduled) {
-                throw ValidationException("Can only confirm scheduled appointments");
-            }
-
-            appointment.status = AppointmentStatus.Confirmed;
-            appointment.save();
-
-            return appointment;
-        }
-
-        @path('/:id/check-in')
-        put(UUID id) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
-            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
-            appointment.checkIn();
-            return appointment;
-        }
-
-        @path('/:id/start')
-        put(UUID id) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
-            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
-            appointment.start();
-            return appointment;
-        }
-
-        @path('/:id/complete')
-        put(UUID id, CompleteAppointmentRequest request) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
-            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
-            appointment.complete(request.notes);
-            return appointment;
-        }
-
-        @path('/:id/cancel')
-        put(UUID id, CancelAppointmentRequest request) : auth(required, providers: [identity]) -> appointmentDb.Appointment {
-            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
-            appointment.cancel(request.reason ?? "Cancelled by user");
-
-            sendCancellationNotification(appointment);
-
-            return appointment;
-        }
-
-        // 'access(staff)' restricts to users with the staff role
-        @path('/:id/no-show')
-        put(UUID id) : auth(required, providers: [identity], roles: [staff]) -> appointmentDb.Appointment {
-            let Appointment appointment = appointmentDb.Appointment.findOrFail(id);
-            appointment.markNoShow();
-            return appointment;
-        }
-
-        @path('/patient/:patientId/upcoming')
-        get(UUID patientId) : auth(required, providers: [identity]) -> Array<appointmentDb.Appointment> {
-            return appointmentDb.Appointment
-            .where(patientId: patientId)
-            .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
-            .where(scheduledAt: gt(DateTime.now()))
-            .orderBy(scheduledAt: asc)
-            .limit(10)
-            .all();
-        }
-
-        @path('/patient/:patientId/history')
-        get(UUID patientId, Int limit = 20) : auth(required, providers: [identity]) -> Array<appointmentDb.Appointment> {
-            return appointmentDb.Appointment
-            .where(patientId: patientId)
-            .whereIn(status: [AppointmentStatus.Completed, AppointmentStatus.Cancelled, AppointmentStatus.NoShow])
-            .orderBy(scheduledAt: desc)
-            .limit(limit)
-            .all();
-        }
-
-        // Availability slot calculation endpoint
-        @path('/slots')
-        get(UUID? providerId, Date date, Int durationMinutes = 30) : auth(required, providers: [identity]) -> Array<AppointmentSlot> {
-            let DateTime startOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T08:00:00");
-            let DateTime endOfDay = DateTime.parse(#"{date.format('YYYY-MM-DD')}T17:00:00");
-
-            let JSON existing = appointmentDb.Appointment
-            .where(scheduledAt: gte(startOfDay))
-            .where(scheduledAt: lt(endOfDay))
-            .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed]);
-
-            if (providerId != null) {
-                existing = existing.where(providerId: providerId);
-            }
-
-            existing = existing.all();
-
-            let Array<AppointmentSlot> slots = [];
-            let DateTime current = startOfDay;
-
-            // 'while' loop to generate time slots
-            while (current.addMinutes(durationMinutes) <= endOfDay) {
-                let Boolean available = true;
-
-                foreach appt in existing {
-                    if (current >= appt.scheduledAt && current < appt.scheduledEndAt) {
-                        available = false;
-                        break;
-                    }
-
-                    if (current.addMinutes(durationMinutes) > appt.scheduledAt && current.addMinutes(durationMinutes) <= appt.scheduledEndAt) {
-                        available = false;
-                        break;
-                    }
-
-                }
-
-                slots.push({
-                    startTime: current,
-                    endTime: current.addMinutes(durationMinutes),
-                    available: available,
-                    providerId: providerId,
-                    providerName: null
-                });
-
-                current = current.addMinutes(30);
-            }
-
-            return slots;
-        }
-
-        @path('/service/:id')
-        get appointmentByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> appointmentDb.Appointment {
-            return appointmentDb.Appointment.findOrFail(id);
-        }
-
-        @path('/service/patient/:patientId')
-        get appointmentsByPatientInternal(UUID patientId) : auth(service, providers: [platform]), hidden, idempotent -> Array<appointmentDb.Appointment> {
-            return appointmentDb.Appointment
-            .where(patientId: patientId)
-            .orderBy(scheduledAt: desc)
-            .limit(50)
-            .all();
-        }
-
-        // Cross-service call in a helper function
-        fn sendAppointmentConfirmation(appointmentDb.Appointment appointment) {
-            try {
-                let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
-
-                if (patient.email != null) {
-                    Email.sendTemplate({
-                        to: patient.email,
-                        subject: "Appointment Confirmation",
-                        template: "appointmentConfirmation",
-                        data: {
-                            patientName: patient.fullName,
-                            providerName: appointment.providerName,
-                            scheduledAt: appointment.scheduledAt.format('YYYY-MM-DD HH:mm'),
-                            location: appointment.location,
-                            type: appointment.type
-                        }
-
-                    });
-                }
-
-            } catch (Exception e) {
-                Log.error("Failed to send confirmation", {
-                    appointmentId: appointment.id,
-                    error: e.message
-                });
-            }
-
-        }
-
-        fn sendCancellationNotification(appointmentDb.Appointment appointment) {
-            try {
-                let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
-
-                if (patient.email != null) {
-                    Email.sendTemplate({
-                        to: patient.email,
-                        subject: "Appointment Cancelled",
-                        template: "appointmentCancellation",
-                        data: {
-                            patientName: patient.fullName,
-                            providerName: appointment.providerName,
-                            scheduledAt: appointment.scheduledAt.format('YYYY-MM-DD HH:mm'),
-                            reason: appointment.cancellationReason
-                        }
-
-                    });
-                }
-
-            } catch (Exception e) {
-                Log.error("Failed to send cancellation", {
-                    appointmentId: appointment.id,
-                    error: e.message
-                });
-            }
-
-        }
-
     }
 
-    // Scheduled background jobs
+    fn freeSlot(appointmentDb.Appointment visit) {
+        let appointmentDb.OpenSlot? slot = appointmentDb.OpenSlot.find(visit.slotId);
+        if (slot != null) {
+            slot.isTaken = false;
+            slot.save();
+        }
+    }
+
+    /// The moves the front desk may make from a board column.
+    fn deskMayMove(AppointmentStatus from, AppointmentStatus to) -> Boolean {
+        return (from == AppointmentStatus.Booked && to == AppointmentStatus.CheckedIn)
+            || (from == AppointmentStatus.CheckedIn && to == AppointmentStatus.InRoom)
+            || (from == AppointmentStatus.InRoom && to == AppointmentStatus.Completed)
+            || (from == AppointmentStatus.Booked && to == AppointmentStatus.Cancelled)
+            || (from == AppointmentStatus.Booked && to == AppointmentStatus.NoShow)
+            || (from == AppointmentStatus.CheckedIn && to == AppointmentStatus.Cancelled);
+    }
+
+    // What anyone can read, and what a signed-in patient can do with their own visits.
+    rest_api BookingAPI : basePath('/api/v1/booking'), rdbms(appointmentDb) {
+        resource Clinician : only(list, get), auth(public);
+
+        @path('/clinicians/:id/slots')
+        get slotsOf(UUID id) : auth(public) -> Array<OpenSlot> {
+            return OpenSlot.where(clinicianId: id, isTaken: false).where(startsAt: gte(DateTime.now())).orderBy(startsAt: asc).limit(30).all();
+        }
+
+        @path('/visits')
+        post book(BookVisitRequest request) : auth(required, providers: [identity]) -> Appointment {
+            let PatientCard card = PatientService.PatientCardAPI.post.cardForUser({
+                userId: Auth.userId(),
+                fullName: Auth.identity.fullName ?? Auth.identity.email.toString()
+            });
+            return takeSlot(request.slotId, card.id, Auth.userId(), card.fullName, request.kind, request.reason);
+        }
+
+        @path('/visits/mine')
+        get myVisits() : auth(required, providers: [identity]) -> Array<Appointment> {
+            return Appointment.where(patientUserId: Auth.userId()).orderBy(startsAt: desc).limit(50).all();
+        }
+
+        @path('/visits/:id/cancel')
+        post cancelMine(UUID id) : auth(required, providers: [identity]) -> Appointment {
+            let Appointment visit = Appointment.where(id: id, patientUserId: Auth.userId()).firstOrFail();
+            if (visit.status != AppointmentStatus.Booked) {
+                throw NoSuchMoveError();
+            }
+            if (visit.startsAt < DateTime.now().addHours(2)) {
+                throw TooLateToCancelError();
+            }
+            visit.status = AppointmentStatus.Cancelled;
+            visit.save();
+            freeSlot(visit);
+            return visit;
+        }
+    }
+
+    // What the clinic runs the day from.
+    rest_api ScheduleAPI : basePath('/api/v1/clinic/schedule'), rdbms(appointmentDb) {
+        resource Appointment : only(list), auth(required, providers: [identity], roles: [clinician, frontDesk]);
+
+        @path('/today')
+        get today() : auth(required, providers: [identity], roles: [clinician, frontDesk]) -> Array<Appointment> {
+            let DateTime start = DateTime.now().startOfDay();
+            return Appointment.where(startsAt: gte(start)).where(startsAt: lt(start.addDays(1))).orderBy(startsAt: asc).limit(200).all();
+        }
+
+        @path('/ahead')
+        get ahead() : auth(required, providers: [identity], roles: [clinician, frontDesk]) -> Array<Appointment> {
+            let DateTime start = DateTime.now().startOfDay();
+            return Appointment.where(startsAt: gte(start)).where(startsAt: lt(start.addDays(30))).orderBy(startsAt: asc).limit(500).all();
+        }
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [clinician, frontDesk]) -> DaySummary {
+            let DateTime start = DateTime.now().startOfDay();
+            let Array<Appointment> day = Appointment.where(startsAt: gte(start)).where(startsAt: lt(start.addDays(1))).limit(500).all();
+            return DaySummary {
+                booked: day.filter(v => v.status == AppointmentStatus.Booked).length,
+                inClinic: day.filter(v => v.status == AppointmentStatus.CheckedIn || v.status == AppointmentStatus.InRoom).length,
+                completed: day.filter(v => v.status == AppointmentStatus.Completed).length,
+                noShows: day.filter(v => v.status == AppointmentStatus.NoShow).length
+            };
+        }
+
+        @path('/open-slots')
+        get openSlots() : auth(required, providers: [identity], roles: [frontDesk]) -> Array<SlotChoice> {
+            let Array<OpenSlot> slots = OpenSlot.where(isTaken: false).where(startsAt: gte(DateTime.now())).orderBy(startsAt: asc).limit(100).all();
+            return slots.map(s => SlotChoice { id: s.id, label: #"{s.clinicianName}, {s.startsAt.format('yyyy-MM-dd HH:mm')}" });
+        }
+
+        @path('/walk-in')
+        post bookWalkIn(BookWalkInRequest request) : auth(required, providers: [identity], roles: [frontDesk]) -> Appointment {
+            let PatientCard card = PatientService.PatientCardAPI.get.cardById(id: request.patientId);
+            return takeSlot(request.slotId, card.id, card.userId, card.fullName, VisitKind.InPerson, request.reason);
+        }
+
+        @path('/:id/move')
+        post moveVisit(UUID id, MoveVisitRequest request) : auth(required, providers: [identity], roles: [clinician, frontDesk]) -> Appointment {
+            let Appointment visit = Appointment.findOrFail(id);
+            if (!deskMayMove(visit.status, request.status)) {
+                throw NoSuchMoveError();
+            }
+            visit.status = request.status;
+            visit.save();
+            if (request.status == AppointmentStatus.Cancelled) {
+                freeSlot(visit);
+            }
+            return visit;
+        }
+    }
+
     jobs {
-        // Send reminders for tomorrow's appointments
-        job SendAppointmentReminders {
-            let DateTime tomorrow = DateTime.now().addDays(1);
-            let DateTime tomorrowStart = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T00:00:00");
-            let DateTime tomorrowEnd = DateTime.parse(#"{tomorrow.format('YYYY-MM-DD')}T23:59:59");
-
-            let Array<Appointment> upcomingAppointments = appointmentDb.Appointment
-            .where(scheduledAt: gte(tomorrowStart))
-            .where(scheduledAt: lte(tomorrowEnd))
-            .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
-            .where(reminderSent: false)
-            .all();
-
-            let Int sentCount = 0;
-            foreach appointment in upcomingAppointments {
+        // Texts everyone with a visit in the next day, once. A failed text is tried at the next run.
+        job SendReminders {
+            let DateTime now = DateTime.now();
+            let Array<appointmentDb.Appointment> due = appointmentDb.Appointment
+                .where(status: AppointmentStatus.Booked)
+                .whereNull(reminderSentAt)
+                .where(startsAt: gte(now))
+                .where(startsAt: lt(now.addDays(1)))
+                .limit(200)
+                .all();
+            foreach visit in due {
                 try {
-                    let Patient patient = PatientService.PatientAPI.get.patientByIdInternal(appointment.patientId);
-
-                    if (patient.email != null) {
-                        Email.sendTemplate({
-                            to: patient.email,
-                            subject: "Appointment Reminder - Tomorrow",
-                            template: "appointmentReminder",
-                            data: {
-                                patientName: patient.fullName,
-                                providerName: appointment.providerName,
-                                scheduledAt: appointment.scheduledAt.format('YYYY-MM-DD HH:mm'),
-                                location: appointment.location
-                            }
-
+                    let PatientCard card = PatientService.PatientCardAPI.get.cardById(id: visit.patientId);
+                    if (card.phone != null) {
+                        SmsProvider.SmsAPI.post.sendSms(SendSmsRequest {
+                            to: card.phone,
+                            body: #"Ferncrest Clinic: your visit with {visit.clinicianName} is at {visit.startsAt.format('MMM dd, HH:mm')}.",
+                            idempotencyKey: #"reminder-{visit.id}"
                         });
-
-                        appointment.reminderSent = true;
-                        appointment.reminderSentAt = DateTime.now();
-                        appointment.save();
-                        sentCount = sentCount + 1;
                     }
-
+                    visit.reminderSentAt = DateTime.now();
+                    visit.save();
                 } catch (Exception e) {
-                    Log.error("Failed to send reminder", {
-                        appointmentId: appointment.id,
-                        error: e.message
-                    });
+                    Log.warn("Reminder not sent", { appointmentId: visit.id });
                 }
-
             }
-
-            Log.info("Appointment reminders sent", { count: sentCount });
         }
 
-        // Mark overdue appointments as no-shows
+        // A booked visit an hour past its start is a visit nobody came to, and the slot stays taken.
         job MarkNoShows {
-            let DateTime threshold = DateTime.now().subtractMinutes(30);
-
-            let Array<Appointment> missedAppointments = appointmentDb.Appointment
-            .where(scheduledAt: lt(threshold))
-            .whereIn(status: [AppointmentStatus.Scheduled, AppointmentStatus.Confirmed])
-            .all();
-
-            foreach appointment in missedAppointments {
-                appointment.status = AppointmentStatus.NoShow;
-                appointment.save();
-
-                Log.info("Appointment marked as no-show", {
-                    appointmentId: appointment.id,
-                    patientId: appointment.patientId,
-                    scheduledAt: appointment.scheduledAt
-                });
+            let Array<appointmentDb.Appointment> missed = appointmentDb.Appointment
+                .where(status: AppointmentStatus.Booked)
+                .where(startsAt: lt(DateTime.now().addHours(-1)))
+                .limit(200)
+                .all();
+            foreach visit in missed {
+                visit.status = AppointmentStatus.NoShow;
+                visit.save();
             }
-
-            if (missedAppointments.length() > 0) {
-                Log.info("No-show cleanup complete", { count: missedAppointments.length() });
-            }
-
         }
 
+        // Keeps two weeks of morning slots open for every clinician who accepts patients.
+        job OpenSlots {
+            let Array<appointmentDb.Clinician> clinicians = appointmentDb.Clinician.where(acceptingPatients: true).all();
+            let DateTime today = DateTime.now().startOfDay();
+            foreach clinician in clinicians {
+                foreach day in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] {
+                    foreach minutes in [540, 570, 600, 630, 660, 690] {
+                        let DateTime startsAt = today.addDays(day).addMinutes(minutes);
+                        if (appointmentDb.OpenSlot.where(clinicianId: clinician.id, startsAt: startsAt).first() == null) {
+                            appointmentDb.OpenSlot.create({
+                                clinicianId: clinician.id,
+                                clinicianName: clinician.name,
+                                startsAt: startsAt,
+                                endsAt: startsAt.addMinutes(30)
+                            });
+                        }
+                    }
+                }
+            }
+        }
     }
 
+    test("the front desk checks a patient in but cannot skip to the end") {
+        assert deskMayMove(AppointmentStatus.Booked, AppointmentStatus.CheckedIn);
+        assert !deskMayMove(AppointmentStatus.Booked, AppointmentStatus.Completed);
+    }
 }

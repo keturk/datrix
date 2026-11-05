@@ -7,16 +7,42 @@ app ecommerce.Admin('config/admin-app.dcfg') : version('1.0.0') {
     theme extends Brand { }
     layout Console { nav { link Products.list; } }
 
+    // A product holds its category's id; this cell shows the category's name.
+    component CategoryName(UUID categoryId) {
+        data { category = ProductService.CategoryAPI.productDb.Category.get(id: categoryId); }
+        view { text(category.name); }
+    }
+
     // Each minted page carries the guard derived from the operation it reaches: list/detail
     // are public reads, edit reaches the admin-only update -- so the edit page is admin-only.
     // `auth(...)` here tightens all of them to staff.
     @path('/products')
     workspace Products : over(ProductService.ProductAPI.productDb.Product),
                          auth(required, providers: [identity], roles: [admin]), fallback {
-        // The metadata, images and tags are JSON documents with no text form,
-        // so neither table shows them; the edit form still binds them.
-        list   { columns(auto) except [description, productMetadata, images, tags]; }
-        detail { columns(auto) except [productMetadata, images, tags]; }
-        edit   { fields(auto) except [slug]; }
+        // The metadata, images and tags are JSON documents with no text form, so no page shows
+        // them. Staff read a product by its name, so neither table shows its id, and the list
+        // writes out its columns, name first, leaving the slug and timestamps to the detail.
+        list {
+            column name;
+            column categoryId : render(CategoryName);
+            column price : format(money);
+            column compareAtPrice : format(money);
+            column inventory;
+            column status;
+        }
+        detail {
+            columns(auto) except [id, productMetadata, images, tags];
+            column createdAt : format(dateTime);
+            column updatedAt : format(dateTime);
+            column price : format(money);
+            column compareAtPrice : format(money);
+            column categoryId : render(CategoryName);
+        }
+        // Staff pick a product's category by name; the slug follows the name, and the
+        // documents have no form input.
+        edit {
+            fields(auto) except [slug, productMetadata, images, tags];
+            field categoryId : options(ProductService.CategoryAPI.productDb.Category.list, value: c => c.id, label: c => c.name);
+        }
     }
 }

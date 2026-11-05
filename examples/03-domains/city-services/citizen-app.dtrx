@@ -1,0 +1,119 @@
+from cityservices.ui import Brand;
+
+/// What a resident uses, on the web and on a phone. Nothing asks them to sign in, because every
+/// route it reaches is public, so no login is generated for it.
+app cityservices.Citizen('config/citizen-app.dcfg') : version('2.0.0') {
+    uses cityservices.RequestService;
+    uses cityservices.FacilityService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    layout Site {
+        nav {
+            link Report : icon(report_problem);
+            link Find : icon(search);
+            link Places : icon(map);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Report() {
+        view {
+            pageHeader(Msg.reportTitle, Msg.reportSubtitle);
+            form(ReportProblem);
+        }
+    }
+
+    form ReportProblem : submit(RequestService.ReportAPI.post.report) {
+        fn received(String reference) {
+            Ui.toast(Msg.reportReceived, tone: success);
+            Nav.to(Track, reference: reference);
+        }
+        step problem {
+            field category;
+            field title;
+            field description;
+        }
+        step place {
+            field address;
+            field phone;
+        }
+        step check {
+            review;
+        }
+        onSuccess(received(result.requestNumber));
+    }
+
+    @path('/find')
+    page Find() {
+        state String reference = '';
+        view {
+            pageHeader(Msg.findTitle, Msg.findSubtitle);
+            input(Msg.referenceLabel) : bind(reference);
+            button(Msg.findAction) : onClick(Nav.to(Track, reference: reference)), kind(primary), disabled(reference == '');
+        }
+    }
+
+    @path('/track/:reference')
+    page Track(String reference) {
+        data { request = RequestService.ReportAPI.get.track(requestNumber: reference); }
+        view {
+            pageHeader(request.title, request.requestNumber) : back(Find) {
+                badge(request.status);
+            }
+            card {
+                text(request.address);
+                when (request.districtName != null) {
+                    text(Msg.handledBy(district: request.districtName));
+                }
+                text(Fmt.dateTime(request.createdAt));
+            }
+        }
+    }
+
+    @path('/places')
+    page Places() {
+        data {
+            pins = FacilityService.FacilityAPI.get.pins();
+        }
+        view {
+            pageHeader(Msg.placesTitle, Msg.placesSubtitle);
+            map {
+                foreach (pin in pins) {
+                    marker(pin.point, pin.name);
+                }
+            }
+            list(data: pins) {
+                heading(item.name);
+                badge(item.type);
+                text(item.address);
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle, Msg.notFoundBody) : icon(search_off) { link(Msg.home, Report); }
+        }
+    }
+
+    test("the report page opens on the form") {
+        let Screen screen = render(Report);
+        assert screen.shows(Msg.reportTitle);
+    }
+}

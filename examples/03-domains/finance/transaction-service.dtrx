@@ -1,744 +1,372 @@
+from finance.common import AccountType, AccountStatus, TransferStatus, REVIEW_THRESHOLD, generateTransferReference;
 
-from finance.common import AuditedEntity, Currency, generateReference;
+// The ledger. Money only moves as a balanced pair of entries in one database transaction, the
+// entries cannot be changed or deleted, and the database itself refuses to commit a posting whose
+// debits and credits differ, whichever code path wrote it. A balance is locked while it changes,
+// so two transfers at once can never spend the same money.
+service finance.TransactionService('config/transaction-service.dcfg') : version('2.0.0'), description('The double-entry ledger and transfers') {
 
-service finance.TransactionService('config/transaction-service.dcfg') : version('1.0.0'), description('financial transaction processing service') {
-    discovery {
-        AccountService { loadBalance: roundRobin, healthyOnly: true }
+    discovery { }
+
+    uses AccountService;
+    uses BankProvider;
+    uses SanctionsProvider;
+
+    exceptions {
+        NotYourAccountError : status(404), message("Account not found");
+        AccountNotActiveError : status(409), message("This account cannot move money right now");
+        NoSuchPayeeError : status(404), message("There is no account with that number");
+        SameAccountError : status(422), message("Choose two different accounts");
+        InsufficientFundsError : status(422), message("There is not enough money in this account");
+        PaymentNotSentError : status(502), message("The payment network refused this payment");
     }
 
-    enum TransactionType {
-        Deposit : value('deposit'),
-        Withdrawal : value('withdrawal'),
-        Transfer : value('transfer'),
-        Payment : value('payment'),
-        Refund : value('refund')
+    enum EntrySide {
+        Debit,
+        Credit
     }
 
-    enum TransactionStatus {
-        Pending : value('pending'),
-        Completed : value('completed'),
-        Failed : value('failed'),
-        Reversed : value('reversed')
+    enum TransferKind {
+        Internal,
+        Outbound,
+        Deposit
     }
 
-    enum BatchStatus {
-        Pending : value('pending'),
-        Processing : value('processing'),
-        Completed : value('completed'),
-        Failed : value('failed'),
-        PartiallyCompleted : value('partially_completed')
-    }
+    /// The bank's own account that money crosses when it enters or leaves.
+    const CLEARING_ACCOUNT_NUMBER = "QB0000000000";
 
-    struct CreateTransactionRequest {
-        UUID accountId;
-        TransactionType type;
-        Money amount;
-        Currency currency;
-        String? description;
-    }
+    rdbms ledgerDb {
 
-    struct TransferRequest {
-        UUID sourceAccountId;
-        UUID destinationAccountId;
-        Money amount;
-        Currency currency;
-        String? description;
-    }
+        /// One account's balance. Always changed under a row lock, beside its ledger entries.
+        entity LedgerAccount extends BaseEntity {
+            UUID accountId : unique;
+            String(20) accountNumber : unique, filterable;
+            UUID? ownerUserId : index;
+            AccountType type : filterable;
+            AccountStatus status : filterable = AccountStatus.Active;
+            String(3) currency = "USD";
+            Money balance;
+        }
 
-    struct TransferResponse {
-        txDb.Transaction sourceTransaction;
-        txDb.Transaction destinationTransaction;
-        String transferReference;
-    }
+        /// Money moving. Read by people; the entries beside it are what counts.
+        entity Transfer extends BaseEntity {
+            String(30) reference : unique, filterable;
+            TransferKind kind : filterable;
+            TransferStatus status : filterable = TransferStatus.Posted;
+            UUID fromAccountId : index;
+            UUID toAccountId : index;
+            String(20) fromNumber : filterable;
+            String(20) toNumber : filterable;
+            Money amount : positive, sortable;
+            String(200)? memo;
+            String(200)? payeeName : filterable;
+            String(34)? payeeIban;
+            String(40)? paymentId;
+            String(200)? holdReason;
+        }
 
-    struct CreateBatchRequest {
-        Array<CreateTransactionRequest> transactions;
-    }
-
-    struct BatchResponse {
-        UUID batchId;
-        BatchStatus status;
-        Int totalCount;
-        Int successCount;
-        Int failedCount;
-        Money totalAmount;
-    }
-
-    struct TransactionSummary {
-        UUID accountId;
-        Int transactionCount;
-        Money totalDeposits;
-        Money totalWithdrawals;
-        Money netChange;
-    }
-
-    rdbms txDb {
-        alert queryDuration(p95) over(5m) > 150ms @severity(warning);
-        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
-
-        // Core transaction entity
-        entity Transaction extends AuditedEntity : audit {
+        /// One side of a posting. The database refuses every change and delete, and refuses to
+        /// commit a posting whose debits and credits differ.
+        entity LedgerEntry extends BaseEntity : appendOnly {
+            UUID transferId : index;
             UUID accountId : index;
-            TransactionType type;
-            TransactionStatus status = TransactionStatus.Pending;
-            Money amount;
-            Currency currency;
-            String(50) reference : unique;
-            String(500)? description;
-            UUID? counterpartyAccountId;
-            UUID? batchId : index;
-            String(500)? failureReason;
+            String(20) accountNumber : filterable;
+            String(30) reference : filterable;
+            /// What a customer reads on their statement.
+            String(200) description;
+            String(3) currency;
+            EntrySide side : filterable;
+            Decimal(14, 2) amount : positive;
 
-            belongsTo TransactionBatch : index;
-            DateTime? completedAt;
-
-            // Computed fields
-            Boolean isCompleted := status == TransactionStatus.Completed;
-            Boolean isPending := status == TransactionStatus.Pending;
-
-            index(accountId, createdAt);
-            index(accountId, type);
-            index(reference);
-            index(status, createdAt);
-
-            validate {
-                if (amount.amount <= 0)
-                ValidationError("Transaction amount must be positive");
-                if (reference.trim().isEmpty())
-                ValidationError("Transaction reference cannot be empty");
-                if (type == TransactionType.Transfer && counterpartyAccountId == null)
-                ValidationError("Transfer transactions require a counterparty account");
-            }
-
-            afterCreate {
-                dispatch TransactionCreated(id, accountId, type, amount, currency, reference);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch TransactionStatusChanged(id, accountId, oldValue(status), status, amount);
-
-                    if (status == TransactionStatus.Completed) {
-                        completedAt = DateTime.now();
-                        Log.info("Transaction completed", { txId: id, reference: reference, amount: amount });
-                    } else if (status == TransactionStatus.Failed) {
-                        Log.warn("Transaction failed", { txId: id, reference: reference, reason: failureReason });
-                    }
-
-                }
-
-            }
-
-            fn complete() {
-                status = TransactionStatus.Completed;
-                completedAt = DateTime.now();
-                this.save();
-            }
-
-            fn fail(String reason) {
-                status = TransactionStatus.Failed;
-                failureReason = reason;
-                this.save();
-            }
-
-            fn reverse() {
-                if (status != TransactionStatus.Completed) {
-                    throw ValidationException("Only completed transactions can be reversed");
-                }
-
-                status = TransactionStatus.Reversed;
-                this.save();
-            }
-
+            invariant balanced : group(transferId, currency) sum(side == EntrySide.Debit ? amount : -amount) == 0;
         }
 
-        // Batch processing entity for bulk operations
-        entity TransactionBatch extends BaseEntity {
-            String(50) batchId : unique;
-            BatchStatus status = BatchStatus.Pending;
-            Money totalAmount;
-            Currency currency;
-            Int transactionCount;
-            Int successCount = 0;
-            Int failedCount = 0;
-            UUID submittedBy;
-            DateTime? completedAt;
-
-            hasMany Transaction as transactions;
-
-            index(batchId);
-            index(status, createdAt);
-
-            validate {
-                if (transactionCount <= 0)
-                ValidationError("Batch must contain at least one transaction");
-            }
-
-            afterUpdate {
-                if (isChanged(status) && status == BatchStatus.Completed) {
-                    completedAt = DateTime.now();
-                    Log.info("Batch completed", { batchId: batchId, success: successCount, failed: failedCount });
-                }
-
-            }
-
-            fn markCompleted(Int successes, Int failures) {
-                successCount = successes;
-                failedCount = failures;
-                if (failures == 0) {
-                    status = BatchStatus.Completed;
-                } else if (successes == 0) {
-                    status = BatchStatus.Failed;
-                } else {
-                    status = BatchStatus.PartiallyCompleted;
-                }
-
-                this.save();
-            }
-
+        /// What the nightly job found: did all postings balance, and how much moved.
+        entity Reconciliation extends BaseEntity : appendOnly {
+            DateTime day : unique, sortable;
+            Int transferCount;
+            Money postedAmount;
+            Boolean balanced : filterable;
         }
-
-        // Daily reconciliation summary
-        entity DailyReconciliation extends BaseEntity {
-            DateTime reconciliationDate : unique;
-            Int totalTransactions = 0;
-            Money totalDebits;
-            Money totalCredits;
-            Money netAmount;
-            Boolean isBalanced = false;
-            DateTime? verifiedAt;
-
-            index(reconciliationDate);
-
-            validate {
-                if (totalTransactions < 0)
-                ValidationError("Total transactions cannot be negative");
-            }
-
-        }
-
     }
 
     pubsub mq {
-        alert consumerLag(max) over(5m) > 500 @severity(critical);
-        alert failedMessages(count) over(5m) > 5 @severity(warning);
-
-        topic TransactionEvents {
-            publish TransactionCreated(UUID txId, UUID accountId, TransactionType type, Money amount, Currency currency, String reference) {
-                ensure amount > 0;
-                ensure reference.length > 0;
-            }
-
-            publish TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish TransferCompleted(UUID sourceTxId, UUID destTxId, UUID sourceAccountId, UUID destAccountId, Money amount, String reference) {
+        topic TransferEvents {
+            publish TransferPosted(UUID transferId, String reference, UUID fromAccountId, Money amount, Boolean needsReview) {
                 ensure amount > 0;
             }
 
-            publish BatchProcessed(UUID batchId, Int successCount, Int failedCount) {
-                ensure successCount + failedCount > 0;
+            publish TransferHeld(UUID transferId, String reference, UUID fromAccountId, Money amount, String reason) {
+                ensure amount > 0;
             }
-
-            publish DailyReconciliationCompleted(DateTime date, Int totalTransactions, Boolean isBalanced) {
-                ensure totalTransactions >= 0;
-            }
-
         }
-
-        // React to account events from AccountService
     }
 
     subscribe AccountEvents {
-        on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
-            Log.info("Account status change received", { accountId: accountId, oldStatus: oldStatus, newStatus: newStatus });
-
-            // If account is frozen or closed, fail all pending transactions
-            if (newStatus == AccountStatus.Frozen || newStatus == AccountStatus.Closed) {
-                let Array<Transaction> pendingTxs = txDb.Transaction
-                .where(accountId: accountId)
-                .where(status: TransactionStatus.Pending)
-                .all();
-
-                foreach tx in pendingTxs {
-                    tx.fail(#"Account {accountNumber} is {newStatus}");
-                }
-
-                Log.info("Failed pending transactions for account", { accountId: accountId, count: pendingTxs.length() });
-            }
-
-        }
-
-    }
-
-    subscribe TransactionEvents {
-        on TransactionStatusChanged(UUID txId, UUID accountId, TransactionStatus oldStatus, TransactionStatus newStatus, Money amount) {
-            Log.info("Transaction status changed", { txId: txId, oldStatus: oldStatus, newStatus: newStatus });
-        }
-
-        on TransferCompleted(UUID sourceTxId, UUID destTxId, UUID sourceAccountId, UUID destAccountId, Money amount, String reference) {
-            Log.info("Transfer completed", {
-                sourceTxId: sourceTxId,
-                destTxId: destTxId,
-                sourceAccountId: sourceAccountId,
-                destAccountId: destAccountId,
-                amount: amount,
-                reference: reference
-            });
-        }
-
-        on BatchProcessed(UUID batchId, Int successCount, Int failedCount) {
-            Log.info("Batch processed", { batchId: batchId, successCount: successCount, failedCount: failedCount });
-        }
-
-        on DailyReconciliationCompleted(DateTime date, Int totalTransactions, Boolean isBalanced) {
-            Log.info("Daily reconciliation completed", { date: date, totalTransactions: totalTransactions, isBalanced: isBalanced });
-        }
-
-    }
-
-    rest_api TransactionAPI : basePath('/api/v1/transactions'), rdbms(txDb) {
-        alert responseTime(p95) over(5m) > 300ms @severity(warning);
-        alert errorRate(ratio) over(5m) > 3% @severity(critical);
-
-        // List transactions with filtering, a page at a time
-        get(PageRequest page, UUID? accountId, TransactionType? type, TransactionStatus? status) : auth(required, providers: [identity]) -> Page<txDb.Transaction> {
-            let JSON query = txDb.Transaction.all();
-
-            if (accountId != null) {
-                query = txDb.Transaction.where(accountId: accountId);
-            }
-
-            if (type != null) {
-                query = query.where(type: type);
-            }
-
-            if (status != null) {
-                query = query.where(status: status);
-            }
-
-            return query.orderBy(createdAt: desc).page(page);
-        }
-
-        @path('/:id')
-        get(UUID id) : auth(required, providers: [identity]) -> txDb.Transaction {
-            return txDb.Transaction.findOrFail(id);
-        }
-
-        // Create a single transaction (deposit, withdrawal, payment)
-        post(CreateTransactionRequest request) : auth(required, providers: [identity]) -> txDb.Transaction {
-            // Verify account exists and is active via AccountService
-            let Account account = AccountService.AccountAPI.get.accountByIdInternal(request.accountId);
-
-            if (account.status != "active") {
-                throw ValidationException(#"Account is not active. Current status: {account.status}");
-            }
-
-            let String ref = generateReference("TXN");
-
-            let Transaction tx = txDb.Transaction.create({
-                accountId: request.accountId,
-                type: request.type,
-                status: TransactionStatus.Pending,
-                amount: request.amount,
-                currency: request.currency,
-                reference: ref,
-                description: request.description
-            });
-
-            try {
-                transaction(txDb) {
-                    tx.save();
-                    tx.complete();
-                }
-
-            } catch (Exception e) {
-                tx.fail(#"Processing error: {e}");
-                Log.error("Transaction processing failed", { reference: ref, error: e });
-                throw e;
-            }
-
-            return tx;
-        }
-
-        // Execute an account-to-account transfer
-        @path('/transfer')
-        post(TransferRequest request) : auth(required, providers: [identity]) -> TransferResponse {
-            // Validate both accounts exist and are active
-            let Account sourceAccount = AccountService.AccountAPI.get.accountByIdInternal(request.sourceAccountId);
-            let Account destAccount = AccountService.AccountAPI.get.accountByIdInternal(request.destinationAccountId);
-
-            if (sourceAccount.status != "active") {
-                throw ValidationException("Source account is not active");
-            }
-
-            if (destAccount.status != "active") {
-                throw ValidationException("Destination account is not active");
-            }
-
-            let String transferRef = generateReference("TRF");
-
-            let Transaction withdrawalTx = txDb.Transaction.create({
-                accountId: request.sourceAccountId,
-                type: TransactionType.Transfer,
-                status: TransactionStatus.Pending,
-                amount: request.amount,
-                currency: request.currency,
-                reference: #"{transferRef}-W",
-                description: request.description ?? #"Transfer to account {request.destinationAccountId}",
-                counterpartyAccountId: request.destinationAccountId
-            });
-
-            let Transaction depositTx = txDb.Transaction.create({
-                accountId: request.destinationAccountId,
-                type: TransactionType.Transfer,
-                status: TransactionStatus.Pending,
-                amount: request.amount,
-                currency: request.currency,
-                reference: #"{transferRef}-D",
-                description: request.description ?? #"Transfer from account {request.sourceAccountId}",
-                counterpartyAccountId: request.sourceAccountId
-            });
-
-            try {
-                // Atomic: both sides of the transfer succeed or fail together
-                transaction(txDb) {
-                    withdrawalTx.save();
-                    depositTx.save();
-                    withdrawalTx.complete();
-                    depositTx.complete();
-                }
-
-                dispatch TransferCompleted(withdrawalTx.id, depositTx.id, request.sourceAccountId, request.destinationAccountId, request.amount, transferRef);
-
-            } catch (Exception e) {
-                withdrawalTx.fail(#"Transfer failed: {e}");
-                depositTx.fail(#"Transfer failed: {e}");
-                Log.error("Transfer failed", { reference: transferRef, error: e });
-                throw e;
-            }
-
-            return {
-                sourceTransaction: withdrawalTx,
-                destinationTransaction: depositTx,
-                transferReference: transferRef
-            };
-        }
-
-        // Submit a batch of transactions
-        @path('/batch')
-        post(CreateBatchRequest request) : auth(required, providers: [identity]) -> BatchResponse {
-            let String batchRef = generateReference("BAT");
-            let Money totalAmount = Money.of(0);
-
-            foreach item in request.transactions {
-                totalAmount = totalAmount.add(item.amount);
-            }
-
-            let TransactionBatch batch = txDb.TransactionBatch.create({
-                batchId: batchRef,
-                status: BatchStatus.Processing,
-                totalAmount: totalAmount,
-                currency: Currency.USD,
-                transactionCount: request.transactions.length(),
-                submittedBy: Auth.user().id
-            });
-            batch.save();
-
-            let Int successes = 0;
-            let Int failures = 0;
-
-            foreach item in request.transactions {
-                let String ref = generateReference("TXN");
-                let Transaction tx = txDb.Transaction.create({
-                    accountId: item.accountId,
-                    type: item.type,
-                    status: TransactionStatus.Pending,
-                    amount: item.amount,
-                    currency: item.currency,
-                    reference: ref,
-                    description: item.description,
-                    batchId: batch.id
+        on AccountOpened(UUID accountId, String accountNumber, UUID ownerUserId, AccountType type) {
+            if (ledgerDb.LedgerAccount.where(accountId: accountId).first() == null) {
+                ledgerDb.LedgerAccount.create({
+                    accountId: accountId,
+                    accountNumber: accountNumber,
+                    ownerUserId: ownerUserId,
+                    type: type,
+                    balance: 0.00
                 });
-
-                try {
-                    transaction(txDb) {
-                        tx.save();
-                        tx.complete();
-                    }
-
-                    successes = successes + 1;
-                } catch (Exception e) {
-                    tx.fail(#"Batch processing error: {e}");
-                    failures = failures + 1;
-                    Log.warn("Batch transaction failed", { batchId: batchRef, reference: ref, error: e });
-                }
-
             }
+        }
 
-            batch.markCompleted(successes, failures);
-            dispatch BatchProcessed(batch.id, successes, failures);
+        on AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
+            let ledgerDb.LedgerAccount? account = ledgerDb.LedgerAccount.where(accountId: accountId).first();
+            if (account != null) {
+                account.status = newStatus;
+                account.save();
+            }
+        }
+    }
 
-            return {
-                batchId: batch.id,
-                status: batch.status,
-                totalCount: request.transactions.length(),
-                successCount: successes,
-                failedCount: failures,
-                totalAmount: totalAmount
+    struct TransferRequest {
+        UUID fromAccountId;
+        String(20) toAccountNumber;
+        Money amount;
+        String(200)? memo;
+    }
+
+    struct PayoutRequest {
+        UUID fromAccountId;
+        String(200) payeeName;
+        String(34) payeeIban;
+        Money amount;
+        String(200)? memo;
+    }
+
+    struct DepositRequest {
+        String(20) accountNumber;
+        Money amount;
+        String(200)? memo;
+    }
+
+    struct Statement {
+        ledgerDb.LedgerAccount account;
+        Array<ledgerDb.LedgerEntry> entries;
+    }
+
+    struct LedgerSummary {
+        Int accounts;
+        Int postedTransfers;
+        Int heldTransfers;
+    }
+
+    /// Debits one account and credits the other under locks taken in a fixed order, so two
+    /// opposite transfers cannot deadlock.
+    fn post(ledgerDb.Transfer transfer) {
+        transaction(ledgerDb) {
+            let UUID firstId = transfer.fromAccountId.toString() < transfer.toAccountId.toString() ? transfer.fromAccountId : transfer.toAccountId;
+            let UUID secondId = firstId == transfer.fromAccountId ? transfer.toAccountId : transfer.fromAccountId;
+            let ledgerDb.LedgerAccount first = ledgerDb.LedgerAccount.where(id: firstId).forUpdate().firstOrFail();
+            let ledgerDb.LedgerAccount second = ledgerDb.LedgerAccount.where(id: secondId).forUpdate().firstOrFail();
+            let ledgerDb.LedgerAccount from = first.id == transfer.fromAccountId ? first : second;
+            let ledgerDb.LedgerAccount to = first.id == transfer.toAccountId ? first : second;
+            if (from.status != AccountStatus.Active || to.status != AccountStatus.Active) {
+                throw AccountNotActiveError();
+            }
+            if (from.accountNumber != CLEARING_ACCOUNT_NUMBER && from.balance < transfer.amount) {
+                throw InsufficientFundsError();
+            }
+            from.balance = from.balance - transfer.amount;
+            from.save();
+            to.balance = to.balance + transfer.amount;
+            to.save();
+            let String debitLine = transfer.memo ?? (transfer.payeeName ?? #"To {to.accountNumber}");
+            let String creditLine = transfer.memo ?? #"From {from.accountNumber}";
+            ledgerDb.LedgerEntry.create({ transferId: transfer.id, accountId: from.id, accountNumber: from.accountNumber, reference: transfer.reference, description: debitLine, currency: from.currency, side: EntrySide.Debit, amount: transfer.amount });
+            ledgerDb.LedgerEntry.create({ transferId: transfer.id, accountId: to.id, accountNumber: to.accountNumber, reference: transfer.reference, description: creditLine, currency: to.currency, side: EntrySide.Credit, amount: transfer.amount });
+        }
+    }
+
+    fn announcePosted(ledgerDb.Transfer transfer) {
+        dispatch TransferPosted(transfer.id, transfer.reference, transfer.fromAccountId, transfer.amount, transfer.amount >= REVIEW_THRESHOLD);
+    }
+
+    fn ownedAccount(UUID id, UUID userId) -> ledgerDb.LedgerAccount {
+        let ledgerDb.LedgerAccount account = ledgerDb.LedgerAccount.findOrFail(id);
+        if (account.ownerUserId != userId) {
+            throw NotYourAccountError();
+        }
+        return account;
+    }
+
+    // A signed-in customer's own money. Every route checks the account belongs to them.
+    rest_api BankingAPI : basePath('/api/v1/banking'), rdbms(ledgerDb) {
+        @path('/accounts')
+        get myAccounts() : auth(required, providers: [identity]) -> Array<LedgerAccount> {
+            return LedgerAccount.where(ownerUserId: Auth.userId()).orderBy(createdAt: asc).all();
+        }
+
+        @path('/accounts/:id/statement')
+        get statement(UUID id) : auth(required, providers: [identity]) -> Statement {
+            let LedgerAccount account = ownedAccount(id, Auth.userId());
+            let Array<LedgerEntry> entries = LedgerEntry.where(accountId: account.id).orderBy(createdAt: desc).limit(100).all();
+            return Statement { account: account, entries: entries };
+        }
+
+        @path('/transfers')
+        post transfer(TransferRequest request) : auth(required, providers: [identity]) -> Transfer {
+            let LedgerAccount from = ownedAccount(request.fromAccountId, Auth.userId());
+            let LedgerAccount? to = LedgerAccount.where(accountNumber: request.toAccountNumber).first();
+            if (to == null) {
+                throw NoSuchPayeeError();
+            }
+            if (to.id == from.id) {
+                throw SameAccountError();
+            }
+            let Transfer created = Transfer.create({
+                reference: generateTransferReference(),
+                kind: TransferKind.Internal,
+                fromAccountId: from.id,
+                toAccountId: to.id,
+                fromNumber: from.accountNumber,
+                toNumber: to.accountNumber,
+                amount: request.amount,
+                memo: request.memo
+            });
+            post(created);
+            announcePosted(created);
+            return created;
+        }
+
+        // A hit on the sanctions list holds the payment for an officer: no money moves.
+        @path('/payouts')
+        post payout(PayoutRequest request) : auth(required, providers: [identity]) -> Transfer {
+            let LedgerAccount from = ownedAccount(request.fromAccountId, Auth.userId());
+            if (from.balance < request.amount) {
+                throw InsufficientFundsError();
+            }
+            let LedgerAccount clearing = LedgerAccount.where(accountNumber: CLEARING_ACCOUNT_NUMBER).firstOrFail();
+            let Transfer created = Transfer.create({
+                reference: generateTransferReference(),
+                kind: TransferKind.Outbound,
+                status: TransferStatus.Held,
+                fromAccountId: from.id,
+                toAccountId: clearing.id,
+                fromNumber: from.accountNumber,
+                toNumber: clearing.accountNumber,
+                amount: request.amount,
+                memo: request.memo,
+                payeeName: request.payeeName,
+                payeeIban: request.payeeIban
+            });
+            let Screening screening = SanctionsProvider.SanctionsAPI.post.screen(ScreenRequest { name: request.payeeName, reference: created.reference });
+            if (screening.hit) {
+                created.holdReason = #"The payee matches the sanctions entry {screening.matchedName ?? request.payeeName}";
+                created.save();
+                dispatch TransferHeld(created.id, created.reference, from.id, created.amount, created.holdReason ?? "");
+                return created;
+            }
+            post(created);
+            let Payment payment = BankProvider.BankAPI.post.createPayment(CreatePaymentRequest {
+                iban: request.payeeIban,
+                beneficiaryName: request.payeeName,
+                amount: request.amount,
+                currency: from.currency,
+                reference: created.reference,
+                idempotencyKey: created.id.toString()
+            });
+            if (payment.status == PaymentStatus.Rejected) {
+                let Transfer refund = Transfer.create({
+                    reference: generateTransferReference(),
+                    kind: TransferKind.Deposit,
+                    fromAccountId: clearing.id,
+                    toAccountId: from.id,
+                    fromNumber: clearing.accountNumber,
+                    toNumber: from.accountNumber,
+                    amount: request.amount,
+                    memo: #"Returned: {created.reference}"
+                });
+                post(refund);
+                created.status = TransferStatus.Rejected;
+                created.holdReason = payment.failureReason;
+                created.save();
+                return created;
+            }
+            created.status = TransferStatus.Posted;
+            created.paymentId = payment.id;
+            created.save();
+            announcePosted(created);
+            return created;
+        }
+    }
+
+    // What staff work with.
+    rest_api LedgerAPI : basePath('/api/v1/ledger'), rdbms(ledgerDb) {
+        resource LedgerAccount : only(list), auth(required, providers: [identity], roles: [teller, officer]);
+        resource Transfer : only(list, get), auth(required, providers: [identity], roles: [teller, officer]);
+        resource LedgerEntry : only(list), auth(required, providers: [identity], roles: [officer]);
+        resource Reconciliation : only(list), auth(required, providers: [identity], roles: [officer]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [teller, officer]) -> LedgerSummary {
+            return LedgerSummary {
+                accounts: LedgerAccount.where().count(),
+                postedTransfers: Transfer.where(status: TransferStatus.Posted).count(),
+                heldTransfers: Transfer.where(status: TransferStatus.Held).count()
             };
         }
 
-        // Get transaction summary for an account
-        @path('/summary/:accountId')
-        get(UUID accountId) : auth(required, providers: [identity]) -> TransactionSummary {
-            let Array<Transaction> transactions = txDb.Transaction
-            .where(accountId: accountId)
-            .where(status: TransactionStatus.Completed)
-            .all();
-
-            let Money deposits = Money.of(0);
-            let Money withdrawals = Money.of(0);
-
-            foreach tx in transactions {
-                if (tx.type == TransactionType.Deposit || (tx.type == TransactionType.Transfer && tx.counterpartyAccountId != null)) {
-                    deposits = deposits.add(tx.amount);
-                } else if (tx.type == TransactionType.Withdrawal || tx.type == TransactionType.Payment) {
-                    withdrawals = withdrawals.add(tx.amount);
-                }
-
+        // Cash paid in at a counter: money enters through the bank's clearing account.
+        @path('/deposits')
+        post deposit(DepositRequest request) : auth(required, providers: [identity], roles: [teller]) -> Transfer {
+            let LedgerAccount? to = LedgerAccount.where(accountNumber: request.accountNumber).first();
+            if (to == null) {
+                throw NoSuchPayeeError();
             }
-
-            return {
-                accountId: accountId,
-                transactionCount: transactions.length(),
-                totalDeposits: deposits,
-                totalWithdrawals: withdrawals,
-                netChange: deposits.add(withdrawals.multiply(-1))
-            };
+            let LedgerAccount clearing = LedgerAccount.where(accountNumber: CLEARING_ACCOUNT_NUMBER).firstOrFail();
+            let Transfer created = Transfer.create({
+                reference: generateTransferReference(),
+                kind: TransferKind.Deposit,
+                fromAccountId: clearing.id,
+                toAccountId: to.id,
+                fromNumber: clearing.accountNumber,
+                toNumber: to.accountNumber,
+                amount: request.amount,
+                memo: request.memo
+            });
+            post(created);
+            announcePosted(created);
+            return created;
         }
-
-        // Reverse a completed transaction
-        @path('/:id/reverse')
-        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> txDb.Transaction {
-            let Transaction tx = txDb.Transaction.findOrFail(id);
-            tx.reverse();
-            return tx;
-        }
-
-        // Internal endpoint for cross-service lookups
-        @path('/service/by-account/:accountId')
-        get transactionsByAccountInternal(UUID accountId) : auth(service, providers: [platform]), hidden, idempotent -> Array<txDb.Transaction> {
-            return txDb.Transaction
-            .where(accountId: accountId)
-            .orderBy(createdAt: desc)
-            .limit(100)
-            .all();
-        }
-
     }
 
     jobs {
-        // Daily reconciliation job: summarize the day's transactions
-        job ReconcileDailyTransactions {
-            let DateTime today = DateTime.now();
-            let Array<Transaction> dayTransactions = txDb.Transaction
-            .where(status: TransactionStatus.Completed)
-            .where(completedAt: gte(today.startOfDay()))
-            .where(completedAt: lt(today.endOfDay()))
-            .all();
-
-            let Money totalDebits = Money.of(0);
-            let Money totalCredits = Money.of(0);
-
-            foreach tx in dayTransactions {
-                if (tx.type == TransactionType.Withdrawal || tx.type == TransactionType.Payment) {
-                    totalDebits = totalDebits.add(tx.amount);
-                } else {
-                    totalCredits = totalCredits.add(tx.amount);
+        // Checks every posting of the last day against its entries, and keeps the result.
+        job ReconcileYesterday {
+            let DateTime until = DateTime.now().startOfDay();
+            let DateTime since = until.addDays(-1);
+            if (ledgerDb.Reconciliation.where(day: since).first() == null) {
+                let Array<ledgerDb.Transfer> posted = ledgerDb.Transfer.where(status: TransferStatus.Posted).where(createdAt: gte(since)).where(createdAt: lt(until)).all();
+                let Money total = 0.00;
+                let Boolean balanced = true;
+                foreach transfer in posted {
+                    total = total + transfer.amount;
+                    if (ledgerDb.LedgerEntry.where(transferId: transfer.id).count() != 2) {
+                        balanced = false;
+                    }
                 }
-
+                ledgerDb.Reconciliation.create({ day: since, transferCount: posted.length, postedAmount: total, balanced: balanced });
             }
-
-            let Money netAmount = totalCredits.add(totalDebits.multiply(-1));
-            let Boolean balanced = netAmount.amount == 0;
-
-            let DailyReconciliation recon = txDb.DailyReconciliation.create({
-                reconciliationDate: today,
-                totalTransactions: dayTransactions.length(),
-                totalDebits: totalDebits,
-                totalCredits: totalCredits,
-                netAmount: netAmount,
-                isBalanced: balanced,
-                verifiedAt: DateTime.now()
-            });
-            recon.save();
-
-            dispatch DailyReconciliationCompleted(today, dayTransactions.length(), balanced);
-            Log.info("Daily reconciliation completed", { date: today, total: dayTransactions.length(), balanced: balanced });
         }
-
     }
 
-    test("validation rejects non-positive transaction amount") {
-        assert throws(
-        () => txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Deposit,
-            amount: Money.of(0),
-            currency: Currency.USD,
-            reference: "TXN-TEST-001"
-        }),
-        ValidationError("Transaction amount must be positive")
-        );
-    }
-
-    test("validation rejects transfer without counterparty") {
-        assert throws(
-        () => txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Transfer,
-            amount: Money.of(100),
-            currency: Currency.USD,
-            reference: "TXN-TEST-002"
-        }),
-        ValidationError("Transfer transactions require a counterparty account")
-        );
-    }
-
-    test("afterCreate emits TransactionCreated event") {
-        let Transaction tx = txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Deposit,
-            amount: Money.of(500),
-            currency: Currency.USD,
-            reference: "TXN-TEST-003",
-            description: "Test deposit"
+    test("a transfer starts posted with a generated reference") {
+        let Transfer transfer = ledgerDb.Transfer.create({
+            reference: generateTransferReference(),
+            kind: TransferKind.Internal,
+            fromAccountId: uuid(),
+            toAccountId: uuid(),
+            fromNumber: "QB1000000001",
+            toNumber: "QB1000000002",
+            amount: 25.00
         });
-        tx.save();
-        assert emitted(TransactionCreated(tx.id, tx.accountId, TransactionType.Deposit, tx.amount, Currency.USD, tx.reference));
+        assert transfer.status == TransferStatus.Posted;
+        assert transfer.reference.startsWith("TR-");
     }
-
-    test("reverse fails for non-completed transaction") {
-        let Transaction tx = txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Deposit,
-            amount: Money.of(200),
-            currency: Currency.USD,
-            reference: "TXN-TEST-004"
-        });
-        tx.save();
-        assert throws(
-        () => tx.reverse(),
-        ValidationException("Only completed transactions can be reversed")
-        );
-    }
-
-    test("batch marks completed with correct counts") {
-        let TransactionBatch batch = txDb.TransactionBatch.create({
-            batchId: "BAT-TEST-001",
-            status: BatchStatus.Processing,
-            totalAmount: Money.of(1000),
-            currency: Currency.USD,
-            transactionCount: 5,
-            submittedBy: uuid()
-        });
-        batch.save();
-        batch.markCompleted(4, 1);
-        assert batch.status == BatchStatus.PartiallyCompleted;
-        assert batch.successCount == 4;
-        assert batch.failedCount == 1;
-    }
-
-    test("computed isPending is true for Pending status") {
-        let Transaction tx = txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Deposit,
-            status: TransactionStatus.Pending,
-            amount: Money.of(750),
-            currency: Currency.USD,
-            reference: "TXN-TEST-005",
-            description: "Test pending deposit"
-        });
-        tx.save();
-        assert tx.isPending == true;
-    }
-
-    test("complete sets status and completedAt") {
-        let Transaction tx = txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Payment,
-            status: TransactionStatus.Pending,
-            amount: Money.of(300),
-            currency: Currency.USD,
-            reference: "TXN-TEST-006",
-            description: "Test payment completion"
-        });
-        tx.save();
-        tx.complete();
-        assert tx.status == TransactionStatus.Completed;
-        assert tx.completedAt != null;
-    }
-
-    test("fail sets status and failureReason") {
-        let Transaction tx = txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Withdrawal,
-            status: TransactionStatus.Pending,
-            amount: Money.of(150),
-            currency: Currency.USD,
-            reference: "TXN-TEST-007",
-            description: "Test withdrawal failure"
-        });
-        tx.save();
-        tx.fail("Insufficient funds in source account");
-        assert tx.status == TransactionStatus.Failed;
-        assert tx.failureReason == "Insufficient funds in source account";
-    }
-
-    test("reverse only works from Completed status") {
-        let Transaction tx = txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Deposit,
-            status: TransactionStatus.Pending,
-            amount: Money.of(1200),
-            currency: Currency.USD,
-            reference: "TXN-TEST-008",
-            description: "Test deposit reversal"
-        });
-        tx.save();
-        tx.complete();
-        tx.reverse();
-        assert tx.status == TransactionStatus.Reversed;
-    }
-
-    test("validation rejects empty reference") {
-        assert throws(
-        () => txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Deposit,
-            amount: Money.of(100),
-            currency: Currency.USD,
-            reference: ""
-        }),
-        ValidationError("Transaction reference cannot be empty")
-        );
-    }
-
-    test("afterUpdate emits TransactionStatusChanged on status change") {
-        let Transaction tx = txDb.Transaction.create({
-            accountId: uuid(),
-            type: TransactionType.Deposit,
-            status: TransactionStatus.Pending,
-            amount: Money.of(900),
-            currency: Currency.USD,
-            reference: "TXN-TEST-009",
-            description: "Test status change event"
-        });
-        tx.save();
-        tx.complete();
-        assert emitted(TransactionStatusChanged(tx.id, tx.accountId, TransactionStatus.Pending, TransactionStatus.Completed, tx.amount));
-    }
-
 }

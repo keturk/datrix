@@ -1,0 +1,23 @@
+// Three invented vans and three drivers. To drive as Ines, create a sign-in with her address.
+seed service logistics.FleetService {
+  rdbms fleetDb {
+    baseline {
+      Vehicle table on(registration) {
+        id,                name,             registration, capacityKg, status,     odometerKm, nextServiceKm;
+        @uuid("van-north"), "Long wheelbase", "QLF-101",    1200.0,     InService,  42310,      45000;
+        @uuid("van-east"),  "City van",       "QLF-102",    700.0,      InService,  18950,      30000;
+        @uuid("van-west"),  "Small van",      "QLF-103",    30.0,       ServiceDue, 60210,      60000;
+      }
+      Driver table on(email) {
+        id,                  name,            email,                        status;
+        @uuid("driver-ines"), "Ines Calder",   "ines@quayline.example.com",  Active;
+        @uuid("driver-sol"),  "Sol Whitaker",  "sol@quayline.example.com",   Active;
+        @uuid("driver-pia"),  "Pia Lindqvist", "pia@quayline.example.com",   OnLeave;
+      }
+      ServiceRecord table on(id) {
+        id,                     vehicleName,      vehicleId,          workDone,                   cost,   atOdometerKm;
+        @uuid("service-north"), "Long wheelbase", @uuid("van-north"), "Oil, filters and a brake check", 412.50, 30120;
+      }
+    }
+  }
+}

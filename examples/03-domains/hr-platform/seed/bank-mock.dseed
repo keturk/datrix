@@ -1,0 +1,12 @@
+// The key payroll presents to the bank. The key itself is the development default of the service's
+// secret; the bank stores only its SHA-256 hash.
+seed service hr.BankMock {
+  rdbms bankDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,               keyHash,                                                            ownerId,                  scopes,            isActive;
+        @uuid("bank-key"), "7d44c70d5db7f68e84938718b3a621f80f7fb554df894b617f9a215e149eed14", @uuid("owner-alderbrook"), ["payouts:write"], true;
+      }
+    }
+  }
+}

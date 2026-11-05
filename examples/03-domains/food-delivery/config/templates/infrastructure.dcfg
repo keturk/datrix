@@ -1,0 +1,77 @@
+// Reusable infrastructure: PostgreSQL and one Kafka broker. Imported project-root-relative by
+// every service config, so this file must not move.
+config shared fooddelivery.InfrastructureTemplates {
+
+  template postgresContainer(id, database, poolSize = 5, maxOverflow = 5) {
+    id = id;
+    engine = "postgres";
+    flavor = "container";
+    host = "localhost";
+    port = 5432;
+    database = database;
+    poolSize = poolSize;
+    maxOverflow = maxOverflow;
+    ssl = false;
+    healthCheckSql = "SELECT 1";
+    dockerImage = "postgres:17-alpine";
+    volumePath = "/var/lib/postgresql/data";
+    defaultUser = "postgres";
+  }
+
+  // One broker: partitions and replication of 1 suit it, and events are kept for 7 days.
+  template kafkaContainer() {
+    engine = "kafka";
+    flavor = "container";
+    brokers = ["localhost:9092"];
+    partitions = 1;
+    replicationFactor = 1;
+    retention = "7d";
+    port = 9092;
+    controllerPort = 9093;
+    dockerImage = "confluentinc/cp-kafka:7.8.0";
+    volumePath = "/var/lib/kafka/data";
+  }
+
+  // Requests reach a service through the local gateway or, between services, by its stack name.
+  // The browser apps are the only other origins, each on its own local port.
+  template localHttpSecurity(host) {
+    allowedHosts = [host, "localhost"];
+    corsOrigins = ["http://localhost:4200", "http://localhost:4300", "http://localhost:4400"];
+    corsMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+    corsHeaders = ["Authorization", "Content-Type"];
+  }
+
+  // Operating values the generated services read. Every service that needs one names it.
+  template outboxBatches() {
+    flushBatchSize = 500;
+  }
+
+  template kafkaPolling() {
+    consumerPollTimeoutMs = 1000;
+    keepalivePollTimeoutMs = 1000;
+    maxPollIntervalMs = 600000;
+  }
+
+  template machineCredential() {
+    tokenExpirySkewSeconds = 30;
+  }
+
+  template peerClient() {
+    timeoutSeconds = 30;
+    circuitBreakerFailMax = 5;
+    circuitBreakerResetSeconds = 30;
+    bulkheadMaxConcurrent = 10;
+    integrationConnectTimeoutMs = 1000;
+  }
+
+  template retryBudget() {
+    window = 100;
+    ratio = 0.1;
+  }
+
+  // A service is not ready until its database answers.
+  template standardDatabasePolicy() {
+    availability = "required";
+    health = "ready";
+  }
+}

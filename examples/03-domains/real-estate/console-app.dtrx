@@ -1,0 +1,379 @@
+from realestate.ui import Brand, statRow;
+from realestate.common import ListingStatus;
+
+/// Where an agent works: their listings, their viewings, the offers on their homes and the contracts out
+/// for signature. Only an operator reaches the vendor pages, which show what the mocks did.
+app realestate.Console('config/console-app.dcfg') : version('2.0.0') {
+    uses realestate.ListingService;
+    uses realestate.ViewingService;
+    uses realestate.DealService;
+    uses realestate.MortgageMock;
+    uses realestate.SignatureMock;
+    uses realestate.EmailMock;
+
+    theme extends Brand { }
+
+    state Boolean listing = false;
+    state UUID? pricing = null;
+    state Boolean repricing = false;
+
+    fn confirmViewing(UUID id) {
+        ViewingService.AgentViewingAPI.post.confirm(id: id);
+        Ui.toast(Msg.viewingConfirmed, tone: success);
+    }
+
+    fn viewingDone(UUID id) {
+        ViewingService.AgentViewingAPI.post.completed(id: id);
+        Ui.toast(Msg.viewingDone, tone: success);
+    }
+
+    fn viewingMissed(UUID id) {
+        ViewingService.AgentViewingAPI.post.noShow(id: id);
+        Ui.toast(Msg.viewingMissed, tone: info);
+    }
+
+    fn acceptOffer(UUID id) {
+        DealService.AgentDealAPI.post.accept(id: id);
+        Ui.toast(Msg.offerAccepted, tone: success);
+    }
+
+    fn rejectOffer(UUID id) {
+        DealService.AgentDealAPI.post.reject(id: id);
+        Ui.toast(Msg.offerRejected, tone: info);
+    }
+
+    fn signEnvelope(UUID id) {
+        SignatureMock.SignatureDeskAPI.post.sign(id: id);
+        Ui.toast(Msg.envelopeSigned, tone: success);
+    }
+
+    fn declineEnvelope(UUID id) {
+        SignatureMock.SignatureDeskAPI.post.decline(id: id);
+        Ui.toast(Msg.envelopeDeclined, tone: info);
+    }
+
+    layout Shell : default {
+        nav {
+            link Dashboard : icon(dashboard), group(Msg.navWork);
+            link Listings : icon(home_work), group(Msg.navWork);
+            link Viewings : icon(event), group(Msg.navWork);
+            link Offers : icon(request_quote), group(Msg.navWork);
+            link Contracts : icon(draw), group(Msg.navWork);
+            link Lender : icon(account_balance), group(Msg.navVendors);
+            link Envelopes : icon(mail_lock), group(Msg.navVendors);
+            link Outbox : icon(mail), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Dashboard() {
+        data {
+            homes = ListingService.AgentListingAPI.get.summary() : poll(30s);
+            viewings = ViewingService.AgentViewingAPI.get.summary() : poll(30s);
+            deals = DealService.AgentDealAPI.get.summary() : poll(30s);
+        }
+        view {
+            pageHeader(Msg.dashboardTitle, Msg.dashboardSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statMarket, Fmt.number(homes.onTheMarket)) : icon(home_work);
+                stat(Msg.statViewings, Fmt.number(viewings.nextSevenDays)) : icon(event), tone(info);
+                stat(Msg.statOffers, Fmt.number(deals.offersWaiting)) : icon(request_quote), tone(warning);
+                stat(Msg.statSold, Fmt.money(deals.signedValue)) : icon(sell), tone(success);
+            }
+            when (deals.offersWaiting > 0) {
+                callout(Msg.offersNotice) : tone(warning) { link(Msg.seeOffers, Offers) : kind(primary); }
+            }
+            when (viewings.waitingForYou > 0) {
+                callout(Msg.viewingsNotice) : tone(info) { link(Msg.seeViewings, Viewings); }
+            }
+            section(Msg.aheadTitle) {
+                chart(bar, data: viewings.ahead, x: d => d.day, y: d => d.viewings);
+            }
+        }
+    }
+
+    @path('/listings')
+    page Listings() {
+        fn startListing() {
+            listing = true;
+        }
+
+        fn stopListing() {
+            listing = false;
+        }
+
+        view {
+            pageHeader(Msg.listingsTitle, Msg.listingsSubtitle) {
+                button(Msg.newListing) : onClick(startListing()), kind(primary), icon(add_home);
+            }
+            table(ListingList);
+            when (listing) {
+                dialog(Msg.newListing) : onClose(stopListing()) {
+                    form(NewListingForm);
+                }
+            }
+        }
+    }
+
+    table ListingList : source(ListingService.AgentListingAPI.listingDb.Listing.list), pageSizes(10, 25, 50), poll(30s) {
+        column title;
+        column neighbourhoodName;
+        column kind;
+        column price : format(money);
+        column bedrooms : format(number);
+        column status;
+        column agentName;
+        column publishedAt : format(date);
+        filter title : live;
+        filter neighbourhoodName;
+        filter kind;
+        filter status;
+        filter agentName;
+        rowAction open : onClick(Nav.to(ListingEditor, id: row.id));
+    }
+
+    form NewListingForm : submit(ListingService.AgentListingAPI.post.createListing) {
+        fn created(UUID id) {
+            listing = false;
+            Ui.toast(Msg.listingCreated, tone: success);
+            Nav.to(ListingEditor, id: id);
+        }
+        field title;
+        field neighbourhoodId : options(ListingService.AgentListingAPI.listingDb.Neighbourhood.list, value: n => n.id, label: n => n.name);
+        field kind;
+        field price;
+        field bedrooms;
+        field bathrooms;
+        field areaSqm;
+        field summary;
+        onSuccess(created(result.id));
+    }
+
+    @path('/listings/:id')
+    page ListingEditor(UUID id) {
+        data { page = ListingService.AgentListingAPI.get.page(id: id); }
+
+        fn publish() {
+            ListingService.AgentListingAPI.post.publish(id: id);
+            page.refresh();
+            Ui.toast(Msg.listingPublished, tone: success);
+        }
+
+        fn withdraw() {
+            ListingService.AgentListingAPI.post.withdraw(id: id);
+            page.refresh();
+            Ui.toast(Msg.listingWithdrawn, tone: info);
+        }
+
+        fn startRepricing() {
+            pricing = id;
+            repricing = true;
+        }
+
+        fn stopRepricing() {
+            repricing = false;
+            page.refresh();
+        }
+
+        view {
+            pageHeader(page.home.title, page.home.neighbourhoodName) : back(Listings) {
+                badge(page.home.status);
+                when (page.home.status == ListingStatus.Draft || page.home.status == ListingStatus.Withdrawn) {
+                    button(Msg.publish) : onClick(publish()), kind(primary), icon(publish);
+                }
+                when (page.home.status == ListingStatus.Active) {
+                    button(Msg.changePrice) : onClick(startRepricing()), icon(sell);
+                    button(Msg.withdraw) : onClick(withdraw()), icon(unpublished);
+                }
+            }
+            grid : style(statRow) {
+                stat(Msg.statPrice, Fmt.money(page.home.price)) : icon(sell);
+                stat(Msg.statBeds, Fmt.number(page.home.bedrooms)) : icon(bed);
+                stat(Msg.statBaths, Fmt.number(page.home.bathrooms)) : icon(bathtub);
+                stat(Msg.statArea, Msg.areaLine(area: Fmt.number(page.home.areaSqm))) : icon(square_foot);
+            }
+            card { markdown(page.summary); }
+            map(center: page.point, zoom: 14) {
+                marker(page.point, page.home.title);
+            }
+            when (page.priceHistory.length > 0) {
+                section(Msg.priceHistory) {
+                    timeline(data: page.priceHistory, at: p => p.at) {
+                        text(Msg.priceStep(from: Fmt.money(item.oldPrice), to: Fmt.money(item.newPrice)));
+                    }
+                }
+            }
+            when (repricing) {
+                dialog(Msg.changePrice) : onClose(stopRepricing()) {
+                    callout(Msg.repriceNote) : tone(info);
+                    form(Reprice);
+                }
+            }
+        }
+    }
+
+    form Reprice : submit(ListingService.AgentListingAPI.post.changePrice) {
+        fn repriced() {
+            repricing = false;
+            Ui.toast(Msg.priceChanged, tone: success);
+        }
+        field listingId : fixed(pricing);
+        field price;
+        onSuccess(repriced());
+    }
+
+    @path('/viewings')
+    page Viewings() {
+        data { calendarRows = ViewingService.AgentViewingAPI.get.calendar() : poll(30s); }
+        view {
+            pageHeader(Msg.viewingsTitle, Msg.viewingsSubtitle);
+            tabs {
+                tab(Msg.tabRequests) { table(ViewingList); }
+                tab(Msg.tabCalendar) {
+                    calendar(data: calendarRows, at: v => v.startsAt, until: v => v.endsAt) {
+                        text(item.listingTitle);
+                        text(item.buyerName);
+                    }
+                }
+            }
+        }
+    }
+
+    table ViewingList : source(ViewingService.AgentViewingAPI.viewingDb.Viewing.list), pageSizes(10, 25, 50), poll(30s) {
+        column startsAt : format(dateTime);
+        column listingTitle;
+        column buyerName;
+        column status;
+        column agentName;
+        column note;
+        filter listingTitle;
+        filter buyerName;
+        filter status;
+        filter agentName;
+        rowAction confirm : onClick(confirmViewing(row.id));
+        rowAction done : onClick(viewingDone(row.id));
+        rowAction missed : onClick(viewingMissed(row.id));
+    }
+
+    @path('/offers')
+    page Offers() {
+        view {
+            pageHeader(Msg.offersTitle, Msg.offersSubtitle);
+            table(OfferList);
+        }
+    }
+
+    table OfferList : source(DealService.AgentDealAPI.dealDb.Offer.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column listingTitle;
+        column buyerName;
+        column amount : format(money);
+        column financing;
+        column status;
+        filter listingTitle;
+        filter financing;
+        filter status;
+        rowAction accept : onClick(acceptOffer(row.id));
+        rowAction reject : onClick(rejectOffer(row.id));
+    }
+
+    @path('/contracts')
+    page Contracts() {
+        view {
+            pageHeader(Msg.contractsTitle, Msg.contractsSubtitle);
+            table(ContractList);
+        }
+    }
+
+    table ContractList : source(DealService.AgentDealAPI.dealDb.Contract.list), pageSizes(10, 25), poll(20s) {
+        column createdAt : format(relative);
+        column listingTitle;
+        column buyerName;
+        column price : format(money);
+        column status;
+        column signedAt : format(date);
+        filter listingTitle;
+        filter status;
+    }
+
+    @path('/vendors/lender')
+    page Lender() {
+        view {
+            pageHeader(Msg.lenderTitle, Msg.lenderSubtitle);
+            table(AnswerList);
+        }
+    }
+
+    table AnswerList : source(MortgageMock.MortgageDeskAPI.mortgageDb.LenderAnswer.list), poll(30s) {
+        column createdAt : format(relative);
+        column applicantName;
+        column amount : format(money);
+        column decision;
+        filter decision;
+    }
+
+    @path('/vendors/envelopes')
+    page Envelopes() {
+        view {
+            pageHeader(Msg.envelopesTitle, Msg.envelopesSubtitle);
+            table(EnvelopeList);
+        }
+    }
+
+    table EnvelopeList : source(SignatureMock.SignatureDeskAPI.signatureDb.VendorEnvelope.list), poll(15s) {
+        column createdAt : format(relative);
+        column signerName;
+        column documentTitle;
+        column status;
+        column settledAt : format(relative);
+        filter status;
+        rowAction sign : onClick(signEnvelope(row.id));
+        rowAction decline : onClick(declineEnvelope(row.id));
+    }
+
+    @path('/vendors/outbox')
+    page Outbox() {
+        view {
+            pageHeader(Msg.outboxTitle, Msg.outboxSubtitle);
+            table(OutboxList);
+        }
+    }
+
+    table OutboxList : source(EmailMock.EmailDeskAPI.emailDb.Outbound.list), poll(30s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column body;
+        column status;
+        filter recipient;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Dashboard); }
+        }
+    }
+
+    test("the offers page opens") {
+        let Screen screen = render(Offers);
+        assert screen.shows(Msg.offersTitle);
+    }
+}

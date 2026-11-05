@@ -1,162 +1,112 @@
+from cityservices.common import FacilityType, pointWkt;
 
-from cityservices.common import FacilityType, ZoningType;
-
-// Manages public facilities (point locations) and parks (polygon boundaries)
-// Demonstrates: GeoSql.withinDistanceMeters, GeoSql.distanceMeters, GeoSql.containsPoint, GeoSql.area, GeoShape.centroid
-service cityservices.FacilityService('config/facility-service.dcfg') : version('1.0.0'), description('public facility and park management with spatial queries') {
+// Public facilities and parks. Finding what is near a resident is a spatial query ordered by
+// distance. Coordinates are plain columns a person can read, and a job keeps the spatial column
+// in step with them, because seed data can write only plain columns.
+service cityservices.FacilityService('config/facility-service.dcfg') : version('2.0.0'), description('Public facilities and parks') {
 
     discovery { }
 
     rdbms facilityDb {
 
-        // Public facility with a point location (library, fire station, etc.)
         entity Facility extends BaseEntity {
-            String(200) name : trim;
-            String(20) facilityCode : unique, trim;
-            FacilityType type;
-            Geometry location;
+            String(200) name : trim, filterable, sortable;
+            FacilityType type : filterable;
+            Float latitude;
+            Float longitude;
+            Geometry? location;
             String(300) address : trim;
-            String(100) city : trim, index;
-            String(20) phone : trim;
-            Boolean isOperational = true;
-
-            index(type);
-            index(type, isOperational);
-
-            afterCreate {
-                dispatch FacilityCreated(id, name, facilityCode, type);
-            }
-
-            afterUpdate {
-                if (isChanged(isOperational)) {
-                    dispatch FacilityStatusChanged(id, facilityCode, isOperational);
-                }
-            }
+            Phone phone;
+            Boolean isOperational : filterable = true;
         }
 
-        // City park with a polygon boundary and a point entrance location
         entity Park extends BaseEntity {
-            String(200) name : trim;
-            String(20) parkCode : unique, trim;
-            Geometry boundary;
-            Geometry entrance;
+            String(200) name : trim, filterable;
+            Text boundaryGeoJson;
+            Geometry? boundary;
             Boolean isOpen = true;
             Text? amenities;
+        }
+    }
 
-            index(isOpen);
-
-            afterCreate {
-                dispatch ParkCreated(id, name, parkCode);
+    jobs {
+        job ConvertShapes {
+            foreach facility in facilityDb.Facility.whereNull(location).all() {
+                facility.location = GeoShape.fromWkt(pointWkt(facility.latitude, facility.longitude));
+                facility.save();
+            }
+            foreach park in facilityDb.Park.whereNull(boundary).all() {
+                park.boundary = GeoShape.fromGeoJson(park.boundaryGeoJson);
+                park.save();
             }
         }
     }
 
-    cache redis {
-        hash FacilityCache : prefix('facility:'), ttl(3600) {
-            UUID facilityId : key;
-            String name;
-            String facilityCode;
-            String type;
-            Boolean isOperational;
-        }
+    /// One facility on a map.
+    struct FacilityPin {
+        UUID id;
+        String name;
+        FacilityType type;
+        String address;
+        GeoPoint point;
     }
 
-    pubsub mq {
-        topic FacilityEvents {
-            publish FacilityCreated(UUID facilityId, String name, String facilityCode, FacilityType type) {
-                ensure name.length > 0;
-            }
-            publish FacilityStatusChanged(UUID facilityId, String facilityCode, Boolean isOperational);
-            publish ParkCreated(UUID parkId, String name, String parkCode) {
-                ensure name.length > 0;
-            }
-        }
+    struct SetOperationalRequest {
+        Boolean isOperational;
     }
 
-    subscribe FacilityEvents {
-        on FacilityCreated(UUID facilityId, String name, String facilityCode, FacilityType type) {
-            redis.FacilityCache.set(facilityId, {
-                name: name,
-                facilityCode: facilityCode,
-                type: type.value(),
-                isOperational: true
-            });
-            Log.info("Facility created", { facilityId: facilityId, name: name, type: type });
-        }
-
-        on FacilityStatusChanged(UUID facilityId, String facilityCode, Boolean isOperational) {
-            Log.info("Facility status changed", { facilityId: facilityId, isOperational: isOperational });
-        }
-    }
-
-    // Subscribe to district events for cross-service awareness
-    subscribe DistrictEvents {
-        on DistrictCreated(UUID districtId, String name, String code) {
-            Log.info("New district registered", { districtId: districtId, name: name });
-        }
-
-        on ZoningAreaCreated(UUID zoningAreaId, String name, String zoneCode, ZoningType type) {
-            Log.info("Zoning area registered", { zoningAreaId: zoningAreaId, zoneCode: zoneCode, type: type });
-        }
+    fn pinOf(facilityDb.Facility facility) -> FacilityPin {
+        return FacilityPin {
+            id: facility.id,
+            name: facility.name,
+            type: facility.type,
+            address: facility.address,
+            point: GeoPoint { latitude: facility.latitude, longitude: facility.longitude }
+        };
     }
 
     rest_api FacilityAPI : basePath('/api/v1/facilities'), rdbms(facilityDb) {
+        resource Facility : only(list), auth(public);
 
-        resource facilityDb.Facility : auth(public), only(list, get);
-        resource facilityDb.Facility : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
+        @path('/map')
+        get pins() : auth(public) -> Array<FacilityPin> {
+            let Array<Facility> open = Facility.where(isOperational: true).orderBy(name: asc).all();
+            return open.map(f => pinOf(f));
+        }
 
-        // Find operational facilities within a radius of a lat/lng point, ordered by distance
-        // GeoSql.withinDistanceMeters() lowers to PostGIS ST_DWithin with geography cast
-        // GeoSql.distanceMeters() lowers to PostGIS ST_Distance for ordering
+        // GeoSql.withinDistanceMeters lowers to ST_DWithin and distanceMeters to ST_Distance.
         @path('/nearby')
-        get(Number lat, Number lng, Number radiusMeters, FacilityType? type) : auth(public) -> Array<facilityDb.Facility> {
-            let JSON query = facilityDb.Facility
+        get nearby(Float latitude, Float longitude, Float radiusMeters) : auth(public) -> Array<Facility> {
+            return Facility
                 .where(isOperational: true)
-                .where(GeoSql.withinDistanceMeters(location, lat, lng, radiusMeters))
-                .orderBy(GeoSql.distanceMeters(location, lat, lng));
-
-            if (type != null) {
-                query = query.where(type: type);
-            }
-
-            return query.all();
-        }
-
-        // Find parks whose boundary contains a given lat/lng point
-        // GeoSql.containsPoint() lowers to PostGIS ST_Contains
-        @path('/parks/containing')
-        get(Number lat, Number lng) : auth(public) -> Array<facilityDb.Park> {
-            return facilityDb.Park
-                .where(isOpen: true)
-                .where(GeoSql.containsPoint(boundary, lat, lng))
+                .where(GeoSql.withinDistanceMeters(location, latitude, longitude, radiusMeters))
+                .orderBy(GeoSql.distanceMeters(location, latitude, longitude))
                 .all();
         }
 
-        // Get spatial details for a specific park
-        // Demonstrates GeoShape.centroid() for value-level centroid computation
-        // and GeoShape.area() for value-level area computation
-        @path('/parks/:parkId/details')
-        get(UUID parkId) : auth(public) -> JSON {
-            let Park park = facilityDb.Park.findOrFail(parkId);
-            let Geometry centroid = GeoShape.centroid(park.boundary);
-            let Number areaSqMeters = GeoShape.area(park.boundary);
-            return {
-                parkId: park.id,
-                name: park.name,
-                centroid: centroid,
-                areaSqMeters: areaSqMeters,
-                isOpen: park.isOpen
-            };
+        @path('/parks')
+        get parks() : auth(public) -> Array<Park> {
+            return Park.where(isOpen: true).orderBy(name: asc).all();
         }
 
-        // List parks ordered by area (largest first)
-        // GeoSql.area() as SQL-level scalar expression for ordering
-        @path('/parks/by-area')
-        get() : auth(public) -> Array<facilityDb.Park> {
-            return facilityDb.Park
-                .where(isOpen: true)
-                .orderBy(GeoSql.area(boundary), desc)
-                .all();
+        @path('/:id/operational')
+        post setOperational(UUID id, SetOperationalRequest request) : auth(required, providers: [identity], roles: [admin]) -> Facility {
+            let Facility facility = Facility.findOrFail(id);
+            facility.isOperational = request.isOperational;
+            facility.save();
+            return facility;
         }
+    }
+
+    test("a new facility is operational") {
+        let Facility facility = facilityDb.Facility.create({
+            name: "Harborside Library",
+            type: FacilityType.Library,
+            latitude: 47.6,
+            longitude: -122.3,
+            address: "12 Harbor Street",
+            phone: "+14155550123"
+        });
+        assert facility.isOperational;
     }
 }

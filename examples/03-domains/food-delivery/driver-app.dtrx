@@ -1,0 +1,136 @@
+from fooddelivery.ui import Brand;
+
+/// What a driver uses, mostly on a phone: start a shift, claim a delivery, follow the route, and say
+/// when the food is picked up and when it is at the door. The route shows on a map.
+app fooddelivery.Driver('config/driver-app.dcfg') : version('2.0.0') {
+    uses fooddelivery.DeliveryService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    fn setShift(Boolean onShift) {
+        DeliveryService.DriverAPI.post.setShift({ onShift: onShift });
+        Ui.toast(Msg.shiftChanged, tone: success);
+    }
+
+    fn claim(UUID id) {
+        DeliveryService.DriverAPI.post.claim(id: id);
+        Ui.toast(Msg.claimed, tone: success);
+        Nav.to(Route, id: id);
+    }
+
+    layout Shell : default {
+        nav {
+            link Waiting : icon(pending_actions);
+            link Mine : icon(two_wheeler);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Waiting() {
+        data {
+            me = DeliveryService.DriverAPI.get.me();
+            waiting = DeliveryService.DriverAPI.get.waiting() : poll(10s);
+        }
+        view {
+            pageHeader(Msg.waitingTitle, Msg.waitingSubtitle) {
+                badge(me.status);
+                when (me.status == DriverStatus.OffShift) {
+                    button(Msg.startShift) : onClick(setShift(true)), kind(primary);
+                }
+                when (me.status == DriverStatus.OnShift) {
+                    button(Msg.endShift) : onClick(setShift(false));
+                }
+            }
+            list(data: waiting) {
+                heading(item.restaurantName);
+                text(item.pickupAddress);
+                text(item.dropoffAddress);
+                button(Msg.claim) : onClick(claim(item.id)), kind(primary);
+            }
+        }
+    }
+
+    @path('/mine')
+    page Mine() {
+        data { mine = DeliveryService.DriverAPI.get.mine(); }
+        view {
+            pageHeader(Msg.mineTitle, Msg.mineSubtitle);
+            list(data: mine) : onClick(Nav.to(Route, id: item.id)) {
+                heading(item.orderNumber);
+                badge(item.status);
+                text(item.dropoffAddress);
+            }
+        }
+    }
+
+    @path('/deliveries/:id')
+    page Route(UUID id) {
+        data { view = DeliveryService.DriverAPI.get.route(id: id); }
+
+        fn pickedUp() {
+            DeliveryService.DriverAPI.post.pickedUp(id: id);
+            Ui.toast(Msg.pickedUp, tone: success);
+        }
+
+        fn delivered() {
+            DeliveryService.DriverAPI.post.delivered(id: id);
+            Ui.toast(Msg.delivered, tone: success);
+            Nav.to(Waiting);
+        }
+
+        view {
+            pageHeader(view.delivery.orderNumber, view.delivery.restaurantName) : back(Mine) {
+                badge(view.delivery.status);
+                when (view.delivery.status == DeliveryStatus.Claimed) {
+                    button(Msg.pickedUpAction) : onClick(pickedUp()), kind(primary);
+                }
+                when (view.delivery.status == DeliveryStatus.OnTheWay) {
+                    button(Msg.deliveredAction) : onClick(delivered()), kind(primary);
+                }
+            }
+            map(center: view.pickup, zoom: 13) {
+                marker(view.pickup, view.delivery.restaurantName);
+                marker(view.dropoff, view.delivery.dropoffAddress);
+                polyline(view.route);
+            }
+            card {
+                text(view.delivery.pickupAddress);
+                text(view.delivery.dropoffAddress);
+                when (view.delivery.minutes != null) {
+                    text(Msg.routeLine(minutes: Fmt.number(view.delivery.minutes)));
+                }
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Waiting); }
+        }
+    }
+
+    test("the waiting page opens") {
+        let Screen screen = render(Waiting);
+        assert screen.shows(Msg.waitingTitle);
+    }
+}

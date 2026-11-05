@@ -84,11 +84,16 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
                         menuItem(Msg.markAllRead) : onClick(clearNotices());
                         menuItem(Msg.muteNotices) : onClick(toggleNoticesMuted()), checked(noticesMuted), multiple;
                     }
-                    menu(Msg.account) {
-                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
-                        text(Session.claim('name'));
-                        divider;
-                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    // Anyone can browse, so the top bar has a visitor with no session to serve as well.
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            text(Session.claim('name'));
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
                     }
                 }
                 sidebar : collapsible, at(lg) {
@@ -119,7 +124,9 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
     }
 
     table Catalog : source(ProductService.ProductAPI.productDb.Product.list) {
-        columns(auto) except [description, productMetadata, images, tags];
+        columns(auto) except [id, createdAt, updatedAt, slug, categoryId, description, productMetadata, images, tags];
+        column price : format(money);
+        column compareAtPrice : format(money);
         // A product's slug is optional, so the page is addressed by its id.
         rowAction open : onClick(Nav.to(ProductDetail, id: row.id));
     }
@@ -184,9 +191,15 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
     }
 
     table Orders : source(OrderService.OrderAPI.get.orders), poll(30s) {
-        // An address is a struct with no text form of its own, so no cell shows it.
-        columns(auto) except [shippingAddress, billingAddress, cancellationReason];
+        // An address is a struct with no text form of its own, so no cell shows it. A customer
+        // knows an order by its number, so the ids behind it are not shown either.
+        columns(auto) except [id, updatedAt, customerId, inventoryReservationId, paymentId, shipmentId, shippingAddress, billingAddress, cancellationReason];
+        column createdAt : format(dateTime);
         column status : render(StatusBadge);
+        column subtotal : format(money);
+        column tax : format(money);
+        column shippingCost : format(money);
+        column discount : format(money);
         rowAction open : onClick(Nav.to(OrderDetail, id: row.id));
     }
 

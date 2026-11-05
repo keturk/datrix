@@ -1,0 +1,52 @@
+// What the Millrace app takes from its brand: colours, type and the shape of a page.
+module taskapp.ui {
+
+    theme Brand {
+        color primary      = '#4b3a8f';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#221f30';
+        color background   = '#f5f4fa';
+        color onBackground = '#221f30';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#5f5b70';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 10;
+        font body          = font('Inter', 15, 400);
+        font heading       = font('Inter', 24, 600);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#25222f';
+            color onSurface    = '#ebe9f4';
+            color background   = '#191722';
+            color onBackground = '#ebe9f4';
+            color primary      = '#b6a9ee';
+            color onPrimary    = '#241a52';
+        }
+    }
+
+    /// Figures across the top of a page.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+
+    /// Projects on the projects page.
+    style cardGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 3; }
+    }
+}

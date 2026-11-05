@@ -1,0 +1,28 @@
+// Where the ModelProvider contract is served. Every profile here points at the mock in the same stack;
+// pointing one at a real model gateway changes only this file.
+config extern lms.ModelProvider {
+  base {
+    deployment = "external";
+    url = "http://lms-model-mock:8092";
+    auth {
+      type = "apiKey";
+      header = "X-Model-Api-Key";
+      // A logical handle; the consuming service declares it and its value is never in a file here.
+      secret = "model_provider_api_key";
+    }
+    timeout = "20s";
+    retry {
+      maxAttempts = 2;
+      backoff = "exponential";
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

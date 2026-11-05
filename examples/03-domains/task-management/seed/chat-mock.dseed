@@ -1,0 +1,12 @@
+// The key the notice service presents to the chat vendor. The key itself is the development default of its
+// secret; the vendor stores only its SHA-256 hash.
+seed service taskapp.ChatMock {
+  rdbms chatDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                keyHash,                                                            ownerId,                 scopes,                isActive;
+        @uuid("chat-key"), "9e1e8ee6e780e80a8ebd491c1e49bd7a5c7273b2a9dbbb7fe95f952bc7fcf9c7", @uuid("owner-millrace"), ["messages:write"], true;
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+// Two invented drivers. A real one appears the first time a signed-in driver opens the Driver app.
+seed service fooddelivery.DeliveryService {
+  rdbms deliveryDb {
+    baseline {
+      Driver table on(userId) {
+        id,                  userId,               name,          status;
+        @uuid("driver-rae"), @uuid("user-rae"),    "Rae Lindqvist", OnShift;
+        @uuid("driver-tom"), @uuid("user-tom"),    "Tom Abara",    OffShift;
+      }
+    }
+  }
+}

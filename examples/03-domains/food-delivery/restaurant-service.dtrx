@@ -1,386 +1,214 @@
+// Restaurants, their menus and the delivery zones, and the application's identity block. Browsing is
+// public. A peer service asks here for a price, so an order is never charged a price the customer's
+// own device sent.
+service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : version('2.0.0'), description('Restaurants, menus and delivery zones') {
 
-service fooddelivery.RestaurantService('config/restaurant-service.dcfg') : version('1.0.0'), description('restaurant registration and management service') {
     discovery { }
 
     identity {
+        // Customers register themselves. Kitchen, driver and operator roles are granted, never
+        // self-assigned. Sign-in belongs to the hosted identity provider, so nothing here handles
+        // a password.
         provider identity config('config/identity/identity.dcfg') {
-            group "admins" as admin;
+            Email email;
+            String? fullName;
+
+            group "kitchen" as kitchen;
+            group "driver" as driver;
+            group "operator" as operator;
         }
-        provider platform config('config/identity/platform.dcfg') {
+
+        // Service-to-service callers.
+        provider machine config('config/identity/machine.dcfg') {
+        }
+
+        // API keys the mocks issue, the way a real vendor authenticates its API callers.
+        provider paymentKeys config('config/identity/payment-keys.dcfg') {
+        }
+
+        provider routeKeys config('config/identity/route-keys.dcfg') {
+        }
+
+        provider smsKeys config('config/identity/sms-keys.dcfg') {
         }
     }
 
-    enum RestaurantStatus {
-        Active,
-        Closed,
-        Suspended,
-        PendingApproval
+    exceptions {
+        ItemUnavailableError : status(409), message("That dish is not available right now");
+        RestaurantClosedError : status(409), message("This restaurant is closed right now");
     }
 
-    struct SearchRestaurantRequest {
-        String? query;
-        String? cuisineType;
-    }
-
-    struct SubmitReviewRequest {
-        UUID restaurantId;
-        UUID customerId;
-        Int rating;
-        Text? comment;
+    enum Cuisine {
+        Thai,
+        Italian,
+        Mexican,
+        Indian,
+        Japanese
     }
 
     rdbms restaurantDb {
 
         entity Restaurant extends BaseEntity {
-            String(200) name : trim;
-            Text? description;
-            String(100) cuisineType;
-            String(500) address;
-            Phone phone;
-            Email email;
-            Decimal(3, 2) rating = 0.00;
-            RestaurantStatus status = RestaurantStatus.PendingApproval;
-            Text? openingHours;
-            Decimal(10, 6)? latitude;
-            Decimal(10, 6)? longitude;
+            String(200) name : trim, filterable, sortable;
+            Cuisine cuisine : filterable;
+            String(300) address;
+            Float latitude;
+            Float longitude;
+            Text description;
+            Boolean isOpen : filterable = true;
 
-            Boolean isOpen := status == RestaurantStatus.Active;
-            Boolean isApproved := status != RestaurantStatus.PendingApproval;
-            String displayInfo := #"{name} - {cuisineType}";
-
-            hasMany RestaurantReview as reviews;
-
-            fulltext(name, description, cuisineType);
-
-            index(status);
-            index(cuisineType);
-            index(name);
-
-            validate {
-                if (name.trim().isEmpty())
-                ValidationError("Restaurant name cannot be empty");
-                if (cuisineType.trim().isEmpty())
-                ValidationError("Cuisine type cannot be empty");
-                if (address.trim().isEmpty())
-                ValidationError("Address cannot be empty");
-            }
-
-            afterCreate {
-                dispatch RestaurantRegistered(id, name, cuisineType);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch RestaurantStatusChanged(id, name, oldValue(status), status);
-                }
-
-                if (isChanged(rating)) {
-                    dispatch RestaurantRatingUpdated(id, name, rating);
-                }
-
-            }
-
-            fn updateRating() {
-                let Array<RestaurantReview> allReviews = restaurantDb.RestaurantReview
-                .where(restaurantId: id)
-                .all();
-
-                if (allReviews.length() == 0) {
-                    rating = 0.00;
-                } else {
-                    let Int totalRating = 0;
-                    foreach review in allReviews {
-                        totalRating = totalRating + review.rating;
-                    }
-
-                    rating = totalRating / allReviews.length();
-                }
-
-                this.save();
-            }
-
+            hasMany MenuItem;
         }
 
-        entity RestaurantReview extends BaseEntity {
-            UUID customerId : index;
-            Int rating;
-            Text? comment;
+        entity MenuItem extends BaseEntity {
+            String(200) name : trim, filterable;
+            String(500) description;
+            Money price : positive, sortable;
+            String(60) section : filterable;
+            Boolean isAvailable : filterable = true;
 
             belongsTo Restaurant : index;
-
-            index(restaurantId, createdAt);
-
-            validate {
-                if (rating < 1 || rating > 5)
-                ValidationError("Rating must be between 1 and 5");
-            }
-
-            afterCreate {
-                let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(restaurantId);
-                restaurant.updateRating();
-            }
-
         }
 
+        /// Where the restaurants deliver, and what it costs to reach.
+        entity DeliveryZone extends BaseEntity {
+            String(120) name : unique, trim;
+            Float latitude;
+            Float longitude;
+            Money fee;
+        }
     }
 
-    cache redis {
-
-        hash RestaurantCache : prefix('restaurant:'), ttl(3600) {
-            UUID restaurantId : primaryKey;
-            String name;
-            Decimal rating;
-            RestaurantStatus status;
-        }
-
-        counter RestaurantViewCount : prefix('restaurant:views:');
+    struct MenuSection {
+        String section;
+        Array<restaurantDb.MenuItem> items;
     }
 
-    pubsub mq {
-
-        topic RestaurantEvents {
-            publish RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {
-                ensure name.length > 0;
-            }
-
-            publish RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating);
-        }
-
+    struct RestaurantMenu {
+        restaurantDb.Restaurant restaurant;
+        Array<restaurantDb.MenuItem> items;
     }
 
-    subscribe RestaurantEvents {
+    struct PricedItem {
+        UUID menuItemId;
+        UUID restaurantId;
+        String restaurantName;
+        String name;
+        Money price;
+    }
 
-        on RestaurantRegistered(UUID restaurantId, String name, String cuisineType) {
-            Log.info("New restaurant registered", {
-                restaurantId: restaurantId,
-                name: name,
-                cuisineType: cuisineType
-            });
+    struct PricedDelivery {
+        String restaurantName;
+        String pickupAddress;
+        Float pickupLatitude;
+        Float pickupLongitude;
+        String zoneName;
+        Float dropoffLatitude;
+        Float dropoffLongitude;
+        Money fee;
+    }
 
-            redis.RestaurantCache.set(restaurantId, {
-                restaurantId: restaurantId,
-                name: name,
-                rating: 0.00,
-                status: RestaurantStatus.PendingApproval
-            });
-        }
+    struct SetAvailableRequest {
+        Boolean isAvailable;
+    }
 
-        on RestaurantStatusChanged(UUID restaurantId, String name, RestaurantStatus oldStatus, RestaurantStatus newStatus) {
-            Log.info("Restaurant status changed", {
-                restaurantId: restaurantId,
-                name: name,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-
-            let JSON? cached = redis.RestaurantCache.get(restaurantId);
-            if (cached != null) {
-                redis.RestaurantCache.set(restaurantId, {
-                    restaurantId: restaurantId,
-                    name: cached.name,
-                    rating: cached.rating,
-                    status: newStatus
-                });
-            }
-
-        }
-
-        on RestaurantRatingUpdated(UUID restaurantId, String name, Decimal rating) {
-            Log.info("Restaurant rating updated", { restaurantId: restaurantId, name: name, rating: rating });
-
-            let JSON? cached = redis.RestaurantCache.get(restaurantId);
-            if (cached != null) {
-                redis.RestaurantCache.set(restaurantId, {
-                    restaurantId: restaurantId,
-                    name: cached.name,
-                    rating: rating,
-                    status: cached.status
-                });
-            }
-
-        }
-
+    struct SetOpenRequest {
+        Boolean isOpen;
     }
 
     rest_api RestaurantAPI : basePath('/api/v1/restaurants'), rdbms(restaurantDb) {
+        resource Restaurant : only(list, get), auth(public);
 
-        resource restaurantDb.Restaurant : auth(public), only(list, get);
-        resource restaurantDb.Restaurant : auth(required, providers: [identity], roles: [admin]), only(create, update, delete);
-
-        @path('/search')
-        get(String query, PageRequest page) : auth(public) -> Page<restaurantDb.Restaurant> {
-            return restaurantDb.Restaurant
-            .fulltext(query)
-            .where(status: RestaurantStatus.Active)
-            .page(page);
+        @path('/zones')
+        get zones() : auth(public) -> Array<DeliveryZone> {
+            return DeliveryZone.where().orderBy(name: asc).all();
         }
 
-        @path('/by-cuisine/:cuisineType')
-        get(String cuisineType) : auth(public) -> Array<restaurantDb.Restaurant> {
-            return restaurantDb.Restaurant
-            .where(cuisineType: cuisineType)
-            .where(status: RestaurantStatus.Active)
-            .orderBy(rating: desc)
-            .all();
+        @path('/:id/menu')
+        get menu(UUID id) : auth(public) -> RestaurantMenu {
+            let Restaurant restaurant = Restaurant.findOrFail(id);
+            return RestaurantMenu {
+                restaurant: restaurant,
+                items: MenuItem.where(restaurantId: id, isAvailable: true).orderBy(section: asc).all()
+            };
+        }
+    }
+
+    // What the kitchen edits.
+    rest_api KitchenMenuAPI : basePath('/api/v1/kitchen/menu'), rdbms(restaurantDb) {
+        resource MenuItem : only(list, create, update), auth(required, providers: [identity], roles: [kitchen]);
+
+        @path('/:id/available')
+        post setAvailable(UUID id, SetAvailableRequest request) : auth(required, providers: [identity], roles: [kitchen]) -> MenuItem {
+            let MenuItem item = MenuItem.findOrFail(id);
+            item.isAvailable = request.isAvailable;
+            item.save();
+            return item;
         }
 
-        @path('/:id/reviews')
-        get(UUID id) : auth(public) -> Array<restaurantDb.RestaurantReview> {
-            let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
-            return restaurantDb.RestaurantReview
-            .where(restaurantId: restaurant.id)
-            .orderBy(createdAt: desc)
-            .limit(50)
-            .all();
+        @path('/restaurants/:id/open')
+        post setOpen(UUID id, SetOpenRequest request) : auth(required, providers: [identity], roles: [kitchen]) -> Restaurant {
+            let Restaurant restaurant = Restaurant.findOrFail(id);
+            restaurant.isOpen = request.isOpen;
+            restaurant.save();
+            return restaurant;
         }
+    }
 
-        @path('/:id/reviews')
-        post(UUID id, SubmitReviewRequest request) : auth(required, providers: [identity]) -> restaurantDb.RestaurantReview {
-            let Restaurant restaurant = restaurantDb.Restaurant.findOrFail(id);
-
-            if (!restaurant.isApproved) {
-                throw ValidationException({
-                    code: "RESTAURANT_NOT_APPROVED",
-                    message: "Cannot review a restaurant that is not yet approved"
-                });
+    // What OrderService asks. Only a service with a machine credential reaches these.
+    rest_api PricingAPI : basePath('/api/v1/internal/pricing'), rdbms(restaurantDb) {
+        @path('/items/:id')
+        get priceItem(UUID id) : auth(service, providers: [machine]) -> PricedItem {
+            let MenuItem item = MenuItem.findOrFail(id);
+            let Restaurant restaurant = Restaurant.findOrFail(item.restaurantId);
+            if (!item.isAvailable) {
+                throw ItemUnavailableError();
             }
-
-            let RestaurantReview review = restaurantDb.RestaurantReview.create({
+            if (!restaurant.isOpen) {
+                throw RestaurantClosedError();
+            }
+            return PricedItem {
+                menuItemId: item.id,
                 restaurantId: restaurant.id,
-                customerId: request.customerId,
-                rating: request.rating,
-                comment: request.comment
-            });
-
-            Log.info("Review submitted", {
-                restaurantId: restaurant.id,
-                customerId: request.customerId,
-                rating: request.rating
-            });
-
-            return review;
+                restaurantName: restaurant.name,
+                name: item.name,
+                price: item.price
+            };
         }
 
-        @path('/service/:id')
-        get restaurantByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> restaurantDb.Restaurant {
-            return restaurantDb.Restaurant.findOrFail(id);
+        @path('/deliveries')
+        get priceDelivery(UUID restaurantId, UUID zoneId) : auth(service, providers: [machine]) -> PricedDelivery {
+            let Restaurant restaurant = Restaurant.findOrFail(restaurantId);
+            let DeliveryZone zone = DeliveryZone.findOrFail(zoneId);
+            return PricedDelivery {
+                restaurantName: restaurant.name,
+                pickupAddress: restaurant.address,
+                pickupLatitude: restaurant.latitude,
+                pickupLongitude: restaurant.longitude,
+                zoneName: zone.name,
+                dropoffLatitude: zone.latitude,
+                dropoffLongitude: zone.longitude,
+                fee: zone.fee
+            };
         }
-
     }
 
-    test("computed isOpen reflects Active status") {
+    test("a new dish is available") {
         let Restaurant restaurant = restaurantDb.Restaurant.create({
-            name: "Test Bistro",
-            cuisineType: "Italian",
-            address: "123 Main St",
-            phone: "+15551234567",
-            email: "test@bistro.com",
-            status: RestaurantStatus.Active
+            name: "Lemongrass",
+            cuisine: Cuisine.Thai,
+            address: "4 Market Row",
+            latitude: 45.51,
+            longitude: -122.67,
+            description: "Fresh curries"
         });
-        restaurant.save();
-        assert restaurant.isOpen == true;
-    }
-
-    test("validation rejects rating outside 1-5 range") {
-        let Restaurant restaurant = restaurantDb.Restaurant.create({
-            name: "Rating Test Cafe",
-            cuisineType: "French",
-            address: "456 Oak Ave",
-            phone: "+15559876543",
-            email: "rating@test.com",
-            status: RestaurantStatus.Active
-        });
-        restaurant.save();
-        assert throws(
-        () => restaurantDb.RestaurantReview.create({
+        let MenuItem item = restaurantDb.MenuItem.create({
             restaurantId: restaurant.id,
-            customerId: uuid(),
-            rating: 6
-        }),
-        ValidationError("Rating must be between 1 and 5")
-        );
-    }
-
-    test("afterCreate emits RestaurantRegistered") {
-        let Restaurant restaurant = restaurantDb.Restaurant.create({
-            name: "Event Test Grill",
-            cuisineType: "American",
-            address: "789 Elm St",
-            phone: "+15551112222",
-            email: "event@grill.com"
+            name: "Green curry",
+            description: "With basil",
+            price: 12.50,
+            section: "Mains"
         });
-        restaurant.save();
-        assert emitted(RestaurantRegistered(restaurant.id, restaurant.name, restaurant.cuisineType));
+        assert item.isAvailable;
     }
-
-    test("computed isApproved for non-PendingApproval status") {
-        let restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
-            name: "Approved Sushi Bar",
-            cuisineType: "Japanese",
-            address: "101 Cherry Ln",
-            phone: "+15553334444",
-            email: "approved@sushibar.com",
-            status: RestaurantStatus.Active
-        });
-        restaurant.save();
-        assert restaurant.isApproved == true;
-    }
-
-    test("computed displayInfo formats name and cuisine") {
-        let restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
-            name: "Golden Dragon",
-            cuisineType: "Chinese",
-            address: "202 Bamboo Ave",
-            phone: "+15554445555",
-            email: "info@goldendragon.com",
-            status: RestaurantStatus.Active
-        });
-        restaurant.save();
-        assert restaurant.displayInfo == "Golden Dragon - Chinese";
-    }
-
-    test("validation rejects empty restaurant name") {
-        assert throws(
-        () => restaurantDb.Restaurant.create({
-            name: "",
-            cuisineType: "Mexican",
-            address: "303 Agave St",
-            phone: "+15555556666",
-            email: "empty@nametest.com"
-        }),
-        ValidationError("Restaurant name cannot be empty")
-        );
-    }
-
-    test("afterCreate emits RestaurantRegistered with correct fields") {
-        let restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
-            name: "Bella Napoli",
-            cuisineType: "Italian",
-            address: "404 Pasta Rd",
-            phone: "+15556667777",
-            email: "info@bellanapoli.com"
-        });
-        restaurant.save();
-        assert emitted(RestaurantRegistered(restaurant.id, "Bella Napoli", "Italian"));
-    }
-
-    test("afterUpdate emits RestaurantStatusChanged") {
-        let restaurantDb.Restaurant restaurant = restaurantDb.Restaurant.create({
-            name: "Status Change Diner",
-            cuisineType: "American",
-            address: "505 Maple Dr",
-            phone: "+15557778888",
-            email: "status@changediner.com",
-            status: RestaurantStatus.PendingApproval
-        });
-        restaurant.save();
-        restaurant.status = RestaurantStatus.Active;
-        restaurant.save();
-        assert emitted(RestaurantStatusChanged(restaurant.id, "Status Change Diner", RestaurantStatus.PendingApproval, RestaurantStatus.Active));
-    }
-
 }

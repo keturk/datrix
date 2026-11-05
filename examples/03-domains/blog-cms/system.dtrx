@@ -1,7 +1,26 @@
+// Fieldnotes: a publishing platform. Authors write, editors review and schedule, readers
+// read and comment, and subscribers get new articles by email. See README.md.
+
+// Shared module and the contracts of the outside world.
 include 'common.dtrx';
+include 'providers/mail-provider.dtrx';
+include 'providers/moderation-provider.dtrx';
+
+// The product.
 include 'author-service.dtrx';
 include 'content-service.dtrx';
 include 'comment-service.dtrx';
+include 'newsletter-service.dtrx';
 
-system blog.System('config/system.dcfg') : version('1.0.0') {
+// In-stack mocks that implement the contracts, so the application runs offline.
+include 'mocks/mail-mock.dtrx';
+include 'mocks/moderation-mock.dtrx';
+
+// The apps.
+include 'ui.dtrx';
+include 'reader-app.dtrx';
+include 'studio-app.dtrx';
+include 'provider-desk-app.dtrx';
+
+system blog.System('config/system.dcfg') : version('2.0.0') {
 }

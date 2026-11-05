@@ -1,0 +1,219 @@
+from fooddelivery.ui import Brand, statRow;
+
+/// Where a kitchen works: drag an order across the board as it cooks, and take a dish off the menu
+/// when it runs out. Only an operator reaches the vendor pages, which show what the application sent
+/// to the mocked vendors.
+app fooddelivery.Kitchen('config/kitchen-app.dcfg') : version('2.0.0') {
+    uses fooddelivery.RestaurantService;
+    uses fooddelivery.OrderService;
+    uses fooddelivery.DeliveryService;
+    uses fooddelivery.PaymentMock;
+    uses fooddelivery.RouteMock;
+    uses fooddelivery.SmsMock;
+
+    theme extends Brand { }
+
+    fn setOpen(UUID id, Boolean isOpen) {
+        RestaurantService.KitchenMenuAPI.post.setOpen(id, { isOpen: isOpen });
+        Ui.toast(Msg.saved, tone: success);
+    }
+
+    fn setAvailable(UUID id, Boolean isAvailable) {
+        RestaurantService.KitchenMenuAPI.post.setAvailable(id, { isAvailable: isAvailable });
+        Ui.toast(Msg.saved, tone: success);
+    }
+
+    layout Shell : default {
+        nav {
+            link Restaurants : icon(storefront), group(Msg.navKitchen);
+            link Dishes : icon(lunch_dining), group(Msg.navKitchen);
+            link Road : icon(two_wheeler), group(Msg.navKitchen);
+            link Charges : icon(credit_card), group(Msg.navVendors);
+            link Routes : icon(route), group(Msg.navVendors);
+            link Texts : icon(sms), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Restaurants() {
+        view {
+            pageHeader(Msg.restaurantsTitle, Msg.restaurantsSubtitle);
+            table(RestaurantList);
+        }
+    }
+
+    component OpenBadge(Boolean isOpen) {
+        view {
+            when (isOpen) { badge(Msg.open) : tone(success); }
+            when (!isOpen) { badge(Msg.closed) : tone(neutral); }
+        }
+    }
+
+    component MenuBadge(Boolean isAvailable) {
+        view {
+            when (isAvailable) { badge(Msg.onMenu) : tone(success); }
+            when (!isAvailable) { badge(Msg.soldOut) : tone(warning); }
+        }
+    }
+
+    table RestaurantList : source(RestaurantService.RestaurantAPI.restaurantDb.Restaurant.list) {
+        column name;
+        column cuisine;
+        column address;
+        column isOpen : render(OpenBadge);
+        filter isOpen;
+        rowAction openBoard : onClick(Nav.to(Board, restaurantId: row.id));
+        rowAction closeNow : onClick(setOpen(row.id, false));
+        rowAction openNow : onClick(setOpen(row.id, true));
+    }
+
+    // A move the service refuses leaves the card where it was, and the toast says why.
+    @path('/board/:restaurantId')
+    page Board(UUID restaurantId) {
+        data { orders = OrderService.KitchenAPI.get.board(restaurantId: restaurantId) : poll(10s); }
+
+        fn moveOrder(UUID orderId, OrderStatus column) {
+            OrderService.KitchenAPI.post.moveOrder(orderId, { status: column });
+        }
+
+        view {
+            pageHeader(Msg.boardTitle, Msg.boardSubtitle) : back(Restaurants);
+            board(data: orders, column: o => o.status) : onMove(moveOrder(item.id, column)) {
+                heading(item.orderNumber);
+                text(item.dropoffAddress);
+                text(Fmt.money(item.total));
+            }
+        }
+    }
+
+    @path('/dishes')
+    page Dishes() {
+        view {
+            pageHeader(Msg.dishesTitle, Msg.dishesSubtitle);
+            table(DishList);
+            card(Msg.addDish) { form(AddDish); }
+        }
+    }
+
+    table DishList : source(RestaurantService.KitchenMenuAPI.restaurantDb.MenuItem.list), pageSizes(10, 25, 50) {
+        column name;
+        column price : format(money);
+        column section;
+        column isAvailable : render(MenuBadge);
+        filter section;
+        filter isAvailable;
+        filter name : live;
+        rowAction offMenu : onClick(setAvailable(row.id, false));
+        rowAction onMenu : onClick(setAvailable(row.id, true));
+    }
+
+    form AddDish : submit(RestaurantService.KitchenMenuAPI.restaurantDb.MenuItem.create) {
+        field restaurantId : options(RestaurantService.RestaurantAPI.restaurantDb.Restaurant.list, value: r => r.id, label: r => r.name);
+        field name;
+        field section;
+        field description;
+        field price;
+        onSuccess(Ui.toast(Msg.dishAdded, tone: success));
+    }
+
+    @path('/road')
+    page Road() {
+        data { summary = DeliveryService.DispatchAPI.get.summary() : poll(15s); }
+        view {
+            pageHeader(Msg.roadTitle, Msg.roadSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statWaiting, Fmt.number(summary.waiting)) : icon(hourglass_top), tone(warning);
+                stat(Msg.statOnTheRoad, Fmt.number(summary.onTheRoad)) : icon(two_wheeler), tone(info);
+                stat(Msg.statDrivers, Fmt.number(summary.driversOnShift)) : icon(badge), tone(success);
+            }
+            table(DeliveryList);
+        }
+    }
+
+    table DeliveryList : source(DeliveryService.DispatchAPI.deliveryDb.Delivery.list), poll(15s) {
+        column createdAt : format(relative);
+        column orderNumber;
+        column restaurantName;
+        column status;
+        column dropoffAddress;
+        column distanceKm : format(number);
+        column minutes : format(number);
+        filter status;
+    }
+
+    @path('/vendors/charges')
+    page Charges() {
+        view {
+            pageHeader(Msg.chargesTitle, Msg.chargesSubtitle);
+            table(ChargeList);
+        }
+    }
+
+    table ChargeList : source(PaymentMock.PaymentDeskAPI.paymentDb.CardCharge.list), poll(15s) {
+        column createdAt : format(relative);
+        column amount : format(money);
+        column reference;
+        column status;
+        column declineReason;
+        filter status;
+    }
+
+    @path('/vendors/routes')
+    page Routes() {
+        view {
+            pageHeader(Msg.routesTitle, Msg.routesSubtitle);
+            table(RouteList);
+        }
+    }
+
+    table RouteList : source(RouteMock.RouteDeskAPI.routeDb.PlannedRoute.list), poll(15s) {
+        column createdAt : format(relative);
+        column distanceKm : format(number);
+        column minutes : format(number);
+    }
+
+    @path('/vendors/texts')
+    page Texts() {
+        view {
+            pageHeader(Msg.textsTitle, Msg.textsSubtitle);
+            table(TextList);
+        }
+    }
+
+    table TextList : source(SmsMock.SmsDeskAPI.smsDb.SentSms.list), poll(15s) {
+        column createdAt : format(relative);
+        column recipient;
+        column body;
+        column status;
+        filter status;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Restaurants); }
+        }
+    }
+
+    test("the restaurants page opens") {
+        let Screen screen = render(Restaurants);
+        assert screen.shows(Msg.restaurantsTitle);
+    }
+}

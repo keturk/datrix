@@ -1,0 +1,65 @@
+config strings healthcare.Portal locale "en-US" {
+  messages {
+    appName          = "Ferncrest Clinic";
+    logoAlt          = "Ferncrest Clinic";
+    account          = "Account";
+    signOut          = "Sign out";
+    home             = "Back home";
+    notFoundTitle    = "Page not found";
+    welcome          = "Hello, {name}";
+    recordLine       = "Your record number is {number}";
+    bookVisit        = "Book a visit";
+    finishDetails    = "Add your details so the clinic can reach you and check your insurance.";
+    detailsTitle     = "Your details";
+    detailsSaved     = "Saved, and your insurance has been checked.";
+    statVisits       = "Visits";
+    statPrescriptions = "Prescriptions";
+    statBills        = "Bills";
+    coverageTitle    = "Your insurance";
+    planLine         = "Plan: {plan}";
+    copayLine        = "You pay {amount} per visit";
+    upcomingTitle    = "Your visits";
+    findCareTitle    = "Find care";
+    findCareSubtitle = "Everyone who sees patients at Ferncrest.";
+    chargeLine       = "A visit is {amount} before insurance";
+    seeTimes         = "See open times";
+    choose           = "Choose this time";
+    visitBooked      = "Your visit is booked.";
+    visitsTitle      = "Your visits";
+    visitsSubtitle   = "What is coming up, and what your clinicians wrote afterwards.";
+    calendarTitle    = "Appointments";
+    notesTitle       = "Visit notes";
+    cancelVisit      = "Cancel this visit";
+    confirmCancel    = "Cancel this visit? The time goes back to other patients.";
+    visitCancelled   = "Your visit is cancelled.";
+    reasonTitle      = "Why you came";
+    diagnosisTitle   = "Diagnosis";
+    noteTitle        = "What your clinician wrote";
+    prescriptionsTitle = "Your prescriptions";
+    prescriptionsSubtitle = "We text you when one is ready at the pharmacy.";
+    noPrescriptions  = "You have no prescriptions";
+    refillsLine      = "Refills left: {count}";
+    requestRefill    = "Request a refill";
+    refillSent       = "Your refill went to the pharmacy.";
+    billsTitle       = "Your bills";
+    billsSubtitle    = "What each visit cost, and who pays it.";
+    noBills          = "You have no bills";
+    billedLine       = "Billed: {amount}";
+    insurerLine      = "Your insurer pays: {amount}";
+    oweLine          = "You pay: {amount}";
+    privacyTitle     = "Who opened your chart";
+    privacySubtitle  = "Every time someone at the clinic opens your chart it is written here, and nobody can remove it.";
+    nobodyYet        = "Nobody has opened your chart yet";
+  }
+  labels {
+    page.Home            = "Home";
+    page.FindCare        = "Find care";
+    page.ClinicianTimes  = "Open times";
+    page.MyVisits        = "Visits";
+    page.NoteDetail      = "Visit note";
+    page.MyPrescriptions = "Prescriptions";
+    page.MyBills         = "Bills";
+    page.Privacy         = "Privacy";
+    page.NotFound        = "Not found";
+  }
+}

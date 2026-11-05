@@ -1,0 +1,148 @@
+from blog.ui import Brand, articleGrid;
+
+/// The public site, on the web and on a phone. Nothing here asks a reader to sign in, because
+/// every route it reaches is public, so no login is generated for it.
+app blog.Reader('config/reader-app.dcfg') : version('2.0.0') {
+    uses blog.ContentService;
+    uses blog.CommentService;
+    uses blog.NewsletterService;
+    uses blog.AuthorService;
+
+    theme extends Brand { }
+
+    assets {
+        image logo = 'assets/logo.svg';
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    layout Site {
+        nav {
+            link Home : icon(article);
+            link Writers : icon(group);
+            link Newsletter : icon(mail);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName) { image(logo, Msg.logoAlt); }
+                    spacer;
+                    nav;
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Home() {
+        state String query = '';
+        data { articles = ContentService.ReaderAPI.get.articles(q: query); }
+        view {
+            pageHeader(Msg.homeTitle, Msg.homeSubtitle);
+            search(Msg.searchLabel) : bind(query), placeholder(Msg.searchExample), debounce(300ms);
+            list(data: articles) : style(articleGrid), onClick(Nav.to(Article, id: item.id)) {
+                heading(item.title);
+                text(item.excerpt);
+                text(Msg.byline(author: item.authorName, minutes: item.readingMinutes));
+            }
+        }
+    }
+
+    @path('/articles/:id')
+    page Article(UUID id) {
+        data {
+            article = ContentService.ReaderAPI.get.article(id: id);
+            comments = CommentService.CommentAPI.get.forPost(postId: id);
+        }
+        state String authorName = '';
+        state String authorEmail = '';
+        state String body = '';
+
+        // A comment is moderated before anyone can read it, so what the person is told depends on
+        // what the moderation vendor answered.
+        fn sendComment() {
+            let SubmitCommentResponse answer = CommentService.CommentAPI.post.submit({
+                postId: id,
+                authorName: authorName,
+                authorEmail: authorEmail,
+                body: body
+            });
+            body = '';
+            if (answer.visibleNow) {
+                comments.refresh();
+                Ui.toast(Msg.commentPosted, tone: success);
+            } else {
+                Ui.toast(Msg.commentWaiting);
+            }
+        }
+
+        view {
+            pageHeader(article.title, Msg.byline(author: article.authorName, minutes: article.readingMinutes)) : back(Home);
+            markdown(article.body);
+            when (Share.isAvailable) {
+                button(Msg.share) : onClick(Share.page(Article, id: id)), kind(secondary), icon(share);
+            }
+            section(Msg.commentsTitle) {
+                list(data: comments) {
+                    text(item.authorName);
+                    text(item.body) : preserveLines;
+                }
+            }
+            section(Msg.addComment) {
+                input(Msg.yourName) : bind(authorName);
+                input(Msg.yourEmail) : bind(authorEmail);
+                textArea(Msg.yourComment) : bind(body);
+                button(Msg.postComment) : onClick(sendComment()), kind(primary), disabled(authorName == '' || authorEmail == '' || body == '');
+            }
+        }
+    }
+
+    @path('/writers')
+    page Writers() {
+        data { authors = AuthorService.AuthorAPI.get.authors(); }
+        view {
+            pageHeader(Msg.writersTitle);
+            list(data: authors) {
+                heading(item.displayName);
+                text(item.bio);
+            }
+        }
+    }
+
+    @path('/newsletter')
+    page Newsletter() {
+        view {
+            pageHeader(Msg.newsletterTitle, Msg.newsletterSubtitle);
+            card(Msg.subscribeTitle) { form(Subscribe); }
+            card(Msg.confirmTitle) { form(ConfirmSubscription); }
+            card(Msg.unsubscribeTitle) { form(Unsubscribe); }
+        }
+    }
+
+    form Subscribe : submit(NewsletterService.NewsletterAPI.post.subscribe) {
+        field email;
+        onSuccess(Ui.toast(Msg.checkInbox));
+    }
+
+    form ConfirmSubscription : submit(NewsletterService.NewsletterAPI.post.confirm) {
+        field token;
+        onSuccess(Ui.toast(Msg.subscribed, tone: success));
+    }
+
+    form Unsubscribe : submit(NewsletterService.NewsletterAPI.post.unsubscribe) {
+        field token;
+        onSuccess(Ui.toast(Msg.unsubscribed));
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle, Msg.notFoundBody) : icon(search_off) { link(Msg.home, Home); }
+        }
+    }
+
+    test("the newsletter page offers a subscription") {
+        let Screen screen = render(Newsletter);
+        assert screen.shows(Msg.subscribeTitle);
+    }
+}

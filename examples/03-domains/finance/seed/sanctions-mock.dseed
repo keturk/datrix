@@ -1,0 +1,17 @@
+// The key TransactionService presents to the sanctions vendor, and an invented list. The key itself
+// is the development default of the service's secret; the vendor stores only its SHA-256 hash.
+seed service finance.SanctionsMock {
+  rdbms sanctionsDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                      keyHash,                                                            ownerId,                             scopes,               isActive;
+        @uuid("sanctions-key"),  "80c578cf11128148d98732bfa08a32828c4a90a27babbc09f25da8d197938fa5", @uuid("owner-transaction-service"),  ["screenings:write"], true;
+      }
+      ListedName table on(name) {
+        id,                  name,             displayName,      note;
+        @uuid("listed-ivor"), "ivor blackwood", "Ivor Blackwood", "Invented name, for trying a hit";
+        @uuid("listed-tern"), "tern shipping",  "Tern Shipping",  "Invented name, for trying a hit";
+      }
+    }
+  }
+}

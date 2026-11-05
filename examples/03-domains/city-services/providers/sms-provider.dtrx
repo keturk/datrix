@@ -1,0 +1,37 @@
+// The contract of the text message vendor. The product calls only this contract and never knows
+// what serves it: config/providers/sms-provider.dcfg says where it is served.
+extern service cityservices.SmsProvider('config/providers/sms-provider.dcfg')
+    : version('1.0.0'), description('Outbound text messages') {
+
+    enum TextStatus {
+        Accepted,
+        Delivered,
+        Failed
+    }
+
+    struct SendSmsRequest {
+        Phone to;
+        String(320) body;
+        /// The caller's key: sending again with the same key returns the first message.
+        String(120) idempotencyKey;
+    }
+
+    struct TextMessage {
+        String(40) id;
+        TextStatus status;
+    }
+
+    rest_api SmsAPI : basePath('/v1') {
+        @path('/messages')
+        post sendSms(SendSmsRequest request) -> TextMessage {
+            ensure request.idempotencyKey != "";
+        }
+    }
+
+    errors {
+        InvalidNumber(String message);
+    }
+
+    auth : apiKey(header: 'X-Sms-Api-Key');
+    health : path('/health');
+}

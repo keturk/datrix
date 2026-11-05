@@ -1,0 +1,188 @@
+from finance.ui import Brand, statRow;
+
+/// What a customer uses, on the web and on a phone. Every route it reaches needs a signed-in
+/// customer, and each of those routes only ever reads that customer's own rows.
+app finance.Banking('config/banking-app.dcfg') : version('2.0.0') {
+    uses finance.AccountService;
+    uses finance.TransactionService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    layout Shell : default {
+        nav {
+            link Accounts : icon(account_balance_wallet);
+            link MoveMoney : icon(swap_horiz);
+            link PayAnyone : icon(send);
+            link Profile : icon(person);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Accounts() {
+        data {
+            accounts = TransactionService.BankingAPI.get.myAccounts();
+            profile = AccountService.MeAPI.get.profile();
+        }
+
+        fn openChecking() {
+            AccountService.MeAPI.post.openAccount({ type: AccountType.Checking });
+            Ui.toast(Msg.accountOpened, tone: success);
+        }
+
+        fn openSavings() {
+            AccountService.MeAPI.post.openAccount({ type: AccountType.Savings });
+            Ui.toast(Msg.accountOpened, tone: success);
+        }
+
+        view {
+            pageHeader(Msg.accountsTitle, Msg.accountsSubtitle) {
+                when (profile.kycStatus == KycStatus.Clear) {
+                    button(Msg.openChecking) : onClick(openChecking());
+                    button(Msg.openSavings) : onClick(openSavings());
+                }
+            }
+            when (!profile.registered) {
+                callout(Msg.registerFirst) : tone(info);
+                link(Msg.goToProfile, Profile);
+            }
+            grid : style(statRow) {
+                foreach (account in accounts) {
+                    card {
+                        stat(Msg.balance, Fmt.money(account.balance)) : icon(savings);
+                        badge(account.type);
+                        badge(account.status);
+                        text(account.accountNumber);
+                        link(Msg.seeStatement, Statement, id: account.id);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/accounts/:id')
+    page Statement(UUID id) {
+        data { statement = TransactionService.BankingAPI.get.statement(id: id); }
+        view {
+            pageHeader(statement.account.accountNumber, Msg.statementSubtitle) : back(Accounts) {
+                badge(statement.account.status);
+            }
+            stat(Msg.balance, Fmt.money(statement.account.balance)) : icon(savings);
+            list(data: statement.entries) {
+                heading(item.description);
+                badge(item.side);
+                text(Fmt.money(item.amount));
+                text(Fmt.relative(item.createdAt));
+                text(item.reference);
+            }
+        }
+    }
+
+    @path('/move')
+    page MoveMoney() {
+        view {
+            pageHeader(Msg.moveTitle, Msg.moveSubtitle);
+            form(Move);
+        }
+    }
+
+    form Move : submit(TransactionService.BankingAPI.post.transfer) {
+        field fromAccountId : options(TransactionService.BankingAPI.get.myAccounts, value: a => a.id, label: a => a.accountNumber);
+        field toAccountNumber;
+        field amount;
+        field memo;
+        onSuccess(Ui.toast(Msg.moved, tone: success));
+    }
+
+    @path('/pay')
+    page PayAnyone() {
+        view {
+            pageHeader(Msg.payTitle, Msg.paySubtitle);
+            form(Pay);
+        }
+    }
+
+    form Pay : submit(TransactionService.BankingAPI.post.payout) {
+        fn finished(TransferStatus status) {
+            if (status == TransferStatus.Posted) {
+                Ui.toast(Msg.paid, tone: success);
+            } else {
+                Ui.toast(Msg.notPaid, tone: warning);
+            }
+            Nav.to(Accounts);
+        }
+        step payee {
+            field payeeName;
+            field payeeIban;
+        }
+        step money {
+            field fromAccountId : options(TransactionService.BankingAPI.get.myAccounts, value: a => a.id, label: a => a.accountNumber);
+            field amount;
+            field memo;
+        }
+        step check {
+            review;
+        }
+        onSuccess(finished(result.status));
+    }
+
+    @path('/profile')
+    page Profile() {
+        data { profile = AccountService.MeAPI.get.profile(); }
+        view {
+            pageHeader(Msg.profileTitle, Msg.profileSubtitle);
+            when (profile.registered) {
+                card {
+                    heading(profile.fullName);
+                    badge(profile.kycStatus);
+                    when (profile.kycReason != null) {
+                        text(profile.kycReason);
+                    }
+                }
+            }
+            when (!profile.registered) {
+                form(Register);
+            }
+        }
+    }
+
+    form Register : submit(AccountService.MeAPI.post.register) {
+        field fullName;
+        field dateOfBirth;
+        field documentNumber;
+        onSuccess(Ui.toast(Msg.registered, tone: success));
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Accounts); }
+        }
+    }
+
+    test("the accounts page opens") {
+        let Screen screen = render(Accounts);
+        assert screen.shows(Msg.accountsTitle);
+    }
+}

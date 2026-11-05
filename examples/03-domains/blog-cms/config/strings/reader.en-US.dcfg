@@ -1,0 +1,39 @@
+config strings blog.Reader locale "en-US" {
+  messages {
+    appName            = "Fieldnotes";
+    logoAlt            = "Fieldnotes logo";
+    home               = "Back to the articles";
+    homeTitle          = "Fieldnotes";
+    homeSubtitle       = "Long reads from people who went and looked.";
+    searchLabel        = "Search the articles";
+    searchExample      = "Try: coastline";
+    byline             = "{author} · {minutes} min read";
+    share              = "Share";
+    commentsTitle      = "Comments";
+    addComment         = "Add a comment";
+    yourName           = "Your name";
+    yourEmail          = "Your email, which nobody else sees";
+    yourComment        = "Your comment";
+    postComment        = "Post comment";
+    commentPosted      = "Your comment is up.";
+    commentWaiting     = "Thanks. An editor reads your comment before it appears.";
+    writersTitle       = "The writers";
+    newsletterTitle    = "The newsletter";
+    newsletterSubtitle = "One email for each new article, and nothing else.";
+    subscribeTitle     = "Subscribe";
+    confirmTitle       = "Confirm your address";
+    unsubscribeTitle   = "Unsubscribe";
+    checkInbox         = "Check your inbox for a confirmation code.";
+    subscribed         = "You are subscribed.";
+    unsubscribed       = "You are unsubscribed.";
+    notFoundTitle      = "Page not found";
+    notFoundBody       = "That page does not exist or has moved.";
+  }
+  labels {
+    page.Home       = "Articles";
+    page.Article    = "Article";
+    page.Writers    = "Writers";
+    page.Newsletter = "Newsletter";
+    page.NotFound   = "Not found";
+  }
+}

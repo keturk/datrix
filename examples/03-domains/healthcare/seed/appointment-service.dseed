@@ -1,0 +1,31 @@
+// Two clinicians, a day of visits for the board, and open times for the next few days. The OpenSlots
+// job keeps two weeks open after that. Everyone is invented.
+seed service healthcare.AppointmentService {
+  rdbms appointmentDb {
+    baseline {
+      Clinician table on(id) {
+        id,                  name,             specialty,         bio,                                                               room,     visitCharge, acceptingPatients;
+        @uuid("doc-imani"),  "Dr. Imani Osei",  "Family medicine", "Sees children and adults for everything from a cough to a check-up.", "Room 1", 180.00,      true;
+        @uuid("doc-tomas"),  "Dr. Tomas Varga", "Cardiology",      "Looks after hearts, with a stress test and an echo in the clinic.",  "Room 2", 640.00,      true;
+      }
+      OpenSlot table on(id) {
+        id,               clinicianId,       clinicianName,     startsAt,                 endsAt,                   isTaken;
+        @uuid("slot-a"),  @uuid("doc-imani"), "Dr. Imani Osei",  @datetime("+0d 09:00"),  @datetime("+0d 09:30"),   true;
+        @uuid("slot-b"),  @uuid("doc-imani"), "Dr. Imani Osei",  @datetime("+0d 10:00"),  @datetime("+0d 10:30"),   true;
+        @uuid("slot-c"),  @uuid("doc-tomas"), "Dr. Tomas Varga", @datetime("+0d 11:00"),  @datetime("+0d 11:30"),   true;
+        @uuid("slot-d"),  @uuid("doc-imani"), "Dr. Imani Osei",  @datetime("+1d 09:00"),  @datetime("+1d 09:30"),   false;
+        @uuid("slot-e"),  @uuid("doc-imani"), "Dr. Imani Osei",  @datetime("+1d 09:30"),  @datetime("+1d 10:00"),   false;
+        @uuid("slot-f"),  @uuid("doc-imani"), "Dr. Imani Osei",  @datetime("+2d 09:00"),  @datetime("+2d 09:30"),   false;
+        @uuid("slot-g"),  @uuid("doc-tomas"), "Dr. Tomas Varga", @datetime("+1d 11:00"),  @datetime("+1d 11:30"),   false;
+        @uuid("slot-h"),  @uuid("doc-tomas"), "Dr. Tomas Varga", @datetime("+2d 11:00"),  @datetime("+2d 11:30"),   false;
+        @uuid("slot-i"),  @uuid("doc-tomas"), "Dr. Tomas Varga", @datetime("+3d 11:00"),  @datetime("+3d 11:30"),   false;
+      }
+      Appointment table on(id) {
+        id,              startsAt,               endsAt,                 patientName,     clinicianName,     specialty,         room,     status,    kind,     reason,                     visitCharge, patientId,            clinicianId,        slotId;
+        @uuid("visit-a"), @datetime("+0d 09:00"), @datetime("+0d 09:30"), "Ana Ferreira",  "Dr. Imani Osei",  "Family medicine", "Room 1", InRoom,    InPerson, "A cough that will not go", 180.00,      @uuid("patient-ana"), @uuid("doc-imani"), @uuid("slot-a");
+        @uuid("visit-b"), @datetime("+0d 10:00"), @datetime("+0d 10:30"), "Lea Marchetti", "Dr. Imani Osei",  "Family medicine", "Room 1", CheckedIn, InPerson, "Yearly check-up",          180.00,      @uuid("patient-lea"), @uuid("doc-imani"), @uuid("slot-b");
+        @uuid("visit-c"), @datetime("+0d 11:00"), @datetime("+0d 11:30"), "Ben Oyelaran",  "Dr. Tomas Varga", "Cardiology",      "Room 2", Booked,    Video,    "Blood pressure follow-up", 640.00,      @uuid("patient-ben"), @uuid("doc-tomas"), @uuid("slot-c");
+      }
+    }
+  }
+}

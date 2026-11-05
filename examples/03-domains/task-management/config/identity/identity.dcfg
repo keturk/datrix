@@ -1,20 +1,38 @@
-// Platform-managed identity provider for 'identity'.
-// mode = platformManaged: the generator resolves the target-native provider at
-// generation time (docker → Keycloak, Azure → Entra, AWS → Cognito).
+// The people who use Millrace. The generated stack hosts the sign-in: nothing here or in a service ever
+// handles a password. Anyone may sign up and start a project; operator is granted, never self-assigned.
 config identity identity {
   base {
     audience = "customer";
     mode = "platformManaged";
     jwksCacheTtlSeconds = 3600;
-  }
-
-  profile development as "dev" extends base {
+    signUp {
+      allowed = true;
+    }
+    publicClient {
+      flows = ["authorization_code"];
+    }
+    identityFields {
+      email {
+        claimPath = "email";
+        guarantee = "required";
+        syncPolicy = "syncOnAuth";
+      }
+      fullName {
+        claimPath = "name";
+        guarantee = "optional";
+        syncPolicy = "syncOnAuth";
+      }
+    }
+    roleSource {
+      claimPath = "urn:zitadel:iam:org:project:roles";
+      guarantee = "optional";
+    }
   }
 
   profile test as "test" extends base {
   }
 
-  profile staging as "stg" extends base {
+  profile development as "dev" extends base {
   }
 
   profile production as "prod" extends base {

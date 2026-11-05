@@ -1,0 +1,65 @@
+// The contract of the health insurer. The clinic calls only this contract and never knows what serves
+// it: config/providers/insurer-provider.dcfg says where it is served.
+extern service healthcare.InsurerProvider('config/providers/insurer-provider.dcfg')
+    : version('1.0.0'), description('Eligibility checks and claims') {
+
+    enum EligibilityStatus {
+        Active,
+        Inactive
+    }
+
+    enum ClaimDecision {
+        Approved,
+        InReview,
+        Denied
+    }
+
+    struct EligibilityRequest {
+        String(30) memberId;
+    }
+
+    struct EligibilityAnswer {
+        EligibilityStatus status;
+        String(60)? planName;
+        Money copay;
+    }
+
+    struct SubmitClaimRequest {
+        String(30) memberId;
+        String(40) visitReference;
+        Money billedAmount;
+        /// The caller's key: submitting again with the same key returns the first claim.
+        String(120) idempotencyKey;
+    }
+
+    struct ClaimAnswer {
+        String(40) id;
+        ClaimDecision decision;
+        Money insurerPays;
+        Money patientOwes;
+        String(200)? reason;
+    }
+
+    rest_api InsurerAPI : basePath('/v1') {
+        @path('/eligibility')
+        post checkEligibility(EligibilityRequest request) -> EligibilityAnswer {
+            ensure request.memberId != "";
+        }
+
+        @path('/claims')
+        post submitClaim(SubmitClaimRequest request) -> ClaimAnswer {
+            ensure request.billedAmount > 0;
+            ensure request.idempotencyKey != "";
+        }
+
+        @path('/claims/{id}')
+        get claimById(String id) -> ClaimAnswer;
+    }
+
+    errors {
+        ClaimNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-Insurer-Api-Key');
+    health : path('/health');
+}

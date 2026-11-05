@@ -1,0 +1,28 @@
+// Where the SanctionsProvider contract is served. Every profile here points at the mock in the same
+// stack; pointing one at a real vendor changes only this file.
+config extern finance.SanctionsProvider {
+  base {
+    deployment = "external";
+    url = "http://finance-sanctions-mock:8092";
+    auth {
+      type = "apiKey";
+      header = "X-Sanctions-Api-Key";
+      // A logical handle; the consuming service declares it and its value is never in a file here.
+      secret = "sanctions_provider_api_key";
+    }
+    timeout = "10s";
+    retry {
+      maxAttempts = 3;
+      backoff = "exponential";
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

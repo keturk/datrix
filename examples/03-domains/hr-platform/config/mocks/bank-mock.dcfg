@@ -1,0 +1,40 @@
+config service hr.BankMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8090;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms bankDb from postgresContainer(id: "e054bc36-bfe0-4bf0-b192-434ab92edba5", database: "hr_bank_mock");
+    httpSecurity from localHttpSecurity(host: "hr-bank-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

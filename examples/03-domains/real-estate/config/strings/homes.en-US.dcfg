@@ -1,0 +1,69 @@
+config strings realestate.Homes locale "en-US" {
+  messages {
+    appName          = "Cobblestone Homes";
+    account          = "Account";
+    signOut          = "Sign out";
+    home             = "Back to the homes";
+    notFoundTitle    = "Page not found";
+    artHouse         = "A drawing of a house";
+    artApartment     = "A drawing of an apartment building";
+    artTownhouse     = "A drawing of a row of townhouses";
+    artCottage       = "A drawing of a cottage";
+    artLand          = "A drawing of a plot of land";
+    browseTitle      = "Find your next home";
+    browseSubtitle   = "Every home we have on the market right now.";
+    searchLabel      = "Try a neighbourhood, or something you want, like garden";
+    search           = "Search";
+    noHomes          = "Nothing is on the market right now";
+    placeLine        = "{place}, {city}";
+    factsLine        = "{beds} bed, {baths} bath, {area} m²";
+    seeHome          = "See this home";
+    resultsTitle     = "Homes matching “{q}”";
+    resultsSubtitle  = "Searched across the title, the description and the neighbourhood.";
+    noMatches        = "Nothing matches that";
+    seeEverything    = "See every home";
+    mapTitle         = "On the map";
+    mapSubtitle      = "Tap a pin to see the home.";
+    bookViewing      = "Book a viewing";
+    makeOffer        = "Make an offer";
+    statPrice        = "Asking";
+    statBeds         = "Bedrooms";
+    statBaths        = "Bathrooms";
+    statArea         = "Floor area";
+    areaLine         = "{area} m²";
+    yourAgent        = "Your agent";
+    priceHistory     = "How the price has changed";
+    priceStep        = "From {from} to {to}";
+    lenderNote       = "This is a demonstration. If you choose a mortgage, a pretend lender answers at once, and it declines anything over $900,000.";
+    viewingRequested = "Asked. The agent will confirm a time.";
+    offerMade        = "Your offer has gone to the agent.";
+    viewingsTitle    = "My viewings";
+    viewingsSubtitle = "Homes you are going to see.";
+    noViewings       = "You have no viewings booked";
+    withAgent        = "With {name}";
+    cancelViewing    = "Cancel";
+    viewingCancelled = "Cancelled.";
+    offersTitle      = "My offers";
+    offersSubtitle   = "What you have offered, and what has come of it.";
+    contractsTitle   = "Contracts";
+    noOffers         = "You have made no offers";
+    withdrawOffer    = "Withdraw";
+    offerWithdrawn   = "Withdrawn.";
+  }
+  labels {
+    page.Browse     = "Homes";
+    page.Search     = "Search";
+    page.Map        = "Map";
+    page.HomeDetail = "Home";
+    page.MyViewings = "My viewings";
+    page.MyOffers   = "My offers";
+    page.NotFound   = "Not found";
+    field.RequestViewing.startsAt = "When would you like to come?";
+    field.RequestViewing.note = "Anything the agent should know";
+    field.MakeOffer.amount = "Your offer";
+    field.MakeOffer.financing = "How will you pay?";
+    enum.ListingStatus.UnderOffer = "Under offer";
+    enum.ViewingStatus.NoShow = "Missed";
+    enum.ContractStatus.AwaitingSignature = "Waiting for your signature";
+  }
+}

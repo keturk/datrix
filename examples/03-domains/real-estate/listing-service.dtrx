@@ -1,790 +1,355 @@
+from realestate.common import ListingStatus;
 
-from realestate.common import PropertyType, formatPrice, generateListingRef;
+// The homes for sale. Anyone may browse and search what is on the market, and what they get back is the
+// home and the agent's name, never an agent's address or a draft. An agent works only on their own
+// listings. A price change is kept for ever and told to anyone with a viewing coming up.
+service realestate.ListingService('config/listing-service.dcfg') : version('2.0.0'), description('Homes for sale') {
 
-service realestate.ListingService('config/listing-service.dcfg') : version('1.0.0'), description('property listing management service') {
     discovery { }
 
     identity {
         provider identity config('config/identity/identity.dcfg') {
-            String email;
+            Email email;
+            String? fullName;
+            group "agent" as agent;
+            group "operator" as operator;
         }
-        provider platform config('config/identity/platform.dcfg') {
-        }
+        provider machine config('config/identity/machine.dcfg') { }
+        provider mortgageKeys config('config/identity/mortgage-keys.dcfg') { }
+        provider signatureKeys config('config/identity/signature-keys.dcfg') { }
+        provider emailKeys config('config/identity/email-keys.dcfg') { }
     }
 
-    enum ListingStatus {
-        Draft : value('draft'),
-        Active : value('active'),
-        UnderContract : value('under_contract'),
-        Sold : value('sold'),
-        Withdrawn : value('withdrawn')
+    exceptions {
+        NotYourListingError : status(404), message("Listing not found");
+        NotPublicError : status(404), message("That home is not on the market");
+        WrongStepError : status(409), message("This listing is not at that step");
+        SamePriceError : status(422), message("That is already the price");
     }
 
-    struct CreateListingRequest {
-        String title;
-        Text description;
-        PropertyType propertyType;
-        Money price;
-        Int bedrooms;
-        Int bathrooms;
-        Int squareFeet;
-        String address;
-        String city;
-        String state;
-        String zipCode;
-        Decimal? latitude;
-        Decimal? longitude;
-        Int? yearBuilt;
-    }
-
-    struct UpdateListingRequest {
-        String? title;
-        Text? description;
-        Money? price;
-        ListingStatus? status;
-    }
-
-    struct ListingSearchRequest {
-        String? query;
-        String? city;
-        String? state;
-        PropertyType? propertyType;
-        Money? minPrice;
-        Money? maxPrice;
-        Int? minBedrooms;
-        Int? minBathrooms;
-    }
-
-    struct AddImageRequest {
-        String url;
-        String? caption;
-        Int orderIndex;
-        Boolean isPrimary;
-    }
-
-    struct AddFeatureRequest {
-        String featureName;
-        String featureValue;
+    enum PropertyKind {
+        House,
+        Apartment,
+        Townhouse,
+        Cottage,
+        Land
     }
 
     rdbms listingDb {
-        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
-        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
-        // Property listing entity
+        /// A neighbourhood the agency works in. Choosing one places a home on the map.
+        entity Neighbourhood extends BaseEntity {
+            String(120) name : unique;
+            String(120) city;
+            Float latitude;
+            Float longitude;
+        }
+
         entity Listing extends BaseEntity {
-            String(200) title : trim;
-            Text description;
-            String(30) listingRef : unique;
-            PropertyType propertyType;
-            ListingStatus status = ListingStatus.Draft;
-            Money price : positive;
-            Int bedrooms : min(0);
-            Int bathrooms : min(0);
-            Int squareFeet : positive;
-            String(300) address : trim;
-            String(100) city : trim, index;
-            String(50) state : trim, index;
-            String(10) zipCode : trim;
-            Decimal? latitude;
-            Decimal? longitude;
-            Int? yearBuilt;
-            UUID? agentId : index;
+            String(200) title : filterable;
+            String(120) neighbourhoodName : filterable;
+            PropertyKind kind : filterable;
+            Money price;
+            Int bedrooms;
+            Int bathrooms;
+            Int areaSqm;
+            ListingStatus status : filterable = ListingStatus.Draft;
+            String(200) agentName : filterable;
+            DateTime? publishedAt;
+            Text summary;
+            String(120) city;
+            Float latitude;
+            Float longitude;
+            Email agentEmail : index;
 
-            // Computed fields
-            Boolean isAvailable := status == ListingStatus.Active;
-            Money pricePerSqFt := Money.of(price.amount / squareFeet);
-
-            hasMany ListingImage as images : cascade(delete);
-            hasMany ListingFeature as features : cascade(delete);
-
-            index(city, state);
-            index(status, propertyType);
-            index(propertyType, price);
-            index(status, price);
-            fulltext(title, description, address, city);
-
-            validate {
-                if (title.trim().isEmpty())
-                ValidationError("Listing title cannot be empty");
-                if (bedrooms < 0)
-                ValidationError("Bedrooms cannot be negative");
-                if (bathrooms < 0)
-                ValidationError("Bathrooms cannot be negative");
-                if (squareFeet <= 0)
-                ValidationError("Square feet must be positive");
-                if (yearBuilt != null && yearBuilt > DateTime.now().year())
-                ValidationError("Year built cannot be in the future");
-            }
-
-            afterCreate {
-                dispatch ListingCreated(id, listingRef, title, propertyType, price, city, state);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch ListingStatusChanged(id, listingRef, oldValue(status), status);
-
-                    if (status == ListingStatus.Sold) {
-                        Log.info("Listing sold", { listingId: id, listingRef: listingRef, price: price });
-                    } else if (status == ListingStatus.Withdrawn) {
-                        Log.info("Listing withdrawn", { listingId: id, listingRef: listingRef });
-                    }
-
-                }
-
-                if (isChanged(price)) {
-                    dispatch ListingPriceChanged(id, listingRef, oldValue(price), price);
-                }
-
-            }
-
-            fn activate() {
-                if (status != ListingStatus.Draft) {
-                    throw ValidationException("Only draft listings can be activated");
-                }
-
-                status = ListingStatus.Active;
-                this.save();
-            }
-
-            fn markUnderContract() {
-                if (status != ListingStatus.Active) {
-                    throw ValidationException("Only active listings can be placed under contract");
-                }
-
-                status = ListingStatus.UnderContract;
-                this.save();
-            }
-
-            fn markSold() {
-                if (status != ListingStatus.UnderContract) {
-                    throw ValidationException("Only listings under contract can be marked as sold");
-                }
-
-                status = ListingStatus.Sold;
-                this.save();
-            }
-
-            fn withdraw() {
-                if (status == ListingStatus.Sold) {
-                    throw ValidationException("Sold listings cannot be withdrawn");
-                }
-
-                status = ListingStatus.Withdrawn;
-                this.save();
-            }
-
+            fulltext(title, summary, neighbourhoodName);
+            index(status);
         }
 
-        // Images associated with a listing
-        entity ListingImage extends BaseEntity {
-            String(500) url;
-            String(200)? caption;
-            Int orderIndex : min(0);
-            Boolean isPrimary = false;
-
-            belongsTo Listing : index;
-
-            index(listingId, orderIndex);
-
-            validate {
-                if (url.trim().isEmpty())
-                ValidationError("Image URL cannot be empty");
-                if (orderIndex < 0)
-                ValidationError("Order index cannot be negative");
-            }
-
+        /// Every price a home has asked. Never changed once written.
+        entity PriceChange extends BaseEntity : appendOnly {
+            UUID listingId : index;
+            Money oldPrice;
+            Money newPrice;
         }
-
-        // Property features (e.g., "Pool: Yes", "Garage: 2-car")
-        entity ListingFeature extends BaseEntity {
-            String(100) featureName : trim;
-            String(200) featureValue : trim;
-
-            belongsTo Listing : index;
-
-            index(listingId, featureName);
-
-            validate {
-                if (featureName.trim().isEmpty())
-                ValidationError("Feature name cannot be empty");
-                if (featureValue.trim().isEmpty())
-                ValidationError("Feature value cannot be empty");
-            }
-
-        }
-
-    }
-
-    // File storage for property photos and documents
-    storage store {
-        folder photos : path('listings/photos/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('10mb')
-        folder documents : path('listings/documents/'), allowed(['application/pdf']), maxSize('25mb')
     }
 
     pubsub mq {
-        alert consumerLag(max) over(5m) > 500 @severity(critical);
-
         topic ListingEvents {
-            publish ListingCreated(UUID listingId, String listingRef, String title, PropertyType propertyType, Money price, String city, String state) {
-                ensure title.length > 0;
-                ensure price > 0;
-            }
-
-            publish ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish ListingPriceChanged(UUID listingId, String listingRef, Money oldPrice, Money newPrice) {
+            publish ListingPriceChanged(UUID listingId, String title, Money oldPrice, Money newPrice) {
                 ensure oldPrice != newPrice;
             }
-
         }
-
     }
 
-    subscribe ListingEvents {
-        on ListingCreated(UUID listingId, String listingRef, String title, PropertyType propertyType, Money price, String city, String state) {
-            Log.info("New listing created", { listingId: listingId, listingRef: listingRef, city: city, state: state });
-        }
-
-        on ListingStatusChanged(UUID listingId, String listingRef, ListingStatus oldStatus, ListingStatus newStatus) {
-            Log.info("Listing status changed", { listingId: listingId, listingRef: listingRef, oldStatus: oldStatus, newStatus: newStatus });
-        }
-
-        on ListingPriceChanged(UUID listingId, String listingRef, Money oldPrice, Money newPrice) {
-            Log.info("Listing price changed", { listingId: listingId, listingRef: listingRef, oldPrice: oldPrice, newPrice: newPrice });
-        }
-
+    struct NewListing {
+        String(200) title;
+        UUID neighbourhoodId;
+        PropertyKind kind;
+        Money price;
+        Int bedrooms;
+        Int bathrooms;
+        Int areaSqm;
+        Text summary;
     }
 
-    rest_api ListingAPI : basePath('/api/v1/listings'), rdbms(listingDb) {
-        alert responseTime(p95) over(5m) > 500ms @severity(warning);
-        alert errorRate(ratio) over(5m) > 5% @severity(critical);
+    struct NewPrice {
+        UUID listingId;
+        Money price;
+    }
 
-        // List all listings, a page at a time
-        get(PageRequest page, ListingStatus? status, PropertyType? propertyType) : auth(public) -> Page<listingDb.Listing> {
-            let JSON query = listingDb.Listing.all();
+    /// A home in a search. The agent's address stays on the server.
+    struct ListingCard {
+        UUID id;
+        String title;
+        String neighbourhoodName;
+        String city;
+        PropertyKind kind;
+        Money price;
+        Int bedrooms;
+        Int bathrooms;
+        Int areaSqm;
+        ListingStatus status;
+    }
 
-            if (status != null) {
-                query = listingDb.Listing.where(status: status);
-            } else {
-                query = listingDb.Listing.where(status: ListingStatus.Active);
-            }
+    struct PriceStep {
+        Money oldPrice;
+        Money newPrice;
+        DateTime at;
+    }
 
-            if (propertyType != null) {
-                query = query.where(propertyType: propertyType);
-            }
+    struct ListingPage {
+        ListingCard home;
+        Text summary;
+        String agentName;
+        GeoPoint point;
+        Array<PriceStep> priceHistory;
+    }
 
-            return query.orderBy(createdAt: desc).page(page);
+    struct HomePin {
+        UUID id;
+        String title;
+        GeoPoint point;
+    }
+
+    struct AgentSummary {
+        Int onTheMarket;
+        Int drafts;
+        Int underOffer;
+        Int sold;
+    }
+
+    struct ListingFacts {
+        String title;
+        ListingStatus status;
+        Money price;
+        String agentName;
+        Email agentEmail;
+    }
+
+    struct ListingNotice {
+        UUID listingId;
+    }
+
+    fn cardOf(listingDb.Listing listing) -> ListingCard {
+        return ListingCard {
+            id: listing.id,
+            title: listing.title,
+            neighbourhoodName: listing.neighbourhoodName,
+            city: listing.city,
+            kind: listing.kind,
+            price: listing.price,
+            bedrooms: listing.bedrooms,
+            bathrooms: listing.bathrooms,
+            areaSqm: listing.areaSqm,
+            status: listing.status
+        };
+    }
+
+    fn pageOf(listingDb.Listing listing) -> ListingPage {
+        let Array<listingDb.PriceChange> changes = listingDb.PriceChange.where(listingId: listing.id).orderBy(createdAt: desc).limit(20).all();
+        return ListingPage {
+            home: cardOf(listing),
+            summary: listing.summary,
+            agentName: listing.agentName,
+            point: GeoPoint { latitude: listing.latitude, longitude: listing.longitude },
+            priceHistory: changes.map(c => PriceStep { oldPrice: c.oldPrice, newPrice: c.newPrice, at: c.createdAt })
+        };
+    }
+
+    fn ownListing(UUID id) -> listingDb.Listing {
+        let listingDb.Listing listing = listingDb.Listing.findOrFail(id);
+        if (listing.agentEmail.toString() != Auth.identity.email.toString()) {
+            throw NotYourListingError();
+        }
+        return listing;
+    }
+
+    // What anyone can see. Only what is on the market or being sold is public.
+    rest_api HomesAPI : basePath('/api/v1/homes'), rdbms(listingDb) {
+        @path('/')
+        get onTheMarket() : auth(public) -> Array<ListingCard> {
+            let Array<Listing> listings = Listing.where(status: ListingStatus.Active).orderBy(publishedAt: desc).limit(60).all();
+            return listings.map(l => cardOf(l));
         }
 
-        // Get a single listing by ID
-        @path('/:id')
-        get(UUID id) : auth(public) -> listingDb.Listing {
-            return listingDb.Listing.findOrFail(id);
+        @path('/search')
+        get search(String q) : auth(public) -> Array<ListingCard> {
+            let Array<Listing> listings = Listing.where(status: ListingStatus.Active).fulltext(q).limit(60).all();
+            return listings.map(l => cardOf(l));
         }
 
-        // Create a new listing
-        post(CreateListingRequest request) : auth(required, providers: [identity]) -> listingDb.Listing {
-            let Listing listing = listingDb.Listing.create({
+        @path('/pins')
+        get pins() : auth(public) -> Array<HomePin> {
+            let Array<Listing> listings = Listing.where(status: ListingStatus.Active).limit(200).all();
+            return listings.map(l => HomePin { id: l.id, title: l.title, point: GeoPoint { latitude: l.latitude, longitude: l.longitude } });
+        }
+
+        @path('/home/:id')
+        get home(UUID id) : auth(public) -> ListingPage {
+            let Listing listing = Listing.findOrFail(id);
+            if (listing.status == ListingStatus.Draft || listing.status == ListingStatus.Withdrawn) {
+                throw NotPublicError();
+            }
+            return pageOf(listing);
+        }
+    }
+
+    // What an agent works with.
+    rest_api AgentListingAPI : basePath('/api/v1/agent/listings'), rdbms(listingDb) {
+        resource Listing : only(list), auth(required, providers: [identity], roles: [agent]);
+        resource Neighbourhood : only(list), auth(required, providers: [identity], roles: [agent]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [agent]) -> AgentSummary {
+            let String me = Auth.identity.email.toString();
+            return AgentSummary {
+                onTheMarket: Listing.where(agentEmail: me, status: ListingStatus.Active).count(),
+                drafts: Listing.where(agentEmail: me, status: ListingStatus.Draft).count(),
+                underOffer: Listing.where(agentEmail: me, status: ListingStatus.UnderOffer).count(),
+                sold: Listing.where(agentEmail: me, status: ListingStatus.Sold).count()
+            };
+        }
+
+        @path('/page/:id')
+        get page(UUID id) : auth(required, providers: [identity], roles: [agent]) -> ListingPage {
+            return pageOf(ownListing(id));
+        }
+
+        @path('/new')
+        post createListing(NewListing request) : auth(required, providers: [identity], roles: [agent]) -> Listing {
+            let Neighbourhood place = Neighbourhood.findOrFail(request.neighbourhoodId);
+            return Listing.create({
                 title: request.title,
-                description: request.description,
-                listingRef: generateListingRef(),
-                propertyType: request.propertyType,
-                status: ListingStatus.Draft,
+                neighbourhoodName: place.name,
+                city: place.city,
+                latitude: place.latitude,
+                longitude: place.longitude,
+                kind: request.kind,
                 price: request.price,
                 bedrooms: request.bedrooms,
                 bathrooms: request.bathrooms,
-                squareFeet: request.squareFeet,
-                address: request.address,
-                city: request.city,
-                state: request.state,
-                zipCode: request.zipCode,
-                latitude: request.latitude,
-                longitude: request.longitude,
-                yearBuilt: request.yearBuilt,
-                agentId: Auth.user().id
+                areaSqm: request.areaSqm,
+                summary: request.summary,
+                agentName: (Auth.identity.fullName ?? Auth.identity.email).toString(),
+                agentEmail: Auth.identity.email
             });
-            listing.save();
-
-            return listing;
         }
 
-        // Update a listing
-        @path('/:id')
-        put(UUID id, UpdateListingRequest request) : auth(required, providers: [identity]) -> listingDb.Listing {
-            let Listing listing = listingDb.Listing.findOrFail(id);
-
-            if (request.title != null) listing.title = request.title;
-            if (request.description != null) listing.description = request.description;
-            if (request.price != null) listing.price = request.price;
-            if (request.status != null) listing.status = request.status;
-
+        @path('/publish/:id')
+        post publish(UUID id) : auth(required, providers: [identity], roles: [agent]) -> Listing {
+            let Listing listing = ownListing(id);
+            if (listing.status != ListingStatus.Draft && listing.status != ListingStatus.Withdrawn) {
+                throw WrongStepError();
+            }
+            listing.status = ListingStatus.Active;
+            listing.publishedAt = DateTime.now();
             listing.save();
             return listing;
         }
 
-        // Activate a draft listing
-        @path('/:id/activate')
-        put(UUID id) : auth(required, providers: [identity]) -> listingDb.Listing {
-            let Listing listing = listingDb.Listing.findOrFail(id);
-            listing.activate();
+        @path('/withdraw/:id')
+        post withdraw(UUID id) : auth(required, providers: [identity], roles: [agent]) -> Listing {
+            let Listing listing = ownListing(id);
+            if (listing.status != ListingStatus.Active) {
+                throw WrongStepError();
+            }
+            listing.status = ListingStatus.Withdrawn;
+            listing.save();
             return listing;
         }
 
-        // Withdraw a listing
-        @path('/:id/withdraw')
-        put(UUID id) : auth(required, providers: [identity]) -> listingDb.Listing {
-            let Listing listing = listingDb.Listing.findOrFail(id);
-            listing.withdraw();
+        @path('/price')
+        post changePrice(NewPrice request) : auth(required, providers: [identity], roles: [agent]) -> Listing {
+            let Listing listing = ownListing(request.listingId);
+            if (listing.price == request.price) {
+                throw SamePriceError();
+            }
+            let Money oldPrice = listing.price;
+            listing.price = request.price;
+            listing.save();
+            PriceChange.create({ listingId: listing.id, oldPrice: oldPrice, newPrice: request.price });
+            dispatch ListingPriceChanged(listing.id, listing.title, oldPrice, request.price);
             return listing;
         }
-
-        // Full-text search across listings
-        @path('/search')
-        get(String query, PageRequest page) : auth(public) -> Page<listingDb.Listing> {
-            return listingDb.Listing
-            .fulltext(query)
-            .where(status: ListingStatus.Active)
-            .page(page);
-        }
-
-        // Search by city
-        @path('/by-city/:city')
-        get(String city, Int? limit) : auth(public) -> Array<listingDb.Listing> {
-            return listingDb.Listing
-            .where(city: city)
-            .where(status: ListingStatus.Active)
-            .orderBy(price: asc)
-            .limit(limit ?? 50)
-            .all();
-        }
-
-        // Filter by price range
-        @path('/by-price')
-        get(Money minPrice, Money maxPrice, Int? limit) : auth(public) -> Array<listingDb.Listing> {
-            return listingDb.Listing
-            .where(status: ListingStatus.Active)
-            .where(price: gte(minPrice))
-            .where(price: lte(maxPrice))
-            .orderBy(price: asc)
-            .limit(limit ?? 50)
-            .all();
-        }
-
-        // Add an image to a listing
-        @path('/:id/images')
-        post(UUID id, AddImageRequest request) : auth(required, providers: [identity]) -> listingDb.ListingImage {
-            let Listing listing = listingDb.Listing.findOrFail(id);
-
-            let ListingImage image = listingDb.ListingImage.create({
-                listingId: listing.id,
-                url: request.url,
-                caption: request.caption,
-                orderIndex: request.orderIndex,
-                isPrimary: request.isPrimary
-            });
-            image.save();
-
-            return image;
-        }
-
-        // Add a feature to a listing
-        @path('/:id/features')
-        post(UUID id, AddFeatureRequest request) : auth(required, providers: [identity]) -> listingDb.ListingFeature {
-            let Listing listing = listingDb.Listing.findOrFail(id);
-
-            let ListingFeature feature = listingDb.ListingFeature.create({
-                listingId: listing.id,
-                featureName: request.featureName,
-                featureValue: request.featureValue
-            });
-            feature.save();
-
-            return feature;
-        }
-
-        // Get listing images
-        @path('/:id/images')
-        get(UUID id) : auth(public) -> Array<listingDb.ListingImage> {
-            return listingDb.ListingImage
-            .where(listingId: id)
-            .orderBy(orderIndex: asc)
-            .all();
-        }
-
-        // Get listing features
-        @path('/:id/features')
-        get(UUID id) : auth(public) -> Array<listingDb.ListingFeature> {
-            return listingDb.ListingFeature
-            .where(listingId: id)
-            .all();
-        }
-
-        // Internal endpoint for cross-service lookups
-        @path('/service/:id')
-        get listingByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> listingDb.Listing {
-            return listingDb.Listing.findOrFail(id);
-        }
-
-        // Internal: mark listing as under contract
-        @path('/service/:id/under-contract')
-        put markUnderContract(UUID id) : auth(service, providers: [platform]), hidden -> listingDb.Listing {
-            let Listing listing = listingDb.Listing.findOrFail(id);
-            listing.markUnderContract();
-            return listing;
-        }
-
-        // Internal: mark listing as sold
-        @path('/service/:id/sold')
-        put listingMarkedSold(UUID id) : auth(service, providers: [platform]), hidden -> listingDb.Listing {
-            let Listing listing = listingDb.Listing.findOrFail(id);
-            listing.markSold();
-            return listing;
-        }
-
     }
 
-    test("computed isAvailable is true for Active status") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Beautiful Family Home",
-            description: "A spacious family home with a large backyard",
-            listingRef: "LST-TEST-001",
-            propertyType: PropertyType.House,
-            status: ListingStatus.Active,
-            price: Money.of(350000),
-            bedrooms: 4,
-            bathrooms: 3,
-            squareFeet: 2500,
-            address: "123 Oak Street",
-            city: "Austin",
-            state: "TX",
-            zipCode: "78701"
-        });
-        listing.save();
-        assert listing.isAvailable == true;
+    // What viewings and deals need.
+    rest_api ListingInternalAPI : basePath('/internal/listings'), rdbms(listingDb) {
+        @path('/facts/:id')
+        get facts(UUID id) : auth(service, providers: [machine]) -> ListingFacts {
+            let Listing listing = Listing.findOrFail(id);
+            return ListingFacts {
+                title: listing.title,
+                status: listing.status,
+                price: listing.price,
+                agentName: listing.agentName,
+                agentEmail: listing.agentEmail
+            };
+        }
+
+        @path('/under-offer')
+        post markUnderOffer(ListingNotice notice) : auth(service, providers: [machine]) -> ListingCard {
+            let Listing listing = Listing.findOrFail(notice.listingId);
+            listing.status = ListingStatus.UnderOffer;
+            listing.save();
+            return cardOf(listing);
+        }
+
+        @path('/sold')
+        post markSold(ListingNotice notice) : auth(service, providers: [machine]) -> ListingCard {
+            let Listing listing = Listing.findOrFail(notice.listingId);
+            listing.status = ListingStatus.Sold;
+            listing.save();
+            return cardOf(listing);
+        }
+
+        @path('/reopen')
+        post reopen(ListingNotice notice) : auth(service, providers: [machine]) -> ListingCard {
+            let Listing listing = Listing.findOrFail(notice.listingId);
+            listing.status = ListingStatus.Active;
+            listing.save();
+            return cardOf(listing);
+        }
     }
 
-    test("computed pricePerSqFt calculates correctly") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Downtown Condo",
-            description: "Modern condo in the heart of downtown",
-            listingRef: "LST-TEST-002",
-            propertyType: PropertyType.Condo,
-            status: ListingStatus.Active,
-            price: Money.of(200000),
+    test("a new listing is a draft") {
+        let listingDb.Listing created = listingDb.Listing.create({
+            title: "Test home",
+            neighbourhoodName: "Riverside",
+            city: "Portland",
+            kind: PropertyKind.Cottage,
+            price: 410000.00,
             bedrooms: 2,
             bathrooms: 1,
-            squareFeet: 1000,
-            address: "456 Main Avenue",
-            city: "Austin",
-            state: "TX",
-            zipCode: "78702"
+            areaSqm: 80,
+            summary: "A test home.",
+            agentName: "Dana Whitlock",
+            agentEmail: "dana@cobblestone.example.com",
+            latitude: 45.5,
+            longitude: -122.6
         });
-        listing.save();
-        assert listing.pricePerSqFt.amount == 200;
+        assert created.status == ListingStatus.Draft;
+        assert cardOf(created).title == "Test home";
     }
-
-    test("validation rejects empty title") {
-        assert throws(
-        () => listingDb.Listing.create({
-            title: "",
-            description: "Test listing",
-            listingRef: "LST-TEST-003",
-            propertyType: PropertyType.House,
-            price: Money.of(100000),
-            bedrooms: 2,
-            bathrooms: 1,
-            squareFeet: 1000,
-            address: "789 Elm Street",
-            city: "Austin",
-            state: "TX",
-            zipCode: "78703"
-        }),
-        ValidationError("Listing title cannot be empty")
-        );
-    }
-
-    test("validation rejects negative bedrooms") {
-        assert throws(
-        () => listingDb.Listing.create({
-            title: "Invalid Listing",
-            description: "Test listing with negative bedrooms",
-            listingRef: "LST-TEST-004",
-            propertyType: PropertyType.Apartment,
-            price: Money.of(150000),
-            bedrooms: -1,
-            bathrooms: 1,
-            squareFeet: 800,
-            address: "321 Pine Road",
-            city: "Austin",
-            state: "TX",
-            zipCode: "78704"
-        }),
-        ValidationError("Bedrooms cannot be negative")
-        );
-    }
-
-    test("afterCreate emits ListingCreated event") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Charming Townhouse",
-            description: "A lovely townhouse in a quiet neighborhood",
-            listingRef: "LST-TEST-005",
-            propertyType: PropertyType.Townhouse,
-            status: ListingStatus.Draft,
-            price: Money.of(280000),
-            bedrooms: 3,
-            bathrooms: 2,
-            squareFeet: 1800,
-            address: "654 Maple Lane",
-            city: "Dallas",
-            state: "TX",
-            zipCode: "75201"
-        });
-        listing.save();
-        assert emitted(ListingCreated(listing.id, listing.listingRef, listing.title, PropertyType.Townhouse, listing.price, "Dallas", "TX"));
-    }
-
-    test("activate fails for non-draft listing") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Already Active Listing",
-            description: "This listing is already active",
-            listingRef: "LST-TEST-006",
-            propertyType: PropertyType.House,
-            status: ListingStatus.Active,
-            price: Money.of(400000),
-            bedrooms: 5,
-            bathrooms: 3,
-            squareFeet: 3000,
-            address: "987 Cedar Drive",
-            city: "Houston",
-            state: "TX",
-            zipCode: "77001"
-        });
-        listing.save();
-        assert throws(
-        () => listing.activate(),
-        ValidationException("Only draft listings can be activated")
-        );
-    }
-
-    test("computed isAvailable is false for Sold status") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Sold Property",
-            description: "This property has been sold",
-            listingRef: "LST-TEST-007",
-            propertyType: PropertyType.House,
-            status: ListingStatus.Sold,
-            price: Money.of(500000),
-            bedrooms: 3,
-            bathrooms: 2,
-            squareFeet: 2000,
-            address: "111 Sold Street",
-            city: "San Antonio",
-            state: "TX",
-            zipCode: "78201"
-        });
-        listing.save();
-        assert listing.isAvailable == false;
-    }
-
-    test("validation rejects non-positive square feet") {
-        assert throws(
-        () => listingDb.Listing.create({
-            title: "Zero SqFt Listing",
-            description: "Invalid square footage",
-            listingRef: "LST-TEST-008",
-            propertyType: PropertyType.Condo,
-            price: Money.of(100000),
-            bedrooms: 1,
-            bathrooms: 1,
-            squareFeet: 0,
-            address: "222 Zero Ave",
-            city: "Austin",
-            state: "TX",
-            zipCode: "78705"
-        }),
-        ValidationError("Square feet must be positive")
-        );
-    }
-
-    test("validation rejects negative bathrooms") {
-        assert throws(
-        () => listingDb.Listing.create({
-            title: "Negative Bath Listing",
-            description: "Invalid bathrooms count",
-            listingRef: "LST-TEST-009",
-            propertyType: PropertyType.Apartment,
-            price: Money.of(120000),
-            bedrooms: 2,
-            bathrooms: -1,
-            squareFeet: 900,
-            address: "333 Bath Road",
-            city: "Austin",
-            state: "TX",
-            zipCode: "78706"
-        }),
-        ValidationError("Bathrooms cannot be negative")
-        );
-    }
-
-    test("markUnderContract fails for non-active listing") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Draft Contract Listing",
-            description: "Trying to put draft under contract",
-            listingRef: "LST-TEST-010",
-            propertyType: PropertyType.House,
-            status: ListingStatus.Draft,
-            price: Money.of(300000),
-            bedrooms: 3,
-            bathrooms: 2,
-            squareFeet: 1600,
-            address: "444 Draft Lane",
-            city: "Dallas",
-            state: "TX",
-            zipCode: "75202"
-        });
-        listing.save();
-        assert throws(
-        () => listing.markUnderContract(),
-        ValidationException("Only active listings can be placed under contract")
-        );
-    }
-
-    test("markSold fails for non-under-contract listing") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Active Not Under Contract",
-            description: "Cannot mark sold directly from active",
-            listingRef: "LST-TEST-011",
-            propertyType: PropertyType.Townhouse,
-            status: ListingStatus.Active,
-            price: Money.of(275000),
-            bedrooms: 2,
-            bathrooms: 2,
-            squareFeet: 1400,
-            address: "555 Active Blvd",
-            city: "Dallas",
-            state: "TX",
-            zipCode: "75203"
-        });
-        listing.save();
-        assert throws(
-        () => listing.markSold(),
-        ValidationException("Only listings under contract can be marked as sold")
-        );
-    }
-
-    test("withdraw fails for sold listing") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Sold Withdraw Test",
-            description: "Cannot withdraw a sold listing",
-            listingRef: "LST-TEST-012",
-            propertyType: PropertyType.House,
-            status: ListingStatus.Sold,
-            price: Money.of(450000),
-            bedrooms: 4,
-            bathrooms: 3,
-            squareFeet: 2800,
-            address: "666 Sold Ct",
-            city: "Houston",
-            state: "TX",
-            zipCode: "77002"
-        });
-        listing.save();
-        assert throws(
-        () => listing.withdraw(),
-        ValidationException("Sold listings cannot be withdrawn")
-        );
-    }
-
-    test("status change emits ListingStatusChanged") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Status Event Listing",
-            description: "Testing status change event emission",
-            listingRef: "LST-TEST-013",
-            propertyType: PropertyType.House,
-            status: ListingStatus.Draft,
-            price: Money.of(320000),
-            bedrooms: 3,
-            bathrooms: 2,
-            squareFeet: 1900,
-            address: "777 Event Dr",
-            city: "Austin",
-            state: "TX",
-            zipCode: "78707"
-        });
-        listing.save();
-        listing.status = ListingStatus.Active;
-        listing.save();
-        assert emitted(ListingStatusChanged(listing.id, listing.listingRef, ListingStatus.Draft, ListingStatus.Active));
-    }
-
-    test("price change emits ListingPriceChanged") {
-        let Listing listing = listingDb.Listing.create({
-            title: "Price Change Listing",
-            description: "Testing price change event",
-            listingRef: "LST-TEST-014",
-            propertyType: PropertyType.Condo,
-            status: ListingStatus.Active,
-            price: Money.of(200000),
-            bedrooms: 2,
-            bathrooms: 1,
-            squareFeet: 1100,
-            address: "888 Price Way",
-            city: "Austin",
-            state: "TX",
-            zipCode: "78708"
-        });
-        listing.save();
-        listing.price = Money.of(210000);
-        listing.save();
-        assert emitted(ListingPriceChanged(listing.id, listing.listingRef, Money.of(200000), Money.of(210000)));
-    }
-
-    test("validation rejects empty image URL") {
-        assert throws(
-        () => listingDb.ListingImage.create({
-            listingId: uuid(),
-            url: "",
-            orderIndex: 0
-        }),
-        ValidationError("Image URL cannot be empty")
-        );
-    }
-
-    test("validation rejects negative image orderIndex") {
-        assert throws(
-        () => listingDb.ListingImage.create({
-            listingId: uuid(),
-            url: "https://images.test/photo.jpg",
-            orderIndex: -1
-        }),
-        ValidationError("Order index cannot be negative")
-        );
-    }
-
-    test("validation rejects empty feature name") {
-        assert throws(
-        () => listingDb.ListingFeature.create({
-            listingId: uuid(),
-            featureName: "",
-            featureValue: "Yes"
-        }),
-        ValidationError("Feature name cannot be empty")
-        );
-    }
-
-    test("validation rejects empty feature value") {
-        assert throws(
-        () => listingDb.ListingFeature.create({
-            listingId: uuid(),
-            featureName: "Pool",
-            featureValue: ""
-        }),
-        ValidationError("Feature value cannot be empty")
-        );
-    }
-
 }

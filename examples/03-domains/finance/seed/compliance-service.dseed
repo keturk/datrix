@@ -1,0 +1,27 @@
+// One open alert of each kind so the Back Office has something to review on first start, and a week
+// of daily reports for its chart.
+seed service finance.ComplianceService {
+  rdbms complianceDb {
+    baseline {
+      ComplianceAlert table on(id) {
+        id,                 type,          severity, status, subject,         reason,                                     amount;
+        @uuid("alert-big"), LargeTransfer, Medium,   Open,   "TR-SEED-OPEN2", "A transfer reached the review threshold.", 12000.00;
+        @uuid("alert-frz"), AccountFrozen, Medium,   Open,   "QB1000000003",  "An officer froze this account.",           null;
+      }
+      AuditEvent table on(id) {
+        id,                  action,           subject,        detail;
+        @uuid("audit-open"), "account.opened", "QB1000000001", "Opened as Checking";
+        @uuid("audit-frz"),  "account.status", "QB1000000003", "Active to Frozen";
+      }
+      DailyReport table on(day) {
+        id,                 day,          alertsRaised, criticalAlerts, stillOpen;
+        @uuid("report-7"),  @datetime("-7d 00:00"), 3,  0,              1;
+        @uuid("report-6"),  @datetime("-6d 00:00"), 5,  1,              2;
+        @uuid("report-5"),  @datetime("-5d 00:00"), 2,  0,              1;
+        @uuid("report-4"),  @datetime("-4d 00:00"), 6,  2,              3;
+        @uuid("report-3"),  @datetime("-3d 00:00"), 4,  0,              2;
+        @uuid("report-2"),  @datetime("-2d 00:00"), 1,  0,              2;
+      }
+    }
+  }
+}

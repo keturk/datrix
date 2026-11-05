@@ -1,0 +1,357 @@
+// Who is on Rookery and who follows whom. Anyone may read a profile, and what they get back is a handle and a
+// name, never an address. Follower counts are changed under a lock, and blocking someone cuts the follow in
+// both directions.
+service social.PeopleService('config/people-service.dcfg') : version('2.0.0'), description('Profiles and who follows whom') {
+
+    discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            Email email;
+            String? fullName;
+            group "moderator" as moderator;
+        }
+        provider machine config('config/identity/machine.dcfg') { }
+        provider moderationKeys config('config/identity/moderation-keys.dcfg') { }
+        provider pushKeys config('config/identity/push-keys.dcfg') { }
+        provider emailKeys config('config/identity/email-keys.dcfg') { }
+    }
+
+    exceptions {
+        NoSuchPersonError : status(404), message("Nobody here goes by that handle");
+        NoProfileError : status(409), message("Choose a handle first");
+        HandleTakenError : status(409), message("Someone already goes by that handle");
+        AlreadyHasProfileError : status(409), message("You already have a handle");
+        BlockedError : status(403), message("You cannot follow this person");
+        SelfFollowError : status(422), message("You cannot follow yourself");
+    }
+
+    rdbms peopleDb {
+
+        entity Profile extends BaseEntity {
+            String(30) handle : unique, filterable;
+            String(80) displayName : filterable;
+            Text bio;
+            Int followers = 0;
+            Int following = 0;
+            Boolean isSuspended : filterable = false;
+            /// How the sign-in ties to a handle, and where email goes. It never leaves this service's own API.
+            Email email : unique;
+
+            fulltext(handle, displayName, bio);
+        }
+
+        entity Follow extends BaseEntity {
+            String(30) followerHandle : index;
+            String(30) followedHandle : index;
+
+            index(followerHandle, followedHandle) : unique;
+        }
+
+        entity Block extends BaseEntity {
+            String(30) blockerHandle : index;
+            String(30) blockedHandle : index;
+
+            index(blockerHandle, blockedHandle) : unique;
+        }
+    }
+
+    pubsub mq {
+        topic PeopleEvents {
+            publish PersonFollowed(String followerHandle, String followerName, String followedHandle) {
+                ensure followerHandle != followedHandle;
+            }
+        }
+    }
+
+    struct ClaimHandle {
+        String(30) handle;
+        String(80) displayName;
+        Text bio;
+    }
+
+    struct UpdateProfile {
+        String(80) displayName;
+        Text bio;
+    }
+
+    struct ProfileCard {
+        String handle;
+        String displayName;
+        Text bio;
+        Int followers;
+        Int following;
+        Boolean isSuspended;
+    }
+
+    /// Who has signed in. An empty handle means they have not chosen one yet.
+    struct Me {
+        Boolean hasProfile;
+        String handle;
+        String displayName;
+        Text bio;
+        Int followers;
+        Int following;
+    }
+
+    struct Relation {
+        Boolean isMe;
+        Boolean isFollowing;
+        Boolean isBlocked;
+    }
+
+    struct Counted {
+        Int count;
+    }
+
+    struct AuthorQuestion {
+        String email;
+    }
+
+    struct AuthorFacts {
+        Boolean exists;
+        String handle;
+        String displayName;
+        Boolean isSuspended;
+    }
+
+    struct HandleQuestion {
+        String handle;
+    }
+
+    struct Handles {
+        Array<String> handles;
+    }
+
+    struct Contact {
+        Boolean exists;
+        String email;
+    }
+
+    fn cardOf(peopleDb.Profile profile) -> ProfileCard {
+        return ProfileCard {
+            handle: profile.handle,
+            displayName: profile.displayName,
+            bio: profile.bio,
+            followers: profile.followers,
+            following: profile.following,
+            isSuspended: profile.isSuspended
+        };
+    }
+
+    fn myProfile() -> peopleDb.Profile {
+        let peopleDb.Profile? mine = peopleDb.Profile.where(email: Auth.identity.email).first();
+        if (mine == null) {
+            throw NoProfileError();
+        }
+        return mine;
+    }
+
+    fn profileWithHandle(String handle) -> peopleDb.Profile {
+        let peopleDb.Profile? found = peopleDb.Profile.where(handle: handle).first();
+        if (found == null) {
+            throw NoSuchPersonError();
+        }
+        return found;
+    }
+
+    /// The two counters and the row move together, so a retry or a double click cannot leave them apart.
+    fn removeFollow(String followerHandle, String followedHandle) {
+        let peopleDb.Follow? existing = peopleDb.Follow.where(followerHandle: followerHandle, followedHandle: followedHandle).first();
+        if (existing != null) {
+            transaction(peopleDb) {
+                let peopleDb.Profile follower = peopleDb.Profile.where(handle: followerHandle).forUpdate().firstOrFail();
+                let peopleDb.Profile followed = peopleDb.Profile.where(handle: followedHandle).forUpdate().firstOrFail();
+                follower.following = follower.following - 1;
+                followed.followers = followed.followers - 1;
+                follower.save();
+                followed.save();
+                existing.delete();
+            }
+        }
+    }
+
+    // What anyone can read. No address is on any of these.
+    rest_api PublicPeopleAPI : basePath('/api/v1/people'), rdbms(peopleDb) {
+        @path('/card/:handle')
+        get card(String handle) : auth(public) -> ProfileCard {
+            return cardOf(profileWithHandle(handle));
+        }
+
+        @path('/search')
+        get search(String q) : auth(public) -> Array<ProfileCard> {
+            let Array<Profile> found = Profile.where(isSuspended: false).fulltext(q).limit(30).all();
+            return found.map(p => cardOf(p));
+        }
+
+        @path('/suggested')
+        get suggested() : auth(public) -> Array<ProfileCard> {
+            let Array<Profile> found = Profile.where(isSuspended: false).orderBy(followers: desc).limit(6).all();
+            return found.map(p => cardOf(p));
+        }
+    }
+
+    // What someone signed in does for themselves.
+    rest_api MyPeopleAPI : basePath('/api/v1/me'), rdbms(peopleDb) {
+        @path('/')
+        get me() : auth(required, providers: [identity]) -> Me {
+            let Profile? mine = Profile.where(email: Auth.identity.email).first();
+            if (mine == null) {
+                return Me { hasProfile: false, handle: "", displayName: "", bio: "", followers: 0, following: 0 };
+            }
+            return Me {
+                hasProfile: true,
+                handle: mine.handle,
+                displayName: mine.displayName,
+                bio: mine.bio,
+                followers: mine.followers,
+                following: mine.following
+            };
+        }
+
+        @path('/claim')
+        post claimHandle(ClaimHandle request) : auth(required, providers: [identity]) -> Profile {
+            if (Profile.where(email: Auth.identity.email).first() != null) {
+                throw AlreadyHasProfileError();
+            }
+            if (Profile.where(handle: request.handle).first() != null) {
+                throw HandleTakenError();
+            }
+            return Profile.create({
+                handle: request.handle,
+                displayName: request.displayName,
+                bio: request.bio,
+                email: Auth.identity.email
+            });
+        }
+
+        @path('/profile')
+        post updateProfile(UpdateProfile request) : auth(required, providers: [identity]) -> Profile {
+            let Profile mine = myProfile();
+            mine.displayName = request.displayName;
+            mine.bio = request.bio;
+            mine.save();
+            return mine;
+        }
+
+        @path('/relation/:handle')
+        get relation(String handle) : auth(required, providers: [identity]) -> Relation {
+            let Profile mine = myProfile();
+            return Relation {
+                isMe: mine.handle == handle,
+                isFollowing: Follow.where(followerHandle: mine.handle, followedHandle: handle).first() != null,
+                isBlocked: Block.where(blockerHandle: mine.handle, blockedHandle: handle).first() != null
+            };
+        }
+
+        @path('/follow/:handle')
+        post follow(String handle) : auth(required, providers: [identity]) -> Counted {
+            let Profile mine = myProfile();
+            if (mine.handle == handle) {
+                throw SelfFollowError();
+            }
+            let Profile target = profileWithHandle(handle);
+            if (Block.where(blockerHandle: handle, blockedHandle: mine.handle).first() != null) {
+                throw BlockedError();
+            }
+            if (Follow.where(followerHandle: mine.handle, followedHandle: handle).first() == null) {
+                transaction(peopleDb) {
+                    let Profile follower = Profile.where(handle: mine.handle).forUpdate().firstOrFail();
+                    let Profile followed = Profile.where(handle: handle).forUpdate().firstOrFail();
+                    follower.following = follower.following + 1;
+                    followed.followers = followed.followers + 1;
+                    follower.save();
+                    followed.save();
+                    Follow.create({ followerHandle: mine.handle, followedHandle: handle });
+                }
+                dispatch PersonFollowed(mine.handle, mine.displayName, handle);
+            }
+            return Counted { count: Profile.where(handle: target.handle).firstOrFail().followers };
+        }
+
+        @path('/unfollow/:handle')
+        post unfollow(String handle) : auth(required, providers: [identity]) -> Counted {
+            let Profile mine = myProfile();
+            removeFollow(mine.handle, handle);
+            return Counted { count: profileWithHandle(handle).followers };
+        }
+
+        @path('/block/:handle')
+        post block(String handle) : auth(required, providers: [identity]) -> Counted {
+            let Profile mine = myProfile();
+            profileWithHandle(handle);
+            if (Block.where(blockerHandle: mine.handle, blockedHandle: handle).first() == null) {
+                Block.create({ blockerHandle: mine.handle, blockedHandle: handle });
+            }
+            removeFollow(mine.handle, handle);
+            removeFollow(handle, mine.handle);
+            return Counted { count: Block.where(blockerHandle: mine.handle).count() };
+        }
+    }
+
+    // What the other services ask.
+    rest_api PeopleInternalAPI : basePath('/internal/people'), rdbms(peopleDb) {
+        @path('/author')
+        post author(AuthorQuestion question) : auth(service, providers: [machine]) -> AuthorFacts {
+            let Profile? found = Profile.where(email: question.email).first();
+            if (found == null) {
+                return AuthorFacts { exists: false, handle: "", displayName: "", isSuspended: false };
+            }
+            return AuthorFacts { exists: true, handle: found.handle, displayName: found.displayName, isSuspended: found.isSuspended };
+        }
+
+        @path('/following')
+        post followingOf(HandleQuestion question) : auth(service, providers: [machine]) -> Handles {
+            let Array<Follow> rows = Follow.where(followerHandle: question.handle).limit(500).all();
+            return Handles { handles: rows.map(r => r.followedHandle) };
+        }
+
+        @path('/followers')
+        post followersOf(HandleQuestion question) : auth(service, providers: [machine]) -> Handles {
+            let Array<Follow> rows = Follow.where(followedHandle: question.handle).limit(500).all();
+            return Handles { handles: rows.map(r => r.followerHandle) };
+        }
+
+        @path('/contact')
+        post contact(HandleQuestion question) : auth(service, providers: [machine]) -> Contact {
+            let Profile? found = Profile.where(handle: question.handle).first();
+            if (found == null) {
+                return Contact { exists: false, email: "" };
+            }
+            return Contact { exists: true, email: found.email.toString() };
+        }
+    }
+
+    // What a moderator does.
+    rest_api PeopleDeskAPI : basePath('/api/v1/desk/people'), rdbms(peopleDb) {
+        resource Profile : only(list), auth(required, providers: [identity], roles: [moderator]);
+
+        @path('/suspend/:handle')
+        post suspend(String handle) : auth(required, providers: [identity], roles: [moderator]) -> ProfileCard {
+            let Profile target = profileWithHandle(handle);
+            target.isSuspended = true;
+            target.save();
+            return cardOf(target);
+        }
+
+        @path('/restore/:handle')
+        post restore(String handle) : auth(required, providers: [identity], roles: [moderator]) -> ProfileCard {
+            let Profile target = profileWithHandle(handle);
+            target.isSuspended = false;
+            target.save();
+            return cardOf(target);
+        }
+    }
+
+    test("a new profile has no followers and is not suspended") {
+        let peopleDb.Profile created = peopleDb.Profile.create({
+            handle: "tester",
+            displayName: "A Tester",
+            bio: "Testing.",
+            email: "tester@example.com"
+        });
+        assert created.followers == 0;
+        assert created.isSuspended == false;
+        assert cardOf(created).handle == "tester";
+    }
+}

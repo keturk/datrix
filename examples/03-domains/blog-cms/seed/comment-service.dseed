@@ -1,0 +1,16 @@
+// Comments that show each outcome of moderation: approved and visible, a link waiting for an
+// editor, and one the vendor blocked. Every address is on the reserved example.com domain.
+seed service blog.CommentService {
+  rdbms commentDb {
+    baseline {
+      Comment table on(id) {
+        id,                       postId,               authorName,     authorEmail,            body,                                                                 status,   moderationReason;
+        @uuid("comment-harbour"), @uuid("post-tide"),   "Ana Silva",    "ana@example.com",      "My grandmother's street is one of the ones that moved. Thank you.",  Approved, null;
+        @uuid("comment-school"),  @uuid("post-tide"),   "Ben Carter",   "ben@example.com",      "Starting with the school was the part that convinced everyone.",     Approved, null;
+        @uuid("comment-staff"),   @uuid("post-gauge"),  "Lea Novak",    "lea@example.com",      "We still keep a painted staff beside the sensor on our estuary too.", Approved, null;
+        @uuid("comment-link"),    @uuid("post-river"),  "Sam Ortiz",    "sam@example.com",      "The 1911 sheet is scanned here: https://example.com/sheet-1911",     Pending,  "Contains a link";
+        @uuid("comment-spam"),    @uuid("post-seeds"),  "Deal Finder",  "deals@example.com",    "Click now for a miracle cure and free crypto.",                      Rejected, "Contains a blocked term";
+      }
+    }
+  }
+}

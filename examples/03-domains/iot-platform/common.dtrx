@@ -1,16 +1,16 @@
-
-// BaseEntity is provided by the Datrix standard library.
+// What the Coldframe services share.
 module iot.common {
 
-    fn generateSerialNumber() -> String {
-        return #"IOT-{Random.string(4).toUpperCase()}-{Random.string(8).toUpperCase()}";
+    enum DeviceStatus {
+        Provisioning : tone(neutral),
+        Online : tone(success),
+        Offline : tone(danger),
+        Retired : tone(neutral)
     }
 
-    fn generateRolloutCode() -> String {
-        return #"FW-{DateTime.now().format('YYYYMMDD')}-{Random.string(6).toUpperCase()}";
+    /// What a command to a device asks for.
+    enum DeviceCommandKind {
+        UpdateFirmware,
+        Restart
     }
-
-    const HEARTBEAT_TIMEOUT_SECONDS = 300;
-    const MAX_BATCH_SIZE = 100;
-    const DEFAULT_ALERT_COOLDOWN_MINUTES = 15;
 }

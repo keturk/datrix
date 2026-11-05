@@ -1,597 +1,281 @@
+from hr.common import Department;
 
-from hr.common import AuditedEntity, Department, generatePayrollRef;
+// Pay. A run is prepared from everyone's pay profile, a second person has to approve it, and paying it
+// sends one payout per person with a key that makes the whole run safe to press twice. A payout the
+// bank rejects fails that one payslip and leaves the rest paid.
+service hr.PayrollService('config/payroll-service.dcfg') : version('2.0.0'), description('Pay runs and payslips') {
 
-service hr.PayrollService('config/payroll-service.dcfg') : version('1.0.0'), description('payroll processing and compensation service') {
-    discovery {
-        EmployeeService { loadBalance: roundRobin, healthyOnly: true }
-    }
+    discovery { }
 
-    enum PayrollStatus {
-        Pending : value('pending'),
-        Processing : value('processing'),
-        Completed : value('completed'),
-        Failed : value('failed')
-    }
+    uses BankProvider;
+    uses EmployeeService;
 
-    enum PayPeriod {
-        Weekly : value('weekly'),
-        BiWeekly : value('bi_weekly'),
-        Monthly : value('monthly')
-    }
-
-    struct CreatePayrollRunRequest {
-        PayPeriod payPeriod;
-        DateTime periodStart;
-        DateTime periodEnd;
-        Array<CreatePayrollEntryRequest> entries;
-    }
-
-    struct CreatePayrollEntryRequest {
-        UUID employeeId;
-        Money grossPay;
-        Money deductions;
-        Decimal hoursWorked;
-    }
-
-    struct ProcessPayrollRequest {
-        UUID payrollRunId;
-    }
-
-    struct PayrollSummary {
-        UUID payrollRunId;
-        PayPeriod payPeriod;
-        PayrollStatus status;
-        Int entryCount;
-        Money totalGross;
-        Money totalDeductions;
-        Money totalNet;
-    }
-
-    rdbms payrollDb {
-        alert queryDuration(p95) over(5m) > 200ms @severity(warning);
-        alert connectionPool(utilization) over(1m) > 80% @severity(critical);
-
-        // Payroll run entity represents a single pay period processing
-        entity PayrollRun extends AuditedEntity : audit {
-            String(30) payrollRef : unique;
-            PayPeriod payPeriod;
-            DateTime periodStart;
-            DateTime periodEnd;
-            PayrollStatus status = PayrollStatus.Pending;
-            Money totalGross;
-            Money totalDeductions;
-            Money totalNet;
-            Int entryCount = 0;
-            DateTime? processedAt;
-            String(500)? failureReason;
-
-            // Computed field
-            Money netPayroll := totalGross.add(totalDeductions.multiply(-1));
-
-            hasMany PayrollEntry as entries;
-
-            index(payPeriod, status);
-            index(status, periodStart);
-            index(periodStart, periodEnd);
-
-            validate {
-                if (periodStart >= periodEnd)
-                ValidationError("Period start must be before period end");
-                if (entryCount < 0)
-                ValidationError("Entry count cannot be negative");
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    if (status == PayrollStatus.Completed) {
-                        processedAt = DateTime.now();
-                        dispatch PayrollCompleted(id, payrollRef, payPeriod, totalGross, totalNet, entryCount);
-                        Log.info("Payroll run completed", { payrollRef: payrollRef, totalNet: totalNet, entries: entryCount });
-                    } else if (status == PayrollStatus.Failed) {
-                        Log.error("Payroll run failed", { payrollRef: payrollRef, reason: failureReason });
-                    }
-
-                }
-
-            }
-
-            fn startProcessing() {
-                if (status != PayrollStatus.Pending) {
-                    throw ValidationException("Only pending payroll runs can be processed");
-                }
-
-                status = PayrollStatus.Processing;
-                this.save();
-            }
-
-            fn complete() {
-                if (status != PayrollStatus.Processing) {
-                    throw ValidationException("Only processing payroll runs can be completed");
-                }
-
-                status = PayrollStatus.Completed;
-                processedAt = DateTime.now();
-                this.save();
-            }
-
-            fn fail(String reason) {
-                status = PayrollStatus.Failed;
-                failureReason = reason;
-                this.save();
-            }
-
-        }
-
-        // Individual payroll entry for each employee in a run
-        entity PayrollEntry extends BaseEntity {
-            UUID employeeId : index;
-            Money grossPay : encrypted;
-            Money deductions : encrypted;
-            Money netPay : encrypted;
-            Decimal hoursWorked;
-            Department? department;
-
-            belongsTo PayrollRun : index;
-
-            index(payrollRunId, employeeId);
-            index(employeeId, createdAt);
-
-            validate {
-                if (grossPay.amount <= 0)
-                ValidationError("Gross pay must be positive");
-                if (deductions.amount < 0)
-                ValidationError("Deductions cannot be negative");
-                if (hoursWorked < 0)
-                ValidationError("Hours worked cannot be negative");
-            }
-
-            afterCreate {
-                // Calculate net pay
-                netPay = grossPay.add(deductions.multiply(-1));
-            }
-
-        }
-
-    }
-
-    pubsub mq {
-        alert consumerLag(max) over(5m) > 500 @severity(critical);
-
-        topic PayrollEvents {
-            publish PayrollCompleted(UUID payrollRunId, String payrollRef, PayPeriod payPeriod, Money totalGross, Money totalNet, Int entryCount) {
-                ensure payrollRef.length > 0;
-                ensure entryCount > 0;
-            }
-
-            publish PayStubsGenerated(UUID payrollRunId, String payrollRef, Int count) {
-                ensure count > 0;
-            }
-
-        }
-
-        // Listen to employee events for payroll adjustments
-    }
-
-    subscribe PayrollEvents {
-        on PayrollCompleted(UUID payrollRunId, String payrollRef, PayPeriod payPeriod, Money totalGross, Money totalNet, Int entryCount) {
-            Log.info("Payroll run completed", { payrollRunId: payrollRunId, payrollRef: payrollRef, payPeriod: payPeriod, totalGross: totalGross, totalNet: totalNet, entryCount: entryCount });
-        }
-
-        on PayStubsGenerated(UUID payrollRunId, String payrollRef, Int count) {
-            Log.info("Pay stubs generated", { payrollRunId: payrollRunId, payrollRef: payrollRef, count: count });
-        }
-
-    }
-
+    // A renamed person is paid under the new name, and someone who has left drops off the next run.
     subscribe EmployeeEvents {
-        on EmployeeHired(UUID employeeId, String employeeNumber, String firstName, String lastName, String email, Department department, EmploymentType employmentType) {
-            Log.info("New employee for payroll", { employeeId: employeeId, employeeNumber: employeeNumber, department: department });
-        }
-
-        on EmployeeStatusChanged(UUID employeeId, String employeeNumber, EmployeeStatus oldStatus, EmployeeStatus newStatus) {
-            Log.info("Employee status change received in payroll", { employeeId: employeeId, oldStatus: oldStatus, newStatus: newStatus });
-
-            // If employee is terminated, flag any pending payroll entries
-            if (newStatus == EmployeeStatus.Terminated) {
-                Log.warn("Terminated employee may have pending payroll entries", { employeeId: employeeId, employeeNumber: employeeNumber });
+        on EmployeeChanged(UUID employeeId, String fullName, String jobTitle, Email workEmail, Department department, EmployeeStatus status) {
+            let payrollDb.PayProfile? profile = payrollDb.PayProfile.where(employeeId: employeeId).first();
+            if (profile != null) {
+                profile.employeeName = fullName;
+                profile.department = department;
+                profile.isActive = status != EmployeeStatus.Left;
+                profile.save();
             }
-
         }
-
-        on EmployeeSalaryChanged(UUID employeeId, String employeeNumber, Money oldSalary, Money newSalary) {
-            Log.info("Employee salary change received", { employeeId: employeeId, oldSalary: oldSalary, newSalary: newSalary });
-        }
-
     }
 
+    exceptions {
+        RunExistsError : status(409), message("There is already a pay run for this month");
+        NotDraftError : status(409), message("Only a draft run can be approved");
+        SamePersonError : status(403), message("Whoever prepared a run cannot approve it. Ask someone else in HR");
+        NotApprovedError : status(409), message("Only an approved run can be paid");
+    }
+
+    enum RunStatus {
+        Draft : tone(warning),
+        Approved : tone(info),
+        Paid : tone(success),
+        PaidWithFailures : tone(danger)
+    }
+
+    enum PayslipStatus {
+        Pending : tone(warning),
+        Paid : tone(success),
+        Failed : tone(danger)
+    }
+
+    /// What a run keeps back for tax, as a share of gross pay.
+    const TAX_RATE = 0.22;
+
+    rdbms payrollDb : audit {
+
+        /// What someone is paid and where. The account number stays in this service.
+        entity PayProfile extends BaseEntity {
+            String(200) employeeName : filterable;
+            Department department : filterable;
+            Email workEmail : unique;
+            Money annualSalary;
+            String(34) accountNumber : hidden;
+            Boolean isActive : filterable = true;
+            UUID employeeId : unique;
+        }
+
+        entity PayRun extends BaseEntity {
+            String(7) period : unique, filterable;
+            RunStatus status : filterable = RunStatus.Draft;
+            Int people = 0;
+            Money totalGross;
+            Money totalNet;
+            String(200) preparedByName;
+            String(200)? approvedByName;
+            DateTime? paidAt;
+            UUID? preparedBy : hidden;
+        }
+
+        entity Payslip extends BaseEntity {
+            String(7) period : filterable;
+            String(200) employeeName : filterable;
+            Money gross;
+            Money tax;
+            Money net;
+            PayslipStatus status : filterable = PayslipStatus.Pending;
+            String(200)? failureReason;
+            String(40)? payoutId : hidden;
+            Email workEmail : index, hidden;
+            UUID employeeId : index;
+
+            belongsTo PayRun : index;
+        }
+    }
+
+    struct PrepareRunRequest {
+        String(7) period;
+    }
+
+    struct EnrollRequest {
+        UUID employeeId;
+        String(200) employeeName;
+        Department department;
+        Email workEmail;
+        Money annualSalary;
+        String(34) accountNumber;
+    }
+
+    /// All the recruiting service needs back: the account number stays here.
+    struct EnrolledProfile {
+        UUID id;
+    }
+
+    struct RunDetail {
+        payrollDb.PayRun run;
+        Array<payrollDb.Payslip> payslips;
+    }
+
+    /// Builds a run from everyone with an active profile. A job and a person both come here, so the
+    /// unique period is what stops a second run for one month.
+    fn prepareRun(String period, UUID? preparedBy, String preparedByName) -> payrollDb.PayRun {
+        if (payrollDb.PayRun.where(period: period).first() != null) {
+            throw RunExistsError();
+        }
+        let Array<payrollDb.PayProfile> profiles = payrollDb.PayProfile.where(isActive: true).limit(5000).all();
+        let Money totalGross = 0.00;
+        let Money totalNet = 0.00;
+        let payrollDb.PayRun run = payrollDb.PayRun.create({
+            period: period,
+            preparedBy: preparedBy,
+            preparedByName: preparedByName,
+            people: profiles.length,
+            totalGross: 0.00,
+            totalNet: 0.00
+        });
+        foreach profile in profiles {
+            let Money gross = Math.round(profile.annualSalary / 12, 2);
+            let Money tax = Math.round(gross * TAX_RATE, 2);
+            let Money net = gross - tax;
+            payrollDb.Payslip.create({
+                payRunId: run.id,
+                period: period,
+                employeeId: profile.employeeId,
+                employeeName: profile.employeeName,
+                workEmail: profile.workEmail,
+                gross: gross,
+                tax: tax,
+                net: net
+            });
+            totalGross = totalGross + gross;
+            totalNet = totalNet + net;
+        }
+        run.totalGross = totalGross;
+        run.totalNet = totalNet;
+        run.save();
+        return run;
+    }
+
+    // What HR works with.
     rest_api PayrollAPI : basePath('/api/v1/payroll'), rdbms(payrollDb) {
-        alert responseTime(p95) over(5m) > 500ms @severity(warning);
+        resource PayRun : only(list), auth(required, providers: [identity], roles: [hr]);
+        resource PayProfile : only(list), auth(required, providers: [identity], roles: [hr]);
 
-        // List payroll runs, a page at a time
         @path('/runs')
-        get(PageRequest page, PayrollStatus? status, PayPeriod? payPeriod) : auth(required, providers: [identity], roles: [admin]) -> Page<payrollDb.PayrollRun> {
-            let JSON query = payrollDb.PayrollRun.all();
-
-            if (status != null) {
-                query = payrollDb.PayrollRun.where(status: status);
-            }
-
-            if (payPeriod != null) {
-                query = query.where(payPeriod: payPeriod);
-            }
-
-            return query.orderBy(periodStart: desc).page(page);
+        post prepare(PrepareRunRequest request) : auth(required, providers: [identity], roles: [hr]) -> PayRun {
+            return prepareRun(request.period, Auth.userId(), (Auth.identity.fullName ?? Auth.identity.email).toString());
         }
 
-        // Get a single payroll run
         @path('/runs/:id')
-        get(UUID id) : auth(required, providers: [identity], roles: [admin]) -> payrollDb.PayrollRun {
-            return payrollDb.PayrollRun.findOrFail(id);
-        }
-
-        // Get payroll run summary
-        @path('/runs/:id/summary')
-        get(UUID id) : auth(required, providers: [identity], roles: [admin]) -> PayrollSummary {
-            let PayrollRun run = payrollDb.PayrollRun.findOrFail(id);
-            return {
-                payrollRunId: run.id,
-                payPeriod: run.payPeriod,
-                status: run.status,
-                entryCount: run.entryCount,
-                totalGross: run.totalGross,
-                totalDeductions: run.totalDeductions,
-                totalNet: run.totalNet
+        get runDetail(UUID id) : auth(required, providers: [identity], roles: [hr]) -> RunDetail {
+            let PayRun run = PayRun.findOrFail(id);
+            return RunDetail {
+                run: run,
+                payslips: Payslip.where(payRunId: id).orderBy(employeeName: asc).limit(5000).all()
             };
         }
 
-        // Create a new payroll run with entries
-        @path('/runs')
-        post(CreatePayrollRunRequest request) : auth(required, providers: [identity], roles: [admin]) -> payrollDb.PayrollRun {
-            let String ref = generatePayrollRef();
-            let Money totalGross = Money.of(0);
-            let Money totalDeductions = Money.of(0);
+        @path('/latest')
+        get latest() : auth(required, providers: [identity], roles: [hr, manager]) -> PayRun? {
+            return PayRun.orderBy(period: desc).first();
+        }
 
-            foreach entry in request.entries {
-                totalGross = totalGross.add(entry.grossPay);
-                totalDeductions = totalDeductions.add(entry.deductions);
+        // Two people: the one who prepared a run cannot be the one who approves it.
+        @path('/runs/:id/approve')
+        post approve(UUID id) : auth(required, providers: [identity], roles: [hr]) -> PayRun {
+            let PayRun run = PayRun.findOrFail(id);
+            if (run.status != RunStatus.Draft) {
+                throw NotDraftError();
             }
-
-            let Money totalNet = totalGross.add(totalDeductions.multiply(-1));
-
-            let PayrollRun run = payrollDb.PayrollRun.create({
-                payrollRef: ref,
-                payPeriod: request.payPeriod,
-                periodStart: request.periodStart,
-                periodEnd: request.periodEnd,
-                status: PayrollStatus.Pending,
-                totalGross: totalGross,
-                totalDeductions: totalDeductions,
-                totalNet: totalNet,
-                entryCount: request.entries.length()
-            });
+            if (run.preparedBy == Auth.userId()) {
+                throw SamePersonError();
+            }
+            run.status = RunStatus.Approved;
+            run.approvedByName = (Auth.identity.fullName ?? Auth.identity.email).toString();
             run.save();
-
-            // Create individual entries
-            foreach entry in request.entries {
-                // Look up employee department for reporting
-                let Employee employee = EmployeeService.EmployeeAPI.get.employeeByIdInternal(entry.employeeId);
-
-                let Money netPay = entry.grossPay.add(entry.deductions.multiply(-1));
-
-                let PayrollEntry payrollEntry = payrollDb.PayrollEntry.create({
-                    payrollRunId: run.id,
-                    employeeId: entry.employeeId,
-                    grossPay: entry.grossPay,
-                    deductions: entry.deductions,
-                    netPay: netPay,
-                    hoursWorked: entry.hoursWorked,
-                    department: employee.department
-                });
-                payrollEntry.save();
-            }
-
             return run;
         }
 
-        // Process a pending payroll run atomically
-        @path('/runs/:id/process')
-        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> payrollDb.PayrollRun {
-            let PayrollRun run = payrollDb.PayrollRun.findOrFail(id);
-
-            run.startProcessing();
-
-            try {
-                // Process all entries atomically
-                transaction(payrollDb) {
-                    let Array<PayrollEntry> entries = payrollDb.PayrollEntry
-                    .where(payrollRunId: run.id)
-                    .all();
-
-                    foreach entry in entries {
-                        // Verify employee is still active
-                        let Employee employee = EmployeeService.EmployeeAPI.get.employeeByIdInternal(entry.employeeId);
-
-                        if (employee.status == "terminated") {
-                            Log.warn("Skipping terminated employee in payroll", { employeeId: entry.employeeId });
-                        }
-
+        // Each payout carries a key made of the run and the person, so pressing this twice, or running
+        // it again after a timeout, never pays anyone twice.
+        @path('/runs/:id/pay')
+        post pay(UUID id) : auth(required, providers: [identity], roles: [hr]) -> PayRun {
+            let PayRun run = PayRun.findOrFail(id);
+            if (run.status != RunStatus.Approved) {
+                throw NotApprovedError();
+            }
+            let Boolean anyFailed = false;
+            let Array<Payslip> payslips = Payslip.where(payRunId: id, status: PayslipStatus.Pending).limit(5000).all();
+            foreach payslip in payslips {
+                let PayProfile profile = PayProfile.where(employeeId: payslip.employeeId).firstOrFail();
+                try {
+                    let Payout payout = BankProvider.BankAPI.post.createPayout(CreatePayoutRequest {
+                        accountNumber: profile.accountNumber,
+                        amount: payslip.net,
+                        reference: #"Salary {payslip.period}",
+                        idempotencyKey: #"pay-{run.id}-{payslip.employeeId}"
+                    });
+                    payslip.payoutId = payout.id;
+                    if (payout.status == PayoutStatus.Settled) {
+                        payslip.status = PayslipStatus.Paid;
+                    } else {
+                        payslip.status = PayslipStatus.Failed;
+                        payslip.failureReason = payout.rejectionReason;
+                        anyFailed = true;
                     }
-
-                    run.complete();
+                } catch (Exception e) {
+                    payslip.status = PayslipStatus.Failed;
+                    payslip.failureReason = "The bank could not be reached";
+                    anyFailed = true;
                 }
-
-            } catch (Exception e) {
-                run.fail(#"Processing error: {e}");
-                Log.error("Payroll processing failed", { payrollRef: run.payrollRef, error: e });
-                throw e;
+                payslip.save();
             }
-
+            run.status = anyFailed ? RunStatus.PaidWithFailures : RunStatus.Paid;
+            run.paidAt = DateTime.now();
+            run.save();
             return run;
         }
+    }
 
-        // Get entries for a payroll run
-        @path('/runs/:id/entries')
-        get(UUID id) : auth(required, providers: [identity], roles: [admin]) -> Array<payrollDb.PayrollEntry> {
-            return payrollDb.PayrollEntry
-            .where(payrollRunId: id)
-            .all();
+    // An employee's own payslips, found by their sign-in.
+    rest_api MyPayAPI : basePath('/api/v1/my-pay'), rdbms(payrollDb) {
+        @path('/payslips')
+        get myPayslips() : auth(required, providers: [identity]) -> Array<Payslip> {
+            return Payslip.where(workEmail: Auth.identity.email.toString()).orderBy(period: desc).limit(36).all();
         }
+    }
 
-        // Get payroll history for an employee
-        @path('/employee/:employeeId/history')
-        get(UUID employeeId) : auth(required, providers: [identity], roles: [admin]) -> Array<payrollDb.PayrollEntry> {
-            return payrollDb.PayrollEntry
-            .where(employeeId: employeeId)
-            .orderBy(createdAt: desc)
-            .all();
+    // What the recruiting service reports. Only a service with a machine credential reaches this.
+    rest_api EnrollmentAPI : basePath('/api/v1/internal/payroll'), rdbms(payrollDb) {
+        @path('/enroll')
+        post enroll(EnrollRequest request) : auth(service, providers: [machine]) -> EnrolledProfile {
+            let PayProfile? existing = PayProfile.where(employeeId: request.employeeId).first();
+            if (existing != null) {
+                return EnrolledProfile { id: existing.id };
+            }
+            let PayProfile created = PayProfile.create({
+                employeeId: request.employeeId,
+                employeeName: request.employeeName,
+                department: request.department,
+                workEmail: request.workEmail,
+                annualSalary: request.annualSalary,
+                accountNumber: request.accountNumber
+            });
+            return EnrolledProfile { id: created.id };
         }
-
     }
 
     jobs {
-        // Scheduled monthly payroll processing
-        job ProcessMonthlyPayroll {
-            let DateTime today = DateTime.now();
-            let Array<PayrollRun> pendingRuns = payrollDb.PayrollRun
-            .where(status: PayrollStatus.Pending)
-            .where(payPeriod: PayPeriod.Monthly)
-            .all();
-
-            let Int processed = 0;
-            let Int failed = 0;
-
-            foreach run in pendingRuns {
-                try {
-                    run.startProcessing();
-
-                    transaction(payrollDb) {
-                        let Array<PayrollEntry> entries = payrollDb.PayrollEntry
-                        .where(payrollRunId: run.id)
-                        .all();
-
-                        foreach entry in entries {
-                            Log.info("Processing payroll entry", { payrollRef: run.payrollRef, employeeId: entry.employeeId });
-                        }
-
-                        run.complete();
-                    }
-
-                    processed = processed + 1;
-                } catch (Exception e) {
-                    run.fail(#"Monthly job error: {e}");
-                    failed = failed + 1;
-                    Log.error("Monthly payroll failed for run", { payrollRef: run.payrollRef, error: e });
-                }
-
+        // On the 25th, the month's run is waiting in Draft. A person still approves and pays it.
+        job PrepareMonthlyRun {
+            let String period = DateTime.now().format('yyyy-MM');
+            if (payrollDb.PayRun.where(period: period).first() == null) {
+                prepareRun(period, null, "The monthly job");
             }
-
-            Log.info("Monthly payroll job completed", { processed: processed, failed: failed });
         }
-
-        // Generate pay stubs after payroll completion
-        job GeneratePayStubs {
-            let Array<PayrollRun> completedRuns = payrollDb.PayrollRun
-            .where(status: PayrollStatus.Completed)
-            .where(processedAt: gte(DateTime.now().addDays(-1)))
-            .all();
-
-            foreach run in completedRuns {
-                let Array<PayrollEntry> entries = payrollDb.PayrollEntry
-                .where(payrollRunId: run.id)
-                .all();
-
-                let Int count = 0;
-                foreach entry in entries {
-                    Log.info("Generating pay stub", { payrollRef: run.payrollRef, employeeId: entry.employeeId });
-                    count = count + 1;
-                }
-
-                if (count > 0) {
-                    dispatch PayStubsGenerated(run.id, run.payrollRef, count);
-                    Log.info("Pay stubs generated", { payrollRef: run.payrollRef, count: count });
-                }
-
-            }
-
-        }
-
     }
 
-    test("validation rejects period start after period end") {
-        assert throws(
-        () => payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-001",
-            payPeriod: PayPeriod.Monthly,
-            periodStart: DateTime.parse("2024-02-01"),
-            periodEnd: DateTime.parse("2024-01-01"),
-            totalGross: Money.of(50000),
-            totalDeductions: Money.of(10000),
-            totalNet: Money.of(40000),
-            entryCount: 10
-        }),
-        ValidationError("Period start must be before period end")
-        );
-    }
-
-    test("validation rejects non-positive gross pay") {
-        let PayrollRun run = payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-002",
-            payPeriod: PayPeriod.Monthly,
-            periodStart: DateTime.parse("2024-01-01"),
-            periodEnd: DateTime.parse("2024-01-31"),
-            totalGross: Money.of(50000),
-            totalDeductions: Money.of(10000),
-            totalNet: Money.of(40000),
-            entryCount: 1
+    test("a new run waits as a draft") {
+        let payrollDb.PayRun run = payrollDb.PayRun.create({
+            period: "2026-01",
+            preparedByName: "Ana Ferreira",
+            totalGross: 0.00,
+            totalNet: 0.00
         });
-        run.save();
-        assert throws(
-        () => payrollDb.PayrollEntry.create({
-            payrollRunId: run.id,
-            employeeId: uuid(),
-            grossPay: Money.of(0),
-            deductions: Money.of(0),
-            netPay: Money.of(0),
-            hoursWorked: 160
-        }),
-        ValidationError("Gross pay must be positive")
-        );
+        assert run.status == RunStatus.Draft;
     }
-
-    test("startProcessing fails for non-pending run") {
-        let PayrollRun run = payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-003",
-            payPeriod: PayPeriod.BiWeekly,
-            periodStart: DateTime.parse("2024-01-01"),
-            periodEnd: DateTime.parse("2024-01-14"),
-            status: PayrollStatus.Completed,
-            totalGross: Money.of(25000),
-            totalDeductions: Money.of(5000),
-            totalNet: Money.of(20000),
-            entryCount: 5
-        });
-        run.save();
-        assert throws(
-        () => run.startProcessing(),
-        ValidationException("Only pending payroll runs can be processed")
-        );
-    }
-
-    test("afterUpdate emits PayrollCompleted on completion") {
-        let PayrollRun run = payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-004",
-            payPeriod: PayPeriod.Monthly,
-            periodStart: DateTime.parse("2024-03-01"),
-            periodEnd: DateTime.parse("2024-03-31"),
-            status: PayrollStatus.Processing,
-            totalGross: Money.of(75000),
-            totalDeductions: Money.of(15000),
-            totalNet: Money.of(60000),
-            entryCount: 15
-        });
-        run.save();
-        run.complete();
-        assert emitted(PayrollCompleted(run.id, run.payrollRef, PayPeriod.Monthly, run.totalGross, run.totalNet, 15));
-    }
-
-    test("computed netPayroll calculates gross minus deductions") {
-        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-005",
-            payPeriod: PayPeriod.BiWeekly,
-            periodStart: DateTime.parse("2024-04-01"),
-            periodEnd: DateTime.parse("2024-04-14"),
-            status: PayrollStatus.Pending,
-            totalGross: Money.of(30000),
-            totalDeductions: Money.of(7500),
-            totalNet: Money.of(22500),
-            entryCount: 8
-        });
-        run.save();
-        assert run.netPayroll == Money.of(22500);
-    }
-
-    test("startProcessing transitions Pending to Processing") {
-        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-006",
-            payPeriod: PayPeriod.Weekly,
-            periodStart: DateTime.parse("2024-05-01"),
-            periodEnd: DateTime.parse("2024-05-07"),
-            status: PayrollStatus.Pending,
-            totalGross: Money.of(12000),
-            totalDeductions: Money.of(3000),
-            totalNet: Money.of(9000),
-            entryCount: 3
-        });
-        run.save();
-        run.startProcessing();
-        assert run.status == PayrollStatus.Processing;
-    }
-
-    test("complete transitions Processing to Completed") {
-        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-007",
-            payPeriod: PayPeriod.Monthly,
-            periodStart: DateTime.parse("2024-06-01"),
-            periodEnd: DateTime.parse("2024-06-30"),
-            status: PayrollStatus.Processing,
-            totalGross: Money.of(45000),
-            totalDeductions: Money.of(11000),
-            totalNet: Money.of(34000),
-            entryCount: 12
-        });
-        run.save();
-        run.complete();
-        assert run.status == PayrollStatus.Completed;
-    }
-
-    test("fail sets status to Failed") {
-        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-008",
-            payPeriod: PayPeriod.BiWeekly,
-            periodStart: DateTime.parse("2024-07-01"),
-            periodEnd: DateTime.parse("2024-07-14"),
-            status: PayrollStatus.Processing,
-            totalGross: Money.of(20000),
-            totalDeductions: Money.of(5000),
-            totalNet: Money.of(15000),
-            entryCount: 6
-        });
-        run.save();
-        run.fail("Bank transfer system unavailable");
-        assert run.status == PayrollStatus.Failed;
-    }
-
-    test("afterUpdate emits PayrollCompleted when status changes to Completed") {
-        let payrollDb.PayrollRun run = payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-009",
-            payPeriod: PayPeriod.Weekly,
-            periodStart: DateTime.parse("2024-08-01"),
-            periodEnd: DateTime.parse("2024-08-07"),
-            status: PayrollStatus.Processing,
-            totalGross: Money.of(18000),
-            totalDeductions: Money.of(4500),
-            totalNet: Money.of(13500),
-            entryCount: 4
-        });
-        run.save();
-        run.complete();
-        assert emitted(PayrollCompleted(run.id, "PAY-TEST-009", PayPeriod.Weekly, Money.of(18000), Money.of(13500), 4));
-    }
-
-    test("validation rejects negative entry count") {
-        assert throws(
-        () => payrollDb.PayrollRun.create({
-            payrollRef: "PAY-TEST-010",
-            payPeriod: PayPeriod.Monthly,
-            periodStart: DateTime.parse("2024-09-01"),
-            periodEnd: DateTime.parse("2024-09-30"),
-            totalGross: Money.of(50000),
-            totalDeductions: Money.of(10000),
-            totalNet: Money.of(40000),
-            entryCount: -1
-        }),
-        ValidationError("Entry count cannot be negative")
-        );
-    }
-
 }

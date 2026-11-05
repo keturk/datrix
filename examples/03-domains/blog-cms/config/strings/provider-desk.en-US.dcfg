@@ -1,0 +1,30 @@
+config strings blog.ProviderDesk locale "en-US" {
+  messages {
+    appName       = "Provider Desk";
+    navMail       = "Email provider";
+    navModeration = "Moderation vendor";
+    account       = "Account";
+    signOut       = "Sign out";
+    inboxTitle    = "Sent mail";
+    inboxSubtitle = "Everything the application sent. None of it reached a person.";
+    checksTitle   = "Moderation checks";
+    checksSubtitle = "Every verdict the vendor gave.";
+    termsTitle    = "Blocked terms";
+    termsSubtitle = "A comment containing one of these is blocked.";
+    addTerm       = "Add a term";
+    termAdded     = "Term added.";
+  }
+  labels {
+    page.Inbox   = "Sent mail";
+    page.Message = "Message";
+    page.Checks  = "Checks";
+    page.Terms   = "Blocked terms";
+    field.SentMail.createdAt = "Sent";
+    field.SentMail.recipient = "To";
+    field.ModerationCheck.createdAt = "Checked";
+    field.ModerationCheck.content = "Comment";
+    field.BlockedTerm.createdAt = "Added";
+    filter.CheckList.verdict = "Verdict";
+    filter.Messages.subject = "Subject";
+  }
+}

@@ -1,640 +1,183 @@
+// The vans and the people who drive them. A van comes off the road when its next service falls due, and a
+// finished route adds to its odometer, so nobody has to remember to look.
+service logistics.FleetService('config/fleet-service.dcfg') : version('2.0.0'), description('Vans and drivers') {
 
-from logistics.common import GeoCoordinate, MAINTENANCE_MILEAGE_THRESHOLD;
+    discovery { }
 
-service logistics.FleetService('config/fleet-service.dcfg') : version('1.0.0'), description('fleet and driver management service') {
-    discovery {
-        ShipmentService { loadBalance: roundRobin, healthyOnly: true }
-    }
-
-    enum VehicleStatus {
-        Available,
-        InUse,
-        Maintenance,
-        Retired
-    }
-
-    enum VehicleType {
-        Van,
-        Truck,
-        Trailer,
-        Bike,
-        Drone
+    exceptions {
+        NotAvailableError : status(409), message("That driver or van is not available");
     }
 
     enum DriverStatus {
-        Available,
-        OnDuty,
-        OffDuty,
-        Suspended
+        Active : tone(success),
+        OnLeave : tone(neutral)
     }
 
-    struct AssignDriverRequest {
-        UUID vehicleId;
-        UUID driverId;
+    enum VehicleStatus {
+        InService : tone(success),
+        ServiceDue : tone(warning),
+        OffRoad : tone(danger)
     }
 
-    struct StartRouteRequest {
-        UUID vehicleId;
-        UUID driverId;
-        String startLocation;
-        String endLocation;
-    }
-
-    struct VehicleMetrics {
-        Int totalVehicles;
-        Int available;
-        Int inUse;
-        Int inMaintenance;
-    }
-
-    struct UpdateVehicleStatusRequest {
-        VehicleStatus status;
-    }
+    const SERVICE_INTERVAL_KM = 15000;
 
     rdbms fleetDb {
 
         entity Vehicle extends BaseEntity {
-            String(50) vehicleNumber : unique;
-            VehicleType type;
-            VehicleStatus status = VehicleStatus.Available;
-            Decimal(10, 2) capacity;
-            UUID? currentDriverId;
-            DateTime? lastMaintenanceDate;
-            Int mileage = 0;
-
-            Boolean needsMaintenance := mileage >= 50000;
-            Boolean isAvailable := status == VehicleStatus.Available;
-            Boolean hasDriver := currentDriverId != null;
-
-            index(status);
-            index(type, status);
-            index(vehicleNumber);
-
-            validate {
-                if (capacity <= 0)
-                ValidationError("Vehicle capacity must be greater than zero");
-                if (mileage < 0)
-                ValidationError("Vehicle mileage cannot be negative");
-            }
-
-            afterCreate {
-                dispatch VehicleRegistered(id, vehicleNumber, type);
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    dispatch VehicleStatusChanged(id, vehicleNumber, oldValue(status), status);
-
-                    if (status == VehicleStatus.Maintenance) {
-                        lastMaintenanceDate = DateTime.now();
-                    }
-
-                }
-
-            }
-
-            fn assignDriver(UUID driverId) {
-                currentDriverId = driverId;
-                status = VehicleStatus.InUse;
-                this.save();
-            }
-
-            fn releaseDriver() {
-                currentDriverId = null;
-                status = VehicleStatus.Available;
-                this.save();
-            }
-
+            String(60) name : filterable;
+            String(12) registration : unique, filterable;
+            Float capacityKg;
+            VehicleStatus status : filterable = VehicleStatus.InService;
+            Int odometerKm = 0;
+            Int nextServiceKm = 15000;
         }
 
         entity Driver extends BaseEntity {
-            String(100) firstName : trim;
-            String(100) lastName : trim;
-            String(50) licenseNumber : unique;
-            Phone phone;
-            DriverStatus status = DriverStatus.Available;
-            UUID? currentVehicleId;
-            Decimal(3, 2) rating = 5.00;
-            Int totalTrips = 0;
-            String? accessToken;
-
-            Boolean isAvailable := status == DriverStatus.Available;
-            String fullName := #"{firstName} {lastName}";
-
-            index(status);
-            index(licenseNumber);
-
-            validate {
-                if (firstName.trim().isEmpty())
-                ValidationError("First name cannot be empty");
-                if (lastName.trim().isEmpty())
-                ValidationError("Last name cannot be empty");
-                if (licenseNumber.trim().isEmpty())
-                ValidationError("License number cannot be empty");
-            }
-
-            afterCreate {
-                accessToken = Random.string(32);
-            }
-
+            String(200) name : filterable;
+            /// A driver's sign-in address. It is how the Driver app knows whose route to show.
+            Email email : unique;
+            DriverStatus status : filterable = DriverStatus.Active;
         }
 
-        entity MaintenanceRecord extends BaseEntity {
-            String(500) description;
-            Decimal(10, 2) cost;
-            DateTime scheduledDate;
-            DateTime? completedDate;
-            Boolean isCompleted = false;
-
-            belongsTo Vehicle : index;
-
-            index(vehicleId, scheduledDate);
-
-            validate {
-                if (cost < 0)
-                ValidationError("Maintenance cost cannot be negative");
-            }
-
+        /// What was done to a van. Never changed once written.
+        entity ServiceRecord extends BaseEntity : appendOnly {
+            String(60) vehicleName : filterable;
+            UUID vehicleId : index;
+            String(300) workDone;
+            Money cost;
+            Int atOdometerKm;
         }
-
     }
 
-    cache redis {
-
-        hash VehicleLocationCache : prefix('vehicle:location:'), ttl(300) {
-            UUID vehicleId : primaryKey;
-            Decimal latitude;
-            Decimal longitude;
-            DateTime lastUpdate;
-        }
-
-        counter AvailableVehicleCount : prefix('fleet:available:');
+    struct NewVehicle {
+        String(60) name;
+        String(12) registration;
+        Float capacityKg;
     }
 
-    pubsub mq {
-
-        topic FleetEvents {
-            publish VehicleRegistered(UUID vehicleId, String vehicleNumber, VehicleType type);
-            publish VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish DriverAssigned(UUID vehicleId, UUID driverId, String vehicleNumber);
-            publish MaintenanceScheduled(UUID vehicleId, String vehicleNumber, DateTime scheduledDate);
-        }
-
+    struct NewDriver {
+        String(200) name;
+        Email email;
     }
 
-    subscribe ShipmentEvents {
-
-        on ShipmentCreated(UUID shipmentId, String trackingNumber, UUID senderId, String origin, String destination) {
-            Log.info("New shipment received for fleet assignment", {
-                shipmentId: shipmentId,
-                trackingNumber: trackingNumber,
-                origin: origin,
-                destination: destination
-            });
-        }
-
-        on ShipmentStatusChanged(UUID shipmentId, String trackingNumber, ShipmentStatus oldStatus, ShipmentStatus newStatus) {
-            if (newStatus == ShipmentStatus.Delivered || newStatus == ShipmentStatus.Failed) {
-                Log.info("Shipment completed, vehicle may be released", {
-                    shipmentId: shipmentId,
-                    trackingNumber: trackingNumber,
-                    status: newStatus
-                });
-            }
-
-        }
-
+    struct ServiceRequest {
+        UUID vehicleId;
+        String(300) workDone;
+        Money cost;
     }
 
-    subscribe FleetEvents {
-
-        on VehicleRegistered(UUID vehicleId, String vehicleNumber, VehicleType type) {
-            Log.info("Vehicle registered", {
-                vehicleId: vehicleId,
-                vehicleNumber: vehicleNumber,
-                type: type
-            });
-
-            redis.AvailableVehicleCount.incr("total");
-        }
-
-        on VehicleStatusChanged(UUID vehicleId, String vehicleNumber, VehicleStatus oldStatus, VehicleStatus newStatus) {
-            Log.info("Vehicle status changed", {
-                vehicleId: vehicleId,
-                vehicleNumber: vehicleNumber,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-
-            if (newStatus == VehicleStatus.Available) {
-                redis.AvailableVehicleCount.incr("total");
-            } else if (oldStatus == VehicleStatus.Available) {
-                redis.AvailableVehicleCount.decr("total");
-            }
-
-        }
-
-        on MaintenanceScheduled(UUID vehicleId, String vehicleNumber, DateTime scheduledDate) {
-            Log.info("Maintenance scheduled for vehicle", {
-                vehicleId: vehicleId,
-                vehicleNumber: vehicleNumber,
-                scheduledDate: scheduledDate
-            });
-        }
-
+    struct FleetSummary {
+        Int vansOnTheRoad;
+        Int serviceDue;
+        Int driversActive;
     }
 
-    rest_api FleetAPI : basePath('/api/v1/fleet'), rdbms(fleetDb) {
+    struct Assignment {
+        String driverName;
+        Email driverEmail;
+        String vehicleName;
+        Float capacityKg;
+    }
 
-        resource fleetDb.Vehicle : auth(required, providers: [identity], roles: [admin]);
-        resource fleetDb.Driver : auth(required, providers: [identity], roles: [admin]);
+    struct DistanceReport {
+        UUID vehicleId;
+        Int distanceKm;
+    }
 
-        @path('/vehicles/:id/assign-driver')
-        post(UUID id, AssignDriverRequest request) : auth(required, providers: [identity], roles: [admin]) -> fleetDb.Vehicle {
-            let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
-            let Driver driver = fleetDb.Driver.findOrFail(request.driverId);
+    struct DistanceAck {
+        Int odometerKm;
+    }
 
-            if (!vehicle.isAvailable) {
-                throw ValidationException({
-                    code: "VEHICLE_NOT_AVAILABLE",
-                    message: #"Vehicle {vehicle.vehicleNumber} is not available"
-                });
-            }
+    rest_api FleetDeskAPI : basePath('/api/v1/desk/fleet'), rdbms(fleetDb) {
+        resource Vehicle : only(list), auth(required, providers: [identity], roles: [dispatcher]);
+        resource Driver : only(list), auth(required, providers: [identity], roles: [dispatcher]);
+        resource ServiceRecord : only(list), auth(required, providers: [identity], roles: [dispatcher]);
 
-            if (!driver.isAvailable) {
-                throw ValidationException({
-                    code: "DRIVER_NOT_AVAILABLE",
-                    message: #"Driver {driver.fullName} is not available"
-                });
-            }
-
-            transaction(fleetDb) {
-                vehicle.currentDriverId = driver.id;
-                vehicle.status = VehicleStatus.InUse;
-                vehicle.save();
-
-                driver.currentVehicleId = vehicle.id;
-                driver.status = DriverStatus.OnDuty;
-                driver.save();
-            }
-
-            dispatch DriverAssigned(vehicle.id, driver.id, vehicle.vehicleNumber);
-
-            Log.info("Driver assigned to vehicle", {
-                vehicleId: vehicle.id,
-                driverId: driver.id,
-                vehicleNumber: vehicle.vehicleNumber
-            });
-
-            return vehicle;
-        }
-
-        @path('/vehicles/:id/release')
-        post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> fleetDb.Vehicle {
-            let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
-
-            if (vehicle.currentDriverId == null) {
-                throw ValidationException({
-                    code: "NO_DRIVER_ASSIGNED",
-                    message: "Vehicle does not have an assigned driver"
-                });
-            }
-
-            let Driver driver = fleetDb.Driver.findOrFail(vehicle.currentDriverId);
-
-            transaction(fleetDb) {
-                vehicle.currentDriverId = null;
-                vehicle.status = VehicleStatus.Available;
-                vehicle.save();
-
-                driver.currentVehicleId = null;
-                driver.status = DriverStatus.Available;
-                driver.totalTrips = driver.totalTrips + 1;
-                driver.save();
-            }
-
-            Log.info("Vehicle released", {
-                vehicleId: vehicle.id,
-                driverId: driver.id,
-                vehicleNumber: vehicle.vehicleNumber
-            });
-
-            return vehicle;
-        }
-
-        @path('/vehicles/:id/status')
-        put(UUID id, UpdateVehicleStatusRequest request) : auth(required, providers: [identity], roles: [admin]) -> fleetDb.Vehicle {
-            let Vehicle vehicle = fleetDb.Vehicle.findOrFail(id);
-            vehicle.status = request.status;
-            vehicle.save();
-
-            Log.info("Vehicle status manually updated", {
-                vehicleId: id,
-                newStatus: request.status
-            });
-
-            return vehicle;
-        }
-
-        @path('/vehicles/available')
-        get(VehicleType? type) : auth(required, providers: [identity]) -> Array<fleetDb.Vehicle> {
-            let JSON query = fleetDb.Vehicle.where(status: VehicleStatus.Available);
-
-            if (type != null) {
-                query = query.where(type: type);
-            }
-
-            return query.orderBy(vehicleNumber: asc).all();
-        }
-
-        @path('/drivers/available')
-        get() : auth(required, providers: [identity]) -> Array<fleetDb.Driver> {
-            return fleetDb.Driver
-            .where(status: DriverStatus.Available)
-            .orderBy(rating: desc)
-            .all();
-        }
-
-        @path('/metrics')
-        get fleetMetrics() : auth(service, providers: [platform]), hidden -> VehicleMetrics {
-            let Int total = fleetDb.Vehicle.count();
-            let Int available = fleetDb.Vehicle.where(status: VehicleStatus.Available).count();
-            let Int inUse = fleetDb.Vehicle.where(status: VehicleStatus.InUse).count();
-            let Int inMaintenance = fleetDb.Vehicle.where(status: VehicleStatus.Maintenance).count();
-
-            return {
-                totalVehicles: total,
-                available: available,
-                inUse: inUse,
-                inMaintenance: inMaintenance
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [dispatcher]) -> FleetSummary {
+            return FleetSummary {
+                vansOnTheRoad: Vehicle.where(status: VehicleStatus.InService).count(),
+                serviceDue: Vehicle.where(status: VehicleStatus.ServiceDue).count(),
+                driversActive: Driver.where(status: DriverStatus.Active).count()
             };
         }
 
+        // What a dispatcher can choose from when planning a route.
+        @path('/choices/vans')
+        get vansToChoose() : auth(required, providers: [identity], roles: [dispatcher]) -> Array<Vehicle> {
+            return Vehicle.where(status: VehicleStatus.InService).orderBy(name: asc).limit(100).all();
+        }
+
+        @path('/choices/drivers')
+        get driversToChoose() : auth(required, providers: [identity], roles: [dispatcher]) -> Array<Driver> {
+            return Driver.where(status: DriverStatus.Active).orderBy(name: asc).limit(100).all();
+        }
+
+        @path('/vans')
+        post addVehicle(NewVehicle request) : auth(required, providers: [identity], roles: [dispatcher]) -> Vehicle {
+            return Vehicle.create({ name: request.name, registration: request.registration, capacityKg: request.capacityKg });
+        }
+
+        @path('/drivers')
+        post addDriver(NewDriver request) : auth(required, providers: [identity], roles: [dispatcher]) -> Driver {
+            return Driver.create({ name: request.name, email: request.email });
+        }
+
+        // A service puts the van back on the road and sets when the next one falls due.
+        @path('/vans/service')
+        post recordService(ServiceRequest request) : auth(required, providers: [identity], roles: [dispatcher]) -> Vehicle {
+            let Vehicle vehicle = Vehicle.findOrFail(request.vehicleId);
+            ServiceRecord.create({
+                vehicleName: vehicle.name,
+                vehicleId: vehicle.id,
+                workDone: request.workDone,
+                cost: request.cost,
+                atOdometerKm: vehicle.odometerKm
+            });
+            vehicle.nextServiceKm = vehicle.odometerKm + SERVICE_INTERVAL_KM;
+            vehicle.status = VehicleStatus.InService;
+            vehicle.save();
+            return vehicle;
+        }
+    }
+
+    // What the routes need.
+    rest_api FleetInternalAPI : basePath('/internal/fleet'), rdbms(fleetDb) {
+        @path('/assignment')
+        get assignment(UUID driverId, UUID vehicleId) : auth(service, providers: [machine]) -> Assignment {
+            let Driver driver = Driver.findOrFail(driverId);
+            let Vehicle vehicle = Vehicle.findOrFail(vehicleId);
+            if (driver.status != DriverStatus.Active || vehicle.status != VehicleStatus.InService) {
+                throw NotAvailableError();
+            }
+            return Assignment { driverName: driver.name, driverEmail: driver.email, vehicleName: vehicle.name, capacityKg: vehicle.capacityKg };
+        }
+
+        @path('/distance')
+        post addDistance(DistanceReport report) : auth(service, providers: [machine]) -> DistanceAck {
+            let Vehicle vehicle = Vehicle.findOrFail(report.vehicleId);
+            vehicle.odometerKm = vehicle.odometerKm + report.distanceKm;
+            vehicle.save();
+            return DistanceAck { odometerKm: vehicle.odometerKm };
+        }
     }
 
     jobs {
-
-        job CheckMaintenanceSchedule {
-            let Array<Vehicle> vehicles = fleetDb.Vehicle
-            .where(status: VehicleStatus.Available)
-            .all();
-
-            let Int scheduled = 0;
-            foreach vehicle in vehicles {
-                if (vehicle.needsMaintenance) {
-                    let MaintenanceRecord record = fleetDb.MaintenanceRecord.create({
-                        vehicleId: vehicle.id,
-                        description: #"Scheduled maintenance at {vehicle.mileage} miles",
-                        cost: 0,
-                        scheduledDate: DateTime.now().addDays(7)
-                    });
-                    record.save();
-
-                    dispatch MaintenanceScheduled(vehicle.id, vehicle.vehicleNumber, record.scheduledDate);
-
-                    Log.info("Maintenance scheduled for vehicle", {
-                        vehicleId: vehicle.id,
-                        vehicleNumber: vehicle.vehicleNumber,
-                        mileage: vehicle.mileage
-                    });
-
-                    scheduled = scheduled + 1;
+        // Finds every van past its service distance, once a day, before the morning's planning.
+        job FlagVehiclesDue {
+            let Array<fleetDb.Vehicle> vans = fleetDb.Vehicle.where(status: VehicleStatus.InService).limit(500).all();
+            foreach vehicle in vans {
+                if (vehicle.odometerKm >= vehicle.nextServiceKm) {
+                    vehicle.status = VehicleStatus.ServiceDue;
+                    vehicle.save();
                 }
-
             }
-
-            Log.info("Maintenance check completed", { scheduledCount: scheduled });
         }
-
-        job UpdateFleetMetrics {
-            let Int totalAvailable = fleetDb.Vehicle.where(status: VehicleStatus.Available).count();
-            let Int totalInUse = fleetDb.Vehicle.where(status: VehicleStatus.InUse).count();
-            let Int totalMaintenance = fleetDb.Vehicle.where(status: VehicleStatus.Maintenance).count();
-
-            redis.AvailableVehicleCount.set("total", totalAvailable);
-
-            Log.info("Fleet metrics updated", {
-                available: totalAvailable,
-                inUse: totalInUse,
-                maintenance: totalMaintenance
-            });
-        }
-
     }
 
-    test("computed needsMaintenance when mileage exceeds threshold") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-001",
-            type: VehicleType.Truck,
-            capacity: 5000.00,
-            mileage: 55000
-        });
-        vehicle.save();
-        assert vehicle.needsMaintenance == true;
+    test("a new van is in service") {
+        let fleetDb.Vehicle van = fleetDb.Vehicle.create({ name: "Van 9", registration: "QL-TEST-9", capacityKg: 900.0 });
+        assert van.status == VehicleStatus.InService;
+        assert van.nextServiceKm == SERVICE_INTERVAL_KM;
     }
-
-    test("computed isAvailable for Available status") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-002",
-            type: VehicleType.Van,
-            capacity: 2000.00,
-            mileage: 10000
-        });
-        vehicle.save();
-        assert vehicle.isAvailable == true;
-    }
-
-    test("validation rejects negative capacity") {
-        assert throws(
-        () => fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-003",
-            type: VehicleType.Bike,
-            capacity: -100,
-            mileage: 0
-        }),
-        ValidationError("Vehicle capacity must be greater than zero")
-        );
-    }
-
-    test("afterCreate emits VehicleRegistered") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-004",
-            type: VehicleType.Drone,
-            capacity: 10.00,
-            mileage: 0
-        });
-        vehicle.save();
-        assert emitted(VehicleRegistered(vehicle.id, vehicle.vehicleNumber, VehicleType.Drone));
-    }
-
-    test("computed needsMaintenance is false below threshold") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-005",
-            type: VehicleType.Van,
-            capacity: 1500.00,
-            mileage: 30000
-        });
-        vehicle.save();
-        assert vehicle.needsMaintenance == false;
-    }
-
-    test("computed hasDriver when currentDriverId is set") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-006",
-            type: VehicleType.Truck,
-            capacity: 8000.00,
-            mileage: 5000,
-            currentDriverId: uuid(),
-            status: VehicleStatus.InUse
-        });
-        vehicle.save();
-        assert vehicle.hasDriver == true;
-    }
-
-    test("computed hasDriver is false when no driver") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-007",
-            type: VehicleType.Van,
-            capacity: 2500.00,
-            mileage: 12000
-        });
-        vehicle.save();
-        assert vehicle.hasDriver == false;
-    }
-
-    test("assignDriver sets driver and status to InUse") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-008",
-            type: VehicleType.Truck,
-            capacity: 7000.00,
-            mileage: 20000
-        });
-        vehicle.save();
-        let UUID driverId = uuid();
-        vehicle.assignDriver(driverId);
-        assert vehicle.currentDriverId == driverId;
-        assert vehicle.status == VehicleStatus.InUse;
-    }
-
-    test("releaseDriver clears driver and sets Available") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-009",
-            type: VehicleType.Van,
-            capacity: 3000.00,
-            mileage: 15000,
-            currentDriverId: uuid(),
-            status: VehicleStatus.InUse
-        });
-        vehicle.save();
-        vehicle.releaseDriver();
-        assert vehicle.currentDriverId == null;
-        assert vehicle.status == VehicleStatus.Available;
-    }
-
-    test("status change emits VehicleStatusChanged") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-010",
-            type: VehicleType.Trailer,
-            capacity: 12000.00,
-            mileage: 0
-        });
-        vehicle.save();
-        vehicle.status = VehicleStatus.Maintenance;
-        vehicle.save();
-        assert emitted(VehicleStatusChanged(vehicle.id, vehicle.vehicleNumber, VehicleStatus.Available, VehicleStatus.Maintenance));
-    }
-
-    test("validation rejects negative mileage") {
-        assert throws(
-        () => fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-011",
-            type: VehicleType.Bike,
-            capacity: 50.00,
-            mileage: -100
-        }),
-        ValidationError("Vehicle mileage cannot be negative")
-        );
-    }
-
-    test("validation rejects empty driver first name") {
-        assert throws(
-        () => fleetDb.Driver.create({
-            firstName: "",
-            lastName: "Smith",
-            licenseNumber: "DL-12345",
-            phone: "+15551234567"
-        }),
-        ValidationError("First name cannot be empty")
-        );
-    }
-
-    test("validation rejects empty driver last name") {
-        assert throws(
-        () => fleetDb.Driver.create({
-            firstName: "James",
-            lastName: "",
-            licenseNumber: "DL-67890",
-            phone: "+15559876543"
-        }),
-        ValidationError("Last name cannot be empty")
-        );
-    }
-
-    test("validation rejects empty license number") {
-        assert throws(
-        () => fleetDb.Driver.create({
-            firstName: "Robert",
-            lastName: "Jones",
-            licenseNumber: "",
-            phone: "+15555555555"
-        }),
-        ValidationError("License number cannot be empty")
-        );
-    }
-
-    test("computed driver isAvailable for Available status") {
-        let Driver driver = fleetDb.Driver.create({
-            firstName: "Thomas",
-            lastName: "Anderson",
-            licenseNumber: "DL-NEO-001",
-            phone: "+15550001111",
-            status: DriverStatus.Available
-        });
-        driver.save();
-        assert driver.isAvailable == true;
-    }
-
-    test("computed driver fullName concatenates names") {
-        let Driver driver = fleetDb.Driver.create({
-            firstName: "Maria",
-            lastName: "Garcia",
-            licenseNumber: "DL-MG-002",
-            phone: "+15550002222"
-        });
-        driver.save();
-        assert driver.fullName == "Maria Garcia";
-    }
-
-    test("validation rejects negative maintenance cost") {
-        let Vehicle vehicle = fleetDb.Vehicle.create({
-            vehicleNumber: "VH-TEST-012",
-            type: VehicleType.Truck,
-            capacity: 5000.00,
-            mileage: 45000
-        });
-        vehicle.save();
-        assert throws(
-        () => fleetDb.MaintenanceRecord.create({
-            vehicleId: vehicle.id,
-            description: "Oil change",
-            cost: -50.00,
-            scheduledDate: DateTime.now().addDays(7)
-        }),
-        ValidationError("Maintenance cost cannot be negative")
-        );
-    }
-
 }

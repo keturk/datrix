@@ -1,0 +1,40 @@
+// The contract of the background check vendor. config/providers/check-provider.dcfg says where it is
+// served. A check takes days, so the caller starts one and asks later.
+extern service hr.CheckProvider('config/providers/check-provider.dcfg')
+    : version('1.0.0'), description('Background checks') {
+
+    enum CheckOutcome {
+        InProgress,
+        Clear,
+        Flagged
+    }
+
+    struct StartCheckRequest {
+        String(200) candidateName;
+        Email candidateEmail;
+        /// The caller's key: starting again with the same key returns the first check.
+        String(120) idempotencyKey;
+    }
+
+    struct BackgroundCheck {
+        String(40) id;
+        CheckOutcome outcome;
+    }
+
+    rest_api CheckAPI : basePath('/v1') {
+        @path('/checks')
+        post startCheck(StartCheckRequest request) -> BackgroundCheck {
+            ensure request.idempotencyKey != "";
+        }
+
+        @path('/checks/{id}')
+        get checkById(String id) -> BackgroundCheck;
+    }
+
+    errors {
+        CheckNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-Check-Api-Key');
+    health : path('/health');
+}

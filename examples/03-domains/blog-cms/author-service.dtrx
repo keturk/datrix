@@ -1,328 +1,158 @@
+// Author profiles, and the application's identity block. Sign-in belongs to the hosted identity
+// provider: this service never sees a password. A profile is created the first time a signed-in
+// person opens it.
+service blog.AuthorService('config/author-service.dcfg') : version('2.0.0'), description('Author profiles and application identity') {
 
-// 'from ... import' brings shared types and functions from the common module
-
-// Define a service in the 'blog' namespace with version and description
-service blog.AuthorService('config/author-service.dcfg') : version('1.0.0'), description('author management service') {
-
-    // Service infrastructure configuration
-    discovery { }                                                   // Service discovery (auto-configured)
+    discovery { }
 
     identity {
+        // People: readers, authors, editors and the operator who plays the outside world.
         provider identity config('config/identity/identity.dcfg') {
-            group "admins" as admin;
-            group "editors" as editor;
-        }
-    }
+            Email email;
+            String? fullName;
 
-    // Enums define a fixed set of allowed values for type-safe fields
-    enum AuthorRole {
-        Writer,
-        Editor,
-        Admin
+            group "editor" as editor;
+            group "admin" as admin;
+            group "operator" as operator;
+        }
+
+        // Service-to-service callers.
+        provider machine config('config/identity/machine.dcfg') {
+        }
+
+        // API keys the mocks issue, the way a real provider authenticates its API callers.
+        provider mailKeys config('config/identity/mail-keys.dcfg') {
+        }
+
+        provider moderationKeys config('config/identity/moderation-keys.dcfg') {
+        }
     }
 
     enum AuthorStatus {
-        Active,
-        Inactive,
-        Suspended,
-        Pending
+        Active : tone(success),
+        Suspended : tone(danger)
     }
 
-    // Relational database block - groups entities (tables) under a named datasource
     rdbms authorDb {
 
         entity Author extends BaseEntity {
-            // Email is a semantic type that validates email format
-            Email email : unique;
-            // Password is a semantic type for securely stored passwords
-            Password passwordHash;
-            String(100) firstName : trim;
-            // 'regex(...)' enforces a pattern constraint on the field
-            String(100) lastName : trim, regex("^[A-Za-z][A-Za-z0-9\\s'\\-]{0,99}$");
-            // '?' suffix makes the field nullable
-            String(200)? bio;
+            /// The signed-in person this profile belongs to.
+            UUID userId : unique;
+            String(100) displayName : trim, filterable, sortable;
+            String(500)? bio;
             URL? avatarUrl;
-            AuthorRole role = AuthorRole.Writer;
-            AuthorStatus status = AuthorStatus.Pending;
+            AuthorStatus status : filterable = AuthorStatus.Active;
 
-            DateTime? lastLoginAt;
-            DateTime? emailVerifiedAt;
-            String? emailVerificationToken;
-
-            // Computed fields (':=') are derived at runtime, not stored in the database
-            String fullName := #"{firstName} {lastName}";
             Boolean isActive := status == AuthorStatus.Active;
-            Boolean isVerified := emailVerifiedAt != null;
-            // Computed fields can reference other computed fields
-            Boolean canLogin := isActive && isVerified;
-
-            // Composite index for query performance on frequently filtered columns
-            index(status, role);
-
-            // Lifecycle hook - runs before each update
-            beforeUpdate {
-                updatedAt = DateTime.now();
-            }
-
-            // Lifecycle hook - runs after creation
-            afterCreate {
-                // 'dispatch' publishes an event to the message bus (or dispatches a queue task)
-                dispatch AuthorRegistered(id, email, fullName);
-            }
 
             afterUpdate {
-                // 'isChanged(...)' checks if a field was modified in this update
                 if (isChanged(status)) {
-                    // 'oldValue(...)' retrieves the previous value before the update
-                    dispatch AuthorStatusChanged(id, oldValue(status), status);
+                    dispatch AuthorStatusChanged(id, userId, oldValue(status), status);
                 }
-
             }
-
-            // Custom validation block - runs before save
-            validate {
-                if (status == AuthorStatus.Active && !isVerified)
-                ValidationError("Cannot activate unverified author");
-            }
-
         }
-
-        entity AuthorSession extends BaseEntity {
-            String(255) token : unique;
-            String(100) deviceName;
-            // IPAddress is a semantic type for IP address values
-            IPAddress? ipAddress;
-            DateTime expiresAt;
-
-            Boolean isExpired := DateTime.now() > expiresAt;
-            // 'belongsTo' defines a many-to-one relationship
-            belongsTo Author : index;
-            index(authorId, expiresAt);
-        }
-
     }
 
-    // Pub/sub messaging block - defines event-driven communication
     pubsub mq {
-        // Topics group related events for publishing
         topic AuthorEvents {
-            publish AuthorRegistered(UUID authorId, Email email, String fullName) {
-                ensure fullName.length > 0;
-            }
-
-            publish AuthorStatusChanged(UUID authorId, String oldStatus, String newStatus) {
+            publish AuthorStatusChanged(UUID authorId, UUID userId, AuthorStatus oldStatus, AuthorStatus newStatus) {
                 ensure oldStatus != newStatus;
-                ensure newStatus.length > 0;
             }
+        }
+    }
 
+    struct UpdateProfileRequest {
+        String(100) displayName;
+        String(500)? bio;
+        URL? avatarUrl;
+    }
+
+    /// What anyone may read about an author.
+    struct AuthorCard {
+        UUID id;
+        UUID userId;
+        String displayName;
+        String? bio;
+        URL? avatarUrl;
+    }
+
+    fn toCard(authorDb.Author author) -> AuthorCard {
+        return AuthorCard {
+            id: author.id,
+            userId: author.userId,
+            displayName: author.displayName,
+            bio: author.bio,
+            avatarUrl: author.avatarUrl
+        };
+    }
+
+    rest_api AuthorAPI : basePath('/api/v1/authors'), rdbms(authorDb) {
+        // Public: the people behind the articles, with nothing personal in the answer.
+        @path('/writers')
+        get authors() : auth(public) -> Array<AuthorCard> {
+            let Array<Author> active = Author.where(status: AuthorStatus.Active).orderBy(displayName: asc).all();
+            return active.map(a => toCard(a));
         }
 
-    }
+        @path('/card/:userId')
+        get authorCard(UUID userId) : auth(public) -> AuthorCard {
+            let Author author = Author.where(userId: userId).firstOrFail();
+            return toCard(author);
+        }
 
-    // Structs define reusable value objects for request/response payloads
-    struct RegisterAuthorRequest {
-        Email email;
-        String password;
-        String firstName;
-        String lastName;
-    }
-
-    // REST API block - generates CRUD endpoints and custom routes
-    rest_api AuthorAPI : basePath("/api/v1/authors"), rdbms(authorDb) {
-        // 'resource' auto-generates standard CRUD endpoints; 'auth(required, ...)' restricts by role
-        resource authorDb.Author : auth(required, providers: [identity], roles: [admin]);
-        // Custom endpoint with @path decorator
-        @path('/register')
-        // 'auth(public)' makes this endpoint accessible without authentication
-        post(RegisterAuthorRequest request) : auth(public) -> authorDb.Author {
-            // '#Type' is a type hint for local variables
-            let Author? existingAuthor = authorDb.Author.where(email: request.email).first();
-            if (existingAuthor != null)
-            throw ValidationException("Email already registered");
-            let Author author = authorDb.Author.create({
-                email: request.email,
-                passwordHash: Crypto.bcryptHash(request.password),
-                firstName: request.firstName,
-                lastName: request.lastName,
-                role: AuthorRole.Writer,
-                status: AuthorStatus.Pending,
-                emailVerificationToken: Token.generate(32)
+        // The signed-in person's own profile, created the first time it is opened.
+        @path('/me')
+        get me() : auth(required, providers: [identity]) -> Author {
+            let Author? existing = Author.where(userId: Auth.userId()).first();
+            if (existing != null) {
+                return existing;
+            }
+            return Author.create({
+                userId: Auth.userId(),
+                displayName: Auth.identity.fullName ?? Auth.identity.email.toString()
             });
+        }
+
+        @path('/me')
+        put updateMe(UpdateProfileRequest request) : auth(required, providers: [identity]) -> Author {
+            let Author author = Author.where(userId: Auth.userId()).firstOrFail();
+            author.displayName = request.displayName;
+            author.bio = request.bio;
+            author.avatarUrl = request.avatarUrl;
+            author.save();
             return author;
         }
 
+        // Administration.
+        resource Author : only(list, get), auth(required, providers: [identity], roles: [admin]);
+
+        @path('/:id/suspend')
+        post suspend(UUID id) : auth(required, providers: [identity], roles: [admin]) -> Author {
+            let Author author = Author.findOrFail(id);
+            author.status = AuthorStatus.Suspended;
+            author.save();
+            return author;
+        }
+
+        @path('/:id/reinstate')
+        post reinstate(UUID id) : auth(required, providers: [identity], roles: [admin]) -> Author {
+            let Author author = Author.findOrFail(id);
+            author.status = AuthorStatus.Active;
+            author.save();
+            return author;
+        }
     }
 
-    test("computed fullName concatenates first and last name") {
-        let Author author = authorDb.Author.create({
-            email: "jane@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Jane",
-            lastName: "Doe"
-        });
+    test("a new author is active") {
+        let Author author = authorDb.Author.create({ userId: uuid(), displayName: "Mina Okafor" });
+        assert author.isActive;
+    }
+
+    test("suspending an author announces it") {
+        let Author author = authorDb.Author.create({ userId: uuid(), displayName: "Mina Okafor" });
+        author.status = AuthorStatus.Suspended;
         author.save();
-        assert author.fullName == "Jane Doe";
+        assert !author.isActive;
+        assert emitted(AuthorStatusChanged(author.id, author.userId, AuthorStatus.Active, AuthorStatus.Suspended));
     }
-
-    test("computed isActive is true for Active status") {
-        let Author author = authorDb.Author.create({
-            email: "active@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Active",
-            lastName: "Author",
-            status: AuthorStatus.Active,
-            emailVerifiedAt: DateTime.now()
-        });
-        author.save();
-        assert author.isActive == true;
-    }
-
-    test("computed canLogin requires active and verified") {
-        let Author author = authorDb.Author.create({
-            email: "login@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Login",
-            lastName: "User",
-            status: AuthorStatus.Active,
-            emailVerifiedAt: DateTime.now()
-        });
-        author.save();
-        assert author.canLogin == true;
-    }
-
-    test("validation rejects activating unverified author") {
-        assert throws(
-        () => authorDb.Author.create({
-            email: "unverified@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Unverified",
-            lastName: "Author",
-            status: AuthorStatus.Active
-        }),
-        ValidationError("Cannot activate unverified author")
-        );
-    }
-
-    test("afterCreate emits AuthorRegistered event") {
-        let Author author = authorDb.Author.create({
-            email: "event@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Event",
-            lastName: "Test"
-        });
-        author.save();
-        assert emitted(AuthorRegistered(author.id, author.email, author.fullName));
-    }
-
-    test("spec: fullName returns Jane Austen for literary author fixture") {
-        let Author author = authorDb.Author.create({
-            email: "spec.display@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Jane",
-            lastName: "Austen"
-        });
-        author.save();
-        assert author.fullName == "Jane Austen";
-    }
-
-    test("spec: isActive is true for verified Active author Mark Twain") {
-        let Author author = authorDb.Author.create({
-            email: "spec.active@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Mark",
-            lastName: "Twain",
-            status: AuthorStatus.Active,
-            emailVerifiedAt: DateTime.now()
-        });
-        author.save();
-        assert author.isActive == true;
-    }
-
-    test("spec: canLogin is true for active verified Ernest Hemingway") {
-        let Author author = authorDb.Author.create({
-            email: "spec.login@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Ernest",
-            lastName: "Hemingway",
-            status: AuthorStatus.Active,
-            emailVerifiedAt: DateTime.now()
-        });
-        author.save();
-        assert author.canLogin == true;
-    }
-
-    test("spec: validation rejects Active status for unverified spec.unverified author") {
-        assert throws(
-        () => authorDb.Author.create({
-            email: "spec.unverified@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Unverified",
-            lastName: "Author",
-            status: AuthorStatus.Active
-        }),
-        ValidationError("Cannot activate unverified author")
-        );
-    }
-
-    test("spec: afterCreate emits AuthorRegistered for Virginia Woolf fixture") {
-        let Author author = authorDb.Author.create({
-            email: "spec.event@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Virginia",
-            lastName: "Woolf"
-        });
-        author.save();
-        assert emitted(AuthorRegistered(author.id, author.email, author.fullName));
-    }
-
-    test("computed isVerified is true when emailVerifiedAt is set") {
-        let Author author = authorDb.Author.create({
-            email: "verified.spec@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Verified",
-            lastName: "Author",
-            emailVerifiedAt: DateTime.now()
-        });
-        author.save();
-        assert author.isVerified == true;
-    }
-
-    test("computed isVerified is false when emailVerifiedAt is null") {
-        let Author author = authorDb.Author.create({
-            email: "notverified.spec@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "NotVerified",
-            lastName: "Author"
-        });
-        author.save();
-        assert author.isVerified == false;
-    }
-
-    test("computed canLogin is false for inactive author") {
-        let Author author = authorDb.Author.create({
-            email: "inactive.spec@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "Inactive",
-            lastName: "Author",
-            status: AuthorStatus.Inactive,
-            emailVerifiedAt: DateTime.now()
-        });
-        author.save();
-        assert author.canLogin == false;
-    }
-
-    test("afterUpdate emits AuthorStatusChanged on status change") {
-        let Author author = authorDb.Author.create({
-            email: "statuschange.spec@example.com",
-            passwordHash: Crypto.bcryptHash("Str0ng#TestP@ss9"),
-            firstName: "StatusChange",
-            lastName: "Author",
-            emailVerifiedAt: DateTime.now()
-        });
-        author.save();
-        author.status = AuthorStatus.Active;
-        author.save();
-        assert emitted(AuthorStatusChanged(author.id, AuthorStatus.Pending, AuthorStatus.Active));
-    }
-
 }

@@ -1,0 +1,140 @@
+from iot.ui import Brand;
+
+/// What a technician carries, on the web and on a phone: what is broken, where it is, and a way to say
+/// it is fixed. Two technicians taking one alert: a row lock lets exactly one win.
+app iot.Technician('config/technician-app.dcfg') : version('2.0.0') {
+    uses iot.DeviceService;
+    uses iot.TelemetryService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    state UUID? resolvingId = null;
+    state Boolean resolving = false;
+
+    layout Site : default {
+        nav {
+            link Queue : icon(notification_important);
+            link Where : icon(map);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Queue() {
+        data { alerts = TelemetryService.AlertAPI.get.queue() : poll(15s); }
+        view {
+            pageHeader(Msg.queueTitle, Msg.queueSubtitle);
+            when (alerts.length == 0) {
+                emptyState(Msg.allQuiet) : icon(check_circle);
+            }
+            list(data: alerts) : onClick(Nav.to(AlertPage, id: item.id)) {
+                heading(item.deviceName);
+                badge(item.kind);
+                badge(item.status);
+                text(item.siteName);
+                text(Fmt.relative(item.createdAt));
+            }
+        }
+    }
+
+    @path('/alerts/:id')
+    page AlertPage(UUID id) {
+        data { alert = TelemetryService.AlertAPI.alertDb.Alert.get(id: id) : poll(15s); }
+
+        fn claim() {
+            TelemetryService.AlertAPI.post.claim(id: id);
+            alert.refresh();
+            Ui.toast(Msg.claimed, tone: success);
+        }
+
+        fn startResolving() {
+            resolvingId = id;
+            resolving = true;
+        }
+
+        fn closeDialog() {
+            resolving = false;
+        }
+
+        view {
+            pageHeader(alert.deviceName, alert.siteName) : back(Queue) {
+                badge(alert.status);
+                when (alert.status == AlertStatus.Open) {
+                    button(Msg.claim) : onClick(claim()), kind(primary), icon(engineering);
+                }
+                when (alert.status == AlertStatus.Claimed) {
+                    button(Msg.resolve) : onClick(startResolving()), kind(primary), icon(check_circle);
+                }
+            }
+            when (resolving) {
+                dialog(Msg.resolve) : onClose(closeDialog()) {
+                    form(Resolve);
+                }
+            }
+            card {
+                badge(alert.kind);
+                when (alert.temperature != null) {
+                    text(Msg.temperatureLine(value: Fmt.number(alert.temperature)));
+                }
+                text(Msg.openedLine(when: Fmt.relative(alert.createdAt)));
+                when (alert.claimedByName != null) {
+                    text(Msg.claimedByLine(name: alert.claimedByName));
+                }
+            }
+        }
+    }
+
+    form Resolve : submit(TelemetryService.AlertAPI.post.resolve) {
+        fn done() {
+            resolving = false;
+            Ui.toast(Msg.resolved, tone: success);
+            Nav.to(Queue);
+        }
+        field id : fixed(resolvingId);
+        field resolution;
+        onSuccess(done());
+    }
+
+    @path('/where')
+    page Where() {
+        data { pins = DeviceService.FleetAPI.get.pins(); }
+        view {
+            pageHeader(Msg.whereTitle, Msg.whereSubtitle);
+            map {
+                foreach (pin in pins) {
+                    marker(pin.point, pin.name);
+                }
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Queue); }
+        }
+    }
+
+    test("the queue opens") {
+        let Screen screen = render(Queue);
+        assert screen.shows(Msg.queueTitle);
+    }
+}

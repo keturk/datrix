@@ -1,0 +1,12 @@
+// The key recruiting presents to the e-signature vendor. The key itself is the development default of
+// the service's secret; the vendor stores only its SHA-256 hash.
+seed service hr.SignatureMock {
+  rdbms signatureDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                    keyHash,                                                            ownerId,                  scopes,              isActive;
+        @uuid("signature-key"), "04eb0d87b2a20c1e769a831c30f2d61c111cc039780d0d6f79d16b158ff3227e", @uuid("owner-alderbrook"), ["envelopes:write"], true;
+      }
+    }
+  }
+}

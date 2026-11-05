@@ -1,0 +1,151 @@
+from hr.ui import Brand, cardGrid, statRow;
+
+/// What every employee has, on the web and on a phone: their balance, their time off, their payslips,
+/// and a directory of colleagues.
+app hr.Employee('config/employee-app.dcfg') : version('2.0.0') {
+    uses hr.EmployeeService;
+    uses hr.PayrollService;
+
+    theme extends Brand { }
+
+    assets {
+        image logo = 'assets/logo.svg';
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    layout Site : default {
+        nav {
+            link Home : icon(home);
+            link TimeOff : icon(beach_access);
+            link Payslips : icon(payments);
+            link Directory : icon(groups);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName) { image(logo, Msg.logoAlt); }
+                    spacer;
+                    nav;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Home() {
+        data {
+            me = EmployeeService.SelfServiceAPI.get.me();
+            requests = EmployeeService.SelfServiceAPI.get.myTimeOff();
+            payslips = PayrollService.MyPayAPI.get.myPayslips();
+        }
+        view {
+            pageHeader(Msg.welcome(name: me.fullName), me.jobTitle) {
+                badge(me.status);
+                link(Msg.askForTimeOff, TimeOff) : kind(primary), icon(add);
+            }
+            grid : style(statRow) {
+                stat(Msg.statVacation, Fmt.number(me.vacationDaysLeft)) : icon(beach_access), tone(success);
+                stat(Msg.statRequests, Fmt.number(requests.length)) : icon(event);
+                stat(Msg.statPayslips, Fmt.number(payslips.length)) : icon(payments);
+            }
+            card(Msg.aboutMe) {
+                text(Msg.numberLine(number: me.employeeNumber));
+                text(Msg.departmentLine(department: me.department));
+                text(Msg.hiredLine(when: Fmt.date(me.hiredOn)));
+                text(me.workEmail);
+            }
+        }
+    }
+
+    @path('/time-off')
+    page TimeOff() {
+        data { requests = EmployeeService.SelfServiceAPI.get.myTimeOff() : poll(30s); }
+        view {
+            pageHeader(Msg.timeOffTitle, Msg.timeOffSubtitle);
+            card(Msg.askForTimeOff) { form(AskForTimeOff); }
+            section(Msg.myRequests) {
+                when (requests.length == 0) {
+                    emptyState(Msg.noRequests) : icon(beach_access);
+                }
+                list(data: requests) {
+                    heading(Msg.rangeLine(from: Fmt.date(item.firstDay), to: Fmt.date(item.lastDay)));
+                    badge(item.kind);
+                    badge(item.status);
+                    text(Msg.daysLine(days: item.days));
+                    when (item.decidedBy != null) {
+                        text(Msg.decidedByLine(name: item.decidedBy));
+                    }
+                }
+            }
+        }
+    }
+
+    form AskForTimeOff : submit(EmployeeService.SelfServiceAPI.post.requestTimeOff) {
+        field kind;
+        field firstDay;
+        field lastDay;
+        field days;
+        field note;
+        onSuccess(Ui.toast(Msg.requestSent, tone: success));
+    }
+
+    @path('/payslips')
+    page Payslips() {
+        data { payslips = PayrollService.MyPayAPI.get.myPayslips(); }
+        view {
+            pageHeader(Msg.payslipsTitle, Msg.payslipsSubtitle);
+            when (payslips.length == 0) {
+                emptyState(Msg.noPayslips) : icon(payments);
+            }
+            list(data: payslips) {
+                heading(item.period);
+                badge(item.status);
+                text(Msg.grossLine(amount: Fmt.money(item.gross)));
+                text(Msg.taxLine(amount: Fmt.money(item.tax)));
+                text(Msg.netLine(amount: Fmt.money(item.net)));
+            }
+        }
+    }
+
+    @path('/directory')
+    page Directory() {
+        data { colleagues = EmployeeService.SelfServiceAPI.get.directory(); }
+        view {
+            pageHeader(Msg.directoryTitle, Msg.directorySubtitle);
+            grid : style(cardGrid) {
+                foreach (colleague in colleagues) {
+                    card {
+                        row {
+                            avatar(Fmt.initials(colleague.fullName));
+                            heading(colleague.fullName);
+                        }
+                        text(colleague.jobTitle);
+                        badge(colleague.status);
+                        text(colleague.workEmail);
+                    }
+                }
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Home); }
+        }
+    }
+
+    test("asking for time off starts from an empty form") {
+        signIn([]);
+        respond(EmployeeService.SelfServiceAPI.get.myTimeOff(), []);
+        let Screen screen = render(TimeOff);
+        assert screen.shows(Msg.timeOffTitle);
+    }
+}

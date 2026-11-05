@@ -1,0 +1,29 @@
+config strings fooddelivery.Driver locale "en-US" {
+  messages {
+    appName         = "Saltbox Driver";
+    account         = "Account";
+    signOut         = "Sign out";
+    home            = "Back to waiting deliveries";
+    notFoundTitle   = "Page not found";
+    waitingTitle    = "Waiting for a driver";
+    waitingSubtitle = "Claim one when you are on shift.";
+    startShift      = "Start shift";
+    endShift        = "End shift";
+    shiftChanged    = "Shift updated.";
+    claim           = "Claim";
+    claimed         = "It's yours.";
+    mineTitle       = "My deliveries";
+    mineSubtitle    = "Most recent first.";
+    pickedUpAction  = "Picked up";
+    deliveredAction = "Delivered";
+    pickedUp        = "On your way.";
+    delivered       = "Nice work.";
+    routeLine       = "About {minutes} minutes by road";
+  }
+  labels {
+    page.Waiting  = "Waiting";
+    page.Mine     = "Mine";
+    page.Route    = "Route";
+    page.NotFound = "Not found";
+  }
+}

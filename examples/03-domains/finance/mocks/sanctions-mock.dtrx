@@ -1,0 +1,73 @@
+// Implements the SanctionsProvider contract in the stack. It screens against a small invented list
+// the Back Office can edit, so a hit can be produced on demand.
+service finance.SanctionsMock('config/mocks/sanctions-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the sanctions screening vendor') {
+
+    discovery { }
+
+    rdbms sanctionsDb {
+
+        /// A name on the vendor's list. The lookup key is lower case.
+        entity ListedName extends BaseEntity {
+            String(200) name : unique, lowercase, trim, filterable;
+            String(200) displayName;
+            String(200)? note;
+        }
+
+        /// One screening the vendor answered.
+        entity ScreeningRecord extends BaseEntity {
+            String(40) screeningId : unique;
+            String(200) query : filterable;
+            String(40) reference : filterable;
+            Boolean hit : filterable;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct ScreenRequest {
+        String(200) name;
+        String(40) reference;
+    }
+
+    struct Screening {
+        String(40) id;
+        Boolean hit;
+        String(200)? matchedName;
+    }
+
+    // The vendor's public API: exactly the SanctionsProvider contract.
+    rest_api SanctionsAPI : basePath('/v1'), rdbms(sanctionsDb) {
+        @path('/screenings')
+        post(ScreenRequest request) : auth(required, providers: [sanctionsKeys]) -> Screening {
+            let ListedName? listed = ListedName.where(name: request.name.trim().toLowerCase()).first();
+            let ScreeningRecord record = ScreeningRecord.create({
+                screeningId: #"scr_{Random.string(24, '0123456789abcdef')}",
+                query: request.name,
+                reference: request.reference,
+                hit: listed != null
+            });
+            return Screening { id: record.screeningId, hit: record.hit, matchedName: listed != null ? listed.displayName : null };
+        }
+    }
+
+    // What the Back Office shows: every screening, and the list that decides them.
+    rest_api SanctionsDeskAPI : basePath('/api/v1/desk/sanctions'), rdbms(sanctionsDb) {
+        resource ScreeningRecord : only(list), auth(required, providers: [identity], roles: [operator]);
+        resource ListedName : only(list, create, delete), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a listed name is found whatever its case") {
+        sanctionsDb.ListedName.create({ name: "Ivor Blackwood", displayName: "Ivor Blackwood" });
+        let ListedName? found = sanctionsDb.ListedName.where(name: "ivor blackwood").first();
+        assert found != null;
+    }
+}

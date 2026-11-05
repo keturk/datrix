@@ -1,0 +1,45 @@
+// The contract of the pharmacy network. config/providers/pharmacy-provider.dcfg says where it is served.
+extern service healthcare.PharmacyProvider('config/providers/pharmacy-provider.dcfg')
+    : version('1.0.0'), description('Electronic prescriptions') {
+
+    enum TicketStatus {
+        Received,
+        Filling,
+        ReadyForPickup,
+        PickedUp,
+        Rejected
+    }
+
+    struct SendPrescriptionRequest {
+        String(200) patientName;
+        String(200) drugName;
+        String(200) directions;
+        Int quantity;
+        /// The caller's key: sending again with the same key returns the first ticket.
+        String(120) idempotencyKey;
+    }
+
+    struct PharmacyTicket {
+        String(40) id;
+        TicketStatus status;
+        String(200)? rejectionReason;
+    }
+
+    rest_api PharmacyAPI : basePath('/v1') {
+        @path('/prescriptions')
+        post sendPrescription(SendPrescriptionRequest request) -> PharmacyTicket {
+            ensure request.quantity > 0;
+            ensure request.idempotencyKey != "";
+        }
+
+        @path('/prescriptions/{id}')
+        get ticketById(String id) -> PharmacyTicket;
+    }
+
+    errors {
+        TicketNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-Pharmacy-Api-Key');
+    health : path('/health');
+}

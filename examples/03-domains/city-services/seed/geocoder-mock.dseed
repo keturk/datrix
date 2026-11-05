@@ -1,0 +1,23 @@
+// The key RequestService presents to the address vendor, and the addresses the vendor knows. The
+// key itself is the development default of the service's secret; the vendor stores only its
+// SHA-256 hash. A lookup key is lower case. Try "behind the old mill" to see an unplaced report.
+seed service cityservices.GeocoderMock {
+  rdbms geocoderDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                  keyHash,                                                            ownerId,                         scopes,            isActive;
+        @uuid("geo-key-1"),  "a9bf6ef094d835fc8b4e4f60ab85229452d355952bdde17d2294e7bfe73aa5d9", @uuid("owner-request-service"), ["geocode:read"],  true;
+      }
+      KnownAddress table on(address) {
+        id,                  address,           formattedAddress,                latitude, longitude;
+        @uuid("addr-main"),  "12 main street",  "12 Main Street, Port Alder",    44.635,   -124.045;
+        @uuid("addr-dock"),  "4 dock road",     "4 Dock Road, Port Alder",       44.620,   -124.080;
+        @uuid("addr-hill"),  "88 hill avenue",  "88 Hill Avenue, Port Alder",    44.645,   -124.015;
+        @uuid("addr-school"), "30 school lane", "30 School Lane, Port Alder",    44.625,   -124.020;
+        @uuid("addr-pier"),  "7 pier street",   "7 Pier Street, Port Alder",     44.650,   -124.075;
+        @uuid("addr-ferry"), "1 ferry landing", "1 Ferry Landing, Port Alder",   44.610,   -124.095;
+        @uuid("addr-mill"),  "21 mill way",     "21 Mill Way, Port Alder",       44.655,   -124.040;
+      }
+    }
+  }
+}

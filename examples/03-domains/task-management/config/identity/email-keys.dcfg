@@ -1,0 +1,34 @@
+// API keys of the email vendor. mode = self: EmailMock issues and verifies them itself, and only the SHA-256
+// hash of a key is stored.
+config identity emailKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "customer";
+    apiKey {
+      header = "X-Email-Api-Key";
+      store = "taskapp.EmailMock";
+      storeBlock = "emailDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+      }
+      lastUsedResolutionSeconds = 60;
+      serviceProviders = ["machine"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

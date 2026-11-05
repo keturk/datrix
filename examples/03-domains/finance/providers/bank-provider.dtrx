@@ -1,0 +1,41 @@
+// The contract of the payment network. The bank calls only this contract and never knows what
+// serves it: config/providers/bank-provider.dcfg says where it is served.
+extern service finance.BankProvider('config/providers/bank-provider.dcfg')
+    : version('1.0.0'), description('Outbound payments to other banks') {
+
+    enum PaymentStatus {
+        Accepted,
+        Rejected
+    }
+
+    struct CreatePaymentRequest {
+        String(34) iban;
+        String(200) beneficiaryName;
+        Money amount;
+        String(3) currency;
+        String(40) reference;
+        /// The caller's key: sending again with the same key returns the first payment.
+        String(120) idempotencyKey;
+    }
+
+    struct Payment {
+        String(40) id;
+        PaymentStatus status;
+        String(200)? failureReason;
+    }
+
+    rest_api BankAPI : basePath('/v1') {
+        @path('/payments')
+        post createPayment(CreatePaymentRequest request) -> Payment {
+            ensure request.amount > 0;
+            ensure request.idempotencyKey != "";
+        }
+    }
+
+    errors {
+        InvalidAccount(String message);
+    }
+
+    auth : apiKey(header: 'X-Bank-Api-Key');
+    health : path('/health');
+}

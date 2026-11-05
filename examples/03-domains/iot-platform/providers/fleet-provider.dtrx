@@ -1,0 +1,47 @@
+// The contract of the device fleet's command gateway: how the application reaches a device that is
+// not always listening. config/providers/fleet-provider.dcfg says where it is served.
+extern service iot.FleetProvider('config/providers/fleet-provider.dcfg')
+    : version('1.0.0'), description('Commands to devices') {
+
+    enum CommandStatus {
+        Queued,
+        Applied,
+        Rejected
+    }
+
+    enum CommandKind {
+        UpdateFirmware,
+        Restart
+    }
+
+    struct SendCommandRequest {
+        String(40) serialNumber;
+        CommandKind kind;
+        String(40)? firmwareVersion;
+        /// The caller's key: sending again with the same key returns the first command.
+        String(120) idempotencyKey;
+    }
+
+    struct DeviceCommand {
+        String(40) id;
+        CommandStatus status;
+        String(200)? rejectionReason;
+    }
+
+    rest_api FleetAPI : basePath('/v1') {
+        @path('/commands')
+        post sendCommand(SendCommandRequest request) -> DeviceCommand {
+            ensure request.idempotencyKey != "";
+        }
+
+        @path('/commands/{id}')
+        get commandById(String id) -> DeviceCommand;
+    }
+
+    errors {
+        CommandNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-Fleet-Api-Key');
+    health : path('/health');
+}

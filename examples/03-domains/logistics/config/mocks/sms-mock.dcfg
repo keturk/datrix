@@ -1,0 +1,40 @@
+config service logistics.SmsMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8092;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms smsDb from postgresContainer(id: "08005120-ebce-428a-a210-b8938f6508b7", database: "logistics_sms_mock");
+    httpSecurity from localHttpSecurity(host: "logistics-sms-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

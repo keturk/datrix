@@ -1,0 +1,21 @@
+// Public places in Port Alder. Every phone number is in the range reserved for fiction. The job
+// ConvertShapes fills each spatial column from these coordinates within a minute of startup.
+seed service cityservices.FacilityService {
+  rdbms facilityDb {
+    baseline {
+      Facility table on(id) {
+        id,                     name,                     type,            latitude, longitude, address,           phone,           isOperational;
+        @uuid("fac-library"),   "Port Alder Library",     Library,         44.635,   -124.045,  "12 Main Street",  "+15555550101",  true;
+        @uuid("fac-station1"),  "Fire Station 1",         FireStation,     44.620,   -124.080,  "4 Dock Road",     "+15555550102",  true;
+        @uuid("fac-station2"),  "Fire Station 2",         FireStation,     44.645,   -124.015,  "88 Hill Avenue",  "+15555550103",  true;
+        @uuid("fac-center"),    "Alder Community Center", CommunityCenter, 44.625,   -124.020,  "30 School Lane",  "+15555550104",  true;
+        @uuid("fac-clinic"),    "Harbor Clinic",          Clinic,          44.650,   -124.075,  "7 Pier Street",   "+15555550105",  false;
+      }
+      Park table on(id) {
+        id,                 name,             amenities,                    boundaryGeoJson;
+        @uuid("park-pier"), "Pier Park",      "Benches, a fishing platform", '{"type":"Polygon","coordinates":[[[-124.09,44.64],[-124.08,44.64],[-124.08,44.65],[-124.09,44.65],[-124.09,44.64]]]}';
+        @uuid("park-hill"), "Hilltop Meadow", "Trails, a playground",       '{"type":"Polygon","coordinates":[[[-124.02,44.63],[-124.01,44.63],[-124.01,44.64],[-124.02,44.64],[-124.02,44.63]]]}';
+      }
+    }
+  }
+}

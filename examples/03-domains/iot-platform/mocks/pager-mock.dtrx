@@ -1,0 +1,82 @@
+// Implements the PagerProvider contract in the stack, so the application sends real requests and needs
+// no paging account: every page lands in a log the Operations app shows, and nobody's phone rings.
+service iot.PagerMock('config/mocks/pager-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the paging vendor') {
+
+    discovery { }
+
+    enum PageStatus {
+        Delivered : tone(success),
+        Failed : tone(danger)
+    }
+
+    rdbms pagerDb {
+
+        /// A page the vendor sent.
+        entity SentPage extends BaseEntity {
+            String(40) pageId : unique;
+            String(120) idempotencyKey : unique;
+            String(20) severity : filterable;
+            String(200) title : filterable;
+            String(500) body;
+            PageStatus status : filterable = PageStatus.Delivered;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct SendPageRequest {
+        String(20) severity;
+        String(200) title;
+        String(500) body;
+        String(120) idempotencyKey;
+    }
+
+    struct PageAnswer {
+        String(40) id;
+        PageStatus status;
+    }
+
+    // The vendor's public API: exactly the PagerProvider contract.
+    rest_api PagerAPI : basePath('/v1'), rdbms(pagerDb) {
+        @path('/pages')
+        post sendPage(SendPageRequest request) : auth(required, providers: [pagerKeys]) -> PageAnswer {
+            let SentPage? existing = SentPage.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return PageAnswer { id: existing.pageId, status: existing.status };
+            }
+            let SentPage created = SentPage.create({
+                pageId: #"pg_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                severity: request.severity,
+                title: request.title,
+                body: request.body
+            });
+            return PageAnswer { id: created.pageId, status: created.status };
+        }
+    }
+
+    // What the Operations app shows: every page sent.
+    rest_api PagerDeskAPI : basePath('/api/v1/desk/pager'), rdbms(pagerDb) {
+        resource SentPage : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a page is delivered unless the mock says otherwise") {
+        let SentPage sent = pagerDb.SentPage.create({
+            pageId: "pg_0001",
+            idempotencyKey: "alert-1",
+            severity: "critical",
+            title: "Dairy fridge at Harbor Street: TooWarm",
+            body: "Last reading 11.5 degrees"
+        });
+        assert sent.status == PageStatus.Delivered;
+    }
+}

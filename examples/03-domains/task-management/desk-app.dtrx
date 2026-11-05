@@ -1,0 +1,126 @@
+from taskapp.ui import Brand;
+
+/// For someone looking after the whole installation: every task, whether people have been told, and what the
+/// mock vendors did with the notices. Every page needs the operator role.
+app taskapp.Desk('config/desk-app.dcfg') : version('2.0.0') {
+    uses taskapp.TaskService;
+    uses taskapp.NoticeService;
+    uses taskapp.ChatMock;
+    uses taskapp.EmailMock;
+
+    theme extends Brand { }
+
+    layout Shell : default {
+        nav {
+            link AllTasks : icon(table_rows), group(Msg.navInstallation);
+            link Notices : icon(notifications), group(Msg.navInstallation);
+            link Channels : icon(forum), group(Msg.navVendors);
+            link Outbox : icon(mail), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page AllTasks() {
+        view {
+            pageHeader(Msg.allTasksTitle, Msg.allTasksSubtitle);
+            table(AllTaskList);
+        }
+    }
+
+    table AllTaskList : source(TaskService.TaskDeskAPI.taskDb.Task.list), pageSizes(10, 25, 50), poll(30s) {
+        column number;
+        column title;
+        column projectName;
+        column status;
+        column priority;
+        column assigneeName;
+        column dueAt : format(date);
+        column openBlockers : format(number);
+        filter title : live;
+        filter projectName;
+        filter status;
+        filter priority;
+        filter assigneeName;
+    }
+
+    @path('/notices')
+    page Notices() {
+        view {
+            pageHeader(Msg.noticesTitle, Msg.noticesSubtitle);
+            table(NoticeList);
+        }
+    }
+
+    table NoticeList : source(NoticeService.NoticeDeskAPI.noticeDb.Notice.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column channel;
+        column target;
+        column subject;
+        column delivered;
+        column attempts : format(number);
+        filter channel;
+        filter target;
+        filter delivered;
+    }
+
+    @path('/vendors/chat')
+    page Channels() {
+        view {
+            pageHeader(Msg.channelsTitle, Msg.channelsSubtitle);
+            table(ChannelPostList);
+        }
+    }
+
+    table ChannelPostList : source(ChatMock.ChatDeskAPI.chatDb.ChannelPost.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column channel;
+        column text;
+        filter channel;
+    }
+
+    @path('/vendors/outbox')
+    page Outbox() {
+        view {
+            pageHeader(Msg.outboxTitle, Msg.outboxSubtitle);
+            table(OutboxList);
+        }
+    }
+
+    table OutboxList : source(EmailMock.EmailDeskAPI.emailDb.Outbound.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column body;
+        column status;
+        filter recipient;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.backHome, AllTasks); }
+        }
+    }
+
+    test("the notices page opens") {
+        let Screen screen = render(Notices);
+        assert screen.shows(Msg.noticesTitle);
+    }
+}

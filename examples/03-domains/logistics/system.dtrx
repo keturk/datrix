@@ -1,7 +1,22 @@
 include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/carrier-provider.dtrx';
+include 'providers/geocode-provider.dtrx';
+include 'providers/sms-provider.dtrx';
 include 'shipment-service.dtrx';
 include 'fleet-service.dtrx';
 include 'route-service.dtrx';
+include 'notice-service.dtrx';
+include 'mocks/carrier-mock.dtrx';
+include 'mocks/geocode-mock.dtrx';
+include 'mocks/sms-mock.dtrx';
+include 'tracking-app.dtrx';
+include 'dispatch-app.dtrx';
+include 'driver-app.dtrx';
 
-system logistics('config/system.dcfg') : version('1.0.0') {
+/// Quayline Freight: a dispatcher books a parcel, plans it onto a van's route and sends the route out; a
+/// driver follows it stop by stop; the recipient follows it on a public page and by text. A parcel outside
+/// the delivery area goes to a partner carrier. The carrier, the geocoder and the text vendor run as mocks
+/// in the same stack.
+system logistics.System('config/system.dcfg') : version('2.0.0') {
 }

@@ -1,0 +1,58 @@
+config strings taskapp.Desk locale "en-US" {
+  messages {
+    appName          = "Millrace Desk";
+    navInstallation  = "This installation";
+    navVendors       = "Vendors";
+    account          = "Account";
+    signOut          = "Sign out";
+    backHome         = "Back to all tasks";
+    notFoundTitle    = "Page not found";
+    allTasksTitle    = "All tasks";
+    allTasksSubtitle = "Every task on every project in this installation.";
+    noticesTitle     = "Notices";
+    noticesSubtitle  = "What the notice service tried to tell people. An undelivered one is tried again every five minutes.";
+    channelsTitle    = "Chat";
+    channelsSubtitle = "Every message the mock chat vendor accepted. None of them left this machine.";
+    outboxTitle      = "Outbox";
+    outboxSubtitle   = "Every email the mock vendor accepted. None of them left this machine.";
+  }
+  labels {
+    page.AllTasks      = "All tasks";
+    page.Notices       = "Notices";
+    page.Channels      = "Chat";
+    page.Outbox        = "Outbox";
+    page.NotFound      = "Not found";
+    field.Task.number = "Number";
+    field.Task.projectName = "Project";
+    field.Task.assigneeName = "With";
+    field.Task.dueAt = "Due";
+    field.Task.openBlockers = "Blockers";
+    field.Notice.createdAt = "When";
+    field.Notice.target = "To";
+    field.ChannelPost.createdAt = "When";
+    field.Outbound.createdAt = "When";
+    filter.AllTaskList.title = "Title";
+    filter.AllTaskList.projectName = "Project";
+    filter.AllTaskList.status = "Column";
+    filter.AllTaskList.priority = "Priority";
+    filter.AllTaskList.assigneeName = "With";
+    filter.NoticeList.channel = "Channel";
+    filter.NoticeList.target = "To";
+    filter.NoticeList.delivered = "Delivered";
+    filter.ChannelPostList.channel = "Channel";
+    filter.OutboxList.recipient = "To";
+    enum.TaskStatus.Backlog = "Backlog";
+    enum.TaskStatus.Todo = "To do";
+    enum.TaskStatus.InProgress = "In progress";
+    enum.TaskStatus.Review = "In review";
+    enum.TaskStatus.Done = "Done";
+    enum.Priority.Low = "Low";
+    enum.Priority.Normal = "Normal";
+    enum.Priority.High = "High";
+    enum.Priority.Urgent = "Urgent";
+    enum.NoticeChannel.Chat = "Chat";
+    enum.NoticeChannel.Email = "Email";
+    enum.DeliveryStatus.Delivered = "Delivered";
+    enum.DeliveryStatus.Bounced = "Bounced";
+  }
+}

@@ -1,545 +1,255 @@
+from iot.common import DeviceStatus;
 
-from iot.common import generateSerialNumber, HEARTBEAT_TIMEOUT_SECONDS;
+// The fleet's register: where each device is and what range it must keep. A device that stops
+// reporting is marked offline by a job, and that change goes out as an event.
+service iot.DeviceService('config/device-service.dcfg') : version('2.0.0'), description('Sites and devices') {
 
-service iot.DeviceService('config/device-service.dcfg') : version('1.0.0'), description('device registration and lifecycle management service') {
     discovery { }
 
     identity {
+        // The opsLead, technician and operator roles are granted, never self-assigned. Sign-in belongs
+        // to the hosted identity provider, so nothing here handles a password.
         provider identity config('config/identity/identity.dcfg') {
-            String email;
-            group "admins" as admin;
+            Email email;
+            String? fullName;
+
+            group "opsLead" as opsLead;
+            group "technician" as technician;
+            group "operator" as operator;
         }
-        provider platform config('config/identity/platform.dcfg') {
+
+        // Service-to-service callers.
+        provider machine config('config/identity/machine.dcfg') {
+        }
+
+        // What a real device presents when it reports a reading.
+        provider deviceKeys config('config/identity/device-keys.dcfg') {
+        }
+
+        // API keys the mocks issue, the way a real vendor authenticates its API callers.
+        provider fleetKeys config('config/identity/fleet-keys.dcfg') {
+        }
+
+        provider pagerKeys config('config/identity/pager-keys.dcfg') {
         }
     }
 
-    enum DeviceStatus {
-        Active,
-        Inactive,
-        Maintenance,
-        Decommissioned
+    exceptions {
+        UnknownDeviceError : status(404), message("There is no device with that serial number");
     }
 
-    enum DeviceType {
-        Sensor,
-        Actuator,
-        Gateway,
-        Controller
+    enum DeviceKind {
+        Fridge,
+        Freezer,
+        ColdRoom
     }
 
-    struct RegisterDeviceRequest {
-        String(200) name;
-        DeviceType type;
-        String(50) firmwareVersion;
-        String(200)? location;
-        Array<String> tags;
-        JSON metadata;
-    }
+    /// How long a device can stay silent before it counts as offline, in minutes.
+    const SILENT_MINUTES = 5;
 
-    struct HeartbeatRequest {
-        String(50) firmwareVersion;
-        JSON? diagnostics;
-    }
+    rdbms deviceDb : audit {
 
-    struct DeviceGroupRequest {
-        String(100) name;
-        String(500)? description;
-    }
-
-    struct AddToGroupRequest {
-        UUID deviceId;
-    }
-
-    struct DeviceSummary {
-        Int totalDevices;
-        Int active;
-        Int inactive;
-        Int maintenance;
-        Int decommissioned;
-    }
-
-    rdbms deviceDb {
+        entity Site extends BaseEntity {
+            String(120) name : filterable;
+            String(120) city;
+            Float latitude;
+            Float longitude;
+        }
 
         entity Device extends BaseEntity {
-            String(50) serialNumber : unique;
-            String(200) name : trim;
-            DeviceType type;
-            DeviceStatus status = DeviceStatus.Inactive;
-            String(50) firmwareVersion;
+            String(40) serialNumber : unique, filterable;
+            String(120) name : filterable;
+            DeviceKind kind : filterable;
+            String(120) siteName : filterable;
+            DeviceStatus status : filterable = DeviceStatus.Provisioning;
+            String(40) firmwareVersion;
             DateTime? lastSeenAt;
-            String(200)? location;
-            Array<String> tags = [];
-            JSON metadata;
-            String? deviceToken;
-
-            Boolean isOnline := lastSeenAt != null && DateTime.diffInSeconds(lastSeenAt, DateTime.now()) < HEARTBEAT_TIMEOUT_SECONDS;
-            Boolean isActive := status == DeviceStatus.Active;
-            String displayName := #"{name} ({serialNumber})";
+            Float minTemperature;
+            Float maxTemperature;
+            UUID siteId : index;
 
             index(status);
-            index(type, status);
-            index(serialNumber);
-            index(firmwareVersion);
-
-            validate {
-                if (name.trim().isEmpty())
-                ValidationError("Device name cannot be empty");
-                if (firmwareVersion.trim().isEmpty())
-                ValidationError("Firmware version cannot be empty");
-            }
-
-            afterCreate {
-                deviceToken = Random.string(32);
-                dispatch DeviceRegistered(id, serialNumber, name, type);
-            }
 
             afterUpdate {
                 if (isChanged(status)) {
-                    dispatch DeviceStatusChanged(id, serialNumber, oldValue(status), status);
+                    dispatch DeviceStatusChanged(id, serialNumber, name, siteName, oldValue(status), status);
                 }
-
-                if (isChanged(firmwareVersion)) {
-                    dispatch DeviceFirmwareUpdated(id, serialNumber, oldValue(firmwareVersion), firmwareVersion);
-                }
-
             }
-
-            fn activate() {
-                status = DeviceStatus.Active;
-                lastSeenAt = DateTime.now();
-                this.save();
-            }
-
-            fn decommission() {
-                status = DeviceStatus.Decommissioned;
-                this.save();
-            }
-
-            fn heartbeat(String version) {
-                lastSeenAt = DateTime.now();
-                firmwareVersion = version;
-                this.save();
-            }
-
         }
-
-        entity DeviceGroup extends BaseEntity {
-            String(100) name : unique, trim;
-            String(500)? description;
-
-            hasMany DeviceGroupMember as members;
-
-            validate {
-                if (name.trim().isEmpty())
-                ValidationError("Group name cannot be empty");
-            }
-
-        }
-
-        entity DeviceGroupMember extends BaseEntity {
-            DateTime joinedAt = DateTime.now();
-
-            belongsTo DeviceGroup : index;
-            belongsTo Device : index;
-
-            index(deviceGroupId, deviceId) : unique;
-        }
-
-    }
-
-    cache redis {
-
-        hash DeviceStatusCache : prefix('device:status:'), ttl(600) {
-            UUID deviceId : primaryKey;
-            DeviceStatus status;
-            String firmwareVersion;
-            DateTime lastSeenAt;
-        }
-
-        counter OnlineDeviceCount : prefix('devices:online:');
     }
 
     pubsub mq {
-
         topic DeviceEvents {
-            publish DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
-                ensure serialNumber.length > 0;
-                ensure name.length > 0;
-            }
-
-            publish DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
+            publish DeviceStatusChanged(UUID deviceId, String serialNumber, String deviceName, String siteName, DeviceStatus oldStatus, DeviceStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-
-            publish DeviceFirmwareUpdated(UUID deviceId, String serialNumber, String oldVersion, String newVersion);
-            publish DeviceHeartbeat(UUID deviceId, String serialNumber, String firmwareVersion);
         }
-
     }
 
-    subscribe DeviceEvents {
-
-        on DeviceRegistered(UUID deviceId, String serialNumber, String name, DeviceType type) {
-            Log.info("New device registered", {
-                deviceId: deviceId,
-                serialNumber: serialNumber,
-                name: name,
-                type: type
-            });
-        }
-
-        on DeviceStatusChanged(UUID deviceId, String serialNumber, DeviceStatus oldStatus, DeviceStatus newStatus) {
-            Log.info("Device status changed", {
-                deviceId: deviceId,
-                serialNumber: serialNumber,
-                oldStatus: oldStatus,
-                newStatus: newStatus
-            });
-
-            redis.DeviceStatusCache.set(deviceId, {
-                deviceId: deviceId,
-                status: newStatus,
-                firmwareVersion: "",
-                lastSeenAt: DateTime.now()
-            });
-
-            if (newStatus == DeviceStatus.Active) {
-                redis.OnlineDeviceCount.incr("total");
-            } else if (oldStatus == DeviceStatus.Active) {
-                redis.OnlineDeviceCount.decr("total");
-            }
-
-        }
-
+    struct RegisterDeviceRequest {
+        String(40) serialNumber;
+        String(120) name;
+        DeviceKind kind;
+        UUID siteId;
+        String(40) firmwareVersion;
+        Float minTemperature;
+        Float maxTemperature;
     }
 
-    rest_api DeviceAPI : basePath('/api/v1/devices'), rdbms(deviceDb) {
+    struct SeenRequest {
+        String(40) serialNumber;
+    }
 
-        resource deviceDb.Device : auth(required, providers: [identity]), only(list, get);
-        resource deviceDb.DeviceGroup : auth(required, providers: [identity], roles: [admin]);
+    struct FirmwareReportRequest {
+        String(40) serialNumber;
+        String(40) firmwareVersion;
+    }
 
-        @path('/register')
-        post(RegisterDeviceRequest request) : auth(required, providers: [identity], roles: [admin]) -> deviceDb.Device {
-            let Device device = deviceDb.Device.create({
-                serialNumber: generateSerialNumber(),
-                name: request.name,
-                type: request.type,
-                firmwareVersion: request.firmwareVersion,
-                location: request.location,
-                tags: request.tags,
-                metadata: request.metadata,
-                status: DeviceStatus.Inactive
-            });
+    /// What another service needs to know about a device, and no more.
+    struct DeviceCard {
+        UUID id;
+        String(40) serialNumber;
+        String(120) name;
+        String(120) siteName;
+        Float minTemperature;
+        Float maxTemperature;
+    }
 
-            Log.info("Device registered", {
-                deviceId: device.id,
-                serialNumber: device.serialNumber,
-                name: device.name,
-                type: device.type
-            });
+    struct FleetSummary {
+        Int total;
+        Int online;
+        Int offline;
+        Int provisioning;
+    }
 
-            return device;
-        }
+    struct SitePin {
+        String(120) name;
+        GeoPoint point;
+        Int devices;
+    }
 
-        @path('/:id/activate')
-        post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> deviceDb.Device {
-            let Device device = deviceDb.Device.findOrFail(id);
+    fn cardOf(deviceDb.Device device) -> DeviceCard {
+        return DeviceCard {
+            id: device.id,
+            serialNumber: device.serialNumber,
+            name: device.name,
+            siteName: device.siteName,
+            minTemperature: device.minTemperature,
+            maxTemperature: device.maxTemperature
+        };
+    }
 
-            if (device.status == DeviceStatus.Decommissioned) {
-                throw ValidationException({
-                    code: "DEVICE_DECOMMISSIONED",
-                    message: "Cannot activate a decommissioned device"
-                });
-            }
-
-            device.activate();
-
-            redis.DeviceStatusCache.set(device.id, {
-                deviceId: device.id,
-                status: device.status,
-                firmwareVersion: device.firmwareVersion,
-                lastSeenAt: device.lastSeenAt
-            });
-
-            Log.info("Device activated", {
-                deviceId: device.id,
-                serialNumber: device.serialNumber
-            });
-
-            return device;
-        }
-
-        @path('/:id/heartbeat')
-        post deviceHeartbeat(UUID id, HeartbeatRequest request) : auth(service, providers: [platform]) -> deviceDb.Device {
-            let Device device = deviceDb.Device.findOrFail(id);
-
-            if (device.status != DeviceStatus.Active) {
-                throw ValidationException({
-                    code: "DEVICE_NOT_ACTIVE",
-                    message: #"Device is not active, current status: {device.status}"
-                });
-            }
-
-            device.heartbeat(request.firmwareVersion);
-
-            redis.DeviceStatusCache.set(device.id, {
-                deviceId: device.id,
-                status: device.status,
-                firmwareVersion: request.firmwareVersion,
-                lastSeenAt: DateTime.now()
-            });
-
-            dispatch DeviceHeartbeat(device.id, device.serialNumber, request.firmwareVersion);
-
-            return device;
-        }
-
-        @path('/:id/decommission')
-        post(UUID id) : auth(required, providers: [identity], roles: [admin]) -> deviceDb.Device {
-            let Device device = deviceDb.Device.findOrFail(id);
-            device.decommission();
-
-            redis.DeviceStatusCache.delete(device.id);
-
-            Log.info("Device decommissioned", {
-                deviceId: device.id,
-                serialNumber: device.serialNumber
-            });
-
-            return device;
-        }
-
-        @path('/by-type/:type')
-        get devicesByType(DeviceType type) : auth(service, providers: [platform]), idempotent -> Array<deviceDb.Device> {
-            return deviceDb.Device
-            .where(type: type)
-            .where(status: DeviceStatus.Active)
-            .orderBy(name: asc)
-            .all();
-        }
-
-        @path('/by-group/:groupId')
-        get devicesByGroup(UUID groupId) : auth(service, providers: [platform]), idempotent -> Array<deviceDb.Device> {
-            let Array<DeviceGroupMember> members = deviceDb.DeviceGroupMember
-            .where(deviceGroupId: groupId)
-            .all();
-            return members.map(m => deviceDb.Device.findOrFail(m.deviceId));
-        }
-
-        @path('/groups/:groupId/add')
-        post(UUID groupId, AddToGroupRequest request) : auth(required, providers: [identity], roles: [admin]) -> deviceDb.DeviceGroupMember {
-            let DeviceGroup group = deviceDb.DeviceGroup.findOrFail(groupId);
-            let Device device = deviceDb.Device.findOrFail(request.deviceId);
-
-            let DeviceGroupMember? existing = deviceDb.DeviceGroupMember
-            .where(deviceGroupId: groupId)
-            .where(deviceId: request.deviceId)
-            .first();
-
-            if (existing != null) {
-                throw ValidationException({
-                    code: "ALREADY_IN_GROUP",
-                    message: #"Device {device.serialNumber} is already in group {group.name}"
-                });
-            }
-
-            let DeviceGroupMember member = deviceDb.DeviceGroupMember.create({
-                deviceGroup: group,
-                device: device,
-                joinedAt: DateTime.now()
-            });
-
-            Log.info("Device added to group", {
-                deviceId: device.id,
-                groupId: group.id,
-                groupName: group.name
-            });
-
-            return member;
-        }
+    // What the operations team and technicians read.
+    rest_api FleetAPI : basePath('/api/v1/fleet'), rdbms(deviceDb) {
+        resource Device : only(list, get), auth(required, providers: [identity], roles: [opsLead, technician]);
+        resource Site : only(list), auth(required, providers: [identity], roles: [opsLead, technician]);
 
         @path('/summary')
-        get deviceSummary() : auth(service, providers: [platform]), hidden, idempotent -> DeviceSummary {
-            let Int total = deviceDb.Device.count();
-            let Int active = deviceDb.Device.where(status: DeviceStatus.Active).count();
-            let Int inactive = deviceDb.Device.where(status: DeviceStatus.Inactive).count();
-            let Int maintenance = deviceDb.Device.where(status: DeviceStatus.Maintenance).count();
-            let Int decommissioned = deviceDb.Device.where(status: DeviceStatus.Decommissioned).count();
-
-            return {
-                totalDevices: total,
-                active: active,
-                inactive: inactive,
-                maintenance: maintenance,
-                decommissioned: decommissioned
+        get summary() : auth(required, providers: [identity], roles: [opsLead, technician]) -> FleetSummary {
+            let Array<Device> devices = Device.limit(5000).all();
+            return FleetSummary {
+                total: devices.filter(d => d.status != DeviceStatus.Retired).length,
+                online: devices.filter(d => d.status == DeviceStatus.Online).length,
+                offline: devices.filter(d => d.status == DeviceStatus.Offline).length,
+                provisioning: devices.filter(d => d.status == DeviceStatus.Provisioning).length
             };
         }
 
-        @path('/by-firmware/:version')
-        get(String version) : auth(required, providers: [identity]) -> Array<deviceDb.Device> {
-            return deviceDb.Device
-            .where(firmwareVersion: version)
-            .orderBy(name: asc)
-            .all();
+        @path('/pins')
+        get pins() : auth(required, providers: [identity], roles: [opsLead, technician]) -> Array<SitePin> {
+            let Array<Site> sites = Site.orderBy(name: asc).limit(500).all();
+            return sites.map(s => SitePin {
+                name: s.name,
+                point: GeoPoint { latitude: s.latitude, longitude: s.longitude },
+                devices: Device.where(siteId: s.id).count()
+            });
         }
 
+        @path('/devices')
+        post register(RegisterDeviceRequest request) : auth(required, providers: [identity], roles: [opsLead]) -> Device {
+            let Site site = Site.findOrFail(request.siteId);
+            return Device.create({
+                serialNumber: request.serialNumber,
+                name: request.name,
+                kind: request.kind,
+                siteId: site.id,
+                siteName: site.name,
+                firmwareVersion: request.firmwareVersion,
+                minTemperature: request.minTemperature,
+                maxTemperature: request.maxTemperature
+            });
+        }
+
+        @path('/devices/:id/retire')
+        post retire(UUID id) : auth(required, providers: [identity], roles: [opsLead]) -> Device {
+            let Device device = Device.findOrFail(id);
+            device.status = DeviceStatus.Retired;
+            device.save();
+            return device;
+        }
     }
 
-    test("computed isActive reflects Active status") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-001",
-            name: "Temperature Sensor",
-            type: DeviceType.Sensor,
-            status: DeviceStatus.Active,
+    // What the telemetry and firmware services read. Only a service with a machine credential reaches
+    // these.
+    rest_api DeviceCardAPI : basePath('/api/v1/internal/devices'), rdbms(deviceDb) {
+        // A device was heard from: it is online, and the caller gets the range to judge the reading by.
+        @path('/seen')
+        post seen(SeenRequest request) : auth(service, providers: [machine]) -> DeviceCard {
+            let Device? device = Device.where(serialNumber: request.serialNumber).first();
+            if (device == null) {
+                throw UnknownDeviceError();
+            }
+            device.lastSeenAt = DateTime.now();
+            if (device.status != DeviceStatus.Retired) {
+                device.status = DeviceStatus.Online;
+            }
+            device.save();
+            return cardOf(device);
+        }
+
+        @path('/active')
+        get activeSerials() : auth(service, providers: [machine]) -> Array<DeviceCard> {
+            let Array<Device> devices = Device.whereIn(status: [DeviceStatus.Online, DeviceStatus.Offline]).limit(5000).all();
+            return devices.map(d => cardOf(d));
+        }
+
+        @path('/firmware')
+        post firmwareReported(FirmwareReportRequest request) : auth(service, providers: [machine]) -> DeviceCard {
+            let Device? device = Device.where(serialNumber: request.serialNumber).first();
+            if (device == null) {
+                throw UnknownDeviceError();
+            }
+            device.firmwareVersion = request.firmwareVersion;
+            device.save();
+            return cardOf(device);
+        }
+    }
+
+    jobs {
+        job MarkOffline {
+            let Array<deviceDb.Device> silent = deviceDb.Device
+                .where(status: DeviceStatus.Online)
+                .where(lastSeenAt: lt(DateTime.now().addMinutes(-SILENT_MINUTES)))
+                .limit(1000)
+                .all();
+            foreach device in silent {
+                device.status = DeviceStatus.Offline;
+                device.save();
+            }
+        }
+    }
+
+    test("a new device waits for its first reading") {
+        let deviceDb.Device created = deviceDb.Device.create({
+            serialNumber: "CF-0001",
+            name: "Dairy fridge",
+            kind: DeviceKind.Fridge,
+            siteName: "Harbor Street",
+            siteId: uuid(),
             firmwareVersion: "1.0.0",
-            metadata: {},
-            lastSeenAt: DateTime.now()
+            minTemperature: 1.0,
+            maxTemperature: 5.0
         });
-        device.save();
-        assert device.isActive == true;
+        assert created.status == DeviceStatus.Provisioning;
     }
-
-    test("validation rejects empty name") {
-        assert throws(
-        () => deviceDb.Device.create({
-            serialNumber: "IOT-TEST-002",
-            name: "",
-            type: DeviceType.Sensor,
-            firmwareVersion: "1.0.0",
-            metadata: {}
-        }),
-        ValidationError("Device name cannot be empty")
-        );
-    }
-
-    test("afterCreate emits DeviceRegistered") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-003",
-            name: "Humidity Sensor",
-            type: DeviceType.Sensor,
-            firmwareVersion: "1.0.0",
-            metadata: {}
-        });
-        device.save();
-        assert emitted(DeviceRegistered(device.id, device.serialNumber, device.name, DeviceType.Sensor));
-    }
-
-    test("status change emits DeviceStatusChanged") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-004",
-            name: "Gateway Hub",
-            type: DeviceType.Gateway,
-            firmwareVersion: "2.0.0",
-            metadata: {}
-        });
-        device.save();
-        device.status = DeviceStatus.Active;
-        device.save();
-        assert emitted(DeviceStatusChanged(device.id, device.serialNumber, DeviceStatus.Inactive, DeviceStatus.Active));
-    }
-
-    test("computed isActive is false for Inactive status") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-005",
-            name: "Pressure Sensor",
-            type: DeviceType.Sensor,
-            status: DeviceStatus.Inactive,
-            firmwareVersion: "1.2.0",
-            metadata: {}
-        });
-        device.save();
-        assert device.isActive == false;
-    }
-
-    test("computed displayName formats name and serial") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-006",
-            name: "Motion Detector",
-            type: DeviceType.Sensor,
-            firmwareVersion: "1.0.0",
-            metadata: {}
-        });
-        device.save();
-        assert device.displayName == "Motion Detector (IOT-TEST-006)";
-    }
-
-    test("validation rejects empty firmware version") {
-        assert throws(
-        () => deviceDb.Device.create({
-            serialNumber: "IOT-TEST-007",
-            name: "Valid Sensor",
-            type: DeviceType.Sensor,
-            firmwareVersion: "",
-            metadata: {}
-        }),
-        ValidationError("Firmware version cannot be empty")
-        );
-    }
-
-    test("activate transitions device to Active and sets lastSeenAt") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-008",
-            name: "Actuator Unit",
-            type: DeviceType.Actuator,
-            firmwareVersion: "3.0.0",
-            metadata: {}
-        });
-        device.save();
-        device.activate();
-        assert device.status == DeviceStatus.Active;
-        assert device.lastSeenAt != null;
-    }
-
-    test("decommission transitions device to Decommissioned") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-009",
-            name: "Legacy Controller",
-            type: DeviceType.Controller,
-            firmwareVersion: "1.0.0",
-            metadata: {}
-        });
-        device.save();
-        device.decommission();
-        assert device.status == DeviceStatus.Decommissioned;
-    }
-
-    test("heartbeat updates lastSeenAt and firmware version") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-010",
-            name: "Network Gateway",
-            type: DeviceType.Gateway,
-            status: DeviceStatus.Active,
-            firmwareVersion: "2.0.0",
-            metadata: {},
-            lastSeenAt: DateTime.now()
-        });
-        device.save();
-        device.heartbeat("2.1.0");
-        assert device.firmwareVersion == "2.1.0";
-        assert device.lastSeenAt != null;
-    }
-
-    test("firmware change emits DeviceFirmwareUpdated") {
-        let Device device = deviceDb.Device.create({
-            serialNumber: "IOT-TEST-011",
-            name: "Firmware Test Sensor",
-            type: DeviceType.Sensor,
-            firmwareVersion: "1.0.0",
-            metadata: {}
-        });
-        device.save();
-        device.firmwareVersion = "1.1.0";
-        device.save();
-        assert emitted(DeviceFirmwareUpdated(device.id, device.serialNumber, "1.0.0", "1.1.0"));
-    }
-
-    test("validation rejects empty group name") {
-        assert throws(
-        () => deviceDb.DeviceGroup.create({
-            name: ""
-        }),
-        ValidationError("Group name cannot be empty")
-        );
-    }
-
 }

@@ -1,0 +1,52 @@
+config service lms.TutorService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8003;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms tutorDb from postgresContainer(id: "60ff839c-6df7-4e0f-9223-8178909afaba", database: "lms_tutor");
+    httpSecurity from localHttpSecurity(host: "lms-tutor-service");
+    serviceCredentialOps from machineCredential();
+    microserviceClientOps from peerClient();
+    retryBudgetOps from retryBudget();
+    resilience {
+      defaults {
+        timeout = "30s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+    secrets {
+      // The default only exists on a local stack, where it matches the hash seeded in
+      // seed/model-mock.dseed, so the example runs with nothing to configure. Any other deployment must
+      // supply the handle's value.
+      secret model_provider_api_key {
+        required = true;
+        purpose = "API key for the model behind the tutor (ModelProvider contract).";
+        localDefault = "dev-only-model-key-not-a-credential";
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

@@ -1,0 +1,49 @@
+// A week of notes, one post waiting for a moderator, and one report waiting too.
+seed service social.PostService {
+  rdbms postDb {
+    baseline {
+      Post table on(id) {
+        id,             authorName,      authorHandle, body,                                                                  status,    likes, comments, heldReason;
+        @uuid("po-1"),  "Iris Calloway", "iris",       "Forty-one avocets on the mud at low tide. A record for this month. #waders #estuary", Published, 2, 1, null;
+        @uuid("po-2"),  "Tom Jay",       "tomjay",     "A herring gull has learned the bakery opens at seven. #gulls",        Published, 3,     0,        null;
+        @uuid("po-3"),  "Nia Bevan",     "niaowl",     "Two tawny owls calling across the valley at 3am. Worth the lost sleep. #owls", Published, 1, 0, null;
+        @uuid("po-4"),  "Iris Calloway", "iris",       "First curlew of the autumn on the estuary this morning. #waders",     Published, 1,     0,        null;
+        @uuid("po-5"),  "Ben Okafor",    "benfinch",   "Is this a chiffchaff? Small, green, will not stop saying its own name.", Published, 0,  0,        null;
+        @uuid("po-6"),  "Tom Jay",       "tomjay",     "Great photos of the colony here: http://example.com/gulls #gulls",    Held,      0,     0,        "Contains a link";
+      }
+      Comment table on(id) {
+        id,            postId,         authorName,  authorHandle, body;
+        @uuid("co-1"), @uuid("po-1"),  "Nia Bevan", "niaowl",     "Forty-one! Which end of the estuary?";
+      }
+      Like table on(id) {
+        id,            postId,         handle;
+        @uuid("li-1"), @uuid("po-1"),  "tomjay";
+        @uuid("li-2"), @uuid("po-1"),  "niaowl";
+        @uuid("li-3"), @uuid("po-2"),  "iris";
+        @uuid("li-4"), @uuid("po-2"),  "niaowl";
+        @uuid("li-5"), @uuid("po-2"),  "benfinch";
+        @uuid("li-6"), @uuid("po-3"),  "iris";
+        @uuid("li-7"), @uuid("po-4"),  "tomjay";
+      }
+      Hashtag table on(tag) {
+        id,            tag,       uses;
+        @uuid("ha-1"), "waders",  2;
+        @uuid("ha-2"), "estuary", 1;
+        @uuid("ha-3"), "gulls",   1;
+        @uuid("ha-4"), "owls",    1;
+      }
+      TagUse table on(id) {
+        id,            tag,       postId;
+        @uuid("tu-1"), "waders",  @uuid("po-1");
+        @uuid("tu-2"), "estuary", @uuid("po-1");
+        @uuid("tu-3"), "gulls",   @uuid("po-2");
+        @uuid("tu-4"), "owls",    @uuid("po-3");
+        @uuid("tu-5"), "waders",  @uuid("po-4");
+      }
+      Report table on(id) {
+        id,            postId,        excerpt,                                                         authorHandle, reason, status, reporterHandle;
+        @uuid("re-1"), @uuid("po-5"), "Is this a chiffchaff? Small, green, will not stop saying its own name.", "benfinch", Other, Open, "tomjay";
+      }
+    }
+  }
+}

@@ -1,7 +1,19 @@
 include 'common.dtrx';
-include 'user-service.dtrx';
+include 'ui.dtrx';
+include 'providers/moderation-provider.dtrx';
+include 'providers/push-provider.dtrx';
+include 'providers/email-provider.dtrx';
+include 'people-service.dtrx';
 include 'post-service.dtrx';
-include 'notification-service.dtrx';
+include 'notice-service.dtrx';
+include 'mocks/moderation-mock.dtrx';
+include 'mocks/push-mock.dtrx';
+include 'mocks/email-mock.dtrx';
+include 'social-app.dtrx';
+include 'desk-app.dtrx';
 
-system social.System('config/system.dcfg') : version('1.0.0') {
+/// Rookery: a place to post short notes and follow people. Anyone can read. Every post goes past a moderation
+/// vendor before anyone sees it, and a person on the Trust and Safety desk decides what the vendor is unsure of.
+/// The moderation, push and email vendors run as mocks in the same stack.
+system social.System('config/system.dcfg') : version('2.0.0') {
 }

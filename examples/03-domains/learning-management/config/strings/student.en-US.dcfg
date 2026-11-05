@@ -1,0 +1,53 @@
+config strings lms.Student locale "en-US" {
+  messages {
+    appName          = "Larkhill Academy";
+    account          = "Account";
+    signOut          = "Sign out";
+    home             = "Back to the catalog";
+    notFoundTitle    = "Page not found";
+    catalogTitle     = "What would you like to learn?";
+    catalogSubtitle  = "Short courses, taught by people who do the work.";
+    noCourses        = "No courses are open right now";
+    taughtBy         = "Taught by {name}";
+    courseFacts      = "{lessons} lessons, {minutes} minutes";
+    seeCourse        = "See this course";
+    seeCatalog       = "See the catalog";
+    enrollFor        = "Enroll for {price}";
+    enrollTitle      = "Enroll on this course";
+    testCardNote     = "This is a demonstration. Choose a card to see a payment go through or get declined; no real card is involved.";
+    enrolled         = "You are in. Here is your first lesson.";
+    syllabus         = "What you will read";
+    minutesLine      = "{minutes} minutes";
+    learningTitle    = "My learning";
+    learningSubtitle = "Everything you have enrolled on.";
+    notEnrolled      = "You have not enrolled on anything yet";
+    progressLine     = "{percent}% complete";
+    certificateLine  = "Finished. Your certificate code is {code}.";
+    passed           = "Passed";
+    notYet           = "Not yet";
+    optionALine      = "A. {text}";
+    optionBLine      = "B. {text}";
+    optionCLine      = "C. {text}";
+    answerIt         = "Answer the question";
+    askTutor         = "Ask the tutor";
+    backToCourse     = "All lessons";
+    rightAnswer      = "That is right.";
+    wrongAnswer      = "Not quite. Read it again and have another go.";
+  }
+  labels {
+    page.Catalog      = "Catalog";
+    page.CourseDetail = "Course";
+    page.MyLearning   = "My learning";
+    page.LearnCourse  = "Your course";
+    page.ReadLesson   = "Lesson";
+    page.NotFound     = "Not found";
+    field.EnrollRequest.card = "Card to try";
+    field.AnswerRequest.answer = "Your answer";
+    field.AskRequest.question = "Your question";
+    enum.TestCard.CardThatPays = "A card that pays";
+    enum.TestCard.CardThatDeclines = "A card that is declined";
+    enum.QuizOption.OptionA = "A";
+    enum.QuizOption.OptionB = "B";
+    enum.QuizOption.OptionC = "C";
+  }
+}

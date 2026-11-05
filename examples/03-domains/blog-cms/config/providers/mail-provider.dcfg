@@ -1,0 +1,28 @@
+// Where the MailProvider contract is served. Every profile here points at the mock in the same
+// stack; pointing one at a real provider changes only this file.
+config extern blog.MailProvider {
+  base {
+    deployment = "external";
+    url = "http://blog-mail-mock:8090";
+    auth {
+      type = "apiKey";
+      header = "X-Mail-Api-Key";
+      // A logical handle; each consuming service declares it and its value is never in a file here.
+      secret = "mail_provider_api_key";
+    }
+    timeout = "10s";
+    retry {
+      maxAttempts = 3;
+      backoff = "exponential";
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

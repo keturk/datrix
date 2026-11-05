@@ -1,0 +1,20 @@
+// Three open roles and a few invented candidates, so the careers site and the board are not empty on
+// first start.
+seed service hr.RecruitmentService {
+  rdbms recruitDb {
+    baseline {
+      JobPosting table on(id) {
+        id,                 title,                department,  employmentType, location,  description,                                                                                   salaryFrom, salaryTo,  status;
+        @uuid("role-eng"),  "Backend engineer",   Engineering, FullTime,       "Remote",  "You will build the services the rest of the company stands on. We write small changes and ship them daily.", 90000.00,   130000.00, Open;
+        @uuid("role-des"),  "Product designer",   Design,      FullTime,       "Lisbon",  "You will turn what customers tell us into screens they do not have to think about.",                    70000.00,   95000.00,  Open;
+        @uuid("role-sup"),  "Support engineer",   Operations,  Contract,       "Remote",  "You will be the person customers talk to when something breaks, and the one who stops it breaking again.", 50000.00,   70000.00,  Open;
+      }
+      JobApplication table on(reference) {
+        id,               candidateName,    postingTitle,       status,    checkState, offerState, candidateEmail,      coverNote,                                       reference,          jobPostingId,      department,  employmentType;
+        @uuid("app-mia"), "Mia Sorensen",   "Backend engineer", Applied,   NotStarted, NotSent,    "mia@example.com",   "I have run payment services for six years.",    "APP-SEEDAAAAAAAAA1", @uuid("role-eng"), Engineering, FullTime;
+        @uuid("app-kai"), "Kai Nakamura",   "Backend engineer", Interview, NotStarted, NotSent,    "kai@example.com",   "I like small services and boring databases.",   "APP-SEEDAAAAAAAAA2", @uuid("role-eng"), Engineering, FullTime;
+        @uuid("app-ida"), "Ida Kowalska",   "Product designer", Screening, NotStarted, NotSent,    "ida@example.com",   "My portfolio is mostly internal tools.",        "APP-SEEDAAAAAAAAA3", @uuid("role-des"), Design,      FullTime;
+      }
+    }
+  }
+}

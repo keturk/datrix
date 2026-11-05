@@ -1,0 +1,197 @@
+// Stands in for the devices themselves. Implements the FleetProvider contract, and every minute each
+// powered-on simulated device sends a real reading to the telemetry service. An operator can open a
+// fridge's door or pull its plug from the Operations app, and watch the alert it causes.
+service iot.FleetMock('config/mocks/fleet-mock.dcfg')
+    : version('1.0.0'), description('In-stack simulator of the device fleet') {
+
+    discovery { }
+
+    uses TelemetryService;
+
+    exceptions {
+        NoSuchCommandError : status(404), message("There is no command with that id");
+    }
+
+    enum CommandStatus {
+        Queued : tone(neutral),
+        Applied : tone(success),
+        Rejected : tone(danger)
+    }
+
+    enum CommandKind {
+        UpdateFirmware,
+        Restart
+    }
+
+    /// How many degrees an open door adds.
+    const DOOR_OPEN_EFFECT = 9.0;
+
+    rdbms fleetDb {
+
+        /// One device in the simulation.
+        entity SimulatedDevice extends BaseEntity {
+            String(40) serialNumber : unique, filterable;
+            String(120) name : filterable;
+            Float normalTemperature;
+            Boolean doorOpen : filterable = false;
+            Boolean poweredOn : filterable = true;
+            Boolean refusesUpdates = false;
+            String(40) firmwareVersion;
+            Float? lastTemperature;
+        }
+
+        /// A command the gateway received. The next tick applies it.
+        entity GatewayCommand extends BaseEntity {
+            String(40) commandId : unique;
+            String(120) idempotencyKey : unique;
+            String(40) serialNumber : filterable;
+            CommandKind kind;
+            String(40)? firmwareVersion;
+            CommandStatus status : filterable = CommandStatus.Queued;
+            String(200)? rejectionReason;
+        }
+
+        /// API keys the gateway issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct SendCommandRequest {
+        String(40) serialNumber;
+        CommandKind kind;
+        String(40)? firmwareVersion;
+        String(120) idempotencyKey;
+    }
+
+    struct DeviceCommand {
+        String(40) id;
+        CommandStatus status;
+        String(200)? rejectionReason;
+    }
+
+    fn answerOf(fleetDb.GatewayCommand command) -> DeviceCommand {
+        return DeviceCommand { id: command.commandId, status: command.status, rejectionReason: command.rejectionReason };
+    }
+
+    // The gateway's public API: exactly the FleetProvider contract.
+    rest_api FleetAPI : basePath('/v1'), rdbms(fleetDb) {
+        @path('/commands')
+        post sendCommand(SendCommandRequest request) : auth(required, providers: [fleetKeys]) -> DeviceCommand {
+            let GatewayCommand? existing = GatewayCommand.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            return answerOf(GatewayCommand.create({
+                commandId: #"cmd_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                serialNumber: request.serialNumber,
+                kind: request.kind,
+                firmwareVersion: request.firmwareVersion
+            }));
+        }
+
+        @path('/commands/:id')
+        get commandById(String id) : auth(required, providers: [fleetKeys]) -> DeviceCommand {
+            let GatewayCommand? command = GatewayCommand.where(commandId: id).first();
+            if (command == null) {
+                throw NoSuchCommandError();
+            }
+            return answerOf(command);
+        }
+    }
+
+    // What the operator pages in the Operations app show and do.
+    rest_api SimulatorDeskAPI : basePath('/api/v1/desk/fleet'), rdbms(fleetDb) {
+        resource SimulatedDevice : only(list), auth(required, providers: [identity], roles: [operator]);
+        resource GatewayCommand : only(list), auth(required, providers: [identity], roles: [operator]);
+
+        @path('/devices/:id/open-door')
+        post openDoor(UUID id) : auth(required, providers: [identity], roles: [operator]) -> SimulatedDevice {
+            let SimulatedDevice device = SimulatedDevice.findOrFail(id);
+            device.doorOpen = true;
+            device.save();
+            return device;
+        }
+
+        @path('/devices/:id/close-door')
+        post closeDoor(UUID id) : auth(required, providers: [identity], roles: [operator]) -> SimulatedDevice {
+            let SimulatedDevice device = SimulatedDevice.findOrFail(id);
+            device.doorOpen = false;
+            device.save();
+            return device;
+        }
+
+        @path('/devices/:id/unplug')
+        post unplug(UUID id) : auth(required, providers: [identity], roles: [operator]) -> SimulatedDevice {
+            let SimulatedDevice device = SimulatedDevice.findOrFail(id);
+            device.poweredOn = false;
+            device.save();
+            return device;
+        }
+
+        @path('/devices/:id/plug-in')
+        post plugIn(UUID id) : auth(required, providers: [identity], roles: [operator]) -> SimulatedDevice {
+            let SimulatedDevice device = SimulatedDevice.findOrFail(id);
+            device.poweredOn = true;
+            device.save();
+            return device;
+        }
+    }
+
+    jobs {
+        // One minute passes in the simulated fleet: commands land, then every powered device reports.
+        job Tick {
+            let Array<fleetDb.GatewayCommand> queued = fleetDb.GatewayCommand.where(status: CommandStatus.Queued).limit(100).all();
+            foreach command in queued {
+                let fleetDb.SimulatedDevice? device = fleetDb.SimulatedDevice.where(serialNumber: command.serialNumber).first();
+                if (device == null || !device.poweredOn) {
+                    command.status = CommandStatus.Rejected;
+                    command.rejectionReason = "The device is not answering";
+                } else if (device.refusesUpdates && command.kind == CommandKind.UpdateFirmware) {
+                    command.status = CommandStatus.Rejected;
+                    command.rejectionReason = "Not enough storage for this firmware";
+                } else {
+                    if (command.firmwareVersion != null) {
+                        device.firmwareVersion = command.firmwareVersion;
+                        device.save();
+                    }
+                    command.status = CommandStatus.Applied;
+                }
+                command.save();
+            }
+            let Array<fleetDb.SimulatedDevice> powered = fleetDb.SimulatedDevice.where(poweredOn: true).limit(500).all();
+            foreach device in powered {
+                let Float temperature = Math.round(device.normalTemperature + Random.float(-0.4, 0.4) + (device.doorOpen ? DOOR_OPEN_EFFECT : 0.0), 1);
+                device.lastTemperature = temperature;
+                device.save();
+                try {
+                    TelemetryService.SimulatorIngestAPI.post.simulatedReading({
+                        serialNumber: device.serialNumber,
+                        temperature: temperature,
+                        humidity: Random.float(40.0, 60.0),
+                        batteryPercent: Random.int(80, 100)
+                    });
+                } catch (Exception e) {
+                    Log.warn("Reading not delivered", { serialNumber: device.serialNumber });
+                }
+            }
+        }
+    }
+
+    test("a simulated fridge starts with its door closed") {
+        let SimulatedDevice created = fleetDb.SimulatedDevice.create({
+            serialNumber: "CF-0001",
+            name: "Dairy fridge",
+            normalTemperature: 3.0,
+            firmwareVersion: "1.0.0"
+        });
+        assert !created.doorOpen;
+        assert created.poweredOn;
+    }
+}

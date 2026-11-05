@@ -1,0 +1,37 @@
+// Tasks in every column. WEB-5 waits on WEB-3, so dragging it to In progress is refused until WEB-3 is done.
+// WEB-2 and LCH-1 are already overdue, so the job has something to say the first time it runs.
+seed service taskapp.TaskService {
+  rdbms taskDb {
+    baseline {
+      Task table on(number) {
+        id,              number,  title,                        projectId,            projectName,     chatChannel, status,     priority, assigneeName,  assigneeEmail,               dueAt,                 doneAt,                openBlockers, description;
+        @uuid("t-web1"), "WEB-1", "Agree the page list",        @uuid("proj-web"),    "New website",   "website",   Done,       Normal,   "Maya Ortiz",  "maya@millrace.example.com", @datetime("-12d 17:00"), @datetime("-11d 15:20"), 0, "Which pages the new site has, and who writes each one.";
+        @uuid("t-web2"), "WEB-2", "Write the pricing page",     @uuid("proj-web"),    "New website",   "website",   Todo,       High,     "Sam Whitley", "sam@millrace.example.com",  @datetime("-2d 17:00"),  null,                  0, "The three plans, what each includes, and the answer to *can I change later?*";
+        @uuid("t-web3"), "WEB-3", "Build the page templates",   @uuid("proj-web"),    "New website",   "website",   InProgress, High,     "Maya Ortiz",  "maya@millrace.example.com", @datetime("+2d 17:00"),  null,                  0, "Home, article and plain page, from the signed-off design.";
+        @uuid("t-web4"), "WEB-4", "Choose the photographs",     @uuid("proj-web"),    "New website",   "website",   Review,     Low,      "Sam Whitley", "sam@millrace.example.com",  @datetime("+5d 17:00"),  null,                  0, "Twelve for launch, all licensed, none of them of people pointing at laptops.";
+        @uuid("t-web5"), "WEB-5", "Move the articles across",   @uuid("proj-web"),    "New website",   "website",   Todo,       Normal,   "Sam Whitley", "sam@millrace.example.com",  @datetime("+10d 17:00"), null,                  1, "All 140, with their old addresses redirected. Needs the templates first.";
+        @uuid("t-web6"), "WEB-6", "Redirect the old addresses", @uuid("proj-web"),    "New website",   "website",   Backlog,    Normal,   null,          null,                        null,                    null,                  0, "Every old address answers with a permanent redirect, and none of them loops.";
+        @uuid("t-lch1"), "LCH-1", "Book the launch webinar",    @uuid("proj-launch"), "Spring launch", "launch",    Todo,       Urgent,   "Sam Whitley", "sam@millrace.example.com",  @datetime("-1d 12:00"),  null,                  0, "A slot in launch week, with a host and a backup host.";
+        @uuid("t-lch2"), "LCH-2", "Draft the announcement",     @uuid("proj-launch"), "Spring launch", "launch",    InProgress, Normal,   "Maya Ortiz",  "maya@millrace.example.com", @datetime("+8d 17:00"),  null,                  0, "One email and one blog post, saying the same thing.";
+        @uuid("t-lch3"), "LCH-3", "Brief the support team",     @uuid("proj-launch"), "Spring launch", "launch",    Backlog,    Normal,   null,          null,                        null,                    null,                  0, "What changes for customers, and what to say when they ask.";
+      }
+      Blocker table on(id) {
+        id,                taskId,          blockerTaskId,   blockerNumber, blockerTitle;
+        @uuid("b-web5-3"), @uuid("t-web5"), @uuid("t-web3"), "WEB-3",       "Build the page templates";
+      }
+      Comment table on(id) {
+        id,            taskId,          authorName,    authorEmail,                 body;
+        @uuid("c-1"),  @uuid("t-web3"), "Maya Ortiz",  "maya@millrace.example.com", "The article template is done. Plain page is next.";
+        @uuid("c-2"),  @uuid("t-web3"), "Sam Whitley", "sam@millrace.example.com",  "Tell me as soon as it is, because **WEB-5** is waiting.";
+        @uuid("c-3"),  @uuid("t-lch1"), "Sam Whitley", "sam@millrace.example.com",  "I have asked two hosts. Waiting to hear.";
+      }
+      Activity table on(id) {
+        id,            projectId,            actorName,     taskNumber, summary;
+        @uuid("a-1"),  @uuid("proj-web"),    "Maya Ortiz",  "WEB-1",    "moved it to Done";
+        @uuid("a-2"),  @uuid("proj-web"),    "Maya Ortiz",  "WEB-3",    "moved it to InProgress";
+        @uuid("a-3"),  @uuid("proj-web"),    "Sam Whitley", "WEB-5",    "is now waiting on WEB-3";
+        @uuid("a-4"),  @uuid("proj-launch"), "Sam Whitley", "LCH-1",    "commented";
+      }
+    }
+  }
+}

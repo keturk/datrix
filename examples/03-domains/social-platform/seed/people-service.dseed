@@ -1,0 +1,23 @@
+// Four people who follow each other. Sign up with one of these addresses to step into their profile.
+seed service social.PeopleService {
+  rdbms peopleDb {
+    baseline {
+      Profile table on(handle) {
+        id,              handle,    displayName,     bio,                                                  followers, following, isSuspended, email;
+        @uuid("p-iris"), "iris",    "Iris Calloway", "Counting waders on the estuary since 2009.",         3,         2,         false,       "iris@rookery.example.com";
+        @uuid("p-tom"),  "tomjay",  "Tom Jay",       "Mostly gulls. Sometimes sandwiches, stolen by gulls.", 2,       2,         false,       "tom@rookery.example.com";
+        @uuid("p-nia"),  "niaowl",  "Nia Bevan",     "I am up at night so you do not have to be.",         1,         2,         false,       "nia@rookery.example.com";
+        @uuid("p-ben"),  "benfinch", "Ben Okafor",   "New to all this. Please tell me what that bird is.", 0,         0,         false,       "ben@rookery.example.com";
+      }
+      Follow table on(id) {
+        id,             followerHandle, followedHandle;
+        @uuid("f-1"),   "tomjay",       "iris";
+        @uuid("f-2"),   "niaowl",       "iris";
+        @uuid("f-3"),   "iris",         "tomjay";
+        @uuid("f-4"),   "iris",         "niaowl";
+        @uuid("f-5"),   "niaowl",       "tomjay";
+        @uuid("f-6"),   "tomjay",       "niaowl";
+      }
+    }
+  }
+}

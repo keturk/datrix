@@ -1,717 +1,411 @@
+from social.common import PostStatus;
 
-from datrix.foundation import MAX_PAGE_SIZE;
-from social.common import ContentStatus, MAX_POST_LENGTH;
+// Posts and everything hanging off them. Every post goes past the moderation vendor before anyone sees it. If
+// the vendor is down, the post waits for a person rather than being published unread. A short-lived counter in
+// Redis slows down anyone posting too fast, without a database write for each attempt.
+service social.PostService('config/post-service.dcfg') : version('2.0.0'), description('Posts, comments, likes and reports') {
 
-service social.PostService('config/post-service.dcfg') : version('1.0.0'), description('post and content management service') {
-    discovery {
-        UserService { loadBalance: roundRobin, healthyOnly: true }
+    discovery { }
+
+    uses PeopleService;
+    uses ModerationProvider;
+
+    exceptions {
+        NoSuchPostError : status(404), message("That post is not here");
+        NeedsHandleError : status(409), message("Choose a handle first");
+        SuspendedError : status(403), message("Your account is suspended");
+        RejectedError : status(422), message("That post breaks the rules, so it was not published");
+        SlowDownError : status(429), message("You are posting too quickly. Try again in a minute");
+        AlreadyDecidedError : status(409), message("Someone has already decided this");
     }
 
-    enum PostVisibility {
-        Public : value('public'),
-        Private : value('private'),
-        FollowersOnly : value('followers_only')
+    enum ReportReason {
+        Spam : tone(warning),
+        Abuse : tone(danger),
+        Other : tone(neutral)
     }
 
-    enum ReactionType {
-        Like : value('like'),
-        Love : value('love'),
-        Laugh : value('laugh'),
-        Sad : value('sad')
+    enum ReportStatus {
+        Open : tone(warning),
+        Upheld : tone(danger),
+        Dismissed : tone(neutral)
     }
 
-    struct CreatePostRequest {
-        Text content;
-        PostVisibility visibility = PostVisibility.Public;
-        Array<String>? tags;
-    }
-
-    struct UpdatePostRequest {
-        Text? content;
-        PostVisibility? visibility;
-    }
-
-    struct CreateCommentRequest {
-        Text content;
-    }
-
-    struct LikeResponse {
-        UUID postId;
-        Int likeCount;
-        Boolean liked;
-    }
-
-    struct PostSearchResult {
-        Array<postDb.Post> posts;
-        Int total;
-    }
+    /// How many posts one person may make in the window the counter lives for.
+    const POSTS_PER_MINUTE = 5;
 
     rdbms postDb {
 
-        entity Post extends BaseEntity : audit {
-            UUID authorId : index;
-            Text content;
-            PostVisibility visibility = PostVisibility.Public;
-            ContentStatus status = ContentStatus.Published;
-            Int likeCount = 0;
-            Int commentCount = 0;
-            Int shareCount = 0;
-            Int viewCount = 0;
-            JSON? tags;
-            DateTime? publishedAt;
+        entity Post extends BaseEntity {
+            String(80) authorName : filterable;
+            String(30) authorHandle : index, filterable;
+            Text body;
+            PostStatus status : filterable = PostStatus.Published;
+            Int likes = 0;
+            Int comments = 0;
+            /// Why the vendor would not publish it without a person looking.
+            String(200)? heldReason;
 
-            // Computed fields
-            Boolean isPopular := likeCount >= 10 || commentCount >= 5;
-            Boolean isPublished := status == ContentStatus.Published;
-            Boolean isPublic := visibility == PostVisibility.Public && status == ContentStatus.Published;
-
-            hasMany Comment as comments : cascade(delete);
-            hasMany Like as likes : cascade(delete);
-
-            index(authorId, status);
-            index(status, createdAt);
-            index(visibility, status);
-            fulltext(content);
-
-            validate {
-                if (content.trim().isEmpty())
-                ValidationError("Post content cannot be empty");
-                if (content.length() > MAX_POST_LENGTH)
-                ValidationError("Post content cannot exceed 5000 characters");
-            }
-
-            beforeCreate {
-                if (status == ContentStatus.Published) {
-                    publishedAt = DateTime.now();
-                }
-
-            }
-
-            afterCreate {
-                if (status == ContentStatus.Published) {
-                    dispatch PostPublished(id, authorId, visibility);
-                }
-
-            }
-
-            afterUpdate {
-                if (isChanged(status)) {
-                    if (status == ContentStatus.Published && publishedAt == null) {
-                        publishedAt = DateTime.now();
-                    }
-
-                    dispatch PostStatusChanged(id, authorId, oldValue(status), status);
-                }
-
-                if (isChanged(content)) {
-                    dispatch PostUpdated(id, authorId);
-                }
-
-            }
-
+            fulltext(body, authorName);
         }
 
         entity Comment extends BaseEntity {
-            UUID authorId : index;
-            Text content;
-            Int likeCount = 0;
-
-            belongsTo Post : index;
-
-            index(postId, createdAt);
-
-            validate {
-                if (content.trim().isEmpty())
-                ValidationError("Comment content cannot be empty");
-                if (content.length() > 2000)
-                ValidationError("Comment cannot exceed 2000 characters");
-            }
-
-            afterCreate {
-                // Increment comment count on the post
-                let Post? post = postDb.Post.find(postId);
-                if (post != null) {
-                    post.commentCount = post.commentCount + 1;
-                    post.save();
-                }
-
-                dispatch CommentAdded(id, postId, authorId);
-            }
-
+            String(80) authorName;
+            String(30) authorHandle;
+            Text body;
+            UUID postId : index;
         }
 
         entity Like extends BaseEntity {
-            UUID userId : index;
+            String(30) handle;
+            UUID postId : index;
 
-            belongsTo Post : index;
-
-            index(postId, userId) : unique;
-
-            afterCreate {
-                // Increment like count on the post
-                let Post? post = postDb.Post.find(postId);
-                if (post != null) {
-                    post.likeCount = post.likeCount + 1;
-                    post.save();
-                }
-
-            }
-
+            index(postId, handle) : unique;
         }
 
         entity Hashtag extends BaseEntity {
-            String(100) name : unique, trim;
-            Int postCount = 0;
-
-            index(name);
+            String(60) tag : unique;
+            Int uses = 0;
         }
 
-        entity PostHashtag extends BaseEntity {
+        entity TagUse extends BaseEntity {
+            String(60) tag : index;
             UUID postId : index;
-            UUID hashtagId : index;
 
-            index(postId, hashtagId) : unique;
+            index(tag, postId) : unique;
         }
 
+        entity Report extends BaseEntity {
+            String(200) excerpt;
+            String(30) authorHandle : filterable;
+            ReportReason reason : filterable;
+            ReportStatus status : filterable = ReportStatus.Open;
+            String(30) reporterHandle;
+            UUID postId : index;
+        }
     }
 
     cache redis {
-        hash PostCache : prefix('post:'), ttl(1800) {
-            UUID postId : primaryKey;
-            UUID authorId;
-            ContentStatus status;
-            Int likeCount;
-            Int commentCount;
+        hash PostingWindow : prefix('posting:'), ttl(60) {
+            String handle : key;
+            Int count;
         }
-
-        counter PostViewCount : prefix('post:views:');
-
-        sortedset TrendingPosts : prefix('trending:'), ttl(86400) {
-            UUID postId : member;
-            Int score;
-        }
-
     }
 
     pubsub mq {
-
         topic PostEvents {
-            publish PostPublished(UUID postId, UUID authorId, PostVisibility visibility);
-            publish PostUpdated(UUID postId, UUID authorId);
-            publish PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
-                ensure oldStatus != newStatus;
-            }
-
-            publish PostDeleted(UUID postId, UUID authorId);
-            publish CommentAdded(UUID commentId, UUID postId, UUID authorId);
-            publish PostLiked(UUID postId, UUID userId);
-            publish PostUnliked(UUID postId, UUID userId);
+            publish PostPublished(UUID postId, String authorHandle, String authorName, String excerpt);
+            publish PostLiked(UUID postId, String authorHandle, String likerName, String excerpt);
+            publish PostCommented(UUID postId, String authorHandle, String commenterName, String excerpt);
+            publish PostRemoved(String authorHandle, String excerpt);
         }
-
     }
 
-    subscribe PostEvents {
-        on PostPublished(UUID postId, UUID authorId, PostVisibility visibility) {
-            Log.info("Post published", { postId: postId, authorId: authorId, visibility: visibility });
-
-            // Cache the newly published post
-            let Post? post = postDb.Post.find(postId);
-            if (post != null) {
-                redis.PostCache.set(postId, {
-                    postId: postId,
-                    authorId: authorId,
-                    status: post.status,
-                    likeCount: 0,
-                    commentCount: 0
-                });
-            }
-
-        }
-
-        on PostStatusChanged(UUID postId, UUID authorId, ContentStatus oldStatus, ContentStatus newStatus) {
-            Log.info("Post status changed", { postId: postId, oldStatus: oldStatus, newStatus: newStatus });
-
-            if (newStatus == ContentStatus.Archived) {
-                redis.PostCache.delete(postId);
-                redis.TrendingPosts.remove(postId);
-            }
-
-        }
-
-        on PostLiked(UUID postId, UUID userId) {
-            // Update trending score when a post is liked
-            let Post? post = postDb.Post.find(postId);
-            if (post != null) {
-                let Int score = post.likeCount + post.commentCount * 2;
-                redis.TrendingPosts.add(postId, score);
-            }
-
-        }
-
-        on PostUpdated(UUID postId, UUID authorId) {
-            Log.info("Post content updated", { postId: postId, authorId: authorId });
-            redis.PostCache.delete(postId);
-        }
-
-        on PostDeleted(UUID postId, UUID authorId) {
-            Log.info("Post deleted", { postId: postId, authorId: authorId });
-            redis.PostCache.delete(postId);
-            redis.TrendingPosts.remove(postId);
-        }
-
-        on PostUnliked(UUID postId, UUID userId) {
-            // Update trending score when post is unliked
-            let Post? post = postDb.Post.find(postId);
-            if (post != null) {
-                let Int score = post.likeCount + post.commentCount * 2;
-                redis.TrendingPosts.add(postId, score);
-            }
-
-        }
-
+    struct NewPost {
+        Text body;
     }
 
-    subscribe UserEvents {
-        on UserStatusChanged(UUID userId, UserStatus oldStatus, UserStatus newStatus) {
-            Log.info("User status changed, checking posts", { userId: userId, newStatus: newStatus });
+    struct NewComment {
+        UUID postId;
+        Text body;
+    }
 
-            // If user is suspended or deactivated, archive their posts
-            if (newStatus == UserStatus.Suspended || newStatus == UserStatus.Deactivated) {
-                let Array<Post> posts = postDb.Post
-                .where(authorId: userId)
-                .where(status: ContentStatus.Published)
-                .all();
+    struct NewReport {
+        UUID postId;
+        ReportReason reason;
+    }
 
-                foreach post in posts {
-                    post.status = ContentStatus.Archived;
-                    post.save();
+    struct PostPage {
+        Post post;
+        Array<Comment> comments;
+    }
+
+    struct TrendingTag {
+        String tag;
+        Int uses;
+    }
+
+    struct LikeCount {
+        Int likes;
+    }
+
+    struct DeskSummary {
+        Int held;
+        Int openReports;
+        Int publishedToday;
+        Int removedThisWeek;
+    }
+
+    fn excerptOf(String body) -> String {
+        return body.length > 140 ? body.substring(0, 140) : body;
+    }
+
+    fn authorFacts() -> AuthorFacts {
+        let AuthorFacts facts = PeopleService.PeopleInternalAPI.post.author({ email: Auth.identity.email.toString() });
+        if (!facts.exists) {
+            throw NeedsHandleError();
+        }
+        if (facts.isSuspended) {
+            throw SuspendedError();
+        }
+        return facts;
+    }
+
+    /// The counter is gone a minute after the first post, so the limit lifts by itself.
+    fn slowDownIfNeeded(String handle) {
+        let JSON? seen = redis.PostingWindow.get(handle);
+        let Int count = seen != null ? JSON.get(seen, "count").toInteger() : 0;
+        if (count >= POSTS_PER_MINUTE) {
+            throw SlowDownError();
+        }
+        redis.PostingWindow.set(handle, { handle: handle, count: count + 1 });
+    }
+
+    /// Asking the vendor can only ever make a post wait. A vendor that does not answer never publishes.
+    fn reviewed(String body, String key) -> ReviewResult {
+        try {
+            return ModerationProvider.ModerationAPI.post.review(ReviewRequest { text: body, idempotencyKey: key });
+        } catch (Exception e) {
+            Log.warn("Moderation did not answer", { key: key });
+            return ReviewResult { id: "", verdict: Verdict.Hold, reason: "The moderation vendor did not answer" };
+        }
+    }
+
+    fn indexTags(postDb.Post post) {
+        foreach word in post.body.split(" ") {
+            if (word.startsWith("#") && word.length > 1) {
+                let String tag = word.substring(1, word.length).toLowerCase();
+                if (postDb.TagUse.where(tag: tag, postId: post.id).first() == null) {
+                    postDb.TagUse.create({ tag: tag, postId: post.id });
+                    let postDb.Hashtag? known = postDb.Hashtag.where(tag: tag).first();
+                    if (known == null) {
+                        postDb.Hashtag.create({ tag: tag, uses: 1 });
+                    } else {
+                        known.uses = known.uses + 1;
+                        known.save();
+                    }
                 }
-
-                Log.info("Archived posts for deactivated user", { userId: userId, count: posts.length() });
             }
-
         }
-
     }
 
-    rest_api PostAPI : basePath('/api/v1/posts'), rdbms(postDb) {
+    /// Publishing is what makes a post public, so tags and followers hear about it only here.
+    fn goLive(postDb.Post post) {
+        post.status = PostStatus.Published;
+        post.heldReason = null;
+        post.save();
+        indexTags(post);
+        dispatch PostPublished(post.id, post.authorHandle, post.authorName, excerptOf(post.body));
+    }
 
-        // Public feed of posts
-        get(PageRequest page) : auth(public) -> Page<postDb.Post> {
-            return postDb.Post
-            .where(visibility: PostVisibility.Public)
-            .where(status: ContentStatus.Published)
-            .orderBy(createdAt: desc)
-            .page(page);
+    fn visiblePost(UUID id) -> postDb.Post {
+        let postDb.Post post = postDb.Post.findOrFail(id);
+        if (post.status != PostStatus.Published) {
+            throw NoSuchPostError();
+        }
+        return post;
+    }
+
+    // What anyone can read. Only a published post is ever here.
+    rest_api PublicPostAPI : basePath('/api/v1/posts'), rdbms(postDb) {
+        @path('/explore')
+        get explore() : auth(public) -> Array<Post> {
+            return Post.where(status: PostStatus.Published).orderBy(createdAt: desc).limit(50).all();
         }
 
-        // Get a single post. A private post is readable by its author or an admin, so the
-        // route reads the caller when a token is presented and serves anonymous requests otherwise.
-        @path('/:id')
-        get(UUID id) : auth(optional, providers: [identity]) -> postDb.Post {
-            let Post post = postDb.Post.findOrFail(id);
-
-            if (!post.isPublic) {
-                // Check if the viewer is the author or an admin
-                let UUID? viewerId = Auth.user()?.id;
-                if (viewerId == null || (viewerId != post.authorId && !Auth.hasRole("admin"))) {
-                    throw AuthorizationException("Access denied");
-                }
-
-            }
-
-            // Increment view count
-            redis.PostViewCount.increment(id.toString());
-            return post;
+        @path('/by/:handle')
+        get byPerson(String handle) : auth(public) -> Array<Post> {
+            return Post.where(authorHandle: handle, status: PostStatus.Published).orderBy(createdAt: desc).limit(50).all();
         }
 
-        // Create a new post
-        post(CreatePostRequest request) : auth(required, providers: [identity]) -> postDb.Post {
-            let UUID authorId = Auth.user().id;
-
-            // Verify user exists and is active via UserService
-            let User user = UserService.UserAPI.get.userByIdInternal(authorId);
-
-            let Post post = postDb.Post.create({
-                authorId: authorId,
-                content: request.content,
-                visibility: request.visibility,
-                status: ContentStatus.Published,
-                tags: request.tags ?? []
-            });
-            post.save();
-
-            return post;
+        @path('/tagged/:tag')
+        get tagged(String tag) : auth(public) -> Array<Post> {
+            let Array<TagUse> uses = TagUse.where(tag: tag.toLowerCase()).orderBy(createdAt: desc).limit(50).all();
+            let Array<UUID> ids = uses.map(u => u.postId);
+            return Post.where(status: PostStatus.Published).whereIn(id: ids).orderBy(createdAt: desc).all();
         }
 
-        // Update a post
-        @path('/:id')
-        put(UUID id, UpdatePostRequest request) : auth(required, providers: [identity]) -> postDb.Post {
-            let Post post = postDb.Post.findOrFail(id);
-            let UUID userId = Auth.user().id;
-
-            if (post.authorId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("You can only edit your own posts");
-            }
-
-            if (request.content != null) {
-                post.content = request.content;
-            }
-
-            if (request.visibility != null) {
-                post.visibility = request.visibility;
-            }
-
-            post.save();
-            return post;
-        }
-
-        // Delete a post
-        @path('/:id')
-        delete(UUID id) : auth(required, providers: [identity]) -> Void {
-            let Post post = postDb.Post.findOrFail(id);
-            let UUID userId = Auth.user().id;
-
-            if (post.authorId != userId && !Auth.hasRole("admin")) {
-                throw AuthorizationException("You can only delete your own posts");
-            }
-
-            post.status = ContentStatus.Archived;
-            post.save();
-
-            dispatch PostDeleted(id, post.authorId);
-        }
-
-        // Get posts by a specific author
-        @path('/author/:authorId')
-        get(UUID authorId, PageRequest page) : auth(public) -> Page<postDb.Post> {
-            return postDb.Post
-            .where(authorId: authorId)
-            .where(status: ContentStatus.Published)
-            .where(visibility: PostVisibility.Public)
-            .orderBy(createdAt: desc)
-            .page(page);
-        }
-
-        // Search posts by content
         @path('/search')
-        get(String query, PageRequest page) : auth(public) -> Page<postDb.Post> {
-            return postDb.Post
-            .fulltext(query)
-            .where(status: ContentStatus.Published)
-            .where(visibility: PostVisibility.Public)
-            .page(page);
+        get search(String q) : auth(public) -> Array<Post> {
+            return Post.where(status: PostStatus.Published).fulltext(q).limit(30).all();
         }
 
-        // Like a post
-        @path('/:id/like')
-        post(UUID id) : auth(required, providers: [identity]) -> LikeResponse {
-            let UUID userId = Auth.user().id;
-            let Post post = postDb.Post.findOrFail(id);
-
-            // Check if already liked
-            let Like? existing = postDb.Like
-            .where(postId: id)
-            .where(userId: userId)
-            .first();
-
-            if (existing != null) {
-                throw ValidationException({
-                    code: "ALREADY_LIKED",
-                    message: "You have already liked this post"
-                });
-            }
-
-            let Like like = postDb.Like.create({
-                postId: id,
-                userId: userId
-            });
-            like.save();
-
-            dispatch PostLiked(id, userId);
-
-            return {
-                postId: id,
-                likeCount: post.likeCount,
-                liked: true
-            };
-        }
-
-        // Unlike a post
-        @path('/:id/unlike')
-        delete(UUID id) : auth(required, providers: [identity]) -> LikeResponse {
-            let UUID userId = Auth.user().id;
-            let Post post = postDb.Post.findOrFail(id);
-
-            let Like like = postDb.Like
-            .where(postId: id)
-            .where(userId: userId)
-            .firstOrFail();
-
-            transaction(postDb) {
-                like.delete();
-                post.likeCount = post.likeCount - 1;
-                post.save();
-            }
-
-            dispatch PostUnliked(id, userId);
-
-            return {
-                postId: id,
-                likeCount: post.likeCount,
-                liked: false
-            };
-        }
-
-        // Get comments on a post
-        @path('/:id/comments')
-        get(UUID id, PageRequest page) : auth(public) -> Page<postDb.Comment> {
-            let Post _parentCheck = postDb.Post.findOrFail(id);
-            return postDb.Comment
-            .where(postId: id)
-            .orderBy(createdAt: asc)
-            .page(page);
-        }
-
-        // Add a comment to a post
-        @path('/:id/comments')
-        post(UUID id, CreateCommentRequest request) : auth(required, providers: [identity]) -> postDb.Comment {
-            let UUID authorId = Auth.user().id;
-            let Post post = postDb.Post.findOrFail(id);
-
-            if (!post.isPublished) {
-                throw ValidationException({
-                    code: "POST_NOT_PUBLISHED",
-                    message: "Cannot comment on an unpublished post"
-                });
-            }
-
-            let Comment comment = postDb.Comment.create({
-                postId: id,
-                authorId: authorId,
-                content: request.content
-            });
-            comment.save();
-
-            return comment;
-        }
-
-        // Get trending posts
         @path('/trending')
-        @cache(ttl: 300)
-        get(Int limit = 20) : auth(public) -> Array<postDb.Post> {
-            let Int cappedLimit = Math.min(limit, MAX_PAGE_SIZE);
-            return postDb.Post
-            .where(status: ContentStatus.Published)
-            .where(visibility: PostVisibility.Public)
-            .orderBy(likeCount: desc)
-            .limit(cappedLimit)
-            .all();
+        get trending() : auth(public) -> Array<TrendingTag> {
+            let Array<Hashtag> tags = Hashtag.orderBy(uses: desc).limit(8).all();
+            return tags.map(t => TrendingTag { tag: t.tag, uses: t.uses });
         }
 
-        // Internal endpoint for other services
-        @path('/service/:id')
-        get postByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> postDb.Post {
-            return postDb.Post.findOrFail(id);
+        @path('/post/:id')
+        get postPage(UUID id) : auth(public) -> PostPage {
+            let Post found = visiblePost(id);
+            return PostPage { post: found, comments: Comment.where(postId: id).orderBy(createdAt: asc).limit(200).all() };
+        }
+    }
+
+    // What someone signed in does.
+    rest_api MyPostAPI : basePath('/api/v1/my/posts'), rdbms(postDb) {
+        @path('/home')
+        get home() : auth(required, providers: [identity]) -> Array<Post> {
+            let AuthorFacts me = authorFacts();
+            let Handles followed = PeopleService.PeopleInternalAPI.post.followingOf({ handle: me.handle });
+            return Post.where(status: PostStatus.Published).whereIn(authorHandle: followed.handles).orderBy(createdAt: desc).limit(50).all();
         }
 
+        @path('/mine')
+        get mine() : auth(required, providers: [identity]) -> Array<Post> {
+            let AuthorFacts me = authorFacts();
+            return Post.where(authorHandle: me.handle).orderBy(createdAt: desc).limit(50).all();
+        }
+
+        @path('/new')
+        post createPost(NewPost request) : auth(required, providers: [identity]) -> Post {
+            let AuthorFacts me = authorFacts();
+            slowDownIfNeeded(me.handle);
+            let ReviewResult answer = reviewed(request.body, #"post-{me.handle}-{Random.string(16, '0123456789abcdef')}");
+            if (answer.verdict == Verdict.Reject) {
+                throw RejectedError();
+            }
+            let Post created = Post.create({
+                authorName: me.displayName,
+                authorHandle: me.handle,
+                body: request.body,
+                status: PostStatus.Held,
+                heldReason: answer.reason
+            });
+            if (answer.verdict == Verdict.Allow) {
+                goLive(created);
+            }
+            return created;
+        }
+
+        @path('/comment')
+        post addComment(NewComment request) : auth(required, providers: [identity]) -> Comment {
+            let AuthorFacts me = authorFacts();
+            let Post post = visiblePost(request.postId);
+            let Comment created = Comment.create({
+                postId: post.id,
+                authorName: me.displayName,
+                authorHandle: me.handle,
+                body: request.body
+            });
+            post.comments = post.comments + 1;
+            post.save();
+            if (post.authorHandle != me.handle) {
+                dispatch PostCommented(post.id, post.authorHandle, me.displayName, excerptOf(post.body));
+            }
+            return created;
+        }
+
+        @path('/like/:id')
+        post like(UUID id) : auth(required, providers: [identity]) -> LikeCount {
+            let AuthorFacts me = authorFacts();
+            let Post post = visiblePost(id);
+            if (Like.where(postId: id, handle: me.handle).first() == null) {
+                Like.create({ postId: id, handle: me.handle });
+                post.likes = post.likes + 1;
+                post.save();
+                if (post.authorHandle != me.handle) {
+                    dispatch PostLiked(post.id, post.authorHandle, me.displayName, excerptOf(post.body));
+                }
+            }
+            return LikeCount { likes: post.likes };
+        }
+
+        @path('/report')
+        post report(NewReport request) : auth(required, providers: [identity]) -> Report {
+            let AuthorFacts me = authorFacts();
+            let Post post = visiblePost(request.postId);
+            return Report.create({
+                postId: post.id,
+                excerpt: excerptOf(post.body),
+                authorHandle: post.authorHandle,
+                reason: request.reason,
+                reporterHandle: me.handle
+            });
+        }
     }
 
-    test("validation rejects empty post content") {
-        assert throws(
-        () => postDb.Post.create({
-            authorId: uuid(),
-            content: "",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
-        }),
-        ValidationError("Post content cannot be empty")
-        );
+    // What a moderator does.
+    rest_api PostDeskAPI : basePath('/api/v1/desk/posts'), rdbms(postDb) {
+        resource Post : only(list), auth(required, providers: [identity], roles: [moderator]);
+        resource Report : only(list), auth(required, providers: [identity], roles: [moderator]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [moderator]) -> DeskSummary {
+            let DateTime now = DateTime.now();
+            return DeskSummary {
+                held: Post.where(status: PostStatus.Held).count(),
+                openReports: Report.where(status: ReportStatus.Open).count(),
+                publishedToday: Post.where(status: PostStatus.Published).where(createdAt: gte(now.startOfDay())).count(),
+                removedThisWeek: Post.where(status: PostStatus.Removed).where(updatedAt: gte(now.addDays(-7))).count()
+            };
+        }
+
+        @path('/approve/:id')
+        post approve(UUID id) : auth(required, providers: [identity], roles: [moderator]) -> Post {
+            let Post post = Post.findOrFail(id);
+            if (post.status != PostStatus.Held) {
+                throw AlreadyDecidedError();
+            }
+            goLive(post);
+            return post;
+        }
+
+        @path('/remove/:id')
+        post remove(UUID id) : auth(required, providers: [identity], roles: [moderator]) -> Post {
+            let Post post = Post.findOrFail(id);
+            if (post.status == PostStatus.Removed) {
+                throw AlreadyDecidedError();
+            }
+            post.status = PostStatus.Removed;
+            post.save();
+            dispatch PostRemoved(post.authorHandle, excerptOf(post.body));
+            return post;
+        }
+
+        @path('/uphold/:id')
+        post uphold(UUID id) : auth(required, providers: [identity], roles: [moderator]) -> Report {
+            let Report report = Report.findOrFail(id);
+            if (report.status != ReportStatus.Open) {
+                throw AlreadyDecidedError();
+            }
+            report.status = ReportStatus.Upheld;
+            report.save();
+            let Post post = Post.findOrFail(report.postId);
+            if (post.status != PostStatus.Removed) {
+                post.status = PostStatus.Removed;
+                post.save();
+                dispatch PostRemoved(post.authorHandle, excerptOf(post.body));
+            }
+            return report;
+        }
+
+        @path('/dismiss/:id')
+        post dismiss(UUID id) : auth(required, providers: [identity], roles: [moderator]) -> Report {
+            let Report report = Report.findOrFail(id);
+            if (report.status != ReportStatus.Open) {
+                throw AlreadyDecidedError();
+            }
+            report.status = ReportStatus.Dismissed;
+            report.save();
+            return report;
+        }
     }
 
-    test("validation rejects empty comment content") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Test post content",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
+    test("a short post is its own excerpt") {
+        assert excerptOf("A short note.") == "A short note.";
+    }
+
+    test("a held post has not been published") {
+        let postDb.Post created = postDb.Post.create({
+            authorName: "A Tester",
+            authorHandle: "tester",
+            body: "A note.",
+            status: PostStatus.Held,
+            heldReason: "Testing"
         });
-        post.save();
-        assert throws(
-        () => postDb.Comment.create({
-            postId: post.id,
-            authorId: uuid(),
-            content: ""
-        }),
-        ValidationError("Comment content cannot be empty")
-        );
+        assert created.status == PostStatus.Held;
+        assert created.likes == 0;
     }
-
-    test("computed isPopular is true with enough likes") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Popular post content",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published,
-            likeCount: 15
-        });
-        post.save();
-        assert post.isPopular == true;
-    }
-
-    test("computed isPublic for published public post") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Public post content",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
-        });
-        post.save();
-        assert post.isPublic == true;
-    }
-
-    test("afterCreate emits PostPublished for published post") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "New published post",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
-        });
-        post.save();
-        assert emitted(PostPublished(post.id, post.authorId, PostVisibility.Public));
-    }
-
-    test("computed isPopular is false with few likes") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Unpopular post content",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published,
-            likeCount: 3,
-            commentCount: 1
-        });
-        post.save();
-        assert post.isPopular == false;
-    }
-
-    test("computed isPopular is true with enough comments") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Comment-popular post content",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published,
-            likeCount: 2,
-            commentCount: 5
-        });
-        post.save();
-        assert post.isPopular == true;
-    }
-
-    test("computed isPublished is false for Archived post") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Archived post content",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Archived
-        });
-        post.save();
-        assert post.isPublished == false;
-    }
-
-    test("computed isPublic is false for Private post") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Private post content",
-            visibility: PostVisibility.Private,
-            status: ContentStatus.Published
-        });
-        post.save();
-        assert post.isPublic == false;
-    }
-
-    test("computed isPublic is false for FollowersOnly post") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Followers only post content",
-            visibility: PostVisibility.FollowersOnly,
-            status: ContentStatus.Published
-        });
-        post.save();
-        assert post.isPublic == false;
-    }
-
-    test("beforeCreate sets publishedAt for published status") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Auto-published post",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
-        });
-        post.save();
-        assert post.publishedAt != null;
-    }
-
-    test("status change emits PostStatusChanged") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Status changing post",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
-        });
-        post.save();
-        post.status = ContentStatus.Archived;
-        post.save();
-        assert emitted(PostStatusChanged(post.id, post.authorId, ContentStatus.Published, ContentStatus.Archived));
-    }
-
-    test("content change emits PostUpdated") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Original post content",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
-        });
-        post.save();
-        post.content = "Updated post content";
-        post.save();
-        assert emitted(PostUpdated(post.id, post.authorId));
-    }
-
-    test("afterCreate on Comment emits CommentAdded") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Post for comment test",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
-        });
-        post.save();
-        let UUID commentAuthorId = uuid();
-        let Comment comment = postDb.Comment.create({
-            postId: post.id,
-            authorId: commentAuthorId,
-            content: "This is a test comment"
-        });
-        comment.save();
-        assert emitted(CommentAdded(comment.id, post.id, commentAuthorId));
-    }
-
-    test("validation rejects comment exceeding 2000 characters") {
-        let Post post = postDb.Post.create({
-            authorId: uuid(),
-            content: "Post for long comment test",
-            visibility: PostVisibility.Public,
-            status: ContentStatus.Published
-        });
-        post.save();
-        let String longContent = "A".repeat(2001);
-        assert throws(
-        () => postDb.Comment.create({
-            postId: post.id,
-            authorId: uuid(),
-            content: longContent
-        }),
-        ValidationError("Comment cannot exceed 2000 characters")
-        );
-    }
-
 }

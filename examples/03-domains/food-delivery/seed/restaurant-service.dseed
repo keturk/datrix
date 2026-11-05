@@ -1,0 +1,32 @@
+// Three kitchens, their menus and the zones Saltbox reaches. All of it is invented.
+seed service fooddelivery.RestaurantService {
+  rdbms restaurantDb {
+    baseline {
+      Restaurant table on(id) {
+        id,                      name,          cuisine,  address,            latitude, longitude, description,                                  isOpen;
+        @uuid("rest-lemongrass"), "Lemongrass", Thai,     "4 Market Row",     45.515,   -122.675,  "Curries and noodles, made to order.",        true;
+        @uuid("rest-forno"),      "Forno Vecchio", Italian, "22 Oven Lane",   45.522,   -122.660,  "Wood-fired pizza and fresh pasta.",          true;
+        @uuid("rest-tacos"),      "Casa Verde", Mexican,  "9 Plaza Street",   45.508,   -122.645,  "Tacos, salsas and agua fresca.",             true;
+      }
+      MenuItem table on(id) {
+        id,                  restaurantId,             name,                 description,                 price, section,   isAvailable;
+        @uuid("item-green"),  @uuid("rest-lemongrass"), "Green curry",       "Coconut, basil and aubergine.", 13.50, "Mains",   true;
+        @uuid("item-padthai"), @uuid("rest-lemongrass"), "Pad thai",         "Rice noodles, peanut and lime.", 12.00, "Mains",  true;
+        @uuid("item-springs"), @uuid("rest-lemongrass"), "Spring rolls",     "Four, with sweet chilli.",   6.50,  "Starters", true;
+        @uuid("item-margh"),  @uuid("rest-forno"),     "Margherita",         "Tomato, mozzarella and basil.", 11.00, "Pizza",   true;
+        @uuid("item-diavola"), @uuid("rest-forno"),    "Diavola",            "With spicy salami.",         13.00, "Pizza",    true;
+        @uuid("item-tiramisu"), @uuid("rest-forno"),   "Tiramisu",           "Made this morning.",         6.00,  "Dessert",  false;
+        @uuid("item-pastor"), @uuid("rest-tacos"),     "Tacos al pastor",    "Three, with pineapple.",     10.50, "Tacos",    true;
+        @uuid("item-rajas"),  @uuid("rest-tacos"),     "Tacos de rajas",     "Three, roasted peppers.",    9.50,  "Tacos",    true;
+        @uuid("item-agua"),   @uuid("rest-tacos"),     "Agua de jamaica",    "Hibiscus, lightly sweet.",   3.50,  "Drinks",   true;
+      }
+      DeliveryZone table on(name) {
+        id,                  name,         latitude, longitude, fee;
+        @uuid("zone-center"), "City Center", 45.520, -122.670,  2.50;
+        @uuid("zone-river"),  "Riverside",  45.530,  -122.650,  3.50;
+        @uuid("zone-hills"),  "West Hills", 45.510,  -122.700,  4.50;
+        @uuid("zone-south"),  "South Park", 45.495,  -122.665,  4.00;
+      }
+    }
+  }
+}

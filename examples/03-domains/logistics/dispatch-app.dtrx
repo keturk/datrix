@@ -1,0 +1,523 @@
+from logistics.ui import Brand, statRow;
+from logistics.common import ShipmentStatus;
+
+/// Where a dispatcher runs the day: book a parcel, put it on a van, send the van out, and deal with what
+/// comes back. Only an operator reaches the vendor pages, which show what the mocks did.
+app logistics.Dispatch('config/dispatch-app.dcfg') : version('2.0.0') {
+    uses logistics.ShipmentService;
+    uses logistics.FleetService;
+    uses logistics.RouteService;
+    uses logistics.NoticeService;
+    uses logistics.CarrierMock;
+    uses logistics.GeocodeMock;
+    uses logistics.SmsMock;
+
+    theme extends Brand { }
+
+    state Boolean booking = false;
+    state UUID? placing = null;
+    state Boolean assigning = false;
+    state UUID? servicing = null;
+    state Boolean recording = false;
+
+    fn startService(UUID id) {
+        servicing = id;
+        recording = true;
+    }
+
+    layout Shell : default {
+        nav {
+            link Today : icon(today), group(Msg.navDay);
+            link Shipments : icon(inventory_2), group(Msg.navDay);
+            link Plan : icon(edit_calendar), group(Msg.navDay);
+            link Routes : icon(route), group(Msg.navDay);
+            link Fleet : icon(local_shipping), group(Msg.navDay);
+            link Notices : icon(sms), group(Msg.navDay);
+            link Consignments : icon(handshake), group(Msg.navVendors);
+            link Lookups : icon(travel_explore), group(Msg.navVendors);
+            link Texts : icon(textsms), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Today() {
+        data {
+            summary = ShipmentService.ShipmentDeskAPI.get.summary() : poll(30s);
+            fleet = FleetService.FleetDeskAPI.get.summary();
+            routes = RouteService.PlanningAPI.get.running() : poll(30s);
+        }
+        view {
+            pageHeader(Msg.todayTitle, Msg.todaySubtitle);
+            grid : style(statRow) {
+                stat(Msg.statWaiting, Fmt.number(summary.waiting)) : icon(hourglass_top), tone(warning);
+                stat(Msg.statOnTheRoad, Fmt.number(summary.onTheRoad)) : icon(local_shipping), tone(info);
+                stat(Msg.statDelivered, Fmt.number(summary.deliveredToday)) : icon(task_alt), tone(success);
+                stat(Msg.statFailed, Fmt.number(summary.failed)) : icon(report), tone(danger);
+            }
+            when (summary.failed > 0) {
+                callout(Msg.failedNotice) : tone(danger) { link(Msg.seeParcels, Shipments) : kind(primary); }
+            }
+            when (fleet.serviceDue > 0) {
+                callout(Msg.serviceNotice) : tone(warning) { link(Msg.seeFleet, Fleet); }
+            }
+            section(Msg.boardTitle) {
+                when (routes.length == 0) {
+                    emptyState(Msg.noRoutes) : icon(route) { link(Msg.planRoutes, Plan) : kind(primary); }
+                }
+                board(data: routes, column: r => r.status) {
+                    heading(item.name);
+                    text(item.driverName);
+                    text(Msg.progressLine(done: Fmt.number(item.doneCount), total: Fmt.number(item.stopCount)));
+                    link(Msg.openRoute, RouteDetail, id: item.id);
+                }
+            }
+            section(Msg.weekTitle) {
+                chart(bar, data: summary.lastWeek, x: d => d.day, y: d => d.delivered);
+            }
+        }
+    }
+
+    @path('/shipments')
+    page Shipments() {
+        fn startBooking() {
+            booking = true;
+        }
+
+        fn stopBooking() {
+            booking = false;
+        }
+
+        view {
+            pageHeader(Msg.shipmentsTitle, Msg.shipmentsSubtitle) {
+                button(Msg.bookParcel) : onClick(startBooking()), kind(primary), icon(add);
+            }
+            table(ShipmentList);
+            when (booking) {
+                dialog(Msg.bookParcel) : onClose(stopBooking()) {
+                    form(BookParcel);
+                }
+            }
+        }
+    }
+
+    table ShipmentList : source(ShipmentService.ShipmentDeskAPI.shipmentDb.Shipment.list), pageSizes(10, 25, 50), poll(30s) {
+        column trackingNumber;
+        column shipperName;
+        column recipientName;
+        column city;
+        column status;
+        column promisedBy : format(date);
+        column driverName;
+        column deliveredAt : format(relative);
+        filter trackingNumber : live;
+        filter recipientName : live;
+        filter city;
+        filter status;
+        rowAction open : onClick(Nav.to(Parcel, id: row.id));
+    }
+
+    form BookParcel : submit(ShipmentService.ShipmentDeskAPI.post.book) {
+        fn booked(UUID id) {
+            booking = false;
+            Ui.toast(Msg.parcelBooked, tone: success);
+            Nav.to(Parcel, id: id);
+        }
+        field shipperName;
+        field recipientName;
+        field recipientPhone;
+        field recipientAddress;
+        field city;
+        field weightKg;
+        field promisedBy;
+        onSuccess(booked(result.id));
+    }
+
+    @path('/shipments/:id')
+    page Parcel(UUID id) {
+        data { parcel = ShipmentService.ShipmentDeskAPI.get.detail(id: id) : poll(30s); }
+
+        fn tryAgain() {
+            ShipmentService.ShipmentDeskAPI.post.retry(id: id);
+            parcel.refresh();
+            Ui.toast(Msg.backInQueue, tone: success);
+        }
+
+        fn giveToPartner() {
+            ShipmentService.ShipmentDeskAPI.post.toPartner(id: id);
+            parcel.refresh();
+            Ui.toast(Msg.withPartner, tone: info);
+        }
+
+        view {
+            pageHeader(parcel.shipment.trackingNumber, parcel.shipment.recipientName) : back(Shipments) {
+                badge(parcel.shipment.status);
+                when (parcel.shipment.status == ShipmentStatus.Failed) {
+                    button(Msg.tryAgain) : onClick(tryAgain()), kind(primary), icon(replay);
+                    button(Msg.giveToPartner) : onClick(giveToPartner()), icon(handshake);
+                }
+            }
+            when (parcel.shipment.failureReason != null) {
+                callout(Msg.failureLine(reason: parcel.shipment.failureReason)) : tone(danger);
+            }
+            card(Msg.deliverTo) {
+                text(parcel.shipment.recipientName);
+                text(parcel.shipment.recipientAddress);
+                text(parcel.shipment.city);
+                text(Msg.weightLine(kg: Fmt.number(parcel.shipment.weightKg)));
+                text(Msg.promisedLine(day: Fmt.date(parcel.shipment.promisedBy)));
+                when (parcel.shipment.driverName != null) {
+                    text(Msg.drivenBy(name: parcel.shipment.driverName));
+                }
+                when (parcel.shipment.deliveredTo != null) {
+                    text(Msg.signedFor(name: parcel.shipment.deliveredTo));
+                }
+            }
+            map(center: parcel.point, zoom: 12) {
+                marker(parcel.point, parcel.shipment.city);
+            }
+            section(Msg.historyTitle) {
+                timeline(data: parcel.events, at: e => e.createdAt) {
+                    badge(item.status);
+                    text(item.note);
+                }
+            }
+        }
+    }
+
+    @path('/plan')
+    page Plan() {
+        data {
+            waiting = RouteService.PlanningAPI.get.waiting() : poll(15s);
+            open = RouteService.PlanningAPI.get.openRoutes() : poll(15s);
+        }
+
+        fn startPlacing(UUID stopId) {
+            placing = stopId;
+            assigning = true;
+        }
+
+        fn stopPlacing() {
+            assigning = false;
+            waiting.refresh();
+            open.refresh();
+        }
+
+        view {
+            pageHeader(Msg.planTitle, Msg.planSubtitle);
+            section(Msg.waitingTitle) {
+                when (waiting.length == 0) {
+                    emptyState(Msg.nothingWaiting) : icon(inventory_2);
+                }
+                list(data: waiting) {
+                    heading(item.recipientName);
+                    text(item.address);
+                    text(Msg.placeLine(city: item.city, kg: Fmt.number(item.weightKg)));
+                    button(Msg.putOnRoute) : onClick(startPlacing(item.id)), kind(primary), icon(add_road);
+                }
+            }
+            section(Msg.openRoutesTitle) {
+                when (open.length == 0) {
+                    emptyState(Msg.noOpenRoutes) : icon(route);
+                }
+                list(data: open) : onClick(Nav.to(RouteDetail, id: item.id)) {
+                    heading(item.name);
+                    text(Msg.routeLine(driver: item.driverName, van: item.vehicleName));
+                    text(Msg.loadLine(load: Fmt.number(item.loadKg), capacity: Fmt.number(item.capacityKg)));
+                }
+            }
+            card(Msg.newRoute) { form(StartRoute); }
+            when (assigning) {
+                dialog(Msg.putOnRoute) : onClose(stopPlacing()) {
+                    form(PutOnRoute);
+                }
+            }
+        }
+    }
+
+    form StartRoute : submit(RouteService.PlanningAPI.post.createRoute) {
+        fn started(UUID id) {
+            Ui.toast(Msg.routeStarted, tone: success);
+            Nav.to(RouteDetail, id: id);
+        }
+        field name;
+        field runsOn;
+        field driverId : options(FleetService.FleetDeskAPI.get.driversToChoose, value: d => d.id, label: d => d.name);
+        field vehicleId : options(FleetService.FleetDeskAPI.get.vansToChoose, value: v => v.id, label: v => v.name);
+        onSuccess(started(result.id));
+    }
+
+    form PutOnRoute : submit(RouteService.PlanningAPI.post.addStop) {
+        fn placed() {
+            assigning = false;
+            Ui.toast(Msg.stopPlaced, tone: success);
+        }
+        field stopId : fixed(placing);
+        field routeId : options(RouteService.PlanningAPI.get.openRoutes, value: r => r.id, label: r => r.name);
+        onSuccess(placed());
+    }
+
+    @path('/routes')
+    page Routes() {
+        view {
+            pageHeader(Msg.routesTitle, Msg.routesSubtitle);
+            table(RouteList);
+        }
+    }
+
+    table RouteList : source(RouteService.PlanningAPI.routeDb.DeliveryRoute.list), pageSizes(10, 25, 50), poll(30s) {
+        column name;
+        column runsOn : format(date);
+        column status;
+        column driverName;
+        column vehicleName;
+        column stopCount : format(number);
+        column doneCount : format(number);
+        column loadKg : format(number);
+        column distanceKm : format(number);
+        filter name : live;
+        filter driverName;
+        filter status;
+        rowAction open : onClick(Nav.to(RouteDetail, id: row.id));
+    }
+
+    @path('/routes/:id')
+    page RouteDetail(UUID id) {
+        data { run = RouteService.PlanningAPI.get.detail(id: id) : poll(20s); }
+
+        fn sendOut() {
+            RouteService.PlanningAPI.post.send(id: id);
+            run.refresh();
+            Ui.toast(Msg.routeSent, tone: success);
+        }
+
+        fn takeOff(UUID stopId) {
+            RouteService.PlanningAPI.post.removeStop(id: stopId);
+            run.refresh();
+            Ui.toast(Msg.stopRemoved, tone: info);
+        }
+
+        view {
+            pageHeader(run.route.name, Msg.routeLine(driver: run.route.driverName, van: run.route.vehicleName)) : back(Routes) {
+                badge(run.route.status);
+                when (run.route.status == RouteStatus.Draft) {
+                    button(Msg.sendOut) : onClick(sendOut()), kind(primary), icon(send);
+                }
+            }
+            grid : style(statRow) {
+                stat(Msg.statStops, Fmt.number(run.route.stopCount)) : icon(pin_drop);
+                stat(Msg.statDone, Fmt.number(run.route.doneCount)) : icon(task_alt), tone(success);
+                stat(Msg.statLoad, Msg.loadLine(load: Fmt.number(run.route.loadKg), capacity: Fmt.number(run.route.capacityKg))) : icon(scale);
+                stat(Msg.statDistance, Msg.kmLine(km: Fmt.number(run.route.distanceKm))) : icon(straighten);
+            }
+            when (run.stops.length == 0) {
+                emptyState(Msg.noStops) : icon(pin_drop) { link(Msg.planRoutes, Plan) : kind(primary); }
+            }
+            when (run.stops.length > 0) {
+                map {
+                    foreach (stop in run.stops) {
+                        marker(stop.point, stop.recipientName);
+                    }
+                    polyline(run.line);
+                }
+            }
+            list(data: run.stops) {
+                heading(Msg.stopHeading(number: Fmt.number(item.sequence), name: item.recipientName));
+                badge(item.status);
+                text(item.address);
+                text(Msg.placeLine(city: item.city, kg: Fmt.number(item.weightKg)));
+                when (run.route.status == RouteStatus.Draft) {
+                    button(Msg.takeOff) : onClick(takeOff(item.id)), icon(remove_road);
+                }
+            }
+        }
+    }
+
+    @path('/fleet')
+    page Fleet() {
+        fn stopRecording() {
+            recording = false;
+        }
+
+        view {
+            pageHeader(Msg.fleetTitle, Msg.fleetSubtitle);
+            tabs {
+                tab(Msg.tabVans) {
+                    table(VanList);
+                    card(Msg.addVan) { form(AddVan); }
+                }
+                tab(Msg.tabDrivers) {
+                    table(DriverList);
+                    card(Msg.addDriver) { form(AddDriver); }
+                }
+                tab(Msg.tabServices) {
+                    table(ServiceList);
+                }
+            }
+            when (recording) {
+                dialog(Msg.recordService) : onClose(stopRecording()) {
+                    form(RecordService);
+                }
+            }
+        }
+    }
+
+    table VanList : source(FleetService.FleetDeskAPI.fleetDb.Vehicle.list), pageSizes(10, 25) {
+        column name;
+        column registration;
+        column status;
+        column capacityKg : format(number);
+        column odometerKm : format(number);
+        column nextServiceKm : format(number);
+        filter name : live;
+        filter status;
+        rowAction service : onClick(startService(row.id));
+    }
+
+    table DriverList : source(FleetService.FleetDeskAPI.fleetDb.Driver.list), pageSizes(10, 25) {
+        column name;
+        column email;
+        column status;
+        filter name : live;
+        filter status;
+    }
+
+    table ServiceList : source(FleetService.FleetDeskAPI.fleetDb.ServiceRecord.list), pageSizes(10, 25) {
+        column createdAt : format(date);
+        column vehicleName;
+        column workDone;
+        column atOdometerKm : format(number);
+        column cost : format(money);
+        filter vehicleName;
+    }
+
+    form AddVan : submit(FleetService.FleetDeskAPI.post.addVehicle) {
+        fn added() {
+            Ui.toast(Msg.vanAdded, tone: success);
+        }
+        field name;
+        field registration;
+        field capacityKg;
+        onSuccess(added());
+    }
+
+    form AddDriver : submit(FleetService.FleetDeskAPI.post.addDriver) {
+        fn added() {
+            Ui.toast(Msg.driverAdded, tone: success);
+        }
+        field name;
+        field email;
+        onSuccess(added());
+    }
+
+    form RecordService : submit(FleetService.FleetDeskAPI.post.recordService) {
+        fn recorded() {
+            recording = false;
+            Ui.toast(Msg.serviceRecorded, tone: success);
+        }
+        field vehicleId : fixed(servicing);
+        field workDone;
+        field cost;
+        onSuccess(recorded());
+    }
+
+    @path('/notices')
+    page Notices() {
+        view {
+            pageHeader(Msg.noticesTitle, Msg.noticesSubtitle);
+            table(NoticeList);
+        }
+    }
+
+    table NoticeList : source(NoticeService.NoticeDeskAPI.noticeDb.Notice.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column trackingNumber;
+        column body;
+        filter trackingNumber;
+    }
+
+    @path('/vendors/carrier')
+    page Consignments() {
+        view {
+            pageHeader(Msg.consignmentsTitle, Msg.consignmentsSubtitle);
+            table(ConsignmentList);
+        }
+    }
+
+    table ConsignmentList : source(CarrierMock.CarrierDeskAPI.carrierDb.PartnerConsignment.list), poll(30s) {
+        column createdAt : format(relative);
+        column trackingNumber;
+        column recipientName;
+        column city;
+        column weightKg : format(number);
+        column status;
+        filter status;
+    }
+
+    @path('/vendors/geocoder')
+    page Lookups() {
+        view {
+            pageHeader(Msg.lookupsTitle, Msg.lookupsSubtitle);
+            table(LookupList);
+        }
+    }
+
+    component FoundBadge(Boolean found) {
+        view {
+            when (found) { badge(Msg.foundYes) : tone(success); }
+            when (!found) { badge(Msg.foundNo) : tone(danger); }
+        }
+    }
+
+    table LookupList : source(GeocodeMock.GeocodeDeskAPI.geocodeDb.AddressLookup.list), poll(30s) {
+        column createdAt : format(relative);
+        column address;
+        column city;
+        column found : render(FoundBadge);
+        filter city;
+    }
+
+    @path('/vendors/texts')
+    page Texts() {
+        view {
+            pageHeader(Msg.textsTitle, Msg.textsSubtitle);
+            table(TextList);
+        }
+    }
+
+    table TextList : source(SmsMock.SmsDeskAPI.smsDb.SentSms.list), poll(30s) {
+        column createdAt : format(relative);
+        column recipient;
+        column body;
+        column status;
+        filter status;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Today); }
+        }
+    }
+
+    test("the plan page opens") {
+        let Screen screen = render(Plan);
+        assert screen.shows(Msg.planTitle);
+    }
+}

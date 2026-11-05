@@ -33,6 +33,7 @@ config strings ecommerce.Storefront locale "tr-TR" {
     markAllRead      = "Tümünü okundu say";
     muteNotices      = "Bildirimleri sessize al";
     account          = "Hesap";
+    signIn           = "Giriş yap";
     signOut          = "Çıkış yap";
     navShop          = "Alışveriş";
     navAccount       = "Hesabım";

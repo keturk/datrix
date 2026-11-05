@@ -1,0 +1,34 @@
+// API keys of the moderation vendor. mode = self: ModerationMock issues and verifies them itself,
+// as a real vendor would, and only the SHA-256 hash of a key is stored.
+config identity moderationKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "workforce";
+    apiKey {
+      header = "X-Moderation-Api-Key";
+      store = "blog.ModerationMock";
+      storeBlock = "moderationDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+      }
+      lastUsedResolutionSeconds = 60;
+      serviceProviders = ["machine"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

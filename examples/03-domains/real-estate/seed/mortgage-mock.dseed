@@ -1,0 +1,16 @@
+// The key the deal service presents to the lender, and the answer behind Owen's offer. The key itself is
+// the development default of the service's secret; the vendor stores only its SHA-256 hash.
+seed service realestate.MortgageMock {
+  rdbms mortgageDb {
+    baseline {
+      LenderAnswer table on(reference) {
+        id,                   applicantName, applicantEmail,     amount,    decision, reference,              idempotencyKey;
+        @uuid("answer-owen"), "Owen Park",   "owen@example.com", 479000.00, Approved, "pre_seeded_owen_0001", "seeded-owen-0001";
+      }
+      ApiKey table on(keyHash) {
+        id,                    keyHash,                                                            ownerId,                    scopes,                  isActive;
+        @uuid("mortgage-key"), "5465c18058f585b30094effd3f0942bc27418ec07e2df12df563de31b0b6bb87", @uuid("owner-cobblestone"), ["preapprovals:write"], true;
+      }
+    }
+  }
+}

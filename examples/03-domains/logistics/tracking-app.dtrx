@@ -1,0 +1,80 @@
+from logistics.ui import Brand;
+
+/// The public page a recipient opens. Nobody signs in: a tracking number shows where the parcel has got
+/// to, and the page never names who it is for or which street it is going to.
+app logistics.Tracking('config/tracking-app.dcfg') : version('2.0.0') {
+    uses logistics.ShipmentService;
+
+    theme extends Brand { }
+
+    assets {
+        image logo = 'assets/logo.svg';
+    }
+
+    layout Site : default {
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName) { image(logo, Msg.logoAlt); }
+                    spacer;
+                    link(Msg.trackAnother, Home) : icon(search);
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Home() {
+        state String number = '';
+
+        fn follow() {
+            Nav.to(Tracked, number: number.trim());
+        }
+
+        view {
+            pageHeader(Msg.homeTitle, Msg.homeSubtitle);
+            card {
+                input(Msg.numberLabel) : bind(number);
+                button(Msg.follow) : onClick(follow()), kind(primary), icon(local_shipping);
+            }
+            callout(Msg.demoNotice) : tone(info);
+        }
+    }
+
+    @path('/t/:number')
+    page Tracked(String number) {
+        data { parcel = ShipmentService.TrackingAPI.get.track(number: number) : poll(30s); }
+        view {
+            pageHeader(parcel.trackingNumber, Msg.goingTo(city: parcel.city)) : back(Home) {
+                badge(parcel.status);
+            }
+            when (parcel.deliveredAt != null) {
+                callout(Msg.deliveredLine(when: Fmt.dateTime(parcel.deliveredAt))) : tone(success);
+            }
+            when (parcel.deliveredAt == null) {
+                stat(Msg.promised, Fmt.date(parcel.promisedBy)) : icon(event);
+            }
+            map(center: parcel.area, zoom: 9) {
+                marker(parcel.area, parcel.city);
+            }
+            section(Msg.historyTitle) {
+                timeline(data: parcel.steps, at: s => s.at) {
+                    badge(item.status);
+                    text(item.note);
+                }
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Home); }
+        }
+    }
+
+    test("the home page opens") {
+        let Screen screen = render(Home);
+        assert screen.shows(Msg.homeTitle);
+    }
+}

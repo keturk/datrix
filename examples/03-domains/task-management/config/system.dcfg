@@ -1,7 +1,11 @@
-﻿config system taskapp.System {
+﻿// Millrace runs as one docker-compose stack on a developer machine: nginx in front, PostgreSQL, Kafka for
+// events, a self-hosted Zitadel for sign-in and the observability stack. `test`, `development` and
+// `production` are the same stack; only the mocks' place in it is a choice, and that lives in
+// config/providers/.
+config system taskapp.System {
   base {
     schemaConvergence {
-      enabled = false;
+      enabled = true;
     }
     deployment {
       runtime = "docker-compose";
@@ -9,6 +13,7 @@
     }
     defaultTimeout = 30000;
     maxPageSize = 100;
+    defaultLocale = "en-US";
     platforms {
       docker {
         kafka_default_retention_ms = 604800000;
@@ -18,18 +23,6 @@
             timeout = "10s";
             retries = 10;
             startPeriod = "30s";
-          }
-          elasticsearchHealthcheck {
-            interval = "10s";
-            timeout = "5s";
-            retries = 5;
-            startPeriod = "30s";
-          }
-          rabbitmqHealthcheck {
-            interval = "10s";
-            timeout = "15s";
-            retries = 20;
-            startPeriod = "60s";
           }
           kafkaHealthcheck {
             interval = "10s";
@@ -53,19 +46,13 @@
             maxClientConn = 200;
             defaultPoolSize = 20;
           }
-          elasticsearch {
-            heap = "512m";
-          }
           initScript {
             maxRetries = 30;
             retryDelaySeconds = 2;
           }
           multiRdbmsStartPeriodSeconds = 120;
-          // Desktop Docker hosts mount `/` privately, so the container-metrics
-          // collector's host-tree binds are refused and the whole stack fails to
-          // start. This example is documentation people run, most of them on such a
-          // host, so it declares the host it targets rather than the Linux default.
-          // A product deploying to a Linux host omits this and keeps the binds.
+          // Desktop Docker hosts mount `/` privately, which the container-metrics collector's
+          // host binds need, so this example declares the host most people run it on.
           sharedMountPropagation = false;
         }
       }
@@ -73,7 +60,7 @@
     gateway {
       rateLimit {
         default {
-          requests = 100;
+          requests = 300;
           window = "1m";
           key = "ip";
         }
@@ -81,14 +68,9 @@
       auth {
         jwt {
           algorithm = "RS256";
-          issuer = "library";
+          issuer = "millrace";
           expiresIn = 86400;
         }
-      }
-      cors {
-        origins = ["http://localhost:3000"];
-        methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
-        headers = ["Content-Type", "Authorization"];
       }
     }
     observability {
@@ -102,9 +84,9 @@
         samplingRate = 0.1;
       }
       logging {
+        provider = "loki";
         level = "info";
         format = "json";
-        provider = "loki";
       }
       visualization {
         provider = "grafana";
@@ -121,22 +103,27 @@
       adminUser = "admin";
       adminPassword = "identity_zitadel_admin_password";
       masterKey = "identity_zitadel_master_key";
+      publicOrigins {
+        test = "http://localhost:8085";
+        development = "http://localhost:8085";
+        production = "http://localhost:8085";
+      }
       providers {
         identity {
-          project = "library-identity";
-          clientId = "library-identity-app";
+          project = "millrace-identity";
+          clientId = "millrace-identity-app";
         }
-        platform {
-          project = "library-platform";
-          clientId = "library-platform-app";
+        machine {
+          project = "millrace-machine";
+          clientId = "millrace-machine-app";
         }
       }
     }
     configStore {
       engine = "file";
       flavor = "container";
-      applicationName = "taskapp-system";
-      environment = "dev";
+      applicationName = "millrace";
+      environment = "local";
       profiles {
         settings {
           kind = "freeform";
@@ -153,24 +140,13 @@
     alias resource = "test";
   }
 
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
   profile production as "prod" extends base {
     alias env = "PROD";
     alias resource = "prod";
-
-    deployment {
-      runtime = "docker-compose";
-      provider = "local";
-    }
-    gateway {
-      cors {
-        origins = ["https://library.example.com"];
-      }
-    }
-    observability {
-      tracing {
-        endpoint = "http://jaeger:4318";
-      }
-    }
-    region = "us-east-1";
   }
 }

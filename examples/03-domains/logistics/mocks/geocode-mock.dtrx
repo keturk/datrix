@@ -1,0 +1,80 @@
+// Implements the GeocodeProvider contract in the stack. It knows a short list of cities, from seed/, and
+// puts an address a little way from the middle of its city. Every lookup lands in a log the Dispatch app
+// shows. A real vendor is one URL in config/providers/geocode-provider.dcfg away.
+service logistics.GeocodeMock('config/mocks/geocode-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the geocoding vendor') {
+
+    discovery { }
+
+    rdbms geocodeDb {
+
+        /// A city this mock knows. Its name is stored lower case, which is how lookups ask for it.
+        entity KnownCity extends BaseEntity {
+            String(100) nameKey : unique;
+            Float latitude;
+            Float longitude;
+            Boolean inServiceArea;
+        }
+
+        /// A lookup the vendor answered.
+        entity AddressLookup extends BaseEntity {
+            String(300) address;
+            String(100) city : filterable;
+            Boolean found : filterable;
+            Boolean inArea;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct GeocodeRequest {
+        String(300) address;
+        String(100) city;
+    }
+
+    struct GeocodedAddress {
+        Boolean found;
+        Float latitude;
+        Float longitude;
+        Boolean withinServiceArea;
+    }
+
+    const STREET_SPREAD = 0.03;
+
+    // The vendor's public API: exactly the GeocodeProvider contract.
+    rest_api GeocodeAPI : basePath('/v1'), rdbms(geocodeDb) {
+        @path('/geocode')
+        post geocode(GeocodeRequest request) : auth(required, providers: [geocodeKeys]) -> GeocodedAddress {
+            let KnownCity? known = KnownCity.where(nameKey: request.city.trim().toLowerCase()).first();
+            if (known == null) {
+                AddressLookup.create({ address: request.address, city: request.city, found: false, inArea: false });
+                return GeocodedAddress { found: false, latitude: 0.0, longitude: 0.0, withinServiceArea: false };
+            }
+            AddressLookup.create({ address: request.address, city: request.city, found: true, inArea: known.inServiceArea });
+            return GeocodedAddress {
+                found: true,
+                latitude: known.latitude + Random.float(-STREET_SPREAD, STREET_SPREAD),
+                longitude: known.longitude + Random.float(-STREET_SPREAD, STREET_SPREAD),
+                withinServiceArea: known.inServiceArea
+            };
+        }
+    }
+
+    // What the Dispatch app shows: every lookup.
+    rest_api GeocodeDeskAPI : basePath('/api/v1/desk/geocode'), rdbms(geocodeDb) {
+        resource AddressLookup : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a city is looked up by its lower case name") {
+        geocodeDb.KnownCity.create({ nameKey: "testville", latitude: 45.0, longitude: -122.0, inServiceArea: true });
+        assert geocodeDb.KnownCity.where(nameKey: " Testville ".trim().toLowerCase()).first() != null;
+    }
+}

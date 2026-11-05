@@ -1,0 +1,20 @@
+// The key the clinic presents to the insurer, and the members it covers. The key itself is the
+// development default of the services' secret; the insurer stores only its SHA-256 hash. Every member
+// is invented.
+seed service healthcare.InsurerMock {
+  rdbms insurerDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                    keyHash,                                                            ownerId,                 scopes,           isActive;
+        @uuid("insurer-key"),  "820faadb4507b4376057240dc3c531622e735fd7ba8fa233a1026f2fa8038d13", @uuid("owner-ferncrest"), ["claims:write"], true;
+      }
+      Member table on(memberId) {
+        id,                  memberId,   memberName,        planName,  copay, isActive;
+        @uuid("member-ana"), "SIL-1001", "Ana Ferreira",    "Silver",  25.00, true;
+        @uuid("member-ben"), "GLD-2001", "Ben Oyelaran",    "Gold",    10.00, true;
+        @uuid("member-lea"), "SIL-1002", "Lea Marchetti",   "Silver",  25.00, false;
+        @uuid("member-you"), "SIL-3000", "Try this one",    "Silver",  25.00, true;
+      }
+    }
+  }
+}

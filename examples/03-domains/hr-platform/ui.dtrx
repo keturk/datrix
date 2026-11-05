@@ -1,0 +1,52 @@
+// What the Alderbrook apps share: the brand and the shape of a page.
+module hr.ui {
+
+    theme Brand {
+        color primary      = '#4338a0';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#1e1b3a';
+        color background   = '#f6f5fb';
+        color onBackground = '#1e1b3a';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#57566b';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 12;
+        font body          = font('Inter', 16, 400);
+        font heading       = font('Inter', 24, 700);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#25233d';
+            color onSurface    = '#ecebf7';
+            color background   = '#17162b';
+            color onBackground = '#ecebf7';
+            color primary      = '#b6aefb';
+            color onPrimary    = '#201a5c';
+        }
+    }
+
+    /// Cards in one column on a phone and three from a tablet up.
+    style cardGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 3; }
+    }
+
+    /// Figures across the top of a dashboard.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+}

@@ -1,70 +1,61 @@
+from cityservices.common import RequestCategory, RequestPriority, RequestStatus, generateRequestNumber, pointWkt;
 
-from cityservices.common import FacilityType, RequestPriority, RequestStatus, generateRequestNumber;
-
-// Manages citizen service requests with spatial location context
-// Demonstrates: GeoSql.withinDistanceMeters, GeoSql.distanceMeters, GeoShape.fromGeoJson, GeoShape.containsPoint
-service cityservices.RequestService('config/request-service.dcfg') : version('1.0.0'), description('citizen service request management with location-aware queries') {
+// Service requests. A resident reports a problem with a street address and no account; the vendor
+// turns the address into coordinates, the district service says whose area it is, and a reference
+// number lets anyone track it. If the vendor cannot place the address the report is still kept,
+// flagged for a dispatcher, because a resident's report must never be lost to a lookup failure.
+service cityservices.RequestService('config/request-service.dcfg') : version('2.0.0'), description('Resident service requests') {
 
     discovery { }
 
+    uses SmsProvider;
+    uses GeocoderProvider;
+    uses DistrictService;
+
+    exceptions {
+        InvalidTransitionError : status(409), message("The request cannot move to that state from where it is");
+    }
+
     rdbms requestDb {
 
-        // Citizen service request reported at a specific location
         entity ServiceRequest extends BaseEntity {
-            String(30) requestNumber : unique;
-            String(200) title : trim;
+            String(30) requestNumber : unique, filterable;
+            String(200) title : trim, filterable;
             Text description;
-            RequestPriority priority = RequestPriority.Medium;
-            RequestStatus status = RequestStatus.Open;
-            Geometry location;
-            String(300)? address;
-            UUID? assignedDistrictId : index;
-            UUID? assignedFacilityId : index;
+            RequestCategory category : filterable;
+            RequestPriority priority : filterable, sortable = RequestPriority.Medium;
+            RequestStatus status : filterable = RequestStatus.Open;
+            String(300) address : trim;
+            Float? latitude;
+            Float? longitude;
+            Geometry? location;
+            UUID? districtId : index;
+            String(200)? districtName : filterable;
+            /// For status texts only; never in an answer.
+            Phone? reporterPhone : hidden;
 
-            index(status);
-            index(priority, status);
+            Boolean needsLocation := latitude == null;
+
+            index(status, priority);
             fulltext(title, description);
-
-            validate {
-                if (title.trim().isEmpty())
-                    ValidationError("Request title cannot be empty");
-            }
-
-            beforeCreate {
-                requestNumber = generateRequestNumber();
-            }
-
-            afterCreate {
-                dispatch RequestCreated(id, requestNumber, title, priority);
-            }
 
             afterUpdate {
                 if (isChanged(status)) {
                     dispatch RequestStatusChanged(id, requestNumber, oldValue(status), status);
                 }
             }
+        }
 
-            fn assign(UUID districtId) {
-                assignedDistrictId = districtId;
-                status = RequestStatus.Assigned;
-                this.save();
-            }
-
-            fn resolve() {
-                if (status != RequestStatus.InProgress) {
-                    throw ValidationException("Only in-progress requests can be resolved");
-                }
-                status = RequestStatus.Resolved;
-                this.save();
-            }
+        /// What happened to a request, in order. The table refuses every change and delete.
+        entity RequestUpdate extends BaseEntity : appendOnly {
+            UUID requestId : index;
+            RequestStatus status;
+            String(500) note;
         }
     }
 
     pubsub mq {
         topic RequestEvents {
-            publish RequestCreated(UUID requestId, String requestNumber, String title, RequestPriority priority) {
-                ensure title.length > 0;
-            }
             publish RequestStatusChanged(UUID requestId, String requestNumber, RequestStatus oldStatus, RequestStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
@@ -72,102 +63,238 @@ service cityservices.RequestService('config/request-service.dcfg') : version('1.
     }
 
     subscribe RequestEvents {
-        on RequestCreated(UUID requestId, String requestNumber, String title, RequestPriority priority) {
-            Log.info("Service request created", { requestId: requestId, requestNumber: requestNumber, priority: priority });
-        }
-
+        // Texts the reporter, if they left a number. The key means a redelivered event sends once.
         on RequestStatusChanged(UUID requestId, String requestNumber, RequestStatus oldStatus, RequestStatus newStatus) {
-            Log.info("Request status changed", { requestId: requestId, from: oldStatus, to: newStatus });
+            let requestDb.ServiceRequest? request = requestDb.ServiceRequest.find(requestId);
+            if (request != null && request.reporterPhone != null) {
+                textReporter(request.reporterPhone, #"status-{requestId}-{newStatus}", #"Port Alder 311: {requestNumber} is now {newStatus}.");
+            }
         }
     }
 
-    // Subscribe to district events for auto-assignment context
-    subscribe DistrictEvents {
-        on DistrictCreated(UUID districtId, String name, String code) {
-            Log.info("District available for request routing", { districtId: districtId, code: code });
-        }
-    }
-
-    // Subscribe to facility events for nearest-facility awareness
-    subscribe FacilityEvents {
-        on FacilityCreated(UUID facilityId, String name, String facilityCode, FacilityType type) {
-            Log.info("Facility available for request assignment", { facilityId: facilityId, type: type });
-        }
-
-        on ParkCreated(UUID parkId, String name, String parkCode) {
-            Log.info("Park available for request context", { parkId: parkId, parkCode: parkCode });
-        }
-    }
-
-    struct CreateServiceRequestInput {
-        String title;
+    struct ReportRequest {
+        String(200) title;
         Text description;
+        RequestCategory category;
+        String(300) address;
+        Phone? phone;
+    }
+
+    /// What a resident gets back and can look up: never the reporter's number.
+    struct RequestView {
+        String requestNumber;
+        String title;
+        RequestStatus status;
+        String address;
+        String? districtName;
+        DateTime createdAt;
+    }
+
+    struct RequestPin {
+        UUID id;
+        String requestNumber;
+        String title;
         RequestPriority priority;
-        String locationGeoJson;
+        GeoPoint point;
     }
 
-    struct AssignRequestInput {
-        UUID districtId;
+    struct AddNoteRequest {
+        String(500) note;
     }
 
-    rest_api RequestAPI : basePath('/api/v1/requests'), rdbms(requestDb) {
+    struct SetPriorityRequest {
+        RequestPriority priority;
+    }
 
-        resource requestDb.ServiceRequest : auth(public), only(list, get);
-        resource requestDb.ServiceRequest : auth(required, providers: [identity], roles: [admin]), only(delete);
+    struct QueueSummary {
+        Int open;
+        Int assigned;
+        Int inProgress;
+        Int needsLocation;
+    }
 
-        // Find open service requests near a given location
-        // GeoSql.withinDistanceMeters() lowers to PostGIS ST_DWithin
-        // GeoSql.distanceMeters() lowers to PostGIS ST_Distance for ordering
-        @path('/nearby')
-        get(Number lat, Number lng, Number radiusMeters) : auth(public) -> Array<requestDb.ServiceRequest> {
-            return requestDb.ServiceRequest
-                .where(status: RequestStatus.Open)
-                .where(GeoSql.withinDistanceMeters(location, lat, lng, radiusMeters))
-                .orderBy(GeoSql.distanceMeters(location, lat, lng))
-                .all();
+    /// A text failing must not fail the change that caused it.
+    fn textReporter(Phone to, String key, String body) {
+        try {
+            SmsProvider.SmsAPI.post.sendSms(SendSmsRequest { to: to, body: body, idempotencyKey: key });
+        } catch (Exception e) {
+            Log.warn("Status text not sent", { key: key });
         }
+    }
 
-        // Create a service request with location from GeoJSON input
-        // GeoShape.fromGeoJson() converts a GeoJSON point string to WKT Geometry
-        @path('/')
-        post(CreateServiceRequestInput input) : auth(public) -> requestDb.ServiceRequest {
-            let Geometry locationGeometry = GeoShape.fromGeoJson(input.locationGeoJson);
+    fn place(requestDb.ServiceRequest request) {
+        try {
+            let GeocodeResult found = GeocoderProvider.GeocoderAPI.post.geocode(GeocodeRequest { query: request.address });
+            if (found.matched && found.latitude != null && found.longitude != null) {
+                let DistrictMatch district = DistrictService.DistrictAPI.get.forLocation(latitude: found.latitude, longitude: found.longitude);
+                request.latitude = found.latitude;
+                request.longitude = found.longitude;
+                request.location = GeoShape.fromWkt(pointWkt(found.latitude, found.longitude));
+                request.districtId = district.districtId;
+                request.districtName = district.name;
+                request.save();
+            }
+        } catch (Exception e) {
+            Log.warn("Report kept without a location: lookup failed", { requestId: request.id });
+        }
+    }
 
-            let ServiceRequest request = requestDb.ServiceRequest.create({
-                title: input.title,
-                description: input.description,
-                priority: input.priority,
-                location: locationGeometry
+    fn viewOf(requestDb.ServiceRequest request) -> RequestView {
+        return RequestView {
+            requestNumber: request.requestNumber,
+            title: request.title,
+            status: request.status,
+            address: request.address,
+            districtName: request.districtName,
+            createdAt: request.createdAt
+        };
+    }
+
+    fn pinOf(requestDb.ServiceRequest request) -> RequestPin {
+        return RequestPin {
+            id: request.id,
+            requestNumber: request.requestNumber,
+            title: request.title,
+            priority: request.priority,
+            point: GeoPoint { latitude: request.latitude ?? 0.0, longitude: request.longitude ?? 0.0 }
+        };
+    }
+
+    fn advance(requestDb.ServiceRequest request, RequestStatus expected, RequestStatus next, String note) {
+        if (request.status != expected) {
+            throw InvalidTransitionError();
+        }
+        request.status = next;
+        request.save();
+        requestDb.RequestUpdate.create({ requestId: request.id, status: next, note: note });
+    }
+
+    // What a resident can reach.
+    rest_api ReportAPI : basePath('/api/v1/reports'), rdbms(requestDb) {
+        post report(ReportRequest request) : auth(public) -> RequestView {
+            let ServiceRequest created = ServiceRequest.create({
+                requestNumber: generateRequestNumber(),
+                title: request.title,
+                description: request.description,
+                category: request.category,
+                address: request.address,
+                reporterPhone: request.phone
             });
-            request.save();
-
-            dispatch RequestCreated(request.id, request.requestNumber, request.title, request.priority);
-            return request;
+            RequestUpdate.create({ requestId: created.id, status: RequestStatus.Open, note: "Report received" });
+            place(created);
+            if (request.phone != null) {
+                textReporter(request.phone, #"receipt-{created.id}", #"Port Alder 311: we have your report. Your reference is {created.requestNumber}.");
+            }
+            return viewOf(created);
         }
 
-        // Check if a service request falls within a given boundary polygon
-        // GeoShape.containsPoint() is a value-level containment check
-        @path('/:requestId/check-boundary')
-        get checkBoundary(UUID requestId, String boundaryWkt) : auth(service, providers: [platform]), hidden -> JSON {
-            let ServiceRequest request = requestDb.ServiceRequest.findOrFail(requestId);
-            let String requestWkt = GeoShape.toWkt(request.location);
-            let Geometry boundaryGeometry = GeoShape.fromWkt(boundaryWkt);
+        @path('/track/:requestNumber')
+        get track(String requestNumber) : auth(public) -> RequestView {
+            let ServiceRequest found = ServiceRequest.where(requestNumber: requestNumber).firstOrFail();
+            return viewOf(found);
+        }
 
-            // Value-level containment check — not a SQL operation
-            let Boolean isInside = GeoShape.containsPoint(boundaryGeometry, 0, 0);
+        // Open problems near a point: GeoSql lowers to ST_DWithin and ST_Distance.
+        @path('/nearby')
+        get nearby(Float latitude, Float longitude, Float radiusMeters) : auth(public) -> Array<RequestView> {
+            let Array<ServiceRequest> near = ServiceRequest
+                .where(status: RequestStatus.Open)
+                .where(GeoSql.withinDistanceMeters(location, latitude, longitude, radiusMeters))
+                .orderBy(GeoSql.distanceMeters(location, latitude, longitude))
+                .all();
+            return near.map(r => viewOf(r));
+        }
+    }
 
-            return {
-                requestId: request.id,
-                isInsideBoundary: isInside
+    // What city staff work with.
+    rest_api QueueAPI : basePath('/api/v1/queue/requests'), rdbms(requestDb) {
+        resource ServiceRequest : only(list), auth(required, providers: [identity], roles: [dispatcher, admin]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [dispatcher, admin]) -> QueueSummary {
+            return QueueSummary {
+                open: ServiceRequest.where(status: RequestStatus.Open).count(),
+                assigned: ServiceRequest.where(status: RequestStatus.Assigned).count(),
+                inProgress: ServiceRequest.where(status: RequestStatus.InProgress).count(),
+                needsLocation: ServiceRequest.whereNull(latitude).count()
             };
         }
 
-        // Assign a request to a district
-        @path('/:requestId/assign')
-        post(UUID requestId, AssignRequestInput input) : auth(required, providers: [identity], roles: [admin]) -> requestDb.ServiceRequest {
-            let ServiceRequest request = requestDb.ServiceRequest.findOrFail(requestId);
-            request.assign(input.districtId);
-            return request;
+        @path('/map')
+        get pins() : auth(required, providers: [identity], roles: [dispatcher, admin]) -> Array<RequestPin> {
+            let Array<ServiceRequest> open = ServiceRequest.where(status: RequestStatus.Open).all();
+            return open.filter(r => r.latitude != null).map(r => pinOf(r));
         }
+
+        @path('/:id')
+        get request(UUID id) : auth(required, providers: [identity], roles: [dispatcher, admin]) -> ServiceRequest {
+            return ServiceRequest.findOrFail(id);
+        }
+
+        @path('/:id/history')
+        get history(UUID id) : auth(required, providers: [identity], roles: [dispatcher, admin]) -> Array<RequestUpdate> {
+            return RequestUpdate.where(requestId: id).orderBy(createdAt: asc).all();
+        }
+
+        @path('/:id/assign')
+        post assign(UUID id) : auth(required, providers: [identity], roles: [dispatcher, admin]), invalidates(request, history) -> ServiceRequest {
+            let ServiceRequest found = ServiceRequest.findOrFail(id);
+            advance(found, RequestStatus.Open, RequestStatus.Assigned, "Assigned to a crew");
+            return found;
+        }
+
+        @path('/:id/start')
+        post start(UUID id) : auth(required, providers: [identity], roles: [dispatcher, admin]), invalidates(request, history) -> ServiceRequest {
+            let ServiceRequest found = ServiceRequest.findOrFail(id);
+            advance(found, RequestStatus.Assigned, RequestStatus.InProgress, "Work started");
+            return found;
+        }
+
+        @path('/:id/resolve')
+        post resolve(UUID id) : auth(required, providers: [identity], roles: [dispatcher, admin]), invalidates(request, history) -> ServiceRequest {
+            let ServiceRequest found = ServiceRequest.findOrFail(id);
+            advance(found, RequestStatus.InProgress, RequestStatus.Resolved, "Marked resolved");
+            return found;
+        }
+
+        @path('/:id/close')
+        post close(UUID id) : auth(required, providers: [identity], roles: [dispatcher, admin]), invalidates(request, history) -> ServiceRequest {
+            let ServiceRequest found = ServiceRequest.findOrFail(id);
+            advance(found, RequestStatus.Resolved, RequestStatus.Closed, "Closed");
+            return found;
+        }
+
+        @path('/:id/priority')
+        post setPriority(UUID id, SetPriorityRequest request) : auth(required, providers: [identity], roles: [dispatcher, admin]), invalidates(request) -> ServiceRequest {
+            let ServiceRequest found = ServiceRequest.findOrFail(id);
+            found.priority = request.priority;
+            found.save();
+            return found;
+        }
+    }
+
+    test("a new request is open and waits for a location") {
+        let ServiceRequest request = requestDb.ServiceRequest.create({
+            requestNumber: generateRequestNumber(),
+            title: "Pothole on Harbor Street",
+            description: "Deep enough to hurt a bicycle wheel",
+            category: RequestCategory.Pothole,
+            address: "12 Harbor Street"
+        });
+        assert request.status == RequestStatus.Open;
+        assert request.needsLocation;
+    }
+
+    test("changing a request's status announces it") {
+        let ServiceRequest request = requestDb.ServiceRequest.create({
+            requestNumber: generateRequestNumber(),
+            title: "Streetlight out",
+            description: "Dark corner",
+            category: RequestCategory.Streetlight,
+            address: "3 Quay Road"
+        });
+        request.status = RequestStatus.Assigned;
+        request.save();
+        assert emitted(RequestStatusChanged(request.id, request.requestNumber, RequestStatus.Open, RequestStatus.Assigned));
     }
 }

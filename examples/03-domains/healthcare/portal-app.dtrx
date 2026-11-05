@@ -1,0 +1,286 @@
+from healthcare.ui import Brand, cardGrid, statRow;
+
+/// What a patient uses, on the web and on a phone. Anyone can look through the clinicians. Booking,
+/// and anything about their own record, asks them to sign in, because the routes behind it need it.
+app healthcare.Portal('config/portal-app.dcfg') : version('2.0.0') {
+    uses healthcare.PatientService;
+    uses healthcare.AppointmentService;
+    uses healthcare.RecordService;
+
+    theme extends Brand { }
+
+    assets {
+        image logo = 'assets/logo.svg';
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    // The slot the open dialog books: a form sends this value without showing it.
+    state UUID? chosenSlotId = null;
+    state Boolean booking = false;
+
+    fn cancelVisit(UUID id) {
+        if (Ui.confirm(Msg.confirmCancel)) {
+            AppointmentService.BookingAPI.post.cancelMine(id: id);
+            Ui.toast(Msg.visitCancelled);
+        }
+    }
+
+    fn requestRefill(UUID id) {
+        RecordService.MyRecordAPI.post.requestRefill(id: id);
+        Ui.toast(Msg.refillSent, tone: success);
+    }
+
+    layout Site : default {
+        nav {
+            link Home : icon(home);
+            link FindCare : icon(stethoscope);
+            link MyVisits : icon(event);
+            link MyPrescriptions : icon(medication);
+            link MyBills : icon(receipt_long);
+            link Privacy : icon(visibility);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName) { image(logo, Msg.logoAlt); }
+                    spacer;
+                    nav;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Home() {
+        data {
+            me = PatientService.PortalAPI.get.me();
+            visits = AppointmentService.BookingAPI.get.myVisits();
+            prescriptions = RecordService.MyRecordAPI.get.myPrescriptions();
+            bills = RecordService.MyRecordAPI.get.myBills();
+        }
+        view {
+            pageHeader(Msg.welcome(name: me.fullName), Msg.recordLine(number: me.recordNumber)) {
+                link(Msg.bookVisit, FindCare) : kind(primary), icon(add);
+            }
+            when (me.dateOfBirth == null) {
+                callout(Msg.finishDetails) : tone(warning);
+                card(Msg.detailsTitle) { form(SaveDetails); }
+            }
+            grid : style(statRow) {
+                stat(Msg.statVisits, Fmt.number(visits.length)) : icon(event);
+                stat(Msg.statPrescriptions, Fmt.number(prescriptions.length)) : icon(medication);
+                stat(Msg.statBills, Fmt.number(bills.length)) : icon(receipt_long);
+            }
+            section(Msg.coverageTitle) {
+                card {
+                    badge(me.coverage);
+                    when (me.planName != null) {
+                        text(Msg.planLine(plan: me.planName));
+                    }
+                    when (me.copay != null) {
+                        text(Msg.copayLine(amount: Fmt.money(me.copay)));
+                    }
+                }
+            }
+            section(Msg.upcomingTitle) {
+                list(data: visits) : onClick(Nav.to(MyVisits)) {
+                    heading(item.clinicianName);
+                    badge(item.status);
+                    text(item.specialty);
+                    text(Fmt.dateTime(item.startsAt));
+                }
+            }
+        }
+    }
+
+    form SaveDetails : submit(PatientService.PortalAPI.post.saveDetails) {
+        field dateOfBirth;
+        field phone;
+        field allergies;
+        field memberId;
+        onSuccess(Ui.toast(Msg.detailsSaved, tone: success));
+    }
+
+    @path('/clinicians')
+    page FindCare() {
+        data { clinicians = AppointmentService.BookingAPI.appointmentDb.Clinician.list(); }
+        view {
+            pageHeader(Msg.findCareTitle, Msg.findCareSubtitle);
+            grid : style(cardGrid) {
+                foreach (clinician in clinicians) {
+                    card {
+                        heading(clinician.name);
+                        badge(clinician.specialty);
+                        text(clinician.bio);
+                        text(Msg.chargeLine(amount: Fmt.money(clinician.visitCharge)));
+                        link(Msg.seeTimes, ClinicianTimes, id: clinician.id);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/clinicians/:id')
+    page ClinicianTimes(UUID id) {
+        data {
+            clinician = AppointmentService.BookingAPI.appointmentDb.Clinician.get(id: id);
+            slots = AppointmentService.BookingAPI.get.slotsOf(id: id);
+        }
+
+        fn choose(UUID slotId) {
+            chosenSlotId = slotId;
+            booking = true;
+        }
+
+        fn closeBooking() {
+            booking = false;
+        }
+
+        view {
+            pageHeader(clinician.name, clinician.specialty) : back(FindCare);
+            when (booking) {
+                dialog(Msg.bookVisit) : onClose(closeBooking()) {
+                    form(BookVisit);
+                }
+            }
+            list(data: slots) {
+                heading(Fmt.dateTime(item.startsAt));
+                button(Msg.choose) : onClick(choose(item.id)), kind(primary);
+            }
+        }
+    }
+
+    form BookVisit : submit(AppointmentService.BookingAPI.post.book) {
+        fn booked() {
+            booking = false;
+            Ui.toast(Msg.visitBooked, tone: success);
+            Nav.to(MyVisits);
+        }
+        field slotId : fixed(chosenSlotId);
+        field kind;
+        field reason;
+        onSuccess(booked());
+    }
+
+    @path('/visits')
+    page MyVisits() {
+        data {
+            visits = AppointmentService.BookingAPI.get.myVisits() : poll(30s);
+            notes = RecordService.MyRecordAPI.get.myNotes();
+        }
+        view {
+            pageHeader(Msg.visitsTitle, Msg.visitsSubtitle);
+            section(Msg.calendarTitle) {
+                list(data: visits) {
+                    heading(item.clinicianName);
+                    badge(item.status);
+                    badge(item.kind);
+                    text(Fmt.dateTime(item.startsAt));
+                    text(item.reason);
+                    when (item.status == AppointmentStatus.Booked) {
+                        button(Msg.cancelVisit) : onClick(cancelVisit(item.id)), tone(danger);
+                    }
+                }
+            }
+            section(Msg.notesTitle) {
+                list(data: notes) : onClick(Nav.to(NoteDetail, id: item.id)) {
+                    heading(item.clinicianName);
+                    text(Fmt.date(item.visitedAt));
+                    when (item.diagnosis != null) {
+                        text(item.diagnosis);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/visits/notes/:id')
+    page NoteDetail(UUID id) {
+        data { view = RecordService.MyRecordAPI.get.myNote(id: id); }
+        view {
+            pageHeader(view.visit.clinicianName, Fmt.date(view.visit.visitedAt)) : back(MyVisits) {
+                badge(view.visit.status);
+            }
+            card(Msg.reasonTitle) { text(view.visit.reason); }
+            when (view.visit.diagnosis != null) {
+                card(Msg.diagnosisTitle) { text(view.visit.diagnosis); }
+            }
+            when (view.text != null) {
+                card(Msg.noteTitle) { text(view.text) : preserveLines; }
+            }
+        }
+    }
+
+    @path('/prescriptions')
+    page MyPrescriptions() {
+        data { prescriptions = RecordService.MyRecordAPI.get.myPrescriptions() : poll(30s); }
+        view {
+            pageHeader(Msg.prescriptionsTitle, Msg.prescriptionsSubtitle);
+            when (prescriptions.length == 0) {
+                emptyState(Msg.noPrescriptions) : icon(medication);
+            }
+            list(data: prescriptions) {
+                heading(item.drugName);
+                badge(item.status);
+                text(item.directions);
+                text(Msg.refillsLine(count: item.refillsLeft));
+                when (item.refillsLeft > 0) {
+                    button(Msg.requestRefill) : onClick(requestRefill(item.id));
+                }
+            }
+        }
+    }
+
+    @path('/bills')
+    page MyBills() {
+        data { bills = RecordService.MyRecordAPI.get.myBills(); }
+        view {
+            pageHeader(Msg.billsTitle, Msg.billsSubtitle);
+            when (bills.length == 0) {
+                emptyState(Msg.noBills) : icon(receipt_long);
+            }
+            list(data: bills) {
+                heading(item.clinicianName);
+                badge(item.state);
+                text(Fmt.date(item.visitedAt));
+                text(Msg.billedLine(amount: Fmt.money(item.billedAmount)));
+                text(Msg.insurerLine(amount: Fmt.money(item.insurerPays)));
+                text(Msg.oweLine(amount: Fmt.money(item.patientOwes)));
+            }
+        }
+    }
+
+    @path('/privacy')
+    page Privacy() {
+        data { accesses = RecordService.MyRecordAPI.get.whoOpenedMyChart(); }
+        view {
+            pageHeader(Msg.privacyTitle, Msg.privacySubtitle);
+            when (accesses.length == 0) {
+                emptyState(Msg.nobodyYet) : icon(visibility_off);
+            }
+            timeline(data: accesses, at: a => a.createdAt) {
+                heading(item.viewerName);
+                text(item.purpose);
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Home); }
+        }
+    }
+
+    test("anyone can see who works here") {
+        let Screen screen = render(FindCare);
+        assert screen.shows(Msg.findCareTitle);
+    }
+}

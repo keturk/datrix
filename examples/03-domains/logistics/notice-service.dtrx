@@ -1,0 +1,36 @@
+// Takes texts off the queue and hands them to the vendor, so a slow vendor delays a text and nothing else.
+// A delivery the broker repeats finds the notice it already sent. The phone number is used and not kept.
+service logistics.NoticeService('config/notice-service.dcfg') : version('2.0.0'), description('Texts to recipients') {
+
+    discovery { }
+
+    uses ShipmentService;
+    uses SmsProvider;
+
+    rdbms noticeDb {
+
+        entity Notice extends BaseEntity {
+            String(20) trackingNumber : filterable;
+            String(320) body;
+            String(120) noticeKey : unique;
+            String(40) vendorMessageId;
+        }
+    }
+
+    enqueue logistics.ShipmentService.TextRecipient(String trackingNumber, Phone phone, String noticeKey, String body) {
+        if (noticeDb.Notice.where(noticeKey: noticeKey).first() == null) {
+            let TextMessage sent = SmsProvider.SmsAPI.post.sendSms(SendSmsRequest { to: phone, body: body, idempotencyKey: noticeKey });
+            noticeDb.Notice.create({ trackingNumber: trackingNumber, body: body, noticeKey: noticeKey, vendorMessageId: sent.id });
+        }
+    }
+
+    rest_api NoticeDeskAPI : basePath('/api/v1/desk/notices'), rdbms(noticeDb) {
+        resource Notice : only(list), auth(required, providers: [identity], roles: [dispatcher]);
+    }
+
+    test("a notice keeps its key") {
+        let noticeDb.Notice notice = noticeDb.Notice.create({ trackingNumber: "QL-TEST000001", body: "Delivered", noticeKey: "k-1", vendorMessageId: "sms_1" });
+        assert noticeDb.Notice.where(noticeKey: "k-1").first() != null;
+        assert notice.body == "Delivered";
+    }
+}

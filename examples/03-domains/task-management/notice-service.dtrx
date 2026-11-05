@@ -1,0 +1,112 @@
+// Tells people what happened. An event becomes a notice row first, then a delivery, so a vendor being down
+// loses nothing: the row stays undelivered, the Notices page shows it, and a job tries again. Each notice has
+// its own key, which is also what the vendor uses to refuse a second copy.
+service taskapp.NoticeService('config/notice-service.dcfg') : version('2.0.0'), description('Chat and email notices') {
+
+    discovery { }
+
+    uses ProjectService;
+    uses TaskService;
+    uses ChatProvider;
+    uses EmailProvider;
+
+    enum NoticeChannel {
+        Chat : tone(info),
+        Email : tone(neutral)
+    }
+
+    rdbms noticeDb {
+
+        entity Notice extends BaseEntity {
+            NoticeChannel channel : filterable;
+            /// A chat channel, or an email address.
+            String(200) target : filterable;
+            String(200) subject;
+            String(2000) body;
+            Boolean delivered : filterable = false;
+            Int attempts = 0;
+            String(120) noticeKey : unique;
+
+            index(delivered);
+        }
+    }
+
+    fn deliver(noticeDb.Notice notice) {
+        notice.attempts = notice.attempts + 1;
+        try {
+            if (notice.channel == NoticeChannel.Chat) {
+                ChatProvider.ChatAPI.post.postMessage(notice.target, PostMessageRequest { text: notice.body, idempotencyKey: notice.noticeKey });
+            } else {
+                EmailProvider.EmailAPI.post.sendEmail(SendEmailRequest { to: notice.target, subject: notice.subject, body: notice.body, idempotencyKey: notice.noticeKey });
+            }
+            notice.delivered = true;
+        } catch (Exception e) {
+            Log.warn("Notice not delivered", { noticeKey: notice.noticeKey });
+        }
+        notice.save();
+    }
+
+    /// A redelivered event finds its row already there and sends nothing twice.
+    fn tell(NoticeChannel channel, String target, String subject, String body, String key) {
+        if (noticeDb.Notice.where(noticeKey: key).first() != null) {
+            return;
+        }
+        let noticeDb.Notice notice = noticeDb.Notice.create({
+            channel: channel,
+            target: target,
+            subject: subject,
+            body: body,
+            noticeKey: key
+        });
+        deliver(notice);
+    }
+
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
+    subscribe ProjectEvents {
+        on MemberAdded(String projectName, String personName, String email, String addedBy) {
+            tell(NoticeChannel.Email, email, #"You are on {projectName}", #"{addedBy} added {personName} to {projectName}.", #"member-{projectName}-{email}");
+        }
+    }
+
+    subscribe TaskEvents {
+        on TaskAssigned(String number, String title, String projectName, String assigneeName, String assigneeEmail, String actorName) {
+            tell(NoticeChannel.Email, assigneeEmail, #"{number} is yours", #"{actorName} gave {assigneeName} {number}, {title}, on {projectName}.", #"assigned-{number}-{assigneeEmail}");
+        }
+
+        on TaskFinished(String number, String title, String projectName, String channel, String actorName) {
+            tell(NoticeChannel.Chat, channel, #"{number} is done", #"{actorName} finished {number}: {title}", #"finished-{number}-{DateTime.now().format('YYYYMMDDHHmmss')}");
+        }
+
+        on TaskOverdue(String number, String title, String projectName, String channel, String assigneeName) {
+            tell(NoticeChannel.Chat, channel, #"{number} is overdue", #"{number} is overdue: {title}. It is with {assigneeName}.", #"overdue-{number}-{DateTime.now().format('YYYYMMDD')}");
+        }
+    }
+
+    // Who has not been told yet, and whether the vendor has come back.
+    rest_api NoticeDeskAPI : basePath('/api/v1/desk/notices'), rdbms(noticeDb) {
+        resource Notice : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    jobs {
+        job RetryNotices {
+            let Array<noticeDb.Notice> waiting = noticeDb.Notice.where(delivered: false).where(attempts: lt(10)).limit(100).all();
+            foreach notice in waiting {
+                deliver(notice);
+            }
+        }
+    }
+
+    test("a new notice has not been delivered") {
+        let noticeDb.Notice created = noticeDb.Notice.create({
+            channel: NoticeChannel.Email,
+            target: "someone@example.com",
+            subject: "Subject",
+            body: "Body",
+            noticeKey: "test-key"
+        });
+        assert created.delivered == false;
+        assert created.attempts == 0;
+    }
+}

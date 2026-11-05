@@ -1,0 +1,44 @@
+// The contract of the transactional email provider. The product calls only this contract and
+// never knows what serves it: config/providers/mail-provider.dcfg says where it is served.
+extern service blog.MailProvider('config/providers/mail-provider.dcfg')
+    : version('1.0.0'), description('Transactional email delivery') {
+
+    enum MailStatus {
+        Accepted,
+        Delivered,
+        Bounced
+    }
+
+    struct SendMailRequest {
+        Email to;
+        String(200) subject;
+        Text body;
+        /// The caller's key: sending again with the same key returns the first message.
+        String(120) idempotencyKey;
+    }
+
+    struct Mail {
+        String(40) id;
+        Email to;
+        String(200) subject;
+        MailStatus status;
+        DateTime createdAt;
+    }
+
+    rest_api MailAPI : basePath('/v1') {
+        @path('/messages')
+        post sendMail(SendMailRequest request) -> Mail {
+            ensure request.idempotencyKey != "";
+        }
+
+        @path('/messages/{messageId}')
+        get getMail(String messageId) -> Mail;
+    }
+
+    errors {
+        InvalidMail(String message);
+    }
+
+    auth : apiKey(header: 'X-Mail-Api-Key');
+    health : path('/health');
+}

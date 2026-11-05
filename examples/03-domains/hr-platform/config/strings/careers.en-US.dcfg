@@ -1,0 +1,31 @@
+config strings hr.Careers locale "en-US" {
+  messages {
+    appName        = "Careers at Alderbrook";
+    logoAlt        = "Alderbrook";
+    home           = "See the open roles";
+    notFoundTitle  = "Page not found";
+    rolesTitle     = "Work with us";
+    rolesSubtitle  = "Every role we are hiring for right now. No account needed.";
+    noRoles        = "We have no open roles right now";
+    salaryLine     = "{from} to {to} a year";
+    readMore       = "Read more";
+    applyNow       = "Apply";
+    applyTitle     = "Your application";
+    thanksTitle    = "Thank you";
+    thanksSubtitle = "Your application is with our team.";
+    referenceTitle = "Your reference";
+    referenceHint  = "Keep this. It is how you follow your application, and anyone holding it can see how far it has come.";
+    trackIt        = "Follow your application";
+    trackTitle     = "Follow your application";
+    trackSubtitle  = "Enter the reference you were given.";
+    lookUp         = "Look it up";
+    notFoundReference = "There is no application with that reference.";
+  }
+  labels {
+    page.Roles    = "Open roles";
+    page.Role     = "Role";
+    page.Thanks   = "Thank you";
+    page.Track    = "Follow an application";
+    page.NotFound = "Not found";
+  }
+}

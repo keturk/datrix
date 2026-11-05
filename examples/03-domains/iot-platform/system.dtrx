@@ -1,7 +1,18 @@
 include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/fleet-provider.dtrx';
+include 'providers/pager-provider.dtrx';
 include 'device-service.dtrx';
 include 'telemetry-service.dtrx';
 include 'firmware-service.dtrx';
+include 'mocks/fleet-mock.dtrx';
+include 'mocks/pager-mock.dtrx';
+include 'operations-app.dtrx';
+include 'technician-app.dtrx';
 
-system iot('config/system.dcfg') : version('1.0.0') {
+/// Coldframe: every fridge in a chain of cold stores reports its temperature. A reading out of range
+/// opens an alert and pages someone, a technician claims it and fixes it, and new firmware rolls out a
+/// few devices at a time. The devices and the paging vendor are outside the company, played here by
+/// mocks in the same stack, and the simulated fleet really does send readings every minute.
+system iot.System('config/system.dcfg') : version('2.0.0') {
 }

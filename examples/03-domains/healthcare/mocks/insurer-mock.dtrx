@@ -1,0 +1,196 @@
+// Implements the InsurerProvider contract in the stack, so the clinic sends real requests and needs no
+// agreement with any insurer. Its rules are simple enough to try by hand: a member on file is covered
+// if active, a visit over $500 waits for a person on the desk, and everything else is paid less the
+// member's copay.
+service healthcare.InsurerMock('config/mocks/insurer-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the health insurer') {
+
+    discovery { }
+
+    exceptions {
+        NoSuchClaimError : status(404), message("There is no claim with that id");
+    }
+
+    enum EligibilityStatus {
+        Active,
+        Inactive
+    }
+
+    enum ClaimDecision {
+        Approved : tone(success),
+        InReview : tone(warning),
+        Denied : tone(danger)
+    }
+
+    rdbms insurerDb {
+
+        /// Someone the insurer covers.
+        entity Member extends BaseEntity {
+            String(30) memberId : unique, filterable;
+            String(200) memberName;
+            String(60) planName : filterable;
+            Money copay;
+            Boolean isActive : filterable = true;
+        }
+
+        /// A claim the insurer received.
+        entity ReceivedClaim extends BaseEntity {
+            String(40) claimNumber : unique;
+            String(120) idempotencyKey : unique;
+            String(30) memberId : filterable;
+            Money billedAmount;
+            Money insurerPays;
+            Money patientOwes;
+            ClaimDecision decision : filterable;
+            String(200)? reason;
+        }
+
+        /// API keys the insurer issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct EligibilityRequest {
+        String(30) memberId;
+    }
+
+    struct EligibilityAnswer {
+        EligibilityStatus status;
+        String(60)? planName;
+        Money copay;
+    }
+
+    struct SubmitClaimRequest {
+        String(30) memberId;
+        String(40) visitReference;
+        Money billedAmount;
+        String(120) idempotencyKey;
+    }
+
+    struct ClaimAnswer {
+        String(40) id;
+        ClaimDecision decision;
+        Money insurerPays;
+        Money patientOwes;
+        String(200)? reason;
+    }
+
+    /// The amount above which a person looks at the claim first.
+    const REVIEW_ABOVE = 500.00;
+
+    fn answerOf(insurerDb.ReceivedClaim claim) -> ClaimAnswer {
+        return ClaimAnswer {
+            id: claim.claimNumber,
+            decision: claim.decision,
+            insurerPays: claim.insurerPays,
+            patientOwes: claim.patientOwes,
+            reason: claim.reason
+        };
+    }
+
+    // The insurer's public API: exactly the InsurerProvider contract.
+    rest_api InsurerAPI : basePath('/v1'), rdbms(insurerDb) {
+        @path('/eligibility')
+        post checkEligibility(EligibilityRequest request) : auth(required, providers: [insurerKeys]) -> EligibilityAnswer {
+            let Member? member = Member.where(memberId: request.memberId).first();
+            if (member == null || !member.isActive) {
+                return EligibilityAnswer { status: EligibilityStatus.Inactive, planName: null, copay: 0.00 };
+            }
+            return EligibilityAnswer { status: EligibilityStatus.Active, planName: member.planName, copay: member.copay };
+        }
+
+        @path('/claims')
+        post submitClaim(SubmitClaimRequest request) : auth(required, providers: [insurerKeys]) -> ClaimAnswer {
+            let ReceivedClaim? existing = ReceivedClaim.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            let Member? member = Member.where(memberId: request.memberId).first();
+            let String number = #"CLM-{Random.string(10, '0123456789')}";
+            if (member == null || !member.isActive) {
+                return answerOf(ReceivedClaim.create({
+                    claimNumber: number,
+                    idempotencyKey: request.idempotencyKey,
+                    memberId: request.memberId,
+                    billedAmount: request.billedAmount,
+                    insurerPays: 0.00,
+                    patientOwes: request.billedAmount,
+                    decision: ClaimDecision.Denied,
+                    reason: "The member's coverage is not active"
+                }));
+            }
+            if (request.billedAmount > REVIEW_ABOVE) {
+                return answerOf(ReceivedClaim.create({
+                    claimNumber: number,
+                    idempotencyKey: request.idempotencyKey,
+                    memberId: request.memberId,
+                    billedAmount: request.billedAmount,
+                    insurerPays: 0.00,
+                    patientOwes: 0.00,
+                    decision: ClaimDecision.InReview
+                }));
+            }
+            return answerOf(ReceivedClaim.create({
+                claimNumber: number,
+                idempotencyKey: request.idempotencyKey,
+                memberId: request.memberId,
+                billedAmount: request.billedAmount,
+                insurerPays: request.billedAmount - member.copay,
+                patientOwes: member.copay,
+                decision: ClaimDecision.Approved
+            }));
+        }
+
+        @path('/claims/:id')
+        get claimById(String id) : auth(required, providers: [insurerKeys]) -> ClaimAnswer {
+            let ReceivedClaim? claim = ReceivedClaim.where(claimNumber: id).first();
+            if (claim == null) {
+                throw NoSuchClaimError();
+            }
+            return answerOf(claim);
+        }
+    }
+
+    // What the operator pages in the Clinic app show, and the decision a person makes on a large claim.
+    rest_api InsurerDeskAPI : basePath('/api/v1/desk/insurer'), rdbms(insurerDb) {
+        resource Member : only(list, create), auth(required, providers: [identity], roles: [operator]);
+        resource ReceivedClaim : only(list), auth(required, providers: [identity], roles: [operator]);
+
+        @path('/claims/:id/approve')
+        post approve(UUID id) : auth(required, providers: [identity], roles: [operator]) -> ReceivedClaim {
+            let ReceivedClaim claim = ReceivedClaim.findOrFail(id);
+            let Member member = Member.where(memberId: claim.memberId).firstOrFail();
+            claim.decision = ClaimDecision.Approved;
+            claim.insurerPays = claim.billedAmount - member.copay;
+            claim.patientOwes = member.copay;
+            claim.save();
+            return claim;
+        }
+
+        @path('/claims/:id/deny')
+        post deny(UUID id) : auth(required, providers: [identity], roles: [operator]) -> ReceivedClaim {
+            let ReceivedClaim claim = ReceivedClaim.findOrFail(id);
+            claim.decision = ClaimDecision.Denied;
+            claim.patientOwes = claim.billedAmount;
+            claim.reason = "Denied on review";
+            claim.save();
+            return claim;
+        }
+    }
+
+    test("a new member is active") {
+        let Member created = insurerDb.Member.create({
+            memberId: "TEST-1",
+            memberName: "Ana Ferreira",
+            planName: "Silver",
+            copay: 25.00
+        });
+        assert created.isActive;
+    }
+}

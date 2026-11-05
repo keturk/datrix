@@ -1,7 +1,17 @@
 include 'common.dtrx';
-include 'user-service.dtrx';
+include 'ui.dtrx';
+include 'providers/chat-provider.dtrx';
+include 'providers/email-provider.dtrx';
 include 'project-service.dtrx';
 include 'task-service.dtrx';
+include 'notice-service.dtrx';
+include 'mocks/chat-mock.dtrx';
+include 'mocks/email-mock.dtrx';
+include 'workspace-app.dtrx';
+include 'desk-app.dtrx';
 
-system taskapp.System('config/system.dcfg') : version('1.0.0') {
+/// Millrace: a team's projects on a board. Tasks move across columns, a task cannot start while another one
+/// blocks it, and whoever needs to know hears about it in chat and by email. The chat and email vendors run
+/// as mocks in the same stack.
+system taskapp.System('config/system.dcfg') : version('2.0.0') {
 }

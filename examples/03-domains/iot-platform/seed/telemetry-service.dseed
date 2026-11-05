@@ -1,0 +1,16 @@
+// The key a real device could report with: dev-only-device-key-not-a-credential, stored as its SHA-256
+// hash. It only works against this stack. The README shows it in use.
+seed service iot.TelemetryService {
+  rdbms alertDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                 keyHash,                                                            ownerId,                 scopes,             isActive;
+        @uuid("device-key"), "6fe4622fb074cfd44f8ad9d66eaae1807e373fe55810f0e017f1d8846028ebee", @uuid("owner-coldframe"), ["readings:write"], true;
+      }
+      Alert table on(id) {
+        id,                deviceName,       siteName,        kind,    status,   temperature, claimedByName, resolvedAt,             resolution,                         serialNumber, deviceId;
+        @uuid("alert-old"), "Vegetable room", "Mill Yard",     TooWarm, Resolved, 10.4,        "Rae Lindqvist", @datetime("-3d 15:30"), "The door seal had failed. Replaced.", "CF-2002",    @uuid("dev-veg");
+      }
+    }
+  }
+}

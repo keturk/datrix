@@ -1,0 +1,30 @@
+// The contract of the team chat vendor. config/providers/chat-provider.dcfg says where it is served.
+extern service taskapp.ChatProvider('config/providers/chat-provider.dcfg')
+    : version('1.0.0'), description('Posting to a team chat channel') {
+
+    struct PostMessageRequest {
+        String(2000) text;
+        /// The caller's key: posting again with the same key returns the first message.
+        String(120) idempotencyKey;
+    }
+
+    struct PostedMessage {
+        String(40) id;
+        String(80) channel;
+    }
+
+    rest_api ChatAPI : basePath('/v1') {
+        @path('/channels/{channel}/messages')
+        post postMessage(String channel, PostMessageRequest request) -> PostedMessage {
+            ensure channel != "";
+            ensure request.idempotencyKey != "";
+        }
+    }
+
+    errors {
+        ChannelClosed(String message);
+    }
+
+    auth : apiKey(header: 'X-Chat-Api-Key');
+    health : path('/health');
+}

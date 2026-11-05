@@ -33,6 +33,7 @@ config strings ecommerce.Storefront locale "en-US" {
     markAllRead      = "Mark all as read";
     muteNotices      = "Mute notifications";
     account          = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     navShop          = "Shop";
     navAccount       = "My account";

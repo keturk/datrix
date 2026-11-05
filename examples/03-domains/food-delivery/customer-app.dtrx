@@ -1,0 +1,158 @@
+from fooddelivery.ui import Brand, cardGrid;
+
+/// What a customer uses, on the web and on a phone. Anyone can browse. Adding to a cart asks them to
+/// sign in, because the routes behind it need a signed-in customer.
+app fooddelivery.Customer('config/customer-app.dcfg') : version('2.0.0') {
+    uses fooddelivery.RestaurantService;
+    uses fooddelivery.OrderService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    fn addToCart(UUID menuItemId) {
+        OrderService.CustomerAPI.post.addToCart({ menuItemId: menuItemId, quantity: 1 });
+        Ui.toast(Msg.added, tone: success);
+    }
+
+    fn removeFromCart(UUID lineId) {
+        OrderService.CustomerAPI.post.removeFromCart(id: lineId);
+        Ui.toast(Msg.removed);
+    }
+
+    layout Site : default {
+        nav {
+            link Restaurants : icon(restaurant);
+            link MyCart : icon(shopping_cart);
+            link MyOrders : icon(receipt_long);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Restaurants() {
+        data { restaurants = RestaurantService.RestaurantAPI.restaurantDb.Restaurant.list(); }
+        view {
+            pageHeader(Msg.restaurantsTitle, Msg.restaurantsSubtitle);
+            grid : style(cardGrid) {
+                foreach (restaurant in restaurants) {
+                    card {
+                        heading(restaurant.name);
+                        badge(restaurant.cuisine);
+                        text(restaurant.description);
+                        link(Msg.seeMenu, Menu, id: restaurant.id);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/restaurants/:id')
+    page Menu(UUID id) {
+        data { menu = RestaurantService.RestaurantAPI.get.menu(id: id); }
+        view {
+            pageHeader(menu.restaurant.name, menu.restaurant.address) : back(Restaurants) {
+                badge(menu.restaurant.cuisine);
+            }
+            when (!menu.restaurant.isOpen) {
+                callout(Msg.closedNow) : tone(warning);
+            }
+            list(data: menu.items) {
+                heading(item.name);
+                text(item.description);
+                text(Fmt.money(item.price));
+                button(Msg.addToCart) : onClick(addToCart(item.id)), kind(primary);
+            }
+        }
+    }
+
+    @path('/cart')
+    page MyCart() {
+        data { cart = OrderService.CustomerAPI.get.cart(); }
+        view {
+            pageHeader(Msg.cartTitle, Msg.cartSubtitle);
+            list(data: cart.lines) {
+                heading(item.name);
+                text(item.restaurantName);
+                text(Fmt.money(item.unitPrice));
+                button(Msg.remove) : onClick(removeFromCart(item.id));
+            }
+            stat(Msg.subtotal, Fmt.money(cart.subtotal)) : icon(payments);
+            card(Msg.checkoutTitle) { form(Checkout); }
+        }
+    }
+
+    form Checkout : submit(OrderService.CustomerAPI.post.checkout) {
+        fn placed(UUID orderId) {
+            Ui.toast(Msg.placed, tone: success);
+            Nav.to(OrderDetail, id: orderId);
+        }
+        field zoneId : options(RestaurantService.RestaurantAPI.get.zones, value: z => z.id, label: z => z.name);
+        field street;
+        field phone;
+        field cardToken;
+        onSuccess(placed(result.id));
+    }
+
+    @path('/orders')
+    page MyOrders() {
+        data { orders = OrderService.CustomerAPI.get.myOrders(); }
+        view {
+            pageHeader(Msg.ordersTitle, Msg.ordersSubtitle);
+            list(data: orders) : onClick(Nav.to(OrderDetail, id: item.id)) {
+                heading(item.restaurantName);
+                badge(item.status);
+                text(item.orderNumber);
+                text(Fmt.money(item.total));
+            }
+        }
+    }
+
+    @path('/orders/:id')
+    page OrderDetail(UUID id) {
+        data { detail = OrderService.CustomerAPI.get.myOrder(id: id) : poll(10s); }
+        view {
+            pageHeader(detail.order.restaurantName, detail.order.orderNumber) : back(MyOrders) {
+                badge(detail.order.status);
+            }
+            card {
+                text(detail.order.dropoffAddress);
+                stat(Msg.total, Fmt.money(detail.order.total)) : icon(payments);
+            }
+            section(Msg.itemsTitle) {
+                list(data: detail.items) {
+                    text(item.name);
+                    text(Fmt.money(item.unitPrice));
+                }
+            }
+            section(Msg.progressTitle) {
+                timeline(data: detail.history, at: h => h.createdAt) {
+                    badge(item.status);
+                }
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Restaurants); }
+        }
+    }
+
+    test("the restaurants page opens") {
+        let Screen screen = render(Restaurants);
+        assert screen.shows(Msg.restaurantsTitle);
+    }
+}

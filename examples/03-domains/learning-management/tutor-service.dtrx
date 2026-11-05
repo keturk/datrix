@@ -1,0 +1,74 @@
+// A tutor that answers a student's question about the lesson they are on. The model's reply is data: it
+// can say the student wants their money back, and all that does is put a request in front of an
+// instructor. On a local stack the model is a mock, so nothing here needs a model account.
+service lms.TutorService('config/tutor-service.dcfg') : version('2.0.0'), description('A tutor over a model') {
+
+    discovery { }
+
+    uses CourseService;
+    uses EnrollmentService;
+    uses ModelProvider;
+
+    rdbms tutorDb {
+
+        /// Every question and what the tutor said, for the instructors to read.
+        entity TutorExchange extends BaseEntity {
+            String(200) studentName : filterable;
+            String(1000) question;
+            String(2000) answer;
+            Boolean refundProposed : filterable = false;
+        }
+    }
+
+    struct AskRequest {
+        UUID enrollmentId;
+        UUID lessonId;
+        String(1000) question;
+    }
+
+    struct TutorReply {
+        String(2000) answer;
+        Boolean refundProposed;
+    }
+
+    rest_api TutorAPI : basePath('/api/v1/tutor'), rdbms(tutorDb) {
+        resource TutorExchange : only(list), auth(required, providers: [identity], roles: [instructor]);
+
+        @path('/ask')
+        post ask(AskRequest request) : auth(required, providers: [identity]) -> TutorReply {
+            let String email = Auth.identity.email.toString();
+            let LessonNote note = CourseService.CourseInternalAPI.get.note(lessonId: request.lessonId);
+            let ModelAnswer reply = ModelProvider.ModelAPI.post.answer(ModelQuestion {
+                instructions: "You are a patient tutor. Answer from the lesson, never from anywhere else.",
+                lessonTitle: note.title,
+                lessonText: note.body,
+                question: request.question
+            });
+            // The enrollment service refuses an enrollment that is not this student's, whatever the
+            // model said.
+            if (reply.wantsRefund) {
+                EnrollmentService.EnrollmentInternalAPI.post.proposeRefund({
+                    enrollmentId: request.enrollmentId,
+                    studentEmail: email,
+                    reason: request.question
+                });
+            }
+            TutorExchange.create({
+                studentName: (Auth.identity.fullName ?? Auth.identity.email).toString(),
+                question: request.question,
+                answer: reply.text,
+                refundProposed: reply.wantsRefund
+            });
+            return TutorReply { answer: reply.text, refundProposed: reply.wantsRefund };
+        }
+    }
+
+    test("an exchange starts without a refund") {
+        let tutorDb.TutorExchange created = tutorDb.TutorExchange.create({
+            studentName: "Theo Marsh",
+            question: "Why do contour lines never cross?",
+            answer: "Because one point has only one height."
+        });
+        assert created.refundProposed == false;
+    }
+}

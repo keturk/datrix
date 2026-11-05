@@ -1,0 +1,142 @@
+from logistics.ui import Brand;
+
+/// What a driver has on their phone: today's route on a map, the stops in order, and for each one either
+/// who signed for it or why it could not be left.
+app logistics.Driver('config/driver-app.dcfg') : version('2.0.0') {
+    uses logistics.RouteService;
+
+    theme extends Brand { }
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    state UUID? currentStop = null;
+    state Boolean delivering = false;
+    state Boolean missing = false;
+
+    layout Shell : default {
+        nav {
+            link MyRoutes : icon(route);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page MyRoutes() {
+        data { routes = RouteService.DriverRouteAPI.get.myRoutes() : poll(30s); }
+        view {
+            pageHeader(Msg.routesTitle, Msg.routesSubtitle);
+            when (routes.length == 0) {
+                emptyState(Msg.noRoutes) : icon(route);
+            }
+            list(data: routes) : onClick(Nav.to(RunRoute, id: item.id)) {
+                heading(item.name);
+                badge(item.status);
+                text(Fmt.date(item.runsOn));
+                text(Msg.progressLine(done: Fmt.number(item.doneCount), total: Fmt.number(item.stopCount)));
+            }
+        }
+    }
+
+    @path('/routes/:id')
+    page RunRoute(UUID id) {
+        data { run = RouteService.DriverRouteAPI.get.run(id: id) : poll(15s); }
+
+        fn startDelivered(UUID stopId) {
+            currentStop = stopId;
+            delivering = true;
+        }
+
+        fn startMissed(UUID stopId) {
+            currentStop = stopId;
+            missing = true;
+        }
+
+        fn closeDialogs() {
+            delivering = false;
+            missing = false;
+            run.refresh();
+        }
+
+        view {
+            pageHeader(run.route.name, run.route.vehicleName) : back(MyRoutes) {
+                badge(run.route.status);
+            }
+            when (run.stops.length > 0) {
+                map {
+                    foreach (stop in run.stops) {
+                        marker(stop.point, stop.recipientName);
+                    }
+                    polyline(run.line);
+                }
+            }
+            list(data: run.stops) {
+                heading(Msg.stopHeading(number: Fmt.number(item.sequence), name: item.recipientName));
+                badge(item.status);
+                text(item.address);
+                text(item.city);
+                when (item.status == StopStatus.OnTheRoad) {
+                    button(Msg.delivered) : onClick(startDelivered(item.id)), kind(primary), icon(task_alt);
+                    button(Msg.couldNotDeliver) : onClick(startMissed(item.id)), icon(report);
+                }
+            }
+            when (delivering) {
+                dialog(Msg.delivered) : onClose(closeDialogs()) {
+                    form(MarkDelivered);
+                }
+            }
+            when (missing) {
+                dialog(Msg.couldNotDeliver) : onClose(closeDialogs()) {
+                    form(MarkMissed);
+                }
+            }
+        }
+    }
+
+    form MarkDelivered : submit(RouteService.DriverRouteAPI.post.delivered) {
+        fn done() {
+            delivering = false;
+            Ui.toast(Msg.deliveredDone, tone: success);
+        }
+        field stopId : fixed(currentStop);
+        field deliveredTo;
+        onSuccess(done());
+    }
+
+    form MarkMissed : submit(RouteService.DriverRouteAPI.post.missed) {
+        fn done() {
+            missing = false;
+            Ui.toast(Msg.missedDone, tone: info);
+        }
+        field stopId : fixed(currentStop);
+        field reason;
+        onSuccess(done());
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, MyRoutes); }
+        }
+    }
+
+    test("the routes page opens") {
+        let Screen screen = render(MyRoutes);
+        assert screen.shows(Msg.routesTitle);
+    }
+}

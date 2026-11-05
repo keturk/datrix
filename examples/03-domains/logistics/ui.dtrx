@@ -1,0 +1,45 @@
+// What the Quayline apps share: the brand and the shape of a page.
+module logistics.ui {
+
+    theme Brand {
+        color primary      = '#14506b';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#16262e';
+        color background   = '#f1f5f7';
+        color onBackground = '#16262e';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#4f5f68';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 8;
+        font body          = font('IBM Plex Sans', 15, 400);
+        font heading       = font('IBM Plex Sans', 24, 600);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#17262e';
+            color onSurface    = '#e2ecf1';
+            color background   = '#0f1a20';
+            color onBackground = '#e2ecf1';
+            color primary      = '#8ccbe6';
+            color onPrimary    = '#0b3244';
+        }
+    }
+
+    /// Figures across the top of a dashboard.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+}

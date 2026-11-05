@@ -1,31 +1,18 @@
-
-// BaseEntity is provided by the Datrix standard library.
+// What the Saltbox services share.
 module fooddelivery.common {
 
-    struct DeliveryAddress {
-        String(200) street;
-        String(100) city;
-        String(50) state;
-        String(10) zipCode;
-        String? apartment;
-        String? deliveryInstructions;
-
-        fn format() -> String {
-            return #"{street}, {city}, {state} {zipCode}";
-        }
-
+    /// An order's path. The kitchen board shows one column per member, in this order.
+    enum OrderStatus {
+        Placed : tone(warning),
+        Preparing : tone(info),
+        ReadyForPickup : tone(info),
+        OutForDelivery : tone(info),
+        Delivered : tone(success),
+        Cancelled : tone(neutral)
     }
 
+    /// An order number a customer can read out loud.
     fn generateOrderNumber() -> String {
-        return #"FD-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(6).toUpperCase()}";
+        return #"SB-{Random.string(6, '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ')}";
     }
-
-    fn generateDeliveryCode() -> String {
-        return #"DLV-{DateTime.now().format('YYYYMMDD')}-{Random.string(8).toUpperCase()}";
-    }
-
-    const MAX_ORDER_ITEMS = 50;
-    const MAX_DELIVERY_DISTANCE_KM = 30;
-    const DEFAULT_DELIVERY_FEE = 4.99;
-    const MIN_ORDER_AMOUNT = 10.00;
 }

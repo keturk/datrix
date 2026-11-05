@@ -1,20 +1,19 @@
-
-// BaseEntity is provided by the Datrix standard library.
+// What the Quayline services share.
 module logistics.common {
 
-    struct GeoCoordinate {
-        Decimal(10, 6) latitude;
-        Decimal(10, 6) longitude;
+    /// A parcel's path, as the public tracking page and the dispatch desk both show it.
+    enum ShipmentStatus {
+        Booked : tone(warning),
+        Planned : tone(info),
+        OutForDelivery : tone(info),
+        Delivered : tone(success),
+        Failed : tone(danger),
+        WithPartner : tone(neutral)
     }
 
-    fn generateTrackingNumber() -> String {
-        return #"LGS-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(8).toUpperCase()}";
+    /// A tracking number is the only thing the public page asks for, so it must not be guessable: ten
+    /// characters from an alphabet with nothing that reads like something else.
+    fn newTrackingNumber() -> String {
+        return #"QL-{Random.string(10, 'ABCDEFGHJKMNPQRSTUVWXYZ23456789')}";
     }
-
-    fn generateRouteCode() -> String {
-        return #"RT-{DateTime.now().format('YYYYMMDD')}-{Random.string(6).toUpperCase()}";
-    }
-
-    const MAX_STOPS_PER_ROUTE = 50;
-    const MAINTENANCE_MILEAGE_THRESHOLD = 50000;
 }

@@ -1,0 +1,467 @@
+from healthcare.ui import Brand, statRow;
+
+/// Where the clinic works: the day on a board, the month on a calendar, each patient's chart, the
+/// notes waiting for a signature and the money. Only an operator reaches the vendor pages, which show
+/// what the clinic sent to the mocked insurer, pharmacy and text vendor, and play their people.
+app healthcare.Clinic('config/clinic-app.dcfg') : version('2.0.0') {
+    uses healthcare.PatientService;
+    uses healthcare.AppointmentService;
+    uses healthcare.RecordService;
+    uses healthcare.InsurerMock;
+    uses healthcare.PharmacyMock;
+    uses healthcare.SmsMock;
+
+    theme extends Brand { }
+
+    // What the open dialogs work on: a form sends these values without showing them.
+    state UUID? openPatientId = null;
+    state UUID? openNoteId = null;
+    state Boolean prescribing = false;
+    state Boolean writing = false;
+
+    fn recheck(UUID id) {
+        PatientService.ClinicPatientAPI.post.recheckCoverage(id: id);
+        Ui.toast(Msg.coverageChecked, tone: success);
+    }
+
+    fn approveClaim(UUID id) {
+        InsurerMock.InsurerDeskAPI.post.approve(id: id);
+        Ui.toast(Msg.claimApproved, tone: success);
+    }
+
+    fn denyClaim(UUID id) {
+        InsurerMock.InsurerDeskAPI.post.deny(id: id);
+        Ui.toast(Msg.claimDenied);
+    }
+
+    fn fillTicket(UUID id) {
+        PharmacyMock.PharmacyDeskAPI.post.moveTicket(id, { status: TicketStatus.Filling });
+        Ui.toast(Msg.ticketMoved, tone: success);
+    }
+
+    fn readyTicket(UUID id) {
+        PharmacyMock.PharmacyDeskAPI.post.moveTicket(id, { status: TicketStatus.ReadyForPickup });
+        Ui.toast(Msg.ticketMoved, tone: success);
+    }
+
+    fn pickedUpTicket(UUID id) {
+        PharmacyMock.PharmacyDeskAPI.post.moveTicket(id, { status: TicketStatus.PickedUp });
+        Ui.toast(Msg.ticketMoved, tone: success);
+    }
+
+    fn rejectTicket(UUID id) {
+        PharmacyMock.PharmacyDeskAPI.post.moveTicket(id, { status: TicketStatus.Rejected });
+        Ui.toast(Msg.ticketMoved);
+    }
+
+    layout Shell : default {
+        nav {
+            link Today : icon(today), group(Msg.navDay);
+            link Calendar : icon(calendar_month), group(Msg.navDay);
+            link Patients : icon(groups), group(Msg.navRecords);
+            link Notes : icon(edit_note), group(Msg.navRecords);
+            link Billing : icon(payments), group(Msg.navMoney);
+            link InsurerDesk : icon(health_and_safety), group(Msg.navVendors);
+            link PharmacyDesk : icon(local_pharmacy), group(Msg.navVendors);
+            link Texts : icon(sms), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    menu(Msg.account) {
+                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                        text(Session.claim('name'));
+                        divider;
+                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    // A move the service refuses leaves the card where it was, and the toast says why.
+    @path('/')
+    page Today() {
+        data {
+            summary = AppointmentService.ScheduleAPI.get.summary() : poll(15s);
+            visits = AppointmentService.ScheduleAPI.get.today() : poll(15s);
+        }
+
+        fn moveVisit(UUID id, AppointmentStatus column) {
+            AppointmentService.ScheduleAPI.post.moveVisit(id, { status: column });
+        }
+
+        view {
+            pageHeader(Msg.todayTitle, Msg.todaySubtitle);
+            grid : style(statRow) {
+                stat(Msg.statBooked, Fmt.number(summary.booked)) : icon(event), tone(info);
+                stat(Msg.statInClinic, Fmt.number(summary.inClinic)) : icon(meeting_room), tone(warning);
+                stat(Msg.statCompleted, Fmt.number(summary.completed)) : icon(check_circle), tone(success);
+                stat(Msg.statNoShows, Fmt.number(summary.noShows)) : icon(person_off), tone(danger);
+            }
+            board(data: visits, column: v => v.status) : onMove(moveVisit(item.id, column)) {
+                heading(item.patientName);
+                text(Fmt.time(item.startsAt));
+                text(item.clinicianName);
+                text(item.reason);
+                badge(item.kind);
+            }
+        }
+    }
+
+    @path('/calendar')
+    page Calendar() {
+        data { visits = AppointmentService.ScheduleAPI.get.ahead() : poll(60s); }
+        view {
+            pageHeader(Msg.calendarTitle, Msg.calendarSubtitle) {
+                link(Msg.bookWalkIn, WalkIn) : kind(primary), icon(add);
+            }
+            calendar(data: visits, at: v => v.startsAt, until: v => v.endsAt) {
+                text(item.patientName);
+                text(item.clinicianName);
+            }
+        }
+    }
+
+    @path('/walk-in')
+    page WalkIn() {
+        view {
+            pageHeader(Msg.bookWalkIn) : back(Calendar);
+            form(AddWalkIn);
+            card(Msg.bookTitle) { form(BookWalkIn); }
+        }
+    }
+
+    form AddWalkIn : submit(PatientService.ClinicPatientAPI.post.addWalkIn) {
+        field fullName;
+        field dateOfBirth;
+        field phone;
+        field memberId;
+        onSuccess(Ui.toast(Msg.patientAdded, tone: success));
+    }
+
+    form BookWalkIn : submit(AppointmentService.ScheduleAPI.post.bookWalkIn) {
+        field patientId : options(PatientService.ClinicPatientAPI.patientDb.Patient.list, value: p => p.id, label: p => p.fullName);
+        field slotId : options(AppointmentService.ScheduleAPI.get.openSlots, value: s => s.id, label: s => s.label);
+        field reason;
+        fn booked() {
+            Ui.toast(Msg.visitBooked, tone: success);
+            Nav.to(Calendar);
+        }
+        onSuccess(booked());
+    }
+
+    @path('/patients')
+    page Patients() {
+        view {
+            pageHeader(Msg.patientsTitle, Msg.patientsSubtitle);
+            table(PatientList);
+        }
+    }
+
+    table PatientList : source(PatientService.ClinicPatientAPI.patientDb.Patient.list), pageSizes(10, 25, 50) {
+        column recordNumber;
+        column fullName;
+        column dateOfBirth : format(date);
+        column phone;
+        column planName;
+        column coverage;
+        column copay : format(money);
+        filter fullName : live;
+        filter recordNumber : live;
+        filter coverage;
+        rowAction openChart : onClick(Nav.to(Chart, patientId: row.id));
+        rowAction checkCoverage : onClick(recheck(row.id));
+    }
+
+    @path('/patients/:patientId')
+    page Chart(UUID patientId) {
+        data { chart = RecordService.ClinicalAPI.get.chart(patientId: patientId); }
+
+        fn startPrescribing() {
+            openPatientId = patientId;
+            prescribing = true;
+        }
+
+        fn closeDialog() {
+            prescribing = false;
+        }
+
+        view {
+            pageHeader(chart.patient.fullName, chart.patient.recordNumber) : back(Patients) {
+                badge(chart.patient.coverage);
+                button(Msg.prescribe) : onClick(startPrescribing()), kind(primary), icon(medication);
+            }
+            when (prescribing) {
+                dialog(Msg.prescribe) : onClose(closeDialog()) {
+                    form(Prescribe);
+                }
+            }
+            when (chart.patient.allergies != null) {
+                callout(Msg.allergiesLine(allergies: chart.patient.allergies)) : tone(danger);
+            }
+            tabs {
+                tab(Msg.tabNotes) : badge(chart.notes.length) {
+                    timeline(data: chart.notes, at: n => n.visitedAt) {
+                        heading(item.clinicianName);
+                        badge(item.status);
+                        text(item.reason);
+                        link(Msg.openNote, NoteDetail, id: item.id);
+                    }
+                }
+                tab(Msg.tabPrescriptions) : badge(chart.prescriptions.length) {
+                    list(data: chart.prescriptions) {
+                        heading(item.drugName);
+                        badge(item.status);
+                        text(item.directions);
+                        text(Msg.prescribedBy(name: item.prescribedBy));
+                        text(Msg.refillsLine(count: item.refillsLeft));
+                    }
+                }
+                tab(Msg.tabBilling) : badge(chart.claims.length) {
+                    list(data: chart.claims) {
+                        heading(Fmt.money(item.billedAmount));
+                        badge(item.state);
+                        text(Fmt.date(item.visitedAt));
+                        text(Msg.oweLine(amount: Fmt.money(item.patientOwes)));
+                    }
+                }
+                tab(Msg.tabAccess) {
+                    callout(Msg.accessNotice);
+                    timeline(data: chart.accesses, at: a => a.createdAt) {
+                        text(item.viewerName);
+                        text(item.purpose);
+                    }
+                }
+            }
+        }
+    }
+
+    form Prescribe : submit(RecordService.ClinicalAPI.post.prescribe) {
+        fn sent() {
+            prescribing = false;
+            Ui.toast(Msg.prescriptionSent, tone: success);
+        }
+        field patientId : fixed(openPatientId);
+        field drugName;
+        field directions;
+        field quantity;
+        field refills;
+        onSuccess(sent());
+    }
+
+    @path('/notes')
+    page Notes() {
+        view {
+            pageHeader(Msg.notesTitle, Msg.notesSubtitle);
+            table(NoteList);
+        }
+    }
+
+    table NoteList : source(RecordService.ClinicalAPI.recordDb.VisitNote.list), pageSizes(10, 25, 50), poll(30s) {
+        column visitedAt : format(dateTime);
+        column patientName;
+        column clinicianName;
+        column reason;
+        column status;
+        column signedAt : format(relative);
+        filter status;
+        filter patientName : live;
+        rowAction open : onClick(Nav.to(NoteDetail, id: row.id));
+    }
+
+    @path('/notes/:id')
+    page NoteDetail(UUID id) {
+        data { view = RecordService.ClinicalAPI.get.noteById(id: id); }
+
+        fn startWriting() {
+            openNoteId = id;
+            writing = true;
+        }
+
+        fn closeDialog() {
+            writing = false;
+        }
+
+        fn sign() {
+            if (Ui.confirm(Msg.confirmSign)) {
+                RecordService.ClinicalAPI.post.signNote(id: id);
+                view.refresh();
+                Ui.toast(Msg.noteSigned, tone: success);
+            }
+        }
+
+        view {
+            pageHeader(view.visit.patientName, Fmt.dateTime(view.visit.visitedAt)) : back(Notes) {
+                badge(view.visit.status);
+                when (view.visit.status == NoteStatus.Draft) {
+                    button(Msg.writeNote) : onClick(startWriting()), icon(edit);
+                    button(Msg.signNote) : onClick(sign()), kind(primary), icon(verified);
+                }
+            }
+            when (writing) {
+                dialog(Msg.writeNote) : onClose(closeDialog()) {
+                    form(WriteNote);
+                }
+            }
+            card(Msg.reasonTitle) { text(view.visit.reason); }
+            when (view.visit.diagnosis != null) {
+                card(Msg.diagnosisTitle) { text(view.visit.diagnosis); }
+            }
+            when (view.text != null) {
+                card(Msg.noteTitle) { text(view.text) : preserveLines; }
+            }
+            when (view.visit.signedAt != null) {
+                callout(Msg.signedLine(when: Fmt.dateTime(view.visit.signedAt))) : tone(success);
+            }
+        }
+    }
+
+    form WriteNote : submit(RecordService.ClinicalAPI.post.writeNote) {
+        fn saved() {
+            writing = false;
+            Ui.toast(Msg.noteSaved, tone: success);
+        }
+        field id : fixed(openNoteId);
+        field diagnosis;
+        field note;
+        onSuccess(saved());
+    }
+
+    @path('/billing')
+    page Billing() {
+        data { summary = RecordService.BillingAPI.get.summary() : poll(30s); }
+        view {
+            pageHeader(Msg.billingTitle, Msg.billingSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statBilled, Fmt.money(summary.billed)) : icon(receipt_long);
+                stat(Msg.statFromInsurers, Fmt.money(summary.fromInsurers)) : icon(health_and_safety), tone(success);
+                stat(Msg.statFromPatients, Fmt.money(summary.fromPatients)) : icon(person), tone(info);
+                stat(Msg.statAwaiting, Fmt.number(summary.awaitingDecision)) : icon(hourglass_top), tone(warning);
+            }
+            section(Msg.byStateTitle) {
+                chart(bar, data: summary.byState, x: t => t.state, y: t => t.count);
+            }
+            table(ClaimList);
+        }
+    }
+
+    table ClaimList : source(RecordService.BillingAPI.recordDb.InsuranceClaim.list), pageSizes(10, 25, 50) {
+        column visitedAt : format(date);
+        column patientName;
+        column clinicianName;
+        column billedAmount : format(money);
+        column insurerPays : format(money);
+        column patientOwes : format(money);
+        column state;
+        column reason;
+        filter state;
+        filter patientName : live;
+    }
+
+    @path('/vendors/insurer')
+    page InsurerDesk() {
+        view {
+            pageHeader(Msg.insurerTitle, Msg.insurerSubtitle);
+            tabs {
+                tab(Msg.tabClaims) { table(ReceivedClaims); }
+                tab(Msg.tabMembers) {
+                    table(MemberList);
+                    card(Msg.addMember) { form(AddMember); }
+                }
+            }
+        }
+    }
+
+    table ReceivedClaims : source(InsurerMock.InsurerDeskAPI.insurerDb.ReceivedClaim.list), poll(15s) {
+        column createdAt : format(relative);
+        column claimNumber;
+        column memberId;
+        column billedAmount : format(money);
+        column insurerPays : format(money);
+        column patientOwes : format(money);
+        column decision;
+        filter decision;
+        rowAction approve : onClick(approveClaim(row.id));
+        rowAction deny : onClick(denyClaim(row.id));
+    }
+
+    table MemberList : source(InsurerMock.InsurerDeskAPI.insurerDb.Member.list) {
+        column memberId;
+        column memberName;
+        column planName;
+        column copay : format(money);
+        column isActive : render(ActiveBadge);
+        filter planName;
+    }
+
+    component ActiveBadge(Boolean isActive) {
+        view {
+            when (isActive) { badge(Msg.memberActive) : tone(success); }
+            when (!isActive) { badge(Msg.memberInactive) : tone(neutral); }
+        }
+    }
+
+    form AddMember : submit(InsurerMock.InsurerDeskAPI.insurerDb.Member.create) {
+        field memberId;
+        field memberName;
+        field planName;
+        field copay;
+        onSuccess(Ui.toast(Msg.memberAdded, tone: success));
+    }
+
+    @path('/vendors/pharmacy')
+    page PharmacyDesk() {
+        view {
+            pageHeader(Msg.pharmacyTitle, Msg.pharmacySubtitle);
+            table(TicketList);
+        }
+    }
+
+    table TicketList : source(PharmacyMock.PharmacyDeskAPI.pharmacyDb.PrescriptionTicket.list), poll(15s) {
+        column createdAt : format(relative);
+        column ticketId;
+        column patientName;
+        column drugName;
+        column quantity : format(number);
+        column status;
+        filter status;
+        rowAction fill : onClick(fillTicket(row.id));
+        rowAction ready : onClick(readyTicket(row.id));
+        rowAction pickedUp : onClick(pickedUpTicket(row.id));
+        rowAction reject : onClick(rejectTicket(row.id));
+    }
+
+    @path('/vendors/texts')
+    page Texts() {
+        view {
+            pageHeader(Msg.textsTitle, Msg.textsSubtitle);
+            table(TextList);
+        }
+    }
+
+    table TextList : source(SmsMock.SmsDeskAPI.smsDb.SentSms.list), poll(15s) {
+        column createdAt : format(relative);
+        column recipient;
+        column body;
+        column status;
+        filter status;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.home, Today); }
+        }
+    }
+
+    test("the patient list opens") {
+        let Screen screen = render(Patients);
+        assert screen.shows(Msg.patientsTitle);
+    }
+}

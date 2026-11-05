@@ -1,0 +1,18 @@
+// A phone for each of two people, one of them long gone, so a push shows both outcomes. A few things unread.
+seed service social.NoticeService {
+  rdbms noticeDb {
+    baseline {
+      Device table on(id) {
+        id,                handle,   token;
+        @uuid("d-iris"),   "iris",   "live-iris-phone";
+        @uuid("d-tom"),    "tomjay", "dead-tom-old-phone";
+      }
+      Notice table on(id) {
+        id,            handle,   kind,        actorName,   summary,                                                     isRead, postId;
+        @uuid("n-1"),  "iris",   Liked,       "Tom Jay",   "Forty-one avocets on the mud at low tide. A record for this month.", false, @uuid("po-1");
+        @uuid("n-2"),  "iris",   Commented,   "Nia Bevan", "Forty-one avocets on the mud at low tide. A record for this month.", false, @uuid("po-1");
+        @uuid("n-3"),  "tomjay", NewFollower, "Iris Calloway", "@iris follows you now",                              true,   null;
+      }
+    }
+  }
+}

@@ -1,0 +1,86 @@
+// Implements the MortgageProvider contract in the stack, so nothing here needs a lender. It has one rule:
+// it pre-approves up to a limit and declines anything over it. Every answer lands in a log the Console shows.
+service realestate.MortgageMock('config/mocks/mortgage-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the lender') {
+
+    discovery { }
+
+    enum PreapprovalDecision {
+        Approved : tone(success),
+        Declined : tone(danger)
+    }
+
+    const APPROVAL_LIMIT = 900000;
+
+    rdbms mortgageDb {
+
+        /// An answer the lender gave.
+        entity LenderAnswer extends BaseEntity {
+            String(200) applicantName : filterable;
+            Money amount;
+            PreapprovalDecision decision : filterable;
+            String(40) reference : unique;
+            String(120) idempotencyKey : unique;
+            Email applicantEmail;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct PreapproveRequest {
+        String(200) applicantName;
+        Email applicantEmail;
+        Money amount;
+        String(120) idempotencyKey;
+    }
+
+    struct Preapproval {
+        String(40) reference;
+        PreapprovalDecision decision;
+    }
+
+    // The lender's public API: exactly the MortgageProvider contract.
+    rest_api MortgageAPI : basePath('/v1'), rdbms(mortgageDb) {
+        @path('/preapprovals')
+        post preapprove(PreapproveRequest request) : auth(required, providers: [mortgageKeys]) -> Preapproval {
+            let LenderAnswer? existing = LenderAnswer.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return Preapproval { reference: existing.reference, decision: existing.decision };
+            }
+            let LenderAnswer created = LenderAnswer.create({
+                applicantName: request.applicantName,
+                applicantEmail: request.applicantEmail,
+                amount: request.amount,
+                decision: request.amount.toFloat() > APPROVAL_LIMIT ? PreapprovalDecision.Declined : PreapprovalDecision.Approved,
+                reference: #"pre_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey
+            });
+            return Preapproval { reference: created.reference, decision: created.decision };
+        }
+    }
+
+    // What the Console shows: every answer.
+    rest_api MortgageDeskAPI : basePath('/api/v1/desk/mortgage'), rdbms(mortgageDb) {
+        resource LenderAnswer : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("an answer keeps its decision") {
+        let LenderAnswer answer = mortgageDb.LenderAnswer.create({
+            applicantName: "Theo Marsh",
+            applicantEmail: "theo@example.com",
+            amount: 400000.00,
+            decision: PreapprovalDecision.Approved,
+            reference: "pre_0001",
+            idempotencyKey: "offer-1"
+        });
+        assert answer.decision == PreapprovalDecision.Approved;
+    }
+}

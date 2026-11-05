@@ -1,7 +1,21 @@
 include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/bank-provider.dtrx';
+include 'providers/check-provider.dtrx';
+include 'providers/signature-provider.dtrx';
 include 'employee-service.dtrx';
 include 'payroll-service.dtrx';
 include 'recruitment-service.dtrx';
+include 'mocks/bank-mock.dtrx';
+include 'mocks/check-mock.dtrx';
+include 'mocks/signature-mock.dtrx';
+include 'employee-app.dtrx';
+include 'console-app.dtrx';
+include 'careers-app.dtrx';
 
-system hr('config/system.dcfg') : version('1.0.0') {
+/// Alderbrook People: a candidate applies on a public site, HR takes them through a background check
+/// and a signed offer, and a signature makes them an employee who books time off and reads payslips.
+/// Payroll needs two people to approve it. The bank, the background check vendor and the e-signature
+/// vendor are outside the company, played here by mocks in the same stack.
+system hr.System('config/system.dcfg') : version('2.0.0') {
 }

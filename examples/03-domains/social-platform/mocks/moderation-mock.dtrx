@@ -1,0 +1,105 @@
+// Implements the ModerationProvider contract in the stack. It reads no meaning into anything: three fixed rules
+// decide, so anyone can see each outcome on purpose. A real vendor goes behind the same contract.
+service social.ModerationMock('config/mocks/moderation-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the content moderation vendor') {
+
+    discovery { }
+
+    enum Verdict {
+        Allow : tone(success),
+        Hold : tone(warning),
+        Reject : tone(danger)
+    }
+
+    rdbms moderationDb {
+
+        /// Every answer the vendor gave.
+        entity VendorReview extends BaseEntity {
+            String(200) excerpt;
+            Verdict verdict : filterable;
+            String(200)? reason;
+            String(40) reviewId : unique;
+            String(120) idempotencyKey : unique;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct ReviewRequest {
+        String(2000) text;
+        String(120) idempotencyKey;
+    }
+
+    struct ReviewResult {
+        String(40) id;
+        Verdict verdict;
+        String(200)? reason;
+    }
+
+    /// Text that is refused outright.
+    const REJECTED_PHRASE = "buy followers";
+    /// Text that waits for a person.
+    const HELD_PHRASE = "http://";
+    const HELD_WORD = "idiot";
+
+    fn verdictFor(String text) -> Verdict {
+        let String lowered = text.toLowerCase();
+        if (lowered.contains(REJECTED_PHRASE)) {
+            return Verdict.Reject;
+        }
+        if (lowered.contains(HELD_PHRASE) || lowered.contains(HELD_WORD)) {
+            return Verdict.Hold;
+        }
+        return Verdict.Allow;
+    }
+
+    fn reasonFor(Verdict verdict, String text) -> String? {
+        if (verdict == Verdict.Reject) {
+            return "Selling followers";
+        }
+        if (verdict == Verdict.Hold) {
+            return text.toLowerCase().contains(HELD_PHRASE) ? "Contains a link" : "May be abusive";
+        }
+        return null;
+    }
+
+    // The vendor's public API: exactly the ModerationProvider contract.
+    rest_api ModerationAPI : basePath('/v1'), rdbms(moderationDb) {
+        @path('/reviews')
+        post review(ReviewRequest request) : auth(required, providers: [moderationKeys]) -> ReviewResult {
+            let VendorReview? existing = VendorReview.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return ReviewResult { id: existing.reviewId, verdict: existing.verdict, reason: existing.reason };
+            }
+            let Verdict verdict = verdictFor(request.text);
+            let VendorReview created = VendorReview.create({
+                reviewId: #"rev_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                excerpt: request.text.length > 200 ? request.text.substring(0, 200) : request.text,
+                verdict: verdict,
+                reason: reasonFor(verdict, request.text)
+            });
+            return ReviewResult { id: created.reviewId, verdict: created.verdict, reason: created.reason };
+        }
+    }
+
+    // What the desk shows: every answer.
+    rest_api ModerationDeskAPI : basePath('/api/v1/desk/moderation'), rdbms(moderationDb) {
+        resource VendorReview : only(list), auth(required, providers: [identity], roles: [moderator]);
+    }
+
+    test("each rule gives its verdict") {
+        assert verdictFor("A note about birds") == Verdict.Allow;
+        assert verdictFor("See http://example.com") == Verdict.Hold;
+        assert verdictFor("You idiot") == Verdict.Hold;
+        assert verdictFor("Buy followers here") == Verdict.Reject;
+    }
+}

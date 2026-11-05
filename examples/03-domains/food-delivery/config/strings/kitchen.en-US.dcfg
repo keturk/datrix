@@ -1,0 +1,67 @@
+config strings fooddelivery.Kitchen locale "en-US" {
+  messages {
+    appName            = "Saltbox Kitchen";
+    navKitchen         = "Kitchen";
+    navVendors         = "Vendors";
+    account            = "Account";
+    signOut            = "Sign out";
+    home               = "Back to restaurants";
+    notFoundTitle      = "Page not found";
+    saved              = "Saved.";
+    open               = "Open";
+    closed             = "Closed";
+    onMenu             = "On the menu";
+    soldOut            = "Sold out";
+    restaurantsTitle   = "Restaurants";
+    restaurantsSubtitle = "Open a board, or close a kitchen for the night.";
+    boardTitle         = "The board";
+    boardSubtitle      = "Drag an order to the next column. Drivers take over once it is ready.";
+    dishesTitle        = "Dishes";
+    dishesSubtitle     = "Take a dish off the menu the moment it runs out.";
+    addDish            = "Add a dish";
+    dishAdded          = "Dish added.";
+    roadTitle          = "On the road";
+    roadSubtitle       = "Deliveries, from the kitchen door to the customer's.";
+    statWaiting        = "Waiting for a driver";
+    statOnTheRoad      = "On the road";
+    statDrivers        = "Drivers on shift";
+    chargesTitle       = "Card charges";
+    chargesSubtitle    = "Every charge the application asked for. No card was touched.";
+    routesTitle        = "Routes planned";
+    routesSubtitle     = "Every route the application asked for.";
+    textsTitle         = "Texts sent";
+    textsSubtitle      = "Every text the application sent. None of them reached a phone.";
+  }
+  labels {
+    page.Restaurants = "Restaurants";
+    page.Board       = "Board";
+    page.Dishes      = "Dishes";
+    page.Road        = "On the road";
+    page.Charges     = "Card charges";
+    page.Routes      = "Routes planned";
+    page.Texts       = "Texts sent";
+    page.NotFound    = "Not found";
+    field.Restaurant.isOpen      = "Status";
+    field.MenuItem.isAvailable   = "Status";
+    field.Delivery.createdAt     = "Ready";
+    field.Delivery.orderNumber   = "Order";
+    field.Delivery.restaurantName = "Kitchen";
+    field.Delivery.dropoffAddress = "Going to";
+    field.Delivery.distanceKm    = "Kilometres";
+    field.Delivery.minutes       = "Minutes";
+    field.CardCharge.createdAt   = "Charged";
+    field.CardCharge.reference   = "Order";
+    field.CardCharge.declineReason = "Why declined";
+    field.PlannedRoute.createdAt = "Planned";
+    field.PlannedRoute.distanceKm = "Kilometres";
+    field.SentSms.createdAt      = "Sent";
+    field.SentSms.body           = "Message";
+    filter.RestaurantList.isOpen = "Open";
+    filter.DishList.section      = "Section";
+    filter.DishList.isAvailable  = "On the menu";
+    filter.DishList.name         = "Name";
+    filter.DeliveryList.status   = "Status";
+    filter.ChargeList.status     = "Status";
+    filter.TextList.status       = "Status";
+  }
+}

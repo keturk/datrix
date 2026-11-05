@@ -1,0 +1,12 @@
+// The key the post service presents to the moderation vendor. The key itself is the development default of its
+// secret; the vendor stores only its SHA-256 hash.
+seed service social.ModerationMock {
+  rdbms moderationDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                      keyHash,                                                            ownerId,                scopes,              isActive;
+        @uuid("moderation-key"), "e047f5546362d86530f8c602141f201840997ac8990669af075b344c1814de77", @uuid("owner-rookery"), ["reviews:write"], true;
+      }
+    }
+  }
+}

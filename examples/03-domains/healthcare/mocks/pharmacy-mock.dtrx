@@ -1,0 +1,123 @@
+// Implements the PharmacyProvider contract in the stack. An operator plays the pharmacist from the
+// Clinic app, moving a ticket along by hand, and the clinic finds out the way it would from a real
+// pharmacy: by asking.
+service healthcare.PharmacyMock('config/mocks/pharmacy-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the pharmacy network') {
+
+    discovery { }
+
+    exceptions {
+        NoSuchTicketError : status(404), message("There is no ticket with that id");
+    }
+
+    enum TicketStatus {
+        Received : tone(info),
+        Filling : tone(info),
+        ReadyForPickup : tone(success),
+        PickedUp : tone(neutral),
+        Rejected : tone(danger)
+    }
+
+    rdbms pharmacyDb {
+
+        /// A prescription the pharmacy received.
+        entity PrescriptionTicket extends BaseEntity {
+            String(40) ticketId : unique;
+            String(120) idempotencyKey : unique;
+            String(200) patientName : filterable;
+            String(200) drugName : filterable;
+            String(200) directions;
+            Int quantity;
+            TicketStatus status : filterable = TicketStatus.Received;
+            String(200)? rejectionReason;
+        }
+
+        /// API keys the pharmacy issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct SendPrescriptionRequest {
+        String(200) patientName;
+        String(200) drugName;
+        String(200) directions;
+        Int quantity;
+        String(120) idempotencyKey;
+    }
+
+    struct PharmacyTicket {
+        String(40) id;
+        TicketStatus status;
+        String(200)? rejectionReason;
+    }
+
+    struct MoveTicketRequest {
+        TicketStatus status;
+    }
+
+    fn answerOf(pharmacyDb.PrescriptionTicket ticket) -> PharmacyTicket {
+        return PharmacyTicket { id: ticket.ticketId, status: ticket.status, rejectionReason: ticket.rejectionReason };
+    }
+
+    // The pharmacy's public API: exactly the PharmacyProvider contract.
+    rest_api PharmacyAPI : basePath('/v1'), rdbms(pharmacyDb) {
+        @path('/prescriptions')
+        post sendPrescription(SendPrescriptionRequest request) : auth(required, providers: [pharmacyKeys]) -> PharmacyTicket {
+            let PrescriptionTicket? existing = PrescriptionTicket.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            return answerOf(PrescriptionTicket.create({
+                ticketId: #"RX-{Random.string(10, '0123456789')}",
+                idempotencyKey: request.idempotencyKey,
+                patientName: request.patientName,
+                drugName: request.drugName,
+                directions: request.directions,
+                quantity: request.quantity
+            }));
+        }
+
+        @path('/prescriptions/:id')
+        get ticketById(String id) : auth(required, providers: [pharmacyKeys]) -> PharmacyTicket {
+            let PrescriptionTicket? ticket = PrescriptionTicket.where(ticketId: id).first();
+            if (ticket == null) {
+                throw NoSuchTicketError();
+            }
+            return answerOf(ticket);
+        }
+    }
+
+    // What the operator pages in the Clinic app show.
+    rest_api PharmacyDeskAPI : basePath('/api/v1/desk/pharmacy'), rdbms(pharmacyDb) {
+        resource PrescriptionTicket : only(list), auth(required, providers: [identity], roles: [operator]);
+
+        @path('/tickets/:id/move')
+        post moveTicket(UUID id, MoveTicketRequest request) : auth(required, providers: [identity], roles: [operator]) -> PrescriptionTicket {
+            let PrescriptionTicket ticket = PrescriptionTicket.findOrFail(id);
+            ticket.status = request.status;
+            if (request.status == TicketStatus.Rejected) {
+                ticket.rejectionReason = "The pharmacist could not fill this prescription";
+            }
+            ticket.save();
+            return ticket;
+        }
+    }
+
+    test("a new ticket waits at the pharmacy") {
+        let PrescriptionTicket created = pharmacyDb.PrescriptionTicket.create({
+            ticketId: "RX-0001",
+            idempotencyKey: "rx-1",
+            patientName: "Ana Ferreira",
+            drugName: "Amoxicillin",
+            directions: "One capsule three times a day",
+            quantity: 21
+        });
+        assert created.status == TicketStatus.Received;
+    }
+}
