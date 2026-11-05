@@ -13,6 +13,7 @@ config service iot.TelemetryService {
     cache redis from redisContainer();
     pubsub mq from kafkaContainer();
     httpSecurity from localHttpSecurity(host: "iot-telemetry-service");
+    outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
     cacheOps from redisPool();
     rateLimitOps from rateLimitWindow();

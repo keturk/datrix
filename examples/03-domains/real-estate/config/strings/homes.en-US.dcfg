@@ -2,6 +2,7 @@ config strings realestate.Homes locale "en-US" {
   messages {
     appName          = "Cobblestone Homes";
     account          = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     home             = "Back to the homes";
     notFoundTitle    = "Page not found";

@@ -72,6 +72,10 @@ service social.NoticeService('config/notice-service.dcfg') : version('2.0.0'), d
         Int unread;
     }
 
+    struct ReadUpTo {
+        DateTime upTo;
+    }
+
     fn myHandle() -> String {
         let AuthorFacts facts = PeopleService.PeopleInternalAPI.post.author({ email: Auth.identity.email.toString() });
         if (!facts.exists) {
@@ -124,6 +128,9 @@ service social.NoticeService('config/notice-service.dcfg') : version('2.0.0'), d
             }
         }
     }
+
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
 
     subscribe PostEvents {
         on PostPublished(UUID postId, String authorHandle, String authorName, String excerpt) {
@@ -181,14 +188,15 @@ service social.NoticeService('config/notice-service.dcfg') : version('2.0.0'), d
             return notice;
         }
 
+        // Up to what the reader has seen, so something that arrives meanwhile stays unread.
         @path('/read-all')
-        put markAllRead() : auth(required, providers: [identity]) -> UnreadCount {
-            let Array<Notice> waiting = Notice.where(handle: myHandle(), isRead: false).limit(500).all();
+        post markAllRead(ReadUpTo request) : auth(required, providers: [identity]) -> UnreadCount {
+            let Array<Notice> waiting = Notice.where(handle: myHandle(), isRead: false).where(createdAt: lte(request.upTo)).limit(500).all();
             foreach notice in waiting {
                 notice.isRead = true;
                 notice.save();
             }
-            return UnreadCount { unread: 0 };
+            return UnreadCount { unread: Notice.where(handle: myHandle(), isRead: false).count() };
         }
 
         @path('/preferences')

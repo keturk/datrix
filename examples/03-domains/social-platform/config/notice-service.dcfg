@@ -11,6 +11,7 @@ config service social.NoticeService {
     rdbms noticeDb from postgresContainer(id: "43023774-611c-4781-adc9-37bdb075ccb3", database: "social_notice");
     pubsub mq from kafkaContainer();
     httpSecurity from localHttpSecurity(host: "social-notice-service");
+    outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
     serviceCredentialOps from machineCredential();
     microserviceClientOps from peerClient();

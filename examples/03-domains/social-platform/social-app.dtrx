@@ -37,10 +37,14 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
                     brand(Msg.appName);
                     spacer;
                     nav;
-                    menu(Msg.account) {
-                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
-                        divider;
-                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
                     }
                 }
                 slot;
@@ -355,7 +359,7 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
         }
 
         fn readAll() {
-            NoticeService.NoticeAPI.post.markAllRead();
+            NoticeService.NoticeAPI.post.markAllRead({ upTo: notices.first.createdAt });
             notices.refresh();
             counts.refresh();
         }
@@ -371,7 +375,9 @@ app social.Social('config/social-app.dcfg') : version('2.0.0') {
 
         view {
             pageHeader(Msg.noticesTitle, Msg.noticesSubtitle(count: Fmt.number(counts.unread))) {
-                button(Msg.markAllRead) : onClick(readAll()), icon(done_all);
+                when (notices.length > 0) {
+                    button(Msg.markAllRead) : onClick(readAll()), icon(done_all);
+                }
             }
             when (notices.length == 0) {
                 emptyState(Msg.noNotices) : icon(notifications) { }

@@ -4,6 +4,7 @@ config strings social.Desk locale "en-US" {
     navWork           = "Moderation";
     navVendors        = "Vendors";
     account           = "Account";
+    signIn            = "Sign in";
     signOut           = "Sign out";
     backHome          = "Back to the dashboard";
     notFoundTitle     = "Page not found";

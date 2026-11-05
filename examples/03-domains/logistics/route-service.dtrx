@@ -78,6 +78,9 @@ service logistics.RouteService('config/route-service.dcfg') : version('2.0.0'), 
         }
     }
 
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
     subscribe ShipmentEvents {
         // The same parcel comes back here after a failed attempt, and waits again.
         on ShipmentBooked(UUID shipmentId, String trackingNumber, String recipientName, String address, String city, Float latitude, Float longitude, Float weightKg) {

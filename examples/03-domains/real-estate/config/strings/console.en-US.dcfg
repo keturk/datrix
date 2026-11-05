@@ -4,6 +4,7 @@ config strings realestate.Console locale "en-US" {
     navWork           = "My work";
     navVendors        = "Vendors";
     account           = "Account";
+    signIn            = "Sign in";
     signOut           = "Sign out";
     home              = "Back to the dashboard";
     notFoundTitle     = "Page not found";

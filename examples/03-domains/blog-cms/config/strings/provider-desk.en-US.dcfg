@@ -4,6 +4,7 @@ config strings blog.ProviderDesk locale "en-US" {
     navMail       = "Email provider";
     navModeration = "Moderation vendor";
     account       = "Account";
+    signIn        = "Sign in";
     signOut       = "Sign out";
     inboxTitle    = "Sent mail";
     inboxSubtitle = "Everything the application sent. None of it reached a person.";

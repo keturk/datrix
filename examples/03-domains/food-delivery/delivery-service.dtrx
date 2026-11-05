@@ -56,6 +56,9 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         }
     }
 
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
     subscribe OrderEvents {
         // A route vendor failing must not lose the delivery, so it is created either way.
         on OrderStatusChanged(UUID orderId, String orderNumber, String restaurantName, OrderStatus oldStatus, OrderStatus newStatus, String pickupAddress, Float pickupLatitude, Float pickupLongitude, String dropoffAddress, Float dropoffLatitude, Float dropoffLongitude) {

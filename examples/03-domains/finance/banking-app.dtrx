@@ -28,11 +28,15 @@ app finance.Banking('config/banking-app.dcfg') : version('2.0.0') {
             stack {
                 topBar {
                     spacer;
-                    menu(Msg.account) {
-                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
-                        text(Session.claim('name'));
-                        divider;
-                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            text(Session.claim('name'));
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
                     }
                 }
                 slot;

@@ -2,6 +2,7 @@ config strings lms.Student locale "en-US" {
   messages {
     appName          = "Larkhill Academy";
     account          = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     home             = "Back to the catalog";
     notFoundTitle    = "Page not found";

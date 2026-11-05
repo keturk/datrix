@@ -5,6 +5,7 @@ config strings iot.Operations locale "en-US" {
     navFleet        = "Fleet";
     navVendors      = "Simulation";
     account         = "Account";
+    signIn          = "Sign in";
     signOut         = "Sign out";
     home            = "Back to the overview";
     notFoundTitle   = "Page not found";

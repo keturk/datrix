@@ -3,6 +3,7 @@ config strings hr.Employee locale "en-US" {
     appName         = "Alderbrook";
     logoAlt         = "Alderbrook";
     account         = "Account";
+    signIn          = "Sign in";
     signOut         = "Sign out";
     home            = "Back home";
     notFoundTitle   = "Page not found";

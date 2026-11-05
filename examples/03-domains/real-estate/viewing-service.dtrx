@@ -44,6 +44,9 @@ service realestate.ViewingService('config/viewing-service.dcfg') : version('2.0.
         }
     }
 
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
     subscribe ListingEvents {
         // Anyone still going to see the home should hear about it before they arrive.
         on ListingPriceChanged(UUID listingId, String title, Money oldPrice, Money newPrice) {

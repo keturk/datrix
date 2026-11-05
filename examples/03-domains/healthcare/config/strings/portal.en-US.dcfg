@@ -3,6 +3,7 @@ config strings healthcare.Portal locale "en-US" {
     appName          = "Ferncrest Clinic";
     logoAlt          = "Ferncrest Clinic";
     account          = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     home             = "Back home";
     notFoundTitle    = "Page not found";

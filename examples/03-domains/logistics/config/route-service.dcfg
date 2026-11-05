@@ -11,6 +11,7 @@
     rdbms routeDb from postgresContainer(id: "b69086a1-4294-4de1-8e6b-e1b8e0d3ca72", database: "logistics_route");
     pubsub mq from kafkaContainer();
     httpSecurity from localHttpSecurity(host: "logistics-route-service");
+    outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
     serviceCredentialOps from machineCredential();
     microserviceClientOps from peerClient();

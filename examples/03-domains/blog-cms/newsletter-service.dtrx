@@ -85,6 +85,9 @@ To stop these messages, use this code on the unsubscribe page: {subscriber.unsub
 
     const MAX_ATTEMPTS = 5;
 
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
     subscribe ContentEvents {
         // Every confirmed subscriber gets the new article; the job sends what this queues.
         on PostPublished(UUID postId, String title, String excerpt, String authorName) {

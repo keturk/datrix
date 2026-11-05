@@ -2,6 +2,7 @@ config strings fooddelivery.Driver locale "en-US" {
   messages {
     appName         = "Saltbox Driver";
     account         = "Account";
+    signIn          = "Sign in";
     signOut         = "Sign out";
     home            = "Back to waiting deliveries";
     notFoundTitle   = "Page not found";

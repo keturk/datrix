@@ -2,6 +2,7 @@ config strings taskapp.Workspace locale "en-US" {
   messages {
     appName          = "Millrace";
     account         = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     backHome         = "Back to what's on your plate";
     notFoundTitle    = "Page not found";

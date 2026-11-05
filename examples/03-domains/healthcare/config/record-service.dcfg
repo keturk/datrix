@@ -11,6 +11,7 @@ config service healthcare.RecordService {
     rdbms recordDb from postgresContainer(id: "c6675cf1-2c0b-4480-abc5-fece0245e3eb", database: "healthcare_record");
     pubsub mq from kafkaContainer();
     httpSecurity from localHttpSecurity(host: "healthcare-record-service");
+    outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
     serviceCredentialOps from machineCredential();
     microserviceClientOps from peerClient();

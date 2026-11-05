@@ -2,6 +2,7 @@ config strings finance.Banking locale "en-US" {
   messages {
     appName          = "Quillon Bank";
     account          = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     home             = "Back to my accounts";
     notFoundTitle    = "Page not found";

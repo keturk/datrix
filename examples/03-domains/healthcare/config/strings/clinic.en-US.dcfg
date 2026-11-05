@@ -6,6 +6,7 @@ config strings healthcare.Clinic locale "en-US" {
     navMoney         = "Money";
     navVendors       = "Vendors";
     account          = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     home             = "Back to today";
     notFoundTitle    = "Page not found";

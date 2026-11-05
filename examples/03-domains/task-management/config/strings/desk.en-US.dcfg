@@ -4,6 +4,7 @@ config strings taskapp.Desk locale "en-US" {
     navInstallation  = "This installation";
     navVendors       = "Vendors";
     account          = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     backHome         = "Back to all tasks";
     notFoundTitle    = "Page not found";

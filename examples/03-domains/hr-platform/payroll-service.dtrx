@@ -10,6 +10,9 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('2.0.0'), des
     uses BankProvider;
     uses EmployeeService;
 
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
     // A renamed person is paid under the new name, and someone who has left drops off the next run.
     subscribe EmployeeEvents {
         on EmployeeChanged(UUID employeeId, String fullName, String jobTitle, Email workEmail, Department department, EmployeeStatus status) {

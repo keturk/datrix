@@ -4,6 +4,7 @@ config strings fooddelivery.Kitchen locale "en-US" {
     navKitchen         = "Kitchen";
     navVendors         = "Vendors";
     account            = "Account";
+    signIn             = "Sign in";
     signOut            = "Sign out";
     home               = "Back to restaurants";
     notFoundTitle      = "Page not found";

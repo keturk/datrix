@@ -11,6 +11,7 @@ config service finance.ComplianceService {
     rdbms complianceDb from postgresContainer(id: "11c99334-4634-4934-a5ba-7432e6a980ce", database: "finance_compliance");
     pubsub mq from kafkaContainer();
     httpSecurity from localHttpSecurity(host: "finance-compliance-service");
+    outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
     serviceCredentialOps from machineCredential();
     microserviceClientOps from peerClient();

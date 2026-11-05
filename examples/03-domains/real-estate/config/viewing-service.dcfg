@@ -11,6 +11,7 @@ config service realestate.ViewingService {
     rdbms viewingDb from postgresContainer(id: "ec0977bd-086f-4670-a383-76b48d4b4dfb", database: "realestate_viewing");
     pubsub mq from kafkaContainer();
     httpSecurity from localHttpSecurity(host: "realestate-viewing-service");
+    outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
     serviceCredentialOps from machineCredential();
     microserviceClientOps from peerClient();

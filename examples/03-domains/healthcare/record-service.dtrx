@@ -101,6 +101,9 @@ service healthcare.RecordService('config/record-service.dcfg') : version('2.0.0'
         }
     }
 
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
     subscribe AppointmentEvents {
         // A finished visit opens its note. Delivery is at least once, so a second copy finds the first.
         on AppointmentStatusChanged(UUID appointmentId, UUID patientId, UUID? patientUserId, String patientName, String clinicianName, String specialty, String reason, DateTime startsAt, Money visitCharge, AppointmentStatus oldStatus, AppointmentStatus newStatus) {

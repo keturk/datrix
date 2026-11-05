@@ -2,6 +2,7 @@ config strings logistics.Driver locale "en-US" {
   messages {
     appName         = "Quayline Driver";
     account         = "Account";
+    signIn          = "Sign in";
     signOut         = "Sign out";
     home            = "Back to my routes";
     notFoundTitle   = "Page not found";

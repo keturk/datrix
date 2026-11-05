@@ -5,6 +5,7 @@ config strings finance.BackOffice locale "en-US" {
     navCompliance      = "Compliance";
     navVendors         = "Vendors";
     account            = "Account";
+    signIn             = "Sign in";
     signOut            = "Sign out";
     home               = "Back to the dashboard";
     notFoundTitle      = "Page not found";

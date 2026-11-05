@@ -27,11 +27,15 @@ app hr.Employee('config/employee-app.dcfg') : version('2.0.0') {
                     brand(Msg.appName) { image(logo, Msg.logoAlt); }
                     spacer;
                     nav;
-                    menu(Msg.account) {
-                        avatar(Fmt.initials(Session.claim('name'))) : trigger;
-                        text(Session.claim('name'));
-                        divider;
-                        menuItem(Msg.signOut) : onClick(Session.logout());
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            text(Session.claim('name'));
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
                     }
                 }
                 slot;

@@ -5,6 +5,7 @@ config strings cityservices.Operations locale "en-US" {
     navCity           = "City";
     navVendors        = "Vendors";
     account           = "Account";
+    signIn            = "Sign in";
     signOut           = "Sign out";
     home              = "Back to the board";
     notFoundTitle     = "Page not found";

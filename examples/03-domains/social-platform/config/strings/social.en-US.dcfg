@@ -2,6 +2,7 @@ config strings social.Social locale "en-US" {
   messages {
     appName           = "Rookery";
     account           = "Account";
+    signIn            = "Sign in";
     signOut           = "Sign out";
     backHome          = "Back to Explore";
     notFoundTitle     = "Page not found";

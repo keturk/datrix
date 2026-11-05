@@ -65,6 +65,9 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
         complianceDb.AuditEvent.create({ action: action, subject: subject, detail: detail });
     }
 
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
     subscribe TransferEvents {
         on TransferPosted(UUID transferId, String reference, UUID fromAccountId, Money amount, Boolean needsReview) {
             if (needsReview) {

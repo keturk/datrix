@@ -76,6 +76,9 @@ service iot.TelemetryService('config/telemetry-service.dcfg') : version('2.0.0')
         }
     }
 
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
     subscribe DeviceEvents {
         // A device that stops reporting is an alert in its own right.
         on DeviceStatusChanged(UUID deviceId, String serialNumber, String deviceName, String siteName, DeviceStatus oldStatus, DeviceStatus newStatus) {

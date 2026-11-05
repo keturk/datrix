@@ -70,6 +70,10 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
             link OrderList : icon(receipt_long), group(Msg.navAccount);
         }
         view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName) { image(logo, Msg.logoAlt); }
+                nav;
+            }
             stack {
                 topBar {
                     text(Msg.organizationName);
@@ -95,10 +99,6 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
                     } otherwise {
                         button(Msg.signIn) : onClick(Session.login());
                     }
-                }
-                sidebar : collapsible, at(lg) {
-                    brand(Msg.appName) { image(logo, Msg.logoAlt); }
-                    nav;
                 }
                 slot;
             }

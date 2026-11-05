@@ -11,6 +11,7 @@ config service hr.PayrollService {
     rdbms payrollDb from postgresContainer(id: "73472252-6373-4751-b8a2-9e14dda29e28", database: "hr_payroll");
     pubsub mq from kafkaContainer();
     httpSecurity from localHttpSecurity(host: "hr-payroll-service");
+    outboxOps from outboxBatches();
     kafkaOps from kafkaPolling();
     serviceCredentialOps from machineCredential();
     microserviceClientOps from peerClient();

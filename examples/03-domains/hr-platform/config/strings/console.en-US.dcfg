@@ -7,6 +7,7 @@ config strings hr.Console locale "en-US" {
     navHiring        = "Hiring";
     navVendors       = "Vendors";
     account          = "Account";
+    signIn           = "Sign in";
     signOut          = "Sign out";
     home             = "Back to the dashboard";
     notFoundTitle    = "Page not found";
