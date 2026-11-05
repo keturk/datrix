@@ -114,7 +114,7 @@ Don't know where something is documented? `powershell -File "d:/datrix/datrix/sc
    |---|---|
    | Language: grammar, transformers, `.dtrx`/`.dcfg`/`.dseed` syntax, keyword manifest, LSP, editor grammar | `datrix-language` (`rebuild-parser.ps1` regenerates the parser), `language-server` pack |
    | Model and config contract | `datrix-common` (`datrix_model`, config models) |
-   | Analysis: validators, diagnostics, synthesis | `datrix-semantic`; the diagnostics catalog and per-code fixtures |
+   | Analysis: validators, diagnostics, synthesis | `datrix-semantic`; the diagnostics catalog and its area fixtures |
    | Shared derivations and plans | `datrix-codegen-kernel`, `datrix-codegen-common` |
    | Language targets | registered `datrix.languages` plugins (`registered_language_names()`) |
    | Platform targets | registered `datrix.platforms` plugins |
@@ -171,7 +171,7 @@ Only for a gap or a remainder that survived the Existing-solution gate. Work the
 
 1. **Model and contract** in `datrix-common` (zero dependencies on other Datrix packages). Language-neutral: a target-specific field in a shared model is wrong (G4).
 2. **Grammar and transformers** in `datrix-language`; regenerate the parser with `datrix/scripts/generation/rebuild-parser.ps1` (never hand-edit generated parser output). Grammar snapshot and syntax docs move with it.
-3. **Analysis**: validators, new diagnostic codes in the catalog (each with a per-code fixture line: `// @expect CODE.variant`; the census test holds the catalog to its fixtures), synthesis. A declared knob that no validator constrains and no target consumes is deleted, not shipped (G6).
+3. **Analysis**: validators, new diagnostic codes in the catalog (each variant an `// @expect CODE.variant` line in its area, by the placement rule in `datrix-common/docs/contributing/test-guidelines/shared/test-utilities-and-fixtures.md` § 4; the census test holds the catalog to its fixtures), synthesis. A declared knob that no validator constrains and no target consumes is deleted, not shipped (G6).
 4. **Shared derivation** in the kernel or `datrix-codegen-common`: the capability's plan/contract is computed **once** and every target renders it. No target re-derives a fact from bodies, and no private copy of a shared function is left behind (G9).
 5. **Every reached target**, each through its own plugin: use the owning package's fix skill for its package-specific context (`datrix-codegen-<x>` → `/fix-codegen-<x>`; `datrix-rdbms-schema` → `/fix-rdbms-schema`; …). Handoff is routing, never a way to put the work down. Language targets realize the same behaviour with different syntax only; platform targets use their native primitive (G2).
 6. **Migration and schema**: when the capability changes what the database holds (a column, constraint, trigger, comment), the snapshot, diff and policy know it, so a change is planned as a migration (`migrations` pack). SQL Datrix writes is checked against the engine that runs it (G11's live-database exception).
