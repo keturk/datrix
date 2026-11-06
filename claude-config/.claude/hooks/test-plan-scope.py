@@ -120,6 +120,13 @@ later = transcript(typed_skill("fix-test-suites"), typed_skill("fix-cli"))
 check("the latest skill decides", guard(narrow, *shell(LEDGER), later), "block")
 quoted = transcript(jon("why did <command-name>/fix-test-suites</command-name> fail?"))
 check("a quoted command is no invocation", guard(narrow, *shell(LEDGER), quoted), "block")
+finding = transcript(typed_skill("implement-finding"), skill_body("implement-finding"))
+check("/implement-finding edits a package the scope left out", guard(narrow, *edit(COMMON_SOURCE), finding), "allow")
+check("/implement-finding runs any script", guard(narrow, *shell(LEDGER), finding), "allow")
+batch = transcript(typed_skill("implement-finding"))
+check("a batch session's typed form counts", guard(narrow, *edit(COMMON_SOURCE), batch), "allow")
+after = transcript(typed_skill("implement-finding"), typed_skill("fix-cli"))
+check("a package skill after /implement-finding is fenced", guard(narrow, *edit(COMMON_SOURCE), after), "block")
 
 print("scope reset")
 

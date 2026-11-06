@@ -15,9 +15,10 @@ repo script not named in `scripts`. The plan file, the scratchpad and `.tmp` are
 Only Jon widens a scope: his message saying `scope reset` drops the lock, and the plan's section
 is read afresh.
 
-A skill whose order is the whole workspace is not fenced at all: while `/fix-test-suites` is the
-session's latest skill, nothing is refused, because working every repo and running their test
-suites is what Jon ordered by invoking it.
+A skill whose order can reach any repo is not fenced at all: while one is the session's latest
+skill, nothing is refused. `/fix-test-suites` orders every repo and test suite. `/implement-finding`
+orders a fix across every package the finding reaches, which only reading the code shows, so a scope
+written before that reading cannot describe it, and a batch session has no Jon to type `scope reset`.
 
 Fails open: no plan, no `## Scope`, or an unreadable payload lets the call through.
 
@@ -46,8 +47,8 @@ _SCOPE_RE: Final = re.compile(r"^## Scope[ \t]*\n(.*?)(?=^## |\Z)", re.MULTILINE
 _SCRIPT_RE: Final = re.compile(r"scripts[\\/](?:[\w.-]+[\\/])*([\w-]+)\.(?:ps1|sh)\b", re.IGNORECASE)
 _RESET_RE: Final = re.compile(r"\bscope reset\b", re.IGNORECASE)
 _ENTRY_SEPARATOR_RE: Final = re.compile(r"[,\s]+")
-#: Skills whose order spans every repo and test suite; no plan scope can fence them.
-_WORKSPACE_WIDE_SKILLS: Final = frozenset({"fix-test-suites"})
+#: Skills whose order can reach any repo; no plan scope can fence them.
+_WORKSPACE_WIDE_SKILLS: Final = frozenset({"fix-test-suites", "implement-finding"})
 _ALWAYS_WRITABLE: Final = (".agent_output/*", ".tmp/*")
 _SCRATCHPAD_MARK: Final = "/scratchpad/"
 _EDIT_TOOLS: Final = frozenset({"Write", "Edit", "NotebookEdit"})
