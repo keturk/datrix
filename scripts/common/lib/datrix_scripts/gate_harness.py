@@ -316,11 +316,12 @@ def check_list_main(
     return EXIT_VIOLATION
 
 
-def _flush_stdout_per_line() -> None:
+def line_buffered_stdout() -> None:
     """Flush stdout at every line, so a traceback on stderr lands after what the run printed.
 
     Into a pipe or a file stdout is block-buffered and stderr is not: a crash would otherwise reach a
-    shared log above the buffered lines, leaving the last passing line as the log's end.
+    shared log above the buffered lines, leaving the last passing line as the log's end. A stdout that
+    is not a text stream (a self-test's capture) is left as it is.
     """
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(line_buffering=True)
@@ -331,7 +332,7 @@ def run_main(
     run: Callable[[argparse.Namespace], int],
 ) -> int:
     """Parse arguments, configure logging from ``--debug``, run, and map ``UsageError`` to 2."""
-    _flush_stdout_per_line()
+    line_buffered_stdout()
     args = parse_args()
     configure_logging(args.debug)
     try:

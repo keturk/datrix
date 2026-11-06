@@ -264,14 +264,6 @@ def print_stderr(text: str) -> None:
     print(text, file=sys.stderr, flush=True)
 
 
-def line_buffered_stdout() -> None:
-    """Flush stdout at every line end, for a run whose tool prints to stdout and stderr in many places: a
-    ``2>&1`` capture keeps the order the lines were printed in, as it did when the tool ran as a child
-    process. A stdout that is not a text stream (a self-test's capture) is left as it is."""
-    if isinstance(sys.stdout, io.TextIOWrapper):
-        sys.stdout.reconfigure(line_buffering=True)
-
-
 def plant_workspace(root: Path) -> Path:
     """A workspace under *root* for a metrics self-test: ``datrix-a`` (src/, tests/, pyproject.toml),
     ``datrix-b`` (src/ only) and a ``datrix`` showcase directory."""

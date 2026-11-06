@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Final
 
 from datrix_scripts.framework_repos import PackageMarker
+from datrix_scripts.gate_harness import line_buffered_stdout
 from datrix_scripts.llm_code_fix import parse_code_response
 from datrix_scripts.local_llm import (
     ChatRequest,
@@ -49,7 +50,6 @@ from datrix_scripts.metrics.projects import (
     ProjectSelectionError,
     SelectionWording,
     add_project_arguments,
-    line_buffered_stdout,
     plant_workspace,
     print_stderr,
     print_summary,

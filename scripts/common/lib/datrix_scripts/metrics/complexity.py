@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, write_files
+from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, line_buffered_stdout, write_files
 from datrix_scripts.llm_code_fix import (
     MAX_FIX_RETRIES,
     parse_code_response,
@@ -72,7 +72,6 @@ from datrix_scripts.metrics.projects import (
     STOP_MESSAGE_FLAG,
     ProjectSelectionError,
     add_project_arguments,
-    line_buffered_stdout,
     plant_workspace,
     print_summary,
     run_projects,

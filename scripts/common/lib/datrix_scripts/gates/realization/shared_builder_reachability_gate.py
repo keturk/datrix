@@ -29,9 +29,8 @@ newly installed language target joins the scan with no edit here, and the gate
 refuses to run against fewer than two of them rather than passing vacuously.
 
 Scan method: whole-tree AST import/call-graph resolution, never text matching.
-Three corrections were required to make the walk match real Python call
-semantics, each verified against a real function this scan must not miscall
-dead:
+Five corrections were required to make the walk match how a builder really gets
+called, each verified against a real function this scan must not miscall dead:
 
 1. **Cross-package resolution.** A hoisted builder's callers live in the
    packages that were hoisted FROM, not in the package the builder now lives in
@@ -43,14 +42,14 @@ dead:
    for the function's bare name.
 2. **Aliased-wrapper indirection.** A caller routinely delegates through a
    same-named private wrapper that keeps the pre-hoist name so its own call
-   sites do not have to change, e.g. ``_extract_max_length(field)`` returning
-   ``_shared_extract_max_length(field, ...)`` where
-   ``_shared_extract_max_length`` is bound by
-   ``from ... import extract_max_length as _shared_extract_max_length``.
-   A regex anchored with ``\\b`` never matches inside ``_extract_max_length``,
+   sites do not have to change, e.g. ``_type_name_for(literal_type)`` returning
+   ``_shared_type_name_for(literal_type, ...)`` where
+   ``_shared_type_name_for`` is bound by
+   ``from ... import type_name_for as _shared_type_name_for``.
+   A regex anchored with ``\\b`` never matches inside ``_type_name_for``,
    because the underscore is a word character -- and even a correct regex on the
    RIGHT name would still miss the call site, since the call site never spells
-   ``extract_max_length`` at all, only its import alias. Resolving the call
+   ``type_name_for`` at all, only its import alias. Resolving the call
    requires reading the aliased import binding, which only an AST walk (not a
    text search) can do.
 
@@ -82,13 +81,21 @@ dead:
    without rescuing a single genuinely orphaned builder.
 4. **Same-module callers.** A builder called only by a sibling in its own
    module has no caller outside that module, yet it runs on every generation
-   run whenever the sibling does -- e.g. ``build_consumer_sources_context``,
-   whose only call site is ``ContainerModuleHooks.emit_consumer`` in the same
-   module, with ``ContainerModuleHooks`` subclassed by the language packages.
+   run whenever the sibling does -- e.g. ``build_cqrs_projection_context``,
+   whose only call site is ``build_projection_context`` in the same module.
    So a builder with no external caller still counts as live when a chain of
    same-module references reaches it from a module-level function or class
-   that some OTHER module references. A sibling nothing outside the module
-   references is no root, and a builder reached only from one is still dead.
+   that some OTHER module or generator document references. A sibling nothing
+   outside the module references is no root, and a builder reached only from
+   one is still dead.
+5. **Generator-document references.** A language's ``generator.dal`` names a
+   shared builder as ``<namespace>.<name>`` (``context ... from
+   backend_cqrs_renders.build_command_context;``), and the generator calls it
+   from that reference: no Python call site exists, by design, so the function
+   keeps one import path. So each scanned package's generator document is read
+   as a caller. It is parsed by the kernel's own DAL generator parser and each
+   reference is translated by the kernel's own namespace resolver, the same two
+   steps a real compile takes; a name in a ``.dal`` comment is no reference.
 
 This is a hard-zero gate, not a decrease-only ratchet: no exemption file and no
 pinned baseline of known offenders. A baseline on a gate whose entire job is
@@ -100,8 +107,8 @@ into its consuming package(s) or orchestrator, or to delete it -- never to add
 its name here.
 
 Built-in non-vacuity self-test, every invocation, before any real census is
-trusted. Five planted fixture trees prove, in both directions, that the scanner
-and the delegation rule still discriminate:
+trusted. Planted fixture trees prove, in both directions, that the scanner and
+the delegation rule still discriminate:
 
 * a planted orphan build_* is reported dead by name, and wiring a real
   cross-module caller clears it;
@@ -118,7 +125,10 @@ and the delegation rule still discriminate:
 * a builder called only by a same-module function or class method that a
   consuming package references is live, recorded against that root;
 * a builder called only by a same-module sibling nothing outside the module
-  references is still dead.
+  references is still dead;
+* a builder a generator document references is live, recorded against that
+  document, and so is one reached from it through a same-module chain, while a
+  builder named only in a ``.dal`` comment is still dead.
 
 Repo-level validation script (per the datrix showcase boundary -- no pytest
 suite lives in datrix).
@@ -146,11 +156,15 @@ import os
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import Final
 
+from datrix_codegen_kernel.dal.frontend import DAL_RESOURCE_SUFFIX
+from datrix_codegen_kernel.dgen import target_registry
+from datrix_codegen_kernel.dgen.parser import parse_generator_definition
+from datrix_codegen_kernel.generation.dgen_ir import ResolvedFunctionRef
 from datrix_common.plugin._registry_discovery import LANGUAGES_GROUP, entry_points
 
 from datrix_scripts.gate_harness import EXIT_PASS, WRAPPER_DEBUG_FLAG
@@ -188,6 +202,9 @@ _MAX_REEXPORT_DEPTH: Final[int] = 6
 #: passing with a truncated target set is how a gate silently stops covering
 #: what it claims to (Decision 28 invariant 2).
 _MIN_LANGUAGES_FOR_SCAN: Final[int] = 2
+
+#: The resource a target's DAL generator definitions compile from.
+_GENERATOR_DOCUMENT: Final[str] = f"generator{DAL_RESOURCE_SUFFIX}"
 
 
 class ScanConfigurationError(RuntimeError):
@@ -428,17 +445,62 @@ class _RepositoryIndex:
     would otherwise re-walk all ~1500 trees; the trees do not change between
     them, so the walk is done once per chain kind and the passes differ only in
     what they resolve the chains against.
+
+    ``dal_references_by_document`` holds, per generator document, the dotted
+    Python name of every function it references. A document's key is its path
+    under its ``src/`` joined with dots (``<package>.dgen.generator.dal``), so
+    it reads like a module wherever a caller is reported.
     """
 
     trees: dict[str, ast.Module]
     bindings_by_module: dict[str, dict[str, str]]
     call_chains_by_module: dict[str, list[list[str]]]
     reference_chains_by_module: dict[str, list[list[str]]]
+    dal_references_by_document: dict[str, frozenset[str]]
 
 
-def _build_repository_index(package_src_roots: Mapping[str, Path]) -> _RepositoryIndex:
+def _function_refs(node: object) -> Iterator[ResolvedFunctionRef]:
+    """Every function reference anywhere in a parsed DAL generator IR value."""
+    if isinstance(node, ResolvedFunctionRef):
+        yield node
+    elif isinstance(node, tuple):
+        for item in node:
+            yield from _function_refs(item)
+    elif is_dataclass(node) and not isinstance(node, type):
+        for spec in fields(node):
+            yield from _function_refs(getattr(node, spec.name))
+
+
+def _dal_references(
+    src_root: Path, resolve_dal_module: Callable[[str], str]
+) -> dict[str, frozenset[str]]:
+    """Each generator document under *src_root*, by key, with the dotted Python
+    name of every function it references.
+
+    A reference whose namespace is not registered raises from
+    *resolve_dal_module*: a document this gate cannot read must fail it loud,
+    never shrink the set of callers it counts.
+    """
+    documents: dict[str, frozenset[str]] = {}
+    for path in sorted(src_root.rglob(_GENERATOR_DOCUMENT)):
+        definition = parse_generator_definition(
+            path.read_text(encoding="utf-8"), source_path=str(path)
+        )
+        references: set[str] = set()
+        for function_ref in _function_refs(definition):
+            module_path, _, function_name = function_ref.ref.rpartition(".")
+            references.add(f"{resolve_dal_module(module_path)}.{function_name}")
+        documents[".".join(path.relative_to(src_root).parts)] = frozenset(references)
+    return documents
+
+
+def _build_repository_index(
+    package_src_roots: Mapping[str, Path],
+    resolve_dal_module: Callable[[str], str] = target_registry.resolve_dgen_context_module,
+) -> _RepositoryIndex:
     trees: dict[str, ast.Module] = {}
     bindings_by_module: dict[str, dict[str, str]] = {}
+    dal_references_by_document: dict[str, frozenset[str]] = {}
     for src_root in package_src_roots.values():
         for path in sorted(src_root.rglob("*.py")):
             module = _module_name_for(path, src_root)
@@ -446,11 +508,13 @@ def _build_repository_index(package_src_roots: Mapping[str, Path]) -> _Repositor
             tree = ast.parse(source, filename=str(path))
             trees[module] = tree
             bindings_by_module[module] = _import_bindings(tree, module, path.name == "__init__.py")
+        dal_references_by_document.update(_dal_references(src_root, resolve_dal_module))
     return _RepositoryIndex(
         trees=trees,
         bindings_by_module=bindings_by_module,
         call_chains_by_module={},
         reference_chains_by_module={},
+        dal_references_by_document=dal_references_by_document,
     )
 
 
@@ -498,7 +562,7 @@ def _callers_by_definition(
     index: _RepositoryIndex, definition_module_of: Mapping[str, str]
 ) -> dict[str, set[str]]:
     """qualname -> the set of OTHER modules containing a Call this scan can
-    prove resolves to it."""
+    prove resolves to it, and of the generator documents referencing it."""
     definition_qualnames = frozenset(definition_module_of)
     callers: dict[str, set[str]] = {q: set() for q in definition_qualnames}
     for module in index.trees:
@@ -513,7 +577,20 @@ def _callers_by_definition(
             if resolved is None or module == definition_module_of[resolved]:
                 continue
             callers[resolved].add(module)
+    for qualname, documents in _documents_by_target(index, definition_qualnames).items():
+        callers[qualname] |= documents
     return callers
+
+
+def _documents_by_target(index: _RepositoryIndex, targets: frozenset[str]) -> dict[str, set[str]]:
+    """target dotted name -> every generator document referencing it."""
+    found: dict[str, set[str]] = {target: set() for target in targets}
+    for document, references in index.dal_references_by_document.items():
+        for reference in references:
+            resolved = _resolve_to_definition(reference, targets, index.bindings_by_module)
+            if resolved is not None:
+                found[resolved].add(document)
+    return found
 
 
 def _resolve_dotted(chain: list[str], local_bindings: Mapping[str, str]) -> str | None:
@@ -766,7 +843,8 @@ def _live_through_siblings(
 
     A root is a module-level function or class of the defining module that some
     OTHER scanned module references at all -- calls it, subclasses it, or passes
-    it as a value. The unresolved definitions themselves are never roots: their
+    it as a value -- or that a generator document references. The unresolved
+    definitions themselves are never roots: their
     external liveness is the call-based question the gate already answered.
 
     Returns:
@@ -787,6 +865,8 @@ def _live_through_siblings(
         - unresolved
     )
     referencing = _modules_by_target(index, candidate_roots, _load_reference_chains)
+    for root, documents in _documents_by_target(index, candidate_roots).items():
+        referencing[root] |= documents
     live: dict[str, str] = {}
     for module in modules:
         definitions = definitions_by_module[module]
@@ -810,12 +890,14 @@ def find_functions_without_production_callers(
     defining_package: str,
     target_subpackages: tuple[str, ...],
     name_predicate: Callable[[str], bool],
+    resolve_dal_module: Callable[[str], str] = target_registry.resolve_dgen_context_module,
 ) -> ReachabilityCensus:
-    """Scan every ``.py`` file under *package_src_roots* and report, for every
-    module-level function directly under
+    """Scan every ``.py`` file and generator document under *package_src_roots*
+    and report, for every module-level function directly under
     ``{defining_package}.{subpackage in target_subpackages}`` whose name
     satisfies *name_predicate*, whether any OTHER module in the scanned tree
-    contains a call this scan can prove resolves to it.
+    contains a call this scan can prove resolves to it, or a generator document
+    references it.
 
     Args:
         package_src_roots: Package import name -> its own ``src/`` dir. Every
@@ -828,6 +910,10 @@ def find_functions_without_production_callers(
             scan for definitions (e.g. ``("algorithms", "context_models")``).
         name_predicate: A definition's bare function name must satisfy this to
             be scanned at all.
+        resolve_dal_module: Translates a generator document's reference
+            namespace to the Python module it names. The kernel's registry in
+            every real run; the self-test's planted namespaces are not
+            registered, so it hands its own.
 
     Returns:
         A :class:`ReachabilityCensus` naming every matching definition with zero
@@ -836,7 +922,7 @@ def find_functions_without_production_callers(
         keeps each surviving thin wrapper live.
     """
     return _census_from_index(
-        _build_repository_index(package_src_roots),
+        _build_repository_index(package_src_roots, resolve_dal_module),
         defining_package,
         target_subpackages,
         name_predicate,
@@ -916,14 +1002,14 @@ _CROSS_PACKAGE_PROBE_CALLERS: Final[frozenset[str]] = frozenset(
     {"datrix_codegen_python", "datrix_codegen_typescript"}
 )
 
-#: Correction 2 probe (aliased same-named private wrapper). ``extract_max_length``
-#: is never called under its own name in any language package: its call site
-#: imports it aliased as ``_shared_extract_max_length`` and delegates through a
-#: private ``_extract_max_length``. It is not ``build_*``-prefixed, so it sits
+#: Correction 2 probe (aliased same-named private wrapper). ``type_name_for`` is
+#: never called under its own name in this language package: its call site
+#: imports it aliased as ``_shared_type_name_for`` and delegates through a
+#: private ``_type_name_for``. It is not ``build_*``-prefixed, so it sits
 #: outside the main gate's own iteration, but it exercises exactly the
 #: resolution mechanism that gate depends on.
-_ALIAS_PROBE_NAME: Final[str] = "extract_max_length"
-_ALIAS_PROBE: Final[str] = "datrix_codegen_common.algorithms.scalar_defaults.extract_max_length"
+_ALIAS_PROBE_NAME: Final[str] = "type_name_for"
+_ALIAS_PROBE: Final[str] = "datrix_codegen_common.algorithms.service_constants.type_name_for"
 _ALIAS_PROBE_CALLERS: Final[frozenset[str]] = frozenset({"datrix_codegen_python"})
 
 #: Correction 3 probe (thin delegation). Every registered test-axis domain's
@@ -932,14 +1018,22 @@ _DELEGATION_PROBE_MODULE_PREFIX: Final[str] = (
     "datrix_codegen_common.algorithms.test_plan_context."
 )
 
-#: Correction 4 probe (same-module callers). ``build_consumer_sources_context``
-#: has no caller outside its module; its one call site is a method of
-#: ``ContainerModuleHooks``, which the language packages subclass.
+#: Correction 4 probe (same-module callers). ``build_cqrs_projection_context``
+#: has no caller outside its module; its one call site is
+#: ``build_projection_context``, which the languages' generator documents name.
 _SIBLING_PROBE: Final[str] = (
-    "datrix_codegen_common.algorithms.serverless_realization.build_consumer_sources_context"
+    "datrix_codegen_common.algorithms.cqrs_projection_context.build_cqrs_projection_context"
 )
 _SIBLING_PROBE_ROOT: Final[str] = (
-    "datrix_codegen_common.algorithms.serverless_realization.ContainerModuleHooks"
+    "datrix_codegen_common.algorithms.cqrs_projection_context.build_projection_context"
+)
+
+#: Correction 5 probe (generator-document references). ``build_command_context``
+#: has no Python caller at all: each backend language's ``generator.dal`` names
+#: it through the ``backend_cqrs_renders`` namespace.
+_DOCUMENT_PROBE: Final[str] = "datrix_codegen_common.algorithms.cqrs_renders.build_command_context"
+_DOCUMENT_PROBE_CALLERS: Final[frozenset[str]] = frozenset(
+    {"datrix_codegen_python", "datrix_codegen_typescript"}
 )
 
 
@@ -953,7 +1047,7 @@ def _assert_probe_packages_installed(package_src_roots: Mapping[str, Path]) -> l
     Returns:
         Problem descriptions; empty means every probe package is scanned.
     """
-    expected = _CROSS_PACKAGE_PROBE_CALLERS | _ALIAS_PROBE_CALLERS
+    expected = _CROSS_PACKAGE_PROBE_CALLERS | _ALIAS_PROBE_CALLERS | _DOCUMENT_PROBE_CALLERS
     absent = sorted(expected - set(package_src_roots))
     if not absent:
         return []
@@ -1022,7 +1116,27 @@ def check_correctness_floors(census: ReachabilityCensus, alias_census: Reachabil
             f"-- same-module resolution (correction 4) has regressed, or the builder "
             f"gained an external caller and this probe must name another."
         )
+
+    problems.extend(_check_generator_document_references(census))
     return problems
+
+
+def _check_generator_document_references(census: ReachabilityCensus) -> list[str]:
+    """Correction 5 floor: the probe is called from a generator document of every
+    expected package, not from Python that happens to share its name."""
+    document_packages = {
+        caller.split(".")[0]
+        for caller in census.callers.get(_DOCUMENT_PROBE, frozenset())
+        if caller.endswith(DAL_RESOURCE_SUFFIX)
+    }
+    if _DOCUMENT_PROBE_CALLERS <= document_packages:
+        return []
+    return [
+        f"Expected {_DOCUMENT_PROBE.rsplit('.', 1)[1]} to be referenced from the generator "
+        f"documents of {sorted(_DOCUMENT_PROBE_CALLERS)}; resolver found them only in "
+        f"{sorted(document_packages)} -- generator-document resolution (correction 5) has "
+        f"regressed, or the definitions stopped naming it and this probe must name another."
+    ]
 
 
 def _check_test_axis_delegations(census: ReachabilityCensus) -> list[str]:
@@ -1067,6 +1181,12 @@ def _check_test_axis_delegations(census: ReachabilityCensus) -> list[str]:
 # ---------------------------------------------------------------------------
 # Non-vacuity self-test
 # ---------------------------------------------------------------------------
+
+
+#: The registered target the planted generator document declares: the parser
+#: validates a document's target and its file blocks against that target's
+#: vocabulary, so a planted document cannot name an unregistered one.
+_SELF_TEST_DOCUMENT_TARGET: Final[str] = "sql"
 
 
 def _write_module(path: Path, content: str) -> None:
@@ -1420,6 +1540,70 @@ def _check_builder_reached_only_through_dead_sibling_is_dead(tmp_path: Path) -> 
     return problems
 
 
+def _check_generator_document_reference_is_live(tmp_path: Path) -> list[str]:
+    """Direction 5: a generator document's reference is a production call, and it
+    roots a same-module chain, but a name in a ``.dal`` comment is no reference --
+    the shape a text search of the document would call live."""
+    problems: list[str] = []
+    common = "fx_common_document"
+    lang = "fx_lang_document"
+    namespace = "fx_widgets"
+    defining_root = tmp_path / "document_defining" / "src"
+    caller_root = tmp_path / "document_caller" / "src"
+    _write_module(defining_root / common / "__init__.py", "")
+    _write_module(defining_root / common / "algorithms" / "__init__.py", "")
+    _write_module(
+        defining_root / common / "algorithms" / "widget.py",
+        "def build_rows(x):\n    return [x]\n\n\n"
+        "def build_widget(x):\n    return build_rows(x)\n\n\n"
+        "def build_orphan(x):\n    return x\n",
+    )
+    _write_module(caller_root / lang / "__init__.py", "")
+    _write_module(
+        caller_root / lang / "dgen" / _GENERATOR_DOCUMENT,
+        f"generator {lang} : {_SELF_TEST_DOCUMENT_TARGET} {{\n"
+        "  consumes application;\n"
+        "  domain entity_ddl {\n"
+        "    each service {\n"
+        "      each rdbms_block {\n"
+        "        each entity where concrete {\n"
+        f"          // {namespace}.build_orphan\n"
+        "          sql entity_table {\n"
+        f'            builder {namespace}.build_widget => "{{service.dir}}/x.sql";\n'
+        "          }\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n",
+    )
+    module = f"{common}.algorithms.widget"
+    census = find_functions_without_production_callers(
+        {common: defining_root, lang: caller_root},
+        common,
+        ("algorithms",),
+        is_public_build_function,
+        {namespace: module}.__getitem__,
+    )
+    document = f"{lang}.dgen.{_GENERATOR_DOCUMENT}"
+    if census.dead != frozenset({f"{module}.build_orphan"}):
+        problems.append(
+            f"self-test: expected only the builder named in a comment to be dead, got "
+            f"{sorted(census.dead)}"
+        )
+    if census.callers.get(f"{module}.build_widget") != frozenset({document}):
+        problems.append(
+            f"self-test: a builder a generator document references was not recorded against "
+            f"{document}: {dict(census.callers)}"
+        )
+    if dict(census.through_sibling) != {f"{module}.build_rows": f"{module}.build_widget"}:
+        problems.append(
+            f"self-test: a generator-document reference did not root its same-module chain: "
+            f"{dict(census.through_sibling)}"
+        )
+    return problems
+
+
 #: Every self-test check, in the order they run. Each receives a private
 #: temporary directory root and returns its problems.
 _SELF_TEST_CHECKS: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = (
@@ -1430,6 +1614,7 @@ _SELF_TEST_CHECKS: Final[tuple[tuple[str, Callable[[Path], list[str]]], ...]] = 
     ("thin delegation requires production to supply the delegate", _check_delegation_requires_production_to_supply_the_delegate),
     ("builder reached through a live same-module sibling is live", _check_builder_reached_through_live_sibling_is_live),
     ("builder reached only through a dead same-module sibling is STILL dead", _check_builder_reached_only_through_dead_sibling_is_dead),
+    ("generator-document reference is live, a .dal comment is not", _check_generator_document_reference_is_live),
 )
 
 

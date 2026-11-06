@@ -34,7 +34,7 @@ from types import MappingProxyType
 from typing import Final
 
 from datrix_scripts.function_sources import terminal_name
-from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG
+from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, line_buffered_stdout
 from datrix_scripts.llm_code_fix import (
     MAX_FIX_RETRIES,
 )
@@ -62,7 +62,6 @@ from datrix_scripts.metrics.projects import (
     STOP_MESSAGE_FLAG,
     ProjectSelectionError,
     add_project_arguments,
-    line_buffered_stdout,
     print_stderr,
     print_summary,
     run_projects,

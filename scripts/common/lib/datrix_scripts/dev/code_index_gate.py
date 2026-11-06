@@ -446,7 +446,7 @@ def check_extract_keeps_the_docs_each_format_writes() -> None:
     assert docs["Guide"][1] == 15, "a section spans to the next heading of its level or above"
     tool = extract_source(_TOOL_PS1.encode("utf-8"), "alpha/scripts/tool.ps1", "alpha/scripts/tool.ps1", False)
     tool_docs = {s.qualname: s.doc for s in tool.symbols}
-    assert tool.module_doc == "Run the fixture tool.", tool.module_doc
+    assert tool.module_doc == "Run the fixture tool.", f"tool.ps1 module doc: {tool.module_doc!r} ({tool.parse_error})"
     assert tool_docs["Target"] == "What to run against." and tool_docs["Invoke-Step"] == "One step.", tool_docs
     client = extract_source(_CLIENT_TS.encode("utf-8"), "alpha/client.ts", "alpha/client.ts", False)
     assert client.symbols[0].doc == "Talks to the order service.", client.symbols[0]

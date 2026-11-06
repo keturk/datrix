@@ -617,6 +617,7 @@ def header_set_fixture(name: str) -> WebSecurityHeaderSet:
         api_origin=_FIXTURE_API_ORIGIN,
         identity_authority=_FIXTURE_IDENTITY_AUTHORITY,
         tile_origin=None,
+        draws_api_images=False,
         used_builtin_rows=frozenset(),
         is_loopback=HEADER_SET_FIXTURES[name],
     )

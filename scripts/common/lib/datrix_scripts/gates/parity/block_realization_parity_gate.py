@@ -20,7 +20,7 @@ the class's field list); every comparison is a pure function over
 on any cell shape, and the self-test plants :class:`PlatformFacts` directly and
 constructs no declaration or cell.
 
-THE EIGHT SURFACES:
+THE NINE SURFACES:
 
 1. ``block_types`` -- every block type any platform realizes by at least one
    flavor is realized by at least one flavor on every platform
@@ -33,9 +33,9 @@ THE EIGHT SURFACES:
 4. ``identity_features`` -- every identity feature any platform offers through
    at least one provider is offered through at least one provider on every
    platform (``identity_feature:<id>`` row).
-5. ``static_web_hosting`` -- each platform's origin kind equals the one its OWN
-   edge derives: ``domain`` when the edge binds custom domains, ``loopback_port``
-   otherwise.
+5. ``static_web_hosting`` -- the origin kind of each platform that hosts a static
+   web target equals the one its OWN edge derives: ``domain`` when the edge binds
+   custom domains, ``loopback_port`` otherwise.
 6. ``custom_domain_surfaces`` -- an edge-binding platform carries both surfaces;
    a platform whose edge binds no domain carries neither.
 7. ``model_realizations`` -- a platform realizes at least one model provider
@@ -47,8 +47,12 @@ THE EIGHT SURFACES:
    (``identity_feature:<feature>=<value>`` row). Surface 4 sees only that a
    feature is offered, so a platform offering ``sign_up`` closed-only would
    otherwise pass while refusing every open-registration source.
+9. ``web_hosting`` -- a platform hosts a static web target at some origin when any
+   other does (``config:web`` row: an app's ``web { }`` block is what it cannot
+   realize). ``static_web_hosting`` is a required field, so ``None`` is the
+   platform's statement that it hosts none, and the row is what counts that.
 
-Surfaces 5-7 compare REQUIRED declaration fields, which the optional-field
+Surfaces 5-7 and 9 compare REQUIRED declaration fields, which the optional-field
 partition alone could never see; :func:`_assert_field_partition_complete`
 therefore partitions required and optional fields both, so a future field of
 either kind cannot escape every comparison.
@@ -126,6 +130,7 @@ _CUSTOM_DOMAIN_SURFACES: Final[frozenset[str]] = frozenset(get_args(CustomDomain
 _GAP_KIND_BLOCK_TYPE: Final[str] = "block_type"
 _GAP_KIND_OBSERVABILITY: Final[str] = "observability_category"
 _GAP_KIND_IDENTITY: Final[str] = "identity_feature"
+_GAP_KIND_CONFIG: Final[str] = "config"
 
 #: Identity features whose values are portable author policies (surface 8),
 #: compared value by value; every other feature's values are provider
@@ -135,6 +140,8 @@ _POLICY_VALUE_SEPARATOR: Final[str] = "="
 
 _RUNTIME_CAPABILITY: Final[str] = "runtime"
 _MODEL_CAPABILITY: Final[str] = "model"
+#: Surface 9's capability, named for the app profile's ``web { }`` config block.
+_WEB_HOSTING_CAPABILITY: Final[str] = "web"
 
 # ---------------------------------------------------------------------------
 # Field partition buckets -- every PlatformCapabilityDeclaration field belongs
@@ -359,7 +366,7 @@ class PlatformFacts:
     runtimes: frozenset[str]                       # supported_runtimes, by value
     identity_features: frozenset[str]              # features with >= 1 offered (provider, feature) cell
     identity_policies: frozenset[str]              # "<feature>=<value>" of policy features, any provider
-    static_hosting_origin: str                     # "loopback_port" | "domain"
+    static_hosting_origin: str | None              # "loopback_port" | "domain" | None: hosts no static site
     binds_domains: bool                            # the platform's edge binds custom domains
     custom_domain_surfaces: frozenset[str]         # names of the custom-domain surfaces present
     model_flavor_counts: Mapping[str, int]         # model provider -> number of flavor cells
@@ -369,18 +376,12 @@ def extract_facts(platform: str, decl: PlatformCapabilityDeclaration) -> Platfor
     """The ONLY reader of a declaration's attributes. Presence only.
 
     Raises:
-        ValueError: The declaration states no static-hosting origin or has not
-            declared whether its gateway terminates TLS -- every registered
-            platform states both, so an absent one is a defect, never a skip.
+        ValueError: The declaration has not declared whether its gateway
+            terminates TLS -- every registered platform states it, so an absent
+            one is a defect, never a skip.
     """
     hosting = decl.static_web_hosting
     origin = None if hosting is None else hosting.origin
-    if origin is None:
-        raise ValueError(
-            f"Platform {platform!r} declares no static web hosting origin. Every registered "
-            f"platform serves static web hosting (a loopback platform at a port). Fix: declare "
-            f"origin {sorted(get_args(StaticWebHostingOrigin))} on its static_web_hosting."
-        )
     binds_domains = decl.binds_custom_domains()
     if binds_domains is None:
         raise ValueError(
@@ -456,24 +457,27 @@ def _model_floor(platform_facts: PlatformFacts) -> frozenset[str]:
     return frozenset({_MODEL_CAPABILITY}) if has_flavor else frozenset()
 
 
+def _web_hosting_floor(platform_facts: PlatformFacts) -> frozenset[str]:
+    hosts_a_site = platform_facts.static_hosting_origin is not None
+    return frozenset({_WEB_HOSTING_CAPABILITY}) if hosts_a_site else frozenset()
+
+
 def _static_web_hosting_gaps(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViolation]:
     """A platform serves static web hosting at a custom domain exactly when its
     edge binds custom domains, and at a loopback port otherwise. Each platform
     is compared with its OWN edge, never with another platform: a docker runtime
     paired with a cloud provider is resolved by the provider's declaration, so
-    there is no pairing-dependent origin to flatten."""
+    there is no pairing-dependent origin to flatten. A platform hosting no site
+    has no origin to compare; surface 9 holds it to its gap row."""
     violations: list[SurfaceViolation] = []
     for platform, platform_facts in sorted(facts.items()):
+        origin = platform_facts.static_hosting_origin
         expected = _ORIGIN_DOMAIN if platform_facts.binds_domains else _ORIGIN_LOOPBACK
-        if platform_facts.static_hosting_origin != expected:
+        if origin is not None and origin != expected:
             agreeing = tuple(
                 sorted(p for p, f in facts.items() if f.static_hosting_origin == expected)
             )
-            violations.append(
-                SurfaceViolation(
-                    platform, "static_web_hosting", platform_facts.static_hosting_origin, agreeing
-                )
-            )
+            violations.append(SurfaceViolation(platform, "static_web_hosting", origin, agreeing))
     return violations
 
 
@@ -498,7 +502,7 @@ def _custom_domain_gaps(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViola
 
 
 def surface_violations(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViolation]:
-    """Run surfaces 1-8 over the extracted facts and return every violation.
+    """Run surfaces 1-9 over the extracted facts and return every violation.
 
     Raises:
         ValueError: If *facts* has fewer than ``_MIN_PLATFORMS_FOR_COMPARISON``
@@ -535,6 +539,7 @@ def surface_violations(facts: Mapping[str, PlatformFacts]) -> list[SurfaceViolat
             facts, "identity_policies", lambda f: f.identity_policies, gap_kind=_GAP_KIND_IDENTITY
         )
     )
+    violations.extend(_coverage_gaps(facts, "web_hosting", _web_hosting_floor, gap_kind=_GAP_KIND_CONFIG))
     return violations
 
 
@@ -545,6 +550,7 @@ _GAP_KIND_BY_SURFACE: Final[Mapping[str, str]] = {
     "observability_categories": _GAP_KIND_OBSERVABILITY,
     "identity_features": _GAP_KIND_IDENTITY,
     "identity_policies": _GAP_KIND_IDENTITY,
+    "web_hosting": _GAP_KIND_CONFIG,
 }
 
 
@@ -752,6 +758,30 @@ def _self_test_edge(problems: list[str]) -> None:
         surface_violations(_pair(custom_domain_surfaces=frozenset({"gateway"}))),
         [(_SELF_TEST_PLATFORM_B, "custom_domain_surfaces", "gateway")],
     )
+    no_hosting = surface_violations(_pair(static_hosting_origin=None))
+    _expect_exactly(
+        problems,
+        "no static hosting, no row",
+        no_hosting,
+        [(_SELF_TEST_PLATFORM_B, "web_hosting", _WEB_HOSTING_CAPABILITY)],
+    )
+    expected_row = f"{_GAP_KIND_CONFIG}:{_WEB_HOSTING_CAPABILITY}"
+    if not all(expected_row in _accounting_hint(violation) for violation in no_hosting):
+        problems.append(f"self-test [no static hosting, no row]: the hint does not name {expected_row!r}")
+    _expect_exactly(
+        problems,
+        "no static hosting, accounted by its row",
+        surface_violations(_pair(static_hosting_origin=None, gap_surfaces=frozenset({expected_row}))),
+        [],
+    )
+    _expect_exactly(
+        problems,
+        "a row does not account for an origin its edge contradicts",
+        surface_violations(
+            _pair(static_hosting_origin=_ORIGIN_DOMAIN, gap_surfaces=frozenset({expected_row}))
+        ),
+        [(_SELF_TEST_PLATFORM_B, "static_web_hosting", _ORIGIN_DOMAIN)],
+    )
 
 
 def _planted_fields(
@@ -839,6 +869,7 @@ _LIVE_UNION_SURFACES: Final[tuple[tuple[str, Callable[[PlatformFacts], frozenset
     ("identity_policies", lambda f: f.identity_policies),
     ("supported_runtimes", _runtime_floor),
     ("model_realizations", _model_floor),
+    ("web_hosting", _web_hosting_floor),
 )
 
 
@@ -920,9 +951,10 @@ def build_parser() -> argparse.ArgumentParser:
     return gate_parser(
         WRAPPER,
         "Prove every installed datrix.platforms plugin realizes every capability any "
-        "platform realizes -- across the seven capability surfaces (block types, "
+        "platform realizes -- across the nine capability surfaces (block types, "
         "observability categories, runtime floor, identity features, static web hosting, "
-        "custom-domain surfaces, model realizations) -- or carries its own gap row.",
+        "custom-domain surfaces, model realizations, identity policies, web hosting floor) "
+        "-- or carries its own gap row.",
     )
 
 

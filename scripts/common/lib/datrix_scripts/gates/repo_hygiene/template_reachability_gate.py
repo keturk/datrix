@@ -280,13 +280,27 @@ def _template_names_in(definitions: Iterable[object]) -> Iterator[str]:
 
 
 def dgen_template_names() -> dict[str, frozenset[str]]:
-    """Every compiled DAL generator ``FileDefinition`` template name, per registered target."""
+    """Every compiled DAL generator ``FileDefinition`` template name, per registered target
+    declaring a definitions module. A target that declares none (a platform that builds its
+    output without DAL generator domains) names no template and is not walked."""
     from datrix_codegen_kernel.dgen import target_registry
     from datrix_codegen_kernel.dgen.compiler import target_definitions
 
     return {
         target: frozenset(_template_names_in(target_definitions(target)))
         for target in sorted(target_registry.target_kind_map())
+        if target_registry.definition_modules_for(target)
+    }
+
+
+def _declaring_targets_outside(walked: Mapping[str, frozenset[str]]) -> set[str]:
+    """The registered targets declaring a definitions module that *walked* does not hold."""
+    from datrix_codegen_kernel.dgen import target_registry
+
+    return {
+        target
+        for target in target_registry.target_kind_map()
+        if target_registry.definition_modules_for(target) and target not in walked
     }
 
 
@@ -397,6 +411,9 @@ def self_test(base_dir: Path) -> list[str]:
         failures.append("no DAL generator generator target is registered; the DAL generator walk is untested")
     if not any(declared.values()):
         failures.append("no registered DAL generator target declares a template file; the walk found nothing")
+    skipped = sorted(_declaring_targets_outside(declared))
+    if skipped:
+        failures.append(f"targets declaring a definitions module were not walked: {skipped}")
     if not discover_templates(discover_package_sources(base_dir)):
         failures.append(f"no template found under {base_dir}; the scan would pass vacuously")
     return failures

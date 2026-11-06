@@ -487,7 +487,7 @@ _LIVE_MISSING_MEMBER: Final = "datrix_scripts.framework_references.no_such_membe
 _LIVE_CHAIN_INTERIOR: Final = "datrix_scripts.datrix_no_such_segment.x"
 _LIVE_INSTANCE_ATTRIBUTE: Final = "datrix_scripts.framework_references.ReferenceResolver._verdicts"
 #: A Pydantic field with no class attribute, on live framework source.
-_LIVE_MODEL_FIELD: Final = "datrix_common.config.datasource.models.PubsubConfig.engine"
+_LIVE_MODEL_FIELD: Final = "datrix_common.config.datasource._pubsub_models.PubsubConfig.engine"
 
 #: The citing module, in datrix-fixture-language. Each entry: (prose line, must fail).
 _SELF_TEST_PROSE: Final[tuple[tuple[str, bool], ...]] = (

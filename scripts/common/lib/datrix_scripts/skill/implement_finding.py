@@ -496,18 +496,23 @@ def _stub_claude(directory: Path, fixed_flag: Path | None, reply: str = "Finding
     return str(script)
 
 
-def _overlap_stub_claude(directory: Path, log: Path, reply: str) -> str:
-    """A real ``claude`` executable that appends ``start`` to *log*, waits about two seconds, appends ``end``
-    and prints one result event whose text is *reply*: sessions that ran side by side leave both starts first."""
+def _overlap_stub_claude(directory: Path, sessions: Path, reply: str) -> str:
+    """A real ``claude`` executable that claims a folder of its own under *sessions*, writes ``start`` there, waits
+    about two seconds, writes ``end`` and prints one result event whose text is *reply*. Each session writes only
+    its own files, because ``cmd`` fails an append to a file another process has open; sessions that ran side by
+    side leave every ``start`` older than every ``end``. ``mkdir`` is the claim: ``cmd`` has no process id, and
+    ``%RANDOM%`` repeats across processes started in the same second."""
     result = _STUB_RESULT.format(reply=reply)
     if os.name == "nt":
         script = directory / "claude.cmd"
-        script.write_text(f'@echo off\nmore >nul\necho start>>"{log}"\nping -n 3 127.0.0.1 >nul\n'
-                          f'echo end>>"{log}"\necho {result}\n', encoding="utf-8")
+        script.write_text(f'@echo off\nmore >nul\nset n=0\n:claim\nset /a n+=1\n'
+                          f'mkdir "{sessions}\\%n%" 2>nul || goto claim\n'
+                          f'echo start>"{sessions}\\%n%\\start"\nping -n 3 127.0.0.1 >nul\n'
+                          f'echo end>"{sessions}\\%n%\\end"\necho {result}\n', encoding="utf-8")
     else:
         script = directory / "claude"
-        script.write_text(f"#!/bin/sh\ncat >/dev/null\necho start >> \"{log}\"\nsleep 2\necho end >> \"{log}\"\n"
-                          f"echo '{result}'\n", encoding="utf-8")
+        script.write_text(f"#!/bin/sh\ncat >/dev/null\nmkdir \"{sessions}/$$\"\necho start > \"{sessions}/$$/start\"\n"
+                          f"sleep 2\necho end > \"{sessions}/$$/end\"\necho '{result}'\n", encoding="utf-8")
         script.chmod(0o755)
     return str(script)
 
@@ -582,14 +587,17 @@ def _check_the_fix_sessions_of_a_batch_run_side_by_side() -> None:
     with TemporaryDirectory() as raw:
         root = Path(raw)
         write_files(root / "findings", {"a.md": "a\n", "b.md": "b\n"})
-        log = root / "sessions.log"
+        sessions = root / "sessions"
+        sessions.mkdir()
         chain = Chain(ChainOptions(workspace=root, auto_compact_window=0, quiet=True),
-                      _overlap_stub_claude(root, log, "Finding fix: BLOCKED B2"))
+                      _overlap_stub_claude(root, sessions, "Finding fix: BLOCKED B2"))
         findings = [root / "findings" / "a.md", root / "findings" / "b.md"]
         with contextlib.redirect_stdout(io.StringIO()):
             outcomes = run_batch(chain, findings, DEFAULT_MODEL, DEFAULT_EFFORT)
-        order = log.read_text(encoding="utf-8").split()
-    assert order == ["start", "start", "end", "end"], order
+        starts = [path.stat().st_mtime_ns for path in sessions.glob("*/start")]
+        ends = [path.stat().st_mtime_ns for path in sessions.glob("*/end")]
+    assert len(starts) == len(ends) == len(findings), (starts, ends)
+    assert max(starts) < min(ends), (starts, ends)
     assert all(outcomes[finding].startswith(NEEDS_JON_PREFIX) for finding in findings), outcomes
 
 
