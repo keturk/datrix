@@ -60,6 +60,9 @@ DEFAULT_MAX_ROUNDS: Final = 3
 # value. 0 leaves the choice to Claude Code.
 DEFAULT_AUTO_COMPACT_WINDOW: Final = 500000
 AUTO_COMPACT_WINDOW_VARIABLE: Final = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+# Tells the session's hooks that nobody reads it, so a refusal only a reply could clear must offer
+# another way on. The hooks read the same name (`UNATTENDED_ENV` in `.claude/hooks/_agent_plan.py`).
+UNATTENDED_VARIABLE: Final = "DATRIX_UNATTENDED"
 RUN_DIR_PARTS: Final = (".tmp", "skill-chain")
 RUN_DIR_FORMAT: Final = "%Y%m%d-%H%M%S"
 CLOCK_FORMAT: Final = "%H:%M:%S"
@@ -481,6 +484,13 @@ class Chain:
              ColorCodes.RED if row.is_error else ColorCodes.GREEN)
         return row
 
+    def _session_environment(self) -> dict[str, str]:
+        """The environment of a step's session: this process's, marked unattended."""
+        environment = {**os.environ, UNATTENDED_VARIABLE: "1"}
+        if self.options.auto_compact_window > 0:
+            environment[AUTO_COMPACT_WINDOW_VARIABLE] = str(self.options.auto_compact_window)
+        return environment
+
     def _launch(self, command: list[str], prompt: str, stream_path: Path, error_path: Path,
                 show: Show | None) -> list[Event]:
         """Run *command* in the workspace with *prompt* on stdin; keep its stream and stderr, show its events through
@@ -823,8 +833,16 @@ def _check_a_long_prompt_is_cut_on_the_console_and_kept_whole() -> None:
     assert "line 44" not in printed.getvalue(), printed.getvalue()
 
 
+def _check_every_session_is_marked_unattended() -> None:
+    with TemporaryDirectory() as raw:
+        chain = Chain(ChainOptions(workspace=Path(raw), dry_run=False, auto_compact_window=0), "no-such-claude")
+        environment = chain._session_environment()
+    assert environment[UNATTENDED_VARIABLE] == "1", "a headless session must tell its hooks nobody reads it"
+
+
 #: The chain's checks, run by the ``--self-test`` of every module that runs a chain.
 CHAIN_CHECKS: Final = (
+    _check_every_session_is_marked_unattended,
     _check_the_prompt_reaches_stdin_never_an_argument,
     _check_tools_limit_the_session_to_the_workspace_mcp_servers,
     _check_unsafe_step_arguments_are_refused,
