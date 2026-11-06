@@ -189,14 +189,15 @@
     alias env = "PROD";
     alias resource = "prod";
 
-    flavor = "ecs-fargate";
     replicas = 2;
     replace rdbms storeDb {
       id = "7c2a1f4e-9b3d-4e21-8a77-2f0c5d61e8aa";
       engine = "postgres";
-      flavor = "rds";
+      flavor = "external";
       host = "postgres.internal";
+      port = 5432;
       database = "shop_store";
+      defaultUser = "shop_store";
       poolSize = 40;
       maxOverflow = 20;
       ssl = true;

@@ -45,10 +45,11 @@ service library.MemberService('config/member-service.dcfg') : version('1.0.0'), 
             MembershipType membershipType = MembershipType.Standard;
             // Date is a semantic type for date-only values (no time component)
             Date? dateOfBirth;
-            // 'encrypted' stores the value encrypted at rest in the database
+            // 'encrypted' withholds the value from every response and audit row;
+            // the database column still holds plain text
             // 'sensitive' additionally redacts the field from logs and API responses
             String(11)? ssn : encrypted, sensitive;
-            // 'encrypted' without 'sensitive' encrypts storage but allows display
+            // 'encrypted' without 'sensitive' is withheld the same way
             String(16)? libraryCardNumber : encrypted;
             // IPAddress is a semantic type that validates IPv4/IPv6 format
             IPAddress? lastLoginIp;
