@@ -9,7 +9,7 @@ waiting on a human, and the run halts just as completely.
 Jon's order: when an agent has a question it delegates the question to the decision
 advisor and acts on its recommendation; if the advisor cannot recommend anything, then it
 asks Jon. The `decision-advisor` agent (`.claude/agents/decision-advisor.md`) is that
-agent (Opus 5.5 at medium effort); it answers `VERDICT: RECOMMEND` or `VERDICT: ASK_JON`.
+agent (Opus 5.5 at high effort); it answers `VERDICT: RECOMMEND` or `VERDICT: ASK_JON`.
 `_shared/decision-adjudication-protocol.md` holds the ladder:
   1 INVESTIGATE -> 2 DECIDE -> 3 ADVISOR -> 4 ASK JON
 

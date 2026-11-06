@@ -130,16 +130,16 @@ never ship the small version (§14).
 **A question goes to the decision advisor before it goes to Jon.** Any agent, subagents
 included, with a question it cannot settle from the code, the docs and the rules (a B2, an
 `APPROVAL_REQUIRED` growth, an open design item, anything it would otherwise ask Jon) dispatches
-the `decision-advisor` agent (Opus 5.5, medium effort; `.claude/agents/decision-advisor.md`) with
+the `decision-advisor` agent (Opus 5.5, high effort; `.claude/agents/decision-advisor.md`) with
 the question, its evidence, the options and its own recommendation. On `VERDICT: RECOMMEND` it
 acts on the recommendation (approved growth included), records it with the advisor's rationale,
 and keeps working. Only on `VERDICT: ASK_JON` does it ask Jon: the advisor's question and
 options, in one line, while it keeps working everything that does not depend on the answer. The
 stop gate and the `AskUserQuestion` gate refuse a question to Jon that no advisor handed over
-since his last message. Ladder: `_shared/decision-adjudication-protocol.md`. **Exception:** when
-Jon forbids subagents (`DATRIX_NO_SUBAGENTS=1` in his settings' `env`), no advisor is dispatched
-and the question goes straight to him; both gates honour the switch. `/discuss-finding` exists to
-ask Jon, so its questions (`AskUserQuestion` or a reply ending on a question) go straight to him too.
+since his last message. Ladder: `_shared/decision-adjudication-protocol.md`. **A "no subagents" rule or
+order covers work subagents, never the advisor:** Jon's global rule names it as its one exception,
+so the question still goes to the advisor first. **Exception:** `/discuss-finding` exists to ask
+Jon, so its questions (`AskUserQuestion` or a reply ending on a question) go straight to him.
 
 **Parallel waves.** An explicit `PARALLEL_WAVE: files are exclusive` dispatch whose fix needs a
 file outside its list returns `EXPANSION_REQUIRED` naming the files (a lock request inside

@@ -128,7 +128,7 @@ Don't know where something is documented? `powershell -File "d:/datrix/datrix/sc
 
 6. **Growth gate.** Compare what you designed with what the request asks.
    - More or different *behaviour* than requested (an extra capability, model field, phase or diagnostic the requirements do not need), or a measured size that is a multiple of what the request names → **stop that part**; put it to the `decision-advisor`; on `ASK_JON`, ask Jon in one line starting `APPROVAL_REQUIRED:` with what, why, and its measured size (a counted census × this run's measured rate; never human hours or days). Keep working everything that does not depend on the answer.
-   - Two defensible designs, expensive to reverse, nothing in the docs or guidelines settling it (a B2): `decision-advisor` with both options and your recommendation. Where Jon forbids subagents (`DATRIX_NO_SUBAGENTS=1` or his instruction), no advisor is dispatched and the question goes straight to him in one line.
+   - Two defensible designs, expensive to reverse, nothing in the docs or guidelines settling it (a B2): `decision-advisor` with both options and your recommendation. Only its `VERDICT: ASK_JON` question goes to Jon, in one line.
    - *How and where* you build what was asked (package, module, names, signatures, the library a behaviour needs, fixtures) is never a question. Do not ask; decide and record.
    - Never resolve a size problem by shipping a smaller capability: an unapproved expansion and a cut-down feature are both wrong (§14).
 

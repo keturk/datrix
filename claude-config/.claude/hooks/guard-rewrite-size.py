@@ -8,8 +8,7 @@ before anyone had counted them.
 The edit that would take a session past `MAX_TEST_FILES_BEFORE_SIZING` distinct test files is
 refused until a `decision-advisor` has been dispatched in the session with the count (the census,
 times the rate measured so far) and its recommendation. `record-fixture-edits.py` keeps the list
-of files edited; editing a file already on it is never refused. Jon's `DATRIX_NO_SUBAGENTS=1`
-means no advisor can be consulted, so nothing is refused then. Fails open.
+of files edited; editing a file already on it is never refused. Fails open.
 
 Exit codes:
   0 - allow
@@ -22,7 +21,7 @@ import json
 import sys
 from typing import Any, Final
 
-from _advisor import ADVISOR_AGENT, advisor_consulted, subagents_forbidden
+from _advisor import ADVISOR_AGENT, advisor_consulted
 from _fixture_probe import is_test_file, normalise, read_edits
 
 MAX_TEST_FILES_BEFORE_SIZING: Final = 25
@@ -41,7 +40,7 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)
     paths = [path for path in _paths(data.get("tool_input")) if is_test_file(path)]
-    if not paths or subagents_forbidden():
+    if not paths:
         sys.exit(0)
     recorded = read_edits(str(data.get("session_id") or ""))["tests"]
     if all(path in recorded for path in paths) or len(recorded) < MAX_TEST_FILES_BEFORE_SIZING:

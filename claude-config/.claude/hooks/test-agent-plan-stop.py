@@ -149,20 +149,15 @@ def reset(*extra):
             os.remove(path)
 
 
-def gate(plan_text, reply=None, transcript=MISSING_TRANSCRIPT, no_subagents=False):
-    """Run the gate once on a fresh state; return ("block", reason) or ("allow", "").
-
-    The no-subagents switch is set only when asked for, whatever the session running the test has."""
+def gate(plan_text, reply=None, transcript=MISSING_TRANSCRIPT):
+    """Run the gate once on a fresh state; return ("block", reason) or ("allow", "")."""
     reset()
     write_plan(plan_text)
     payload = {"session_id": SID, "transcript_path": transcript}
     if reply is not None:
         payload["last_assistant_message"] = reply
-    env = {k: v for k, v in os.environ.items() if k != "DATRIX_NO_SUBAGENTS"}
-    if no_subagents:
-        env["DATRIX_NO_SUBAGENTS"] = "1"
     p = subprocess.run([sys.executable, os.path.join(H, "gate-agent-plan-stop.py")],
-                       input=json.dumps(payload), capture_output=True, text=True, env=env)
+                       input=json.dumps(payload), capture_output=True, text=True)
     out = (p.stdout or "").strip()
     if not out:
         return "allow", ""
@@ -242,14 +237,6 @@ check("ASK_JON hand-back from a general-purpose agent -> blocked",
 check("hand-back arriving after Jon spoke again, for a dispatch before it -> blocked",
       gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY,
            background(jon("now do the next one"), *queued(handback(ASK_JON))))[0], "block")
-
-print("Jon forbade every subagent, the advisor included:")
-check("approval request with no advisor dispatched -> allowed",
-      gate(UNFINISHED_PLAN, REAL_APPROVAL_REPLY, transcript(jon("fix the finding")), no_subagents=True)[0],
-      "allow")
-check("the switch does not lift the plan rule -> blocked",
-      gate(UNFINISHED_PLAN, "Jon, the finding still holds.", transcript(jon("go")), no_subagents=True)[0],
-      "block")
 
 print("a skill that exists to ask Jon asks him directly:")
 

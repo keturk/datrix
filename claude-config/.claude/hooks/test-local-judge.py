@@ -181,14 +181,14 @@ with LoopbackOllama(reply, ("judge-model",)) as server:
         "Two options for the hook settings. (a) keep the per-session file, (b) move the switch into the "
         "shared settings. I recommend (b): write each replacement from the code rather than from the old "
         "notes, which is the larger change but the correct one. The change: the shared settings file now "
-        "has `DATRIX_NO_SUBAGENTS`. That makes it your call."
+        "has `DATRIX_HOOK_SWITCH`. That makes it your call."
     )
     before = len(server.chats)
     code, _ = run(STOP, recommendation, server.port)
     sent = server.chats[before].user if len(server.chats) > before else ""
     check("a recommendation turn with no edit is allowed", code, 0)
     check("  the setting-precedence sentence reaches the reader whole",
-          "the shared settings file now has `DATRIX_NO_SUBAGENTS`." in sent, True)
+          "the shared settings file now has `DATRIX_HOOK_SWITCH`." in sent, True)
     check("  the 'write each replacement from the code' proposal reaches the reader whole",
           "write each replacement from the code rather than from the old notes" in sent, True)
 

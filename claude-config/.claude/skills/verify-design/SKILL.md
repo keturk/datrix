@@ -13,8 +13,8 @@ lets a second review of an unchanged design reach the same verdict as the first.
 
 It reads designs and the code; it edits only designs (with `--fix`) and its own ledger. It writes no
 findings file (`.claude/docs/design-and-docs.md`, "Design work files no findings"), files no task and
-changes no code. Work alone: no subagents. A question goes to the `decision-advisor`, or straight to
-Jon when `DATRIX_NO_SUBAGENTS=1`.
+changes no code. Work alone: no subagents, except the `decision-advisor`, which a question goes to first.
+Only its `VERDICT: ASK_JON` question goes to Jon.
 
 ## How to invoke
 

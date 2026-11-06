@@ -1,7 +1,7 @@
 """Whether the decision advisor has handed the current question to Jon.
 
 Jon's order: an agent with a question delegates it to the `decision-advisor` agent (Opus,
-medium effort, `.claude/agents/decision-advisor.md`) and acts on its recommendation; only when
+high effort,`.claude/agents/decision-advisor.md`) and acts on its recommendation; only when
 the advisor cannot recommend anything does the agent ask Jon. The advisor says so with a line
 `VERDICT: ASK_JON` in its result.
 
@@ -19,10 +19,6 @@ verdict is read from the tool result and from each frame that answers a dispatch
 stretch, and only from the report's first `VERDICT:` line; a frame naming any other id is
 ignored, so no other subagent's report or pasted text can hand a question to Jon.
 
-Jon can also forbid every subagent, the advisor included (his global instructions). He says so
-to the harness with `DATRIX_NO_SUBAGENTS=1` in his user settings' `env`; the advisor cannot be
-consulted then, so a question goes straight to him (`Verdict.ADVISOR_FORBIDDEN`).
-
 A skill whose purpose is to put a question to Jon is exempt too: `/discuss-finding` brings him a
 decision he asked to discuss, so its questions, a choice through `AskUserQuestion` or an open one
 in prose, go to him directly (`Verdict.JON_DISCUSSION`). The session is in such a discussion from
@@ -33,7 +29,6 @@ plain follow-ups stay in it.
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -56,7 +51,6 @@ _HANDBACK_RE: Final = re.compile(
 _TAG_RE: Final = {
     tag: re.compile(rf"<{tag}>(.*?)</{tag}>", re.DOTALL) for tag in ("task-id", "tool-use-id", "result")
 }
-NO_SUBAGENTS_ENV: Final = "DATRIX_NO_SUBAGENTS"
 
 #: Skills that exist to put a question to Jon; their questions skip the advisor.
 JON_DISCUSSION_SKILLS: Final = frozenset({"discuss-finding"})
@@ -75,13 +69,7 @@ class Verdict(Enum):
     ASK_JON = "ask_jon"
     NOT_ASK_JON = "not_ask_jon"
     UNREADABLE = "unreadable"
-    ADVISOR_FORBIDDEN = "advisor_forbidden"
     JON_DISCUSSION = "jon_discussion"
-
-
-def subagents_forbidden() -> bool:
-    """Jon has forbidden every subagent dispatch, the decision advisor included."""
-    return os.environ.get(NO_SUBAGENTS_ENV) == "1"
 
 
 def _result_text(block: dict[str, object]) -> str:
@@ -199,8 +187,6 @@ def _in_jon_discussion(entries: list[dict[str, object]]) -> bool:
 def advisor_verdict(transcript_path: str) -> Verdict:
     """ASK_JON when an advisor dispatched since Jon's last message returned `VERDICT: ASK_JON`;
     JON_DISCUSSION when the session is in a skill that exists to ask Jon."""
-    if subagents_forbidden():
-        return Verdict.ADVISOR_FORBIDDEN
     entries = transcript_entries(transcript_path)
     if entries is None:
         return Verdict.UNREADABLE
