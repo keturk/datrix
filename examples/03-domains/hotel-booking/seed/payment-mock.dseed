@@ -1,0 +1,12 @@
+// The key the stay service presents to the card vendor. The key itself is the development default of its secret;
+// the vendor stores only its SHA-256 hash.
+seed service hotel.PaymentMock {
+  rdbms paymentDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                   keyHash,                                                            ownerId;
+        @uuid("payment-key"), "4b161ab8b88281159d9ab5eff0d811af8802be84b6856312c90756e2b743d8f2", @uuid("owner-marram");
+      }
+    }
+  }
+}

@@ -1,4 +1,4 @@
-config system library.System {
+config system ecommerce.System {
   // `base` holds only what is true on every deployment target. Anything that
   // names a target-native mechanism (the nginx rate limiter, the docker
   // observability stack, the self-hosted Zitadel, the Cognito pools) lives in
@@ -21,7 +21,7 @@ config system library.System {
       auth {
         jwt {
           algorithm = "RS256";
-          issuer = "library";
+          issuer = "wrenwood";
           expiresIn = 86400;
         }
       }
@@ -40,7 +40,7 @@ config system library.System {
       }
     }
     configStore {
-      applicationName = "library-system";
+      applicationName = "wrenwood";
       environment = "dev";
       profiles {
         settings {
@@ -118,12 +118,6 @@ config system library.System {
             retryDelaySeconds = 2;
           }
           multiRdbmsStartPeriodSeconds = 120;
-          // Desktop Docker hosts mount `/` privately, so the container-metrics
-          // collector's host-tree binds are refused and the whole stack fails to
-          // start. This example is documentation people run, most of them on such a
-          // host, so it declares the host it targets rather than the Linux default.
-          // A product deploying to a Linux host omits this and keeps the binds.
-          sharedMountPropagation = false;
         }
       }
     }
@@ -165,16 +159,16 @@ config system library.System {
         test = "http://localhost:8085";
         development = "http://localhost:8085";
         production = "http://localhost:8085";
-        azureVm = "https://id.library.example.com";
+        azureVm = "https://id.wrenwood.example.com";
       }
       providers {
         identity {
-          project = "library-identity";
-          clientId = "library-identity-app";
+          project = "wrenwood-identity";
+          clientId = "wrenwood-identity-app";
         }
         platform {
-          project = "library-platform";
-          clientId = "library-platform-app";
+          project = "wrenwood-platform";
+          clientId = "wrenwood-platform-app";
         }
       }
     }
@@ -191,6 +185,18 @@ config system library.System {
     alias env = "LOCAL";
     alias resource = "local";
 
+    platforms {
+      docker {
+        infra {
+          // Desktop Docker hosts mount `/` privately, so the container-metrics
+          // collector's host-tree binds are refused and the whole stack fails to
+          // start. This example is documentation people run, most of them on such a
+          // host, so it declares the host it targets rather than the Linux default.
+          // A product deploying to a Linux host omits this and keeps the binds.
+          sharedMountPropagation = false;
+        }
+      }
+    }
     observability {
       visualization {
         provider = "grafana";
@@ -212,16 +218,11 @@ config system library.System {
     alias env = "PROD";
     alias resource = "prod";
 
-    observability {
-      tracing {
-        endpoint = "http://jaeger:4318";
-      }
-    }
     region = "us-east-1";
   }
 
   // AWS target: ECS Fargate services behind the managed API Gateway, RDS,
-  // ElastiCache, MSK, SQS, DocumentDB and S3, CloudWatch / X-Ray telemetry,
+  // ElastiCache, SNS, SQS, DocumentDB and S3, CloudWatch / X-Ray telemetry,
   // AppConfig as the config store and a Cognito User Pool for the
   // customer-facing identity provider.
   profile aws as "aws" extends base {
@@ -247,7 +248,7 @@ config system library.System {
         }
       }
       domain {
-        name = "api.library.example.com";
+        name = "api.wrenwood.example.com";
       }
     }
     // The storefront's mobile release signing material: the app's android { }
@@ -411,7 +412,7 @@ config system library.System {
         }
       }
       domain {
-        name = "api.library.example.com";
+        name = "api.wrenwood.example.com";
         certificate = "api_tls_certificate";
       }
     }
@@ -511,7 +512,7 @@ config system library.System {
           keyvault = "10.0.12.0/24";
           appServiceIntegration = "10.0.13.0/24";
           appServicePrivateEndpoints = "10.0.14.0/24";
-          pgDelegated = ["10.0.20.0/28", "10.0.20.16/28", "10.0.20.32/28", "10.0.20.48/28", "10.0.20.64/28", "10.0.20.80/28"];
+          pgDelegated = ["10.0.20.0/28", "10.0.20.16/28", "10.0.20.32/28", "10.0.20.48/28", "10.0.20.64/28", "10.0.20.80/28", "10.0.20.96/28", "10.0.20.112/28", "10.0.20.128/28"];
         }
         postgresPrivateDnsZone = "ecommerce.private.postgres.database.azure.com";
         alarms {
@@ -580,7 +581,9 @@ config system library.System {
   // Storage Account the platform provisions. The Grafana UI is deliberately
   // not published here: through the managed edge it would need a
   // workforce-audience identity realm with a browser login, and this
-  // application declares no staff users.
+  // application declares no staff users. It leaves imageStore unset, which on
+  // this Linux host means the classic store its host preparation pins the
+  // engine to: this platform refuses the containerd store.
   profile azureVm as "azvm" extends compose {
     alias env = "AZVM";
     alias resource = "azvm";
@@ -591,7 +594,7 @@ config system library.System {
     }
     gateway {
       domain {
-        name = "api.library.example.com";
+        name = "api.wrenwood.example.com";
         certificate = "api_tls_certificate";
       }
     }
@@ -621,7 +624,7 @@ config system library.System {
       }
     }
     zitadelIdentity {
-      externalDomain = "id.library.example.com";
+      externalDomain = "id.wrenwood.example.com";
       externalSecure = true;
     }
     region = "eastus";

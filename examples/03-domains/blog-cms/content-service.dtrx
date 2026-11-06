@@ -31,7 +31,7 @@ service blog.ContentService('config/content-service.dcfg') : version('2.0.0'), d
         }
 
         entity Post extends BaseEntity : audit {
-            UUID authorId : index;
+            String(64) authorId : index;
             String(100) authorName;
             String(200) title : trim, filterable, sortable;
             String(500)? slug : unique;
@@ -73,7 +73,7 @@ service blog.ContentService('config/content-service.dcfg') : version('2.0.0'), d
             Int version;
             String(200) title;
             Text body;
-            UUID editedBy;
+            String(64) editedBy;
 
             index(postId, version) : unique;
         }
@@ -82,7 +82,7 @@ service blog.ContentService('config/content-service.dcfg') : version('2.0.0'), d
     // Author cards the application shows beside an article stay fresh from the author's events.
     cache redis {
         hash AuthorActive : prefix('author-active:'), ttl(86400) {
-            UUID userId : key;
+            String userId : key;
             Boolean isActive;
         }
     }
@@ -97,7 +97,7 @@ service blog.ContentService('config/content-service.dcfg') : version('2.0.0'), d
 
     subscribe AuthorEvents {
         // A suspended author's published articles are taken down.
-        on AuthorStatusChanged(UUID authorId, UUID userId, AuthorStatus oldStatus, AuthorStatus newStatus) {
+        on AuthorStatusChanged(UUID authorId, String userId, AuthorStatus oldStatus, AuthorStatus newStatus) {
             redis.AuthorActive.set(userId, { userId: userId, isActive: newStatus == AuthorStatus.Active });
             if (newStatus == AuthorStatus.Suspended) {
                 foreach post in contentDb.Post.where(authorId: userId, status: PostStatus.Published).all() {
@@ -317,7 +317,7 @@ service blog.ContentService('config/content-service.dcfg') : version('2.0.0'), d
 
     test("a new article starts as a private draft") {
         let Post post = contentDb.Post.create({
-            authorId: uuid(),
+            authorId: "spec-author",
             authorName: "Mina Okafor",
             title: "On Field Notes",
             excerpt: "Why we write things down",
@@ -330,7 +330,7 @@ service blog.ContentService('config/content-service.dcfg') : version('2.0.0'), d
 
     test("publishing an article announces it") {
         let Post post = contentDb.Post.create({
-            authorId: uuid(),
+            authorId: "spec-author",
             authorName: "Mina Okafor",
             title: "On Field Notes",
             excerpt: "Why we write things down",

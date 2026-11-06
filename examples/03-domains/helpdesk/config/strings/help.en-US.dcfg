@@ -1,0 +1,67 @@
+config strings helpdesk.HelpCentre locale "en-US" {
+  messages {
+    appName          = "Lanternpost Help";
+    account          = "Account";
+    signIn           = "Sign in";
+    signOut          = "Sign out";
+    backHome         = "Back to the help centre";
+    notFoundTitle    = "Page not found";
+    homeTitle        = "How can we help?";
+    homeSubtitle     = "Search the help centre, or ask us. Someone answers within an hour on a working day.";
+    searchLabel      = "Describe what is wrong";
+    search           = "Search";
+    popularTitle     = "What people read most";
+    noArticles       = "There are no articles yet";
+    readArticle      = "Read it";
+    openTicket       = "Ask us";
+    searchTitle      = "Results for {query}";
+    searchSubtitle   = "Published articles that mention it.";
+    noResults        = "Nothing matched. Ask us instead?";
+    updatedLine      = "Updated {when}";
+    didThisHelp      = "Did this help?";
+    yes              = "Yes";
+    no               = "No";
+    thanksForVote    = "Thank you. That tells us what to improve.";
+    ticketsTitle     = "Your tickets";
+    ticketsSubtitle  = "Everything you have asked us, and where it stands.";
+    noTickets        = "You have not asked us anything yet";
+    browseHelp       = "Browse the help centre";
+    ticketLine       = "{number}: {subject}";
+    openedLine       = "Opened {when}";
+    newTicketTitle   = "Ask us";
+    newTicketSubtitle = "The more you tell us, the fewer questions we have to ask back.";
+    ticketOpened     = "We have your ticket. You will get an email when we answer.";
+    reply            = "Reply";
+    replySent        = "Sent.";
+    howDidWeDo       = "We think this is resolved. How did we do?";
+    scoreBad         = "Bad";
+    scorePoor        = "Poor";
+    scoreOkay        = "Okay";
+    scoreGood        = "Good";
+    scoreGreat       = "Great";
+    thanksForScore   = "Thank you for telling us.";
+    ticketClosedNote = "This ticket is closed. If it comes back, open a new one and mention its number.";
+  }
+  labels {
+    page.Home          = "Help centre";
+    page.Search        = "Search";
+    page.ArticleDetail = "Article";
+    page.Tickets       = "Your tickets";
+    page.NewTicket     = "Ask us";
+    page.TicketDetail  = "Ticket";
+    page.NotFound      = "Not found";
+    field.OpenTicketRequest.topic = "What is it about?";
+    field.OpenTicketRequest.subject = "In a few words";
+    field.OpenTicketRequest.body = "What happened, and what did you expect?";
+    field.ThreadEntry.body = "Your reply";
+    enum.TicketStatus.New = "Waiting for us";
+    enum.TicketStatus.Open = "We are on it";
+    enum.TicketStatus.Waiting = "Waiting for you";
+    enum.TicketStatus.Resolved = "Resolved";
+    enum.TicketStatus.Closed = "Closed";
+    enum.TicketTopic.Billing = "Billing";
+    enum.TicketTopic.Domains = "Domains";
+    enum.TicketTopic.Email = "Email";
+    enum.TicketTopic.Websites = "Websites";
+  }
+}

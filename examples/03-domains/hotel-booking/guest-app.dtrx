@@ -1,0 +1,269 @@
+from hotel.ui import Brand, cardGrid;
+from hotel.common import StayStatus, TestCard;
+
+/// Where a guest chooses a room and looks after a stay. Anyone can look; holding a room needs a sign-in, so what they
+/// chose is kept across it.
+app hotel.Guest('config/guest-app.dcfg') : version('1.0.0') {
+    uses hotel.StayService;
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    theme extends Brand { }
+
+    // What the guest is looking for. It survives the trip through the sign-in page.
+    state Date? arrival = null : persisted;
+    state Date? departure = null : persisted;
+    state Int guests = 2 : persisted;
+    state Array<Offer> offers = [] : persisted;
+    state Array<Offer> chosen = [] : persisted;
+
+    layout Shell : default {
+        nav {
+            link Home : icon(hotel);
+            link Stays : icon(luggage);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                    // A visitor looks at rooms with no session, so the bar serves both.
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            text(Session.claim('name'));
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Home() {
+        data { rooms = StayService.StayAPI.get.roomTypes(); }
+        state Date? arriving = null;
+        state Date? leaving = null;
+        state Int party = 2;
+
+        fn search() {
+            if (arriving != null && leaving != null) {
+                let Date from = arriving;
+                let Date until = leaving;
+                arrival = from;
+                departure = until;
+                guests = party;
+                offers = StayService.StayAPI.post.search(request: SearchRequest { arrival: from, departure: until, guests: party });
+                Nav.to(Offers);
+            } else {
+                Ui.toast(Msg.chooseDates, tone: warning);
+            }
+        }
+
+        view {
+            pageHeader(Msg.homeTitle, Msg.homeSubtitle);
+            card(Msg.whenTitle) {
+                row {
+                    date(Msg.arrivalLabel) : bind(arriving);
+                    date(Msg.departureLabel) : bind(leaving);
+                    number(Msg.guestsLabel) : bind(party);
+                    button(Msg.search) : onClick(search()), kind(primary), icon(search);
+                }
+            }
+            section(Msg.roomsTitle) {
+                grid : style(cardGrid) {
+                    foreach (room in rooms) {
+                        card(room.name) {
+                            text(room.summary);
+                            text(Msg.sleepsLine(count: Fmt.number(room.sleeps)));
+                            text(Msg.fromLine(price: Fmt.money(room.nightlyRate)));
+                            link(Msg.seeRoom, RoomPage, id: room.id) : icon(arrow_forward);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/rooms/:id')
+    page RoomPage(UUID id) {
+        data { room = StayService.StayAPI.get.roomType(id: id); }
+        view {
+            pageHeader(room.name, room.summary) : back(Home);
+            card {
+                markdown(room.description);
+                row {
+                    badge(Msg.sleepsLine(count: Fmt.number(room.sleeps)));
+                    badge(Msg.fromLine(price: Fmt.money(room.nightlyRate)));
+                }
+            }
+            link(Msg.chooseDatesLink, Home) : kind(primary);
+        }
+    }
+
+    // Reaches no route, so a visitor can read it. The next page needs a sign-in, and what was chosen is kept for it.
+    @path('/offers')
+    page Offers() {
+        fn pick(Offer offer) {
+            chosen = [offer];
+            Nav.to(Review);
+        }
+
+        view {
+            pageHeader(Msg.offersTitle, Msg.offersSubtitle) : back(Home);
+            when (offers.isEmpty) {
+                emptyState(Msg.nothingFree) : icon(event_busy) { link(Msg.otherDates, Home) : kind(primary); }
+            }
+            grid : style(cardGrid) {
+                foreach (offer in offers) {
+                    card(offer.name) {
+                        text(offer.summary);
+                        row {
+                            badge(Msg.nightsLine(count: Fmt.number(offer.nights)));
+                            badge(Msg.sleepsLine(count: Fmt.number(offer.sleeps)));
+                        }
+                        when (offer.left < 3) {
+                            callout(Msg.fewLeft(count: Fmt.number(offer.left))) : tone(warning);
+                        }
+                        heading(Fmt.money(offer.total));
+                        button(Msg.bookThis) : onClick(pick(offer)), kind(primary), icon(arrow_forward);
+                    }
+                }
+            }
+        }
+    }
+
+    // Holding starts the ten minutes, so it waits for the guest to say so.
+    @path('/review')
+    page Review() {
+        state Boolean holding = false;
+
+        fn holdIt(Offer offer) {
+            if (arrival != null && departure != null) {
+                let Date from = arrival;
+                let Date until = departure;
+                holding = true;
+                let StayCard stay = StayService.StayAPI.post.hold(request: HoldRequest { roomTypeId: offer.roomTypeId, arrival: from, departure: until, guests: guests });
+                holding = false;
+                let UUID target = stay.id;
+                Nav.to(Pay, id: target);
+            }
+        }
+
+        view {
+            pageHeader(Msg.reviewTitle, Msg.reviewSubtitle) : back(Offers);
+            when (chosen.isEmpty) {
+                emptyState(Msg.nothingChosen) : icon(search_off) { link(Msg.otherDates, Home) : kind(primary); }
+            }
+            foreach (offer in chosen) {
+                card(offer.name) {
+                    text(offer.summary);
+                    text(Msg.nightsLine(count: Fmt.number(offer.nights)));
+                    heading(Fmt.money(offer.total));
+                    button(Msg.holdRoom) : onClick(holdIt(offer)), kind(primary), icon(lock_clock), busy(holding);
+                }
+            }
+        }
+    }
+
+    @path('/stays/:id/pay')
+    page Pay(UUID id) {
+        data { stay = StayService.StayAPI.get.oneOfMine(id: id) : poll(30s); }
+
+        fn payWithGoodCard() {
+            StayService.StayAPI.post.pay(request: PayRequest { stayId: id, card: TestCard.CardThatPays });
+            Ui.toast(Msg.paid, tone: success);
+            Nav.to(StayPage, id: id);
+        }
+
+        fn payWithDeclinedCard() {
+            StayService.StayAPI.post.pay(request: PayRequest { stayId: id, card: TestCard.CardThatIsDeclined });
+        }
+
+        view {
+            pageHeader(Msg.payTitle, stay.roomTypeName) : back(Stays);
+            when (stay.status == StayStatus.Held) {
+                callout(Msg.heldUntil(when: Fmt.relative(stay.holdEnds))) : tone(warning);
+                card {
+                    text(Msg.stayDates(from: Fmt.date(stay.arrival), until: Fmt.date(stay.departure)));
+                    heading(Fmt.money(stay.total));
+                    callout(Msg.testCardsNote) : tone(info);
+                    row {
+                        button(Msg.payCard) : onClick(payWithGoodCard()), kind(primary), icon(credit_card);
+                        button(Msg.declinedCard) : onClick(payWithDeclinedCard()), icon(credit_card_off);
+                    }
+                }
+            } otherwise {
+                callout(Msg.holdGone) : tone(info);
+                link(Msg.seeStay, StayPage, id: id);
+            }
+        }
+    }
+
+    @path('/stays')
+    page Stays() {
+        data { stays = StayService.StayAPI.get.mine(); }
+        view {
+            pageHeader(Msg.staysTitle, Msg.staysSubtitle);
+            when (stays.isEmpty) {
+                emptyState(Msg.noStays) : icon(luggage) { link(Msg.findRoom, Home) : kind(primary); }
+            }
+            list(data: stays) : onClick(Nav.to(StayPage, id: item.id)) {
+                heading(item.roomTypeName);
+                row {
+                    badge(item.status);
+                    text(Msg.stayDates(from: Fmt.date(item.arrival), until: Fmt.date(item.departure)));
+                    text(Fmt.money(item.total));
+                }
+            }
+        }
+    }
+
+    @path('/stays/:id')
+    page StayPage(UUID id) {
+        data { stay = StayService.StayAPI.get.oneOfMine(id: id); }
+
+        fn cancelIt() {
+            StayService.StayAPI.post.cancelMine(id: id);
+            stay.refresh();
+            Ui.toast(Msg.cancelled, tone: info);
+        }
+
+        view {
+            pageHeader(stay.roomTypeName, stay.code) : back(Stays) {
+                badge(stay.status);
+            }
+            card {
+                text(Msg.stayDates(from: Fmt.date(stay.arrival), until: Fmt.date(stay.departure)));
+                text(Msg.nightsLine(count: Fmt.number(stay.nights)));
+                text(Msg.guestsLine(count: Fmt.number(stay.guests)));
+                heading(Fmt.money(stay.total));
+                when (stay.roomNumber != null) {
+                    callout(Msg.yourRoom(number: stay.roomNumber)) : tone(success);
+                }
+            }
+            when (stay.status == StayStatus.Held) {
+                link(Msg.finishPaying, Pay, id: id) : kind(primary);
+            }
+            when (stay.canCancel) {
+                button(Msg.cancelStay) : onClick(cancelIt()), icon(event_busy), tone(danger);
+                text(Msg.cancelNote);
+            }
+        }
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.backHome, Home); }
+        }
+    }
+}

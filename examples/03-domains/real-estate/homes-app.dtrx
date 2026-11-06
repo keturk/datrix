@@ -68,7 +68,9 @@ app realestate.Homes('config/homes-app.dcfg') : version('2.0.0') {
                         HomeArt(kind: home.kind);
                         text(Fmt.money(home.price));
                         text(Msg.placeLine(place: home.neighbourhoodName, city: home.city));
-                        text(Msg.factsLine(beds: Fmt.number(home.bedrooms), baths: Fmt.number(home.bathrooms), area: Fmt.number(home.areaSqm)));
+                        when (home.kind != PropertyKind.Land) {
+                            text(Msg.factsLine(beds: Fmt.number(home.bedrooms), baths: Fmt.number(home.bathrooms), area: Fmt.number(home.areaSqm)));
+                        }
                         link(Msg.seeHome, HomeDetail, id: home.id) : kind(primary), icon(arrow_forward);
                     }
                 }

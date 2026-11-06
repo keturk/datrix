@@ -1,0 +1,362 @@
+from helpdesk.ui import Brand, statRow;
+from helpdesk.common import TicketStatus, Priority, TicketTopic;
+
+/// Where an agent works: the queue, one ticket's thread with notes the customer never sees, and the help centre.
+app helpdesk.Console('config/console-app.dcfg') : version('1.0.0') {
+    uses helpdesk.TicketService;
+    uses helpdesk.KnowledgeService;
+    uses helpdesk.NoticeService;
+    uses helpdesk.EmailMock;
+
+    theme extends Brand { }
+
+    // The ticket the open dialog works on: a form sends this value without showing it.
+    state UUID? openTicketId = null;
+    state Boolean replying = false;
+    state Boolean noting = false;
+    state Boolean pickingSaved = false;
+
+    layout Shell : default {
+        nav {
+            link Dashboard : icon(dashboard), group(Msg.navDesk);
+            link Queue : icon(view_kanban), group(Msg.navDesk);
+            link AllTicketsPage : icon(table_rows), group(Msg.navDesk);
+            link Articles.list : icon(menu_book), group(Msg.navWrite);
+            link SavedReplies.list : icon(quickreply), group(Msg.navWrite);
+            link Notices : icon(notifications), group(Msg.navInstall);
+            link Outbox : icon(mail), group(Msg.navInstall);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            text(Session.claim('name'));
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Dashboard() {
+        data {
+            summary = TicketService.AgentAPI.get.summary() : poll(20s);
+            volume = TicketService.AgentAPI.get.volume() : poll(60s);
+            mine = TicketService.AgentAPI.get.assignedToMe() : poll(20s);
+        }
+        view {
+            pageHeader(Msg.dashboardTitle, Msg.dashboardSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statOpen, Fmt.number(summary.open)) : icon(inbox);
+                stat(Msg.statUnassigned, Fmt.number(summary.unassigned)) : icon(person_off), tone(warning);
+                stat(Msg.statLate, Fmt.number(summary.late)) : icon(alarm), tone(danger);
+                stat(Msg.statScore, Fmt.number(summary.averageScore)) : icon(star), tone(success);
+            }
+            section(Msg.openedTitle) {
+                card { chart(bar, data: volume, x: p => p.day, y: p => p.opened); }
+            }
+            section(Msg.onYourPlate) {
+                when (mine.isEmpty) {
+                    emptyState(Msg.nothingMine) : icon(self_improvement) { link(Msg.seeQueue, Queue) : kind(primary); }
+                }
+                list(data: mine) : onClick(Nav.to(TicketPage, id: item.id)) {
+                    heading(Msg.ticketLine(number: item.number, subject: item.subject));
+                    row {
+                        badge(item.status);
+                        badge(item.priority);
+                        text(Msg.dueLine(when: Fmt.relative(item.respondBy)));
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/queue')
+    page Queue() {
+        data { tickets = TicketService.AgentAPI.get.queue() : poll(15s); }
+
+        fn drop(UUID id, TicketStatus status) {
+            TicketService.AgentAPI.post.move(id: id, request: MoveRequest { status: status });
+            tickets.refresh();
+        }
+
+        view {
+            pageHeader(Msg.queueTitle, Msg.queueSubtitle);
+            board(data: tickets, column: t => t.status) : onMove(drop(item.id, column)) {
+                heading(item.subject);
+                text(Msg.fromLine(number: item.number, who: item.customerName));
+                row {
+                    badge(item.priority);
+                    when (item.breached) {
+                        badge(Msg.late) : tone(danger);
+                    }
+                }
+                text(item.assigneeName ?? Msg.nobody);
+                link(Msg.openThread, TicketPage, id: item.id);
+            }
+        }
+    }
+
+    @path('/tickets/:id')
+    page TicketPage(UUID id) {
+        data {
+            thread = TicketService.AgentAPI.get.threadView(id: id) : poll(15s);
+            saved = TicketService.AgentAPI.get.replyChoices();
+        }
+
+        fn claimIt() {
+            TicketService.AgentAPI.post.claim(id: id);
+            thread.refresh();
+            Ui.toast(Msg.claimed, tone: success);
+        }
+
+        fn resolveIt() {
+            TicketService.AgentAPI.post.move(id: id, request: MoveRequest { status: TicketStatus.Resolved });
+            thread.refresh();
+            Ui.toast(Msg.resolved, tone: success);
+        }
+
+        fn startReply() {
+            openTicketId = id;
+            replying = true;
+        }
+
+        fn stopReply() {
+            replying = false;
+            thread.refresh();
+        }
+
+        fn startNote() {
+            openTicketId = id;
+            noting = true;
+        }
+
+        fn stopNote() {
+            noting = false;
+            thread.refresh();
+        }
+
+        fn startSaved() {
+            pickingSaved = true;
+        }
+
+        fn stopSaved() {
+            pickingSaved = false;
+        }
+
+        fn sendSaved(String body) {
+            TicketService.AgentAPI.post.reply(request: ThreadEntry { ticketId: id, body: body });
+            pickingSaved = false;
+            thread.refresh();
+            Ui.toast(Msg.replySent, tone: success);
+        }
+
+        view {
+            pageHeader(thread.ticket.subject, thread.ticket.number) : back(Queue) {
+                badge(thread.ticket.status);
+                badge(thread.ticket.priority);
+                when (!thread.mine) {
+                    button(Msg.claim) : onClick(claimIt()), icon(pan_tool);
+                }
+                button(Msg.addNote) : onClick(startNote()), icon(sticky_note_2);
+                button(Msg.useSaved) : onClick(startSaved()), icon(quickreply);
+                button(Msg.reply) : onClick(startReply()), kind(primary), icon(reply);
+                when (thread.ticket.status != TicketStatus.Resolved && thread.ticket.status != TicketStatus.Closed) {
+                    button(Msg.resolve) : onClick(resolveIt()), icon(task_alt);
+                }
+            }
+            when (thread.ticket.breached) {
+                callout(Msg.lateNote) : tone(danger);
+            }
+            grid : style(statRow) {
+                stat(Msg.statCustomer, thread.ticket.customerName) : icon(person);
+                stat(Msg.statEmail, thread.customerEmail) : icon(mail);
+                stat(Msg.statWith, thread.ticket.assigneeName ?? Msg.nobody) : icon(support_agent);
+                stat(Msg.statDue, Fmt.relative(thread.ticket.respondBy)) : icon(alarm);
+            }
+            card {
+                timeline(data: thread.messages, at: m => m.createdAt) {
+                    row {
+                        heading(item.authorName);
+                        when (item.internal) {
+                            badge(Msg.noteBadge) : tone(warning);
+                        }
+                        when (item.fromCustomer) {
+                            badge(Msg.customerBadge) : tone(info);
+                        }
+                    }
+                    markdown(item.body);
+                }
+            }
+            when (replying) {
+                dialog(Msg.reply) : onClose(stopReply()) {
+                    form(AgentReplyForm);
+                }
+            }
+            when (noting) {
+                dialog(Msg.addNote) : onClose(stopNote()) {
+                    callout(Msg.noteHint) : tone(warning);
+                    form(AgentNoteForm);
+                }
+            }
+            when (pickingSaved) {
+                dialog(Msg.useSaved) : onClose(stopSaved()) {
+                    foreach (reply in saved) {
+                        card(reply.title) {
+                            markdown(reply.body);
+                            button(Msg.sendThis) : onClick(sendSaved(reply.body)), kind(primary), icon(send);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    form AgentReplyForm : submit(TicketService.AgentAPI.post.reply) {
+        fn sent() {
+            replying = false;
+            Ui.toast(Msg.replySent, tone: success);
+        }
+        field ticketId : fixed(openTicketId);
+        field body;
+        onSuccess(sent());
+    }
+
+    form AgentNoteForm : submit(TicketService.AgentAPI.post.note) {
+        fn added() {
+            noting = false;
+            Ui.toast(Msg.noteAdded, tone: info);
+        }
+        field ticketId : fixed(openTicketId);
+        field body;
+        onSuccess(added());
+    }
+
+    @path('/tickets')
+    page AllTicketsPage() {
+        view {
+            pageHeader(Msg.allTicketsTitle, Msg.allTicketsSubtitle);
+            table(AllTickets);
+        }
+    }
+
+    table AllTickets : source(TicketService.AgentAPI.ticketDb.Ticket.list), pageSizes(10, 25, 50), poll(30s) {
+        column number;
+        column subject;
+        column customerName;
+        column topic;
+        column priority;
+        column status;
+        column assigneeName;
+        column createdAt : format(relative);
+        filter subject : live;
+        filter topic;
+        filter priority;
+        filter status;
+        filter breached;
+        rowAction open : onClick(Nav.to(TicketPage, id: row.id));
+    }
+
+    @path('/articles')
+    workspace Articles : over(KnowledgeService.KnowledgeDeskAPI.knowledgeDb.Article) {
+        list {
+            column title;
+            column topic;
+            column published;
+            column helpful : format(number);
+            column notHelpful : format(number);
+            column updatedAt : format(relative);
+            filter title;
+            filter topic;
+            filter published;
+        }
+        detail {
+            column title;
+            column topic;
+            column published;
+            column summary;
+            column body;
+            column helpful : format(number);
+            column notHelpful : format(number);
+            column updatedAt : format(dateTime);
+        }
+        edit {
+            field title;
+            field topic;
+            field summary;
+            field body;
+            field published;
+        }
+    }
+
+    @path('/saved-replies')
+    workspace SavedReplies : over(TicketService.AgentAPI.ticketDb.SavedReply) {
+        list {
+            column title;
+            column updatedAt : format(relative);
+            filter title;
+        }
+        detail {
+            column title;
+            column body;
+        }
+        edit {
+            field title;
+            field body;
+        }
+    }
+
+    @path('/notices')
+    page Notices() {
+        view {
+            pageHeader(Msg.noticesTitle, Msg.noticesSubtitle);
+            table(NoticeList);
+        }
+    }
+
+    table NoticeList : source(NoticeService.NoticeDeskAPI.noticeDb.Notice.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column delivered;
+        column attempts : format(number);
+        filter recipient;
+        filter delivered;
+    }
+
+    @path('/outbox')
+    page Outbox() {
+        view {
+            pageHeader(Msg.outboxTitle, Msg.outboxSubtitle);
+            table(OutboxList);
+        }
+    }
+
+    table OutboxList : source(EmailMock.EmailDeskAPI.emailDb.Outbound.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column body;
+        column status;
+        filter recipient;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.backHome, Dashboard); }
+        }
+    }
+}

@@ -1,0 +1,36 @@
+// The contract of the email vendor. config/providers/email-provider.dcfg says where it is served.
+extern service ecommerce.EmailProvider('config/providers/email-provider.dcfg')
+    : version('1.0.0'), description('Transactional email') {
+
+    enum DeliveryStatus {
+        Delivered,
+        Bounced
+    }
+
+    struct SendEmailRequest {
+        String(200) to;
+        String(200) subject;
+        String(2000) body;
+        /// The caller's key: sending again with the same key returns the first delivery.
+        String(120) idempotencyKey;
+    }
+
+    struct Delivery {
+        String(40) id;
+        DeliveryStatus status;
+    }
+
+    rest_api EmailAPI : basePath('/v1') {
+        @path('/deliveries')
+        post sendEmail(SendEmailRequest request) -> Delivery {
+            ensure request.idempotencyKey != "";
+        }
+    }
+
+    errors {
+        BadRecipient(String message);
+    }
+
+    auth : apiKey(header: 'X-Email-Api-Key');
+    health : path('/health');
+}

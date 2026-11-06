@@ -1,0 +1,40 @@
+config service hotel.PaymentMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8090;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms paymentDb from postgresContainer(id: "6a1e4f3c-2b80-47d9-a6c5-9e3b1d7f2c40", database: "hotel_payment_mock");
+    httpSecurity from localHttpSecurity(host: "hotel-payment-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

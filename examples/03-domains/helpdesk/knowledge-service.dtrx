@@ -1,0 +1,118 @@
+from helpdesk.common import TicketTopic;
+
+// The help centre. Reading it needs no account, and full-text search spans the title, the summary and the body.
+// Agents write in the Console; a draft is invisible until it is published. Each article counts whether it helped.
+service helpdesk.KnowledgeService('config/knowledge-service.dcfg') : version('1.0.0'), description('Help centre articles') {
+
+    discovery { }
+
+    exceptions {
+        NoSuchArticleError : status(404), message("That article is not available");
+    }
+
+    rdbms knowledgeDb {
+
+        entity Article extends BaseEntity {
+            String(160) title : filterable;
+            String(300) summary;
+            Text body;
+            TicketTopic topic : filterable;
+            Boolean published : filterable = false;
+            Int helpful = 0;
+            Int notHelpful = 0;
+
+            fulltext(title, summary, body);
+        }
+    }
+
+    /// An article as the help centre lists it.
+    struct ArticleCard {
+        UUID id;
+        String title;
+        String summary;
+        TicketTopic topic;
+    }
+
+    struct ArticlePage {
+        ArticleCard article;
+        String body;
+        Int helpful;
+        DateTime updatedAt;
+    }
+
+    struct VoteRequest {
+        Boolean helped;
+    }
+
+    fn cardOf(knowledgeDb.Article article) -> ArticleCard {
+        return ArticleCard { id: article.id, title: article.title, summary: article.summary, topic: article.topic };
+    }
+
+    fn cardsOf(Array<knowledgeDb.Article> articles) -> Array<ArticleCard> {
+        let Array<ArticleCard> cards = [];
+        foreach article in articles {
+            cards.push(cardOf(article));
+        }
+        return cards;
+    }
+
+    /// A draft does not exist as far as a reader can tell.
+    fn publishedArticle(UUID id) -> knowledgeDb.Article {
+        let knowledgeDb.Article? article = knowledgeDb.Article.where(id: id, published: true).first();
+        if (article == null) {
+            throw NoSuchArticleError();
+        }
+        return article;
+    }
+
+    rest_api HelpAPI : basePath('/api/v1/help'), rdbms(knowledgeDb) {
+
+        @path('/articles')
+        get articles() : auth(public) -> Array<ArticleCard> {
+            return cardsOf(knowledgeDb.Article.where(published: true).orderBy(helpful: desc).limit(40).all());
+        }
+
+        @path('/search/:query')
+        get search(String query) : auth(public) -> Array<ArticleCard> {
+            return cardsOf(knowledgeDb.Article.fulltext(query).where(published: true).limit(20).all());
+        }
+
+        @path('/articles/:id')
+        get article(UUID id) : auth(public) -> ArticlePage {
+            let knowledgeDb.Article found = publishedArticle(id);
+            return ArticlePage {
+                article: cardOf(found),
+                body: found.body,
+                helpful: found.helpful,
+                updatedAt: found.updatedAt
+            };
+        }
+
+        @path('/articles/:id/vote')
+        post vote(UUID id, VoteRequest request) : auth(public) -> ArticleCard {
+            let knowledgeDb.Article found = publishedArticle(id);
+            if (request.helped) {
+                found.helpful = found.helpful + 1;
+            } else {
+                found.notHelpful = found.notHelpful + 1;
+            }
+            found.save();
+            return cardOf(found);
+        }
+    }
+
+    rest_api KnowledgeDeskAPI : basePath('/api/v1/desk'), rdbms(knowledgeDb) {
+        resource knowledgeDb.Article : auth(required, providers: [identity], roles: [agent]);
+    }
+
+    test("a new article is a draft") {
+        let knowledgeDb.Article created = knowledgeDb.Article.create({
+            title: "Title",
+            summary: "Summary",
+            body: "Body",
+            topic: TicketTopic.Billing
+        });
+        assert created.published == false;
+        assert created.helpful == 0;
+    }
+}

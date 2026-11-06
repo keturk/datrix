@@ -1,0 +1,75 @@
+config service hotel.StayService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8001;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms stayDb from postgresContainer(id: "2c8f5a17-e349-4d6b-91a0-3b7d6e1f8c25", database: "hotel_stay");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "hotel-stay-service");
+    outboxOps from outboxBatches();
+    kafkaOps from kafkaPolling();
+    serviceCredentialOps from machineCredential();
+    microserviceClientOps from peerClient();
+    retryBudgetOps from retryBudget();
+    jobs {
+      jobs {
+        ExpireHolds {
+          schedule = "* * * * *";
+          timeout = "60s";
+        }
+        PushAvailability {
+          schedule = "*/5 * * * *";
+          timeout = "120s";
+        }
+        RemindArrivals {
+          schedule = "0 9 * * *";
+          timeout = "120s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+    secrets {
+      // The defaults only exist on a local stack, where they match the hashes seeded in seed/, so the example runs
+      // with nothing to configure. Any other deployment must supply each handle's value.
+      secret payment_provider_api_key {
+        required = true;
+        purpose = "API key for the card vendor (PaymentProvider contract).";
+        localDefault = "dev-only-payment-key-not-a-credential";
+      }
+      secret channel_provider_api_key {
+        required = true;
+        purpose = "API key for the channel manager (ChannelProvider contract).";
+        localDefault = "dev-only-channel-key-not-a-credential";
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

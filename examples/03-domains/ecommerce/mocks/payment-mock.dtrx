@@ -1,0 +1,130 @@
+// Implements the PaymentProvider contract in the stack, so the shop sends real requests and needs no merchant
+// account: every charge lands in a log the Provider Desk app shows, and no card is ever touched. Callers
+// authenticate with an API key, as with a real vendor.
+service ecommerce.PaymentMock('config/mocks/payment-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the card payment vendor') {
+
+    discovery { }
+
+    exceptions {
+        NoSuchChargeError : status(404), message("There is no charge with that id");
+    }
+
+    enum ChargeStatus {
+        Succeeded : tone(success),
+        Declined : tone(danger),
+        Refunded : tone(neutral)
+    }
+
+    rdbms paymentDb {
+
+        /// A charge the vendor answered.
+        entity CardCharge extends BaseEntity {
+            String(80) reference : filterable;
+            Money amount;
+            Money refunded;
+            String(3) currency;
+            ChargeStatus status : filterable;
+            String(200)? declineReason;
+            String(40) chargeId : unique;
+            String(120) idempotencyKey : unique;
+            String(60) cardToken : hidden;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct CreateChargeRequest {
+        String(60) cardToken;
+        Money amount;
+        String(3) currency;
+        String(80) reference;
+        String(120) idempotencyKey;
+    }
+
+    struct RefundChargeRequest {
+        String(40) chargeId;
+        Money amount;
+        String(120) idempotencyKey;
+    }
+
+    struct Charge {
+        String(40) id;
+        ChargeStatus status;
+        String(200)? declineReason;
+    }
+
+    /// The token that shows a decline.
+    const DECLINED_TOKEN = "tok_declined";
+
+    fn answerOf(paymentDb.CardCharge charge) -> Charge {
+        return Charge { id: charge.chargeId, status: charge.status, declineReason: charge.declineReason };
+    }
+
+    // The vendor's public API: exactly the PaymentProvider contract.
+    rest_api PaymentAPI : basePath('/v1'), rdbms(paymentDb) {
+        @path('/charges')
+        post createCharge(CreateChargeRequest request) : auth(required, providers: [paymentKeys]) -> Charge {
+            let CardCharge? existing = CardCharge.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            let Boolean declined = request.cardToken == DECLINED_TOKEN;
+            let CardCharge created = CardCharge.create({
+                chargeId: #"ch_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                cardToken: request.cardToken,
+                amount: request.amount,
+                refunded: 0.00,
+                currency: request.currency,
+                reference: request.reference,
+                status: declined ? ChargeStatus.Declined : ChargeStatus.Succeeded,
+                declineReason: declined ? "The issuer declined this card" : null
+            });
+            return answerOf(created);
+        }
+
+        @path('/refunds')
+        post refundCharge(RefundChargeRequest request) : auth(required, providers: [paymentKeys]) -> Charge {
+            let CardCharge? charge = CardCharge.where(chargeId: request.chargeId).first();
+            if (charge == null) {
+                throw NoSuchChargeError();
+            }
+            charge.refunded = charge.refunded + request.amount;
+            if (charge.refunded >= charge.amount) {
+                charge.status = ChargeStatus.Refunded;
+            }
+            charge.save();
+            return answerOf(charge);
+        }
+    }
+
+    // What the Provider Desk app shows: every charge.
+    rest_api PaymentDeskAPI : basePath('/api/v1/desk/payment'), rdbms(paymentDb) {
+        resource CardCharge : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a repeated idempotency key finds the first charge") {
+        let CardCharge first = paymentDb.CardCharge.create({
+            chargeId: "ch_0001",
+            idempotencyKey: "order-1",
+            cardToken: "tok_pays",
+            amount: 40.00,
+            refunded: 0.00,
+            currency: "USD",
+            reference: "WW-260101-000001",
+            status: ChargeStatus.Succeeded
+        });
+        let CardCharge? again = paymentDb.CardCharge.where(idempotencyKey: "order-1").first();
+        assert again != null;
+        assert again.chargeId == first.chargeId;
+    }
+}

@@ -1,71 +1,106 @@
+from ecommerce.common import OrderLineInput, TestCard, generateOrderNumber;
 
-from ecommerce.common import Currency, OrderLineInput, generateOrderNumber;
+// The order, from the cart to the doorstep. Placing one reserves the stock over a direct call, because the
+// customer is waiting on the answer. Everything after that happens by queue and event: payment, then shipping,
+// then delivery, each moved on by the service that owns it.
+service ecommerce.OrderService('config/order-service.dcfg') : version('2.0.0'), description('Orders and their lifecycle') {
 
-service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), description('order management service') {
-    // discovery block declares dependencies on other services
-    // loadBalance and healthyOnly configure client-side load balancing
-    // Only the services this one actually calls synchronously. Payment and
-    // shipping are reached through queues and events, never by a direct call,
-    // and PaymentService calls back into this service's internal API -- a
-    // declared dependency on it here would make that relationship circular.
     discovery {
         ProductService { loadBalance: roundRobin, healthyOnly: true }
+        // Holds the customers' API keys, and says whose a key is.
         UserService { loadBalance: roundRobin, healthyOnly: true }
     }
 
+    exceptions {
+        NotYourOrderError : status(404), message("There is no such order");
+        NotEnoughStockError : status(409), message("Some of these are no longer in stock");
+        CannotCancelError : status(409), message("This order has already left us");
+        EmptyOrderError : status(422), message("An order needs at least one item");
+    }
+
     enum OrderStatus {
-        Pending,
-        PaymentPending,
-        Confirmed,
-        Processing,
-        Shipped,
-        Delivered,
-        Cancelled,
-        Refunded
+        Pending : tone(neutral),
+        PaymentPending : tone(info),
+        Confirmed : tone(info),
+        Processing : tone(info),
+        Shipped : tone(info),
+        Delivered : tone(success),
+        Cancelled : tone(danger),
+        Refunded : tone(warning),
+        DeliveryProblem : tone(danger)
     }
 
     struct CreateOrderRequest {
         Array<OrderLineInput> items;
         Address shippingAddress;
         Address? billingAddress;
-        // Idempotency key prevents duplicate order creation on retries
-        String? idempotencyKey;
+        /// Which token the card vendor's hosted form would have handed back.
+        TestCard card;
+        /// Sent again with a retry, so a dropped response never places a second order.
+        String(100)? idempotencyKey;
     }
 
     struct CancelOrderRequest {
-        String? reason;
+        String(300)? reason;
     }
 
-    struct ConfirmPaymentRequest {
-        UUID paymentId;
+    /// One line of an order, as a person reads it.
+    struct OrderLineView {
+        String productName;
+        Int quantity;
+        Money unitPrice;
+        Money total;
     }
 
-    struct UpdateShipmentRequest {
-        UUID shipmentId;
+    struct OrderView {
+        UUID id;
+        String orderNumber;
+        OrderStatus status;
+        DateTime placedAt;
+        Money subtotal;
+        Money tax;
+        Money shippingCost;
+        Money total;
+        Address shippingAddress;
+        String? cancellationReason;
+        Boolean canCancel;
+        String customerName;
+        String customerEmail;
+        Array<OrderLineView> lines;
+    }
+
+    struct StatusCount {
+        OrderStatus status;
+        Int orders;
+    }
+
+    struct OrderSummary {
+        Int placedToday;
+        Int waitingToShip;
+        Int shippedNow;
+        Int deliveryProblems;
+        Array<StatusCount> byStatus;
     }
 
     rdbms orderDb {
-        // 'alert' defines monitoring thresholds for the datasource. Duration
-        // alerts use avg/max: a percentile over a scraped histogram is not
-        // computable on CloudWatch (it receives Count/Sum/Min/Max), and this
-        // example generates for every platform.
+        // Duration alerts use avg/max: a percentile over a scraped histogram is not computable on every platform.
         alert queryDuration(avg) over(5m) > 200ms @severity(warning);
         alert connectionPool(utilization) over(1m) > 80% @severity(critical);
 
-        // ': audit' enables automatic audit logging for the entity
+        // ': audit' records every change to an order.
         entity Order extends BaseEntity : audit {
-            UUID customerId : index;
+            String(64) customerId : index;
+            Email customerEmail;
+            String(200) customerName : filterable;
 
-            String(20) orderNumber : unique;
-            OrderStatus status = OrderStatus.Pending;
+            String(30) orderNumber : unique, filterable;
+            OrderStatus status : filterable = OrderStatus.Pending;
 
-            // Money amount fields; currency is passed explicitly at process boundaries
             Money subtotal;
             Money tax;
             Money shippingCost;
             Money discount;
-            // Computed field using Money arithmetic
-            Money total := subtotal.add(tax).add(shippingCost).add(discount.multiply(-1));
+            Money total;
 
             Address shippingAddress;
             Address billingAddress;
@@ -73,30 +108,23 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             UUID inventoryReservationId;
             UUID? paymentId;
             UUID? shipmentId;
-            String? cancellationReason;
+            String(300)? cancellationReason;
 
-            Boolean canCancel := status == OrderStatus.Pending || status == OrderStatus.PaymentPending;
+            // Cancelling stays open until the carrier picks the parcel up. A paid order is refunded by PaymentService,
+            // and ShippingService calls the carrier off.
+            Boolean canCancel := status == OrderStatus.Pending || status == OrderStatus.PaymentPending || status == OrderStatus.Confirmed || status == OrderStatus.Processing;
+            // What the carrier says only moves an order still on its way: a cancelled one stays cancelled.
+            Boolean isOnItsWay := status == OrderStatus.Confirmed || status == OrderStatus.Processing || status == OrderStatus.Shipped;
             Boolean isCompleted := status == OrderStatus.Delivered;
-            Boolean isPendingOrPaymentPending := status == OrderStatus.Pending || status == OrderStatus.PaymentPending;
 
             hasMany OrderItem as items;
 
             index(customerId, status);
             index(status, createdAt);
-            index(orderNumber);
 
             validate {
-                if (items.length() == 0)
-                ValidationError("Order must have at least one item");
                 if (items.length() > 50)
                 ValidationError("Order cannot have more than 50 items");
-            }
-
-            afterCreate {
-                dispatch OrderCreated(id, orderNumber, customerId, total, inventoryReservationId);
-                dispatch ProcessPayment(id, total, "usd");
-                let User u = UserService.UserAPI.get.userByIdInternal(customerId);
-                dispatch SendOrderConfirmation(id, u.email, orderNumber);
             }
 
             afterUpdate {
@@ -104,76 +132,56 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
                     dispatch OrderStatusChanged(id, oldValue(status), status);
 
                     if (status == OrderStatus.Confirmed) {
-                        let Array<JSON> orderItems = items.map(i => { productId: i.productId, quantity: i.quantity });
-                        let Float estimatedWeight = items.length() * 1.0;
-                        dispatch OrderConfirmed(id, paymentId, inventoryReservationId, shippingAddress, orderItems, estimatedWeight);
+                        let Array<JSON> orderItems = items.map(i => { productId: i.productId.toString(), quantity: i.quantity });
+                        let Float estimatedWeight = items.length() * 1.5;
+                        dispatch OrderConfirmed(id, customerId, customerName, paymentId, inventoryReservationId, shippingAddress, orderItems, estimatedWeight);
+                        dispatch SendOrderUpdate(id, customerEmail, orderNumber, #"Your order {orderNumber} is paid", "We have your payment and are packing your parcel.");
+                    } else if (status == OrderStatus.Shipped) {
+                        dispatch SendOrderUpdate(id, customerEmail, orderNumber, #"Your order {orderNumber} is on its way", "Your parcel has left us. The order page shows where it has got to.");
+                    } else if (status == OrderStatus.Delivered) {
+                        dispatch SendOrderUpdate(id, customerEmail, orderNumber, #"Your order {orderNumber} has arrived", "We hope you like it. You can leave a review on the product's page.");
+                    } else if (status == OrderStatus.DeliveryProblem) {
+                        dispatch SendOrderUpdate(id, customerEmail, orderNumber, #"A problem with your order {orderNumber}", "The carrier has lost track of your parcel. We are looking into it and will write again.");
                     } else if (status == OrderStatus.Cancelled) {
-                        // '??' is the null-coalescing operator
                         dispatch OrderCancelled(id, cancellationReason ?? "Cancelled", inventoryReservationId);
+                        dispatch SendOrderUpdate(id, customerEmail, orderNumber, #"Your order {orderNumber} is cancelled", cancellationReason ?? "Your order has been cancelled.");
+                    } else if (status == OrderStatus.Refunded) {
+                        dispatch SendOrderUpdate(id, customerEmail, orderNumber, #"Your refund for {orderNumber}", "Your money is on its way back to your card.");
                     }
-
                 }
-
             }
 
-            fn calculateTotals() {
-                let Money itemsTotal = Money.of(0);
-                foreach item in items {
-                    itemsTotal = itemsTotal.add(item.total);
-                }
-
+            fn priceAt(Money itemsTotal) {
                 subtotal = itemsTotal;
-
-                tax = subtotal.multiply(0.08);
-
-                if (subtotal.amount >= 50.00) {
-                    shippingCost = Money.of(0);
-                } else {
-                    shippingCost = Money.of(5.99);
-                }
-
+                tax = subtotal * 0.08;
+                shippingCost = subtotal >= 50.00 ? Money.of(0) : Money.of(5.99);
                 discount = Money.of(0);
+                total = subtotal.add(tax).add(shippingCost).subtract(discount);
             }
-
         }
 
         entity OrderItem extends BaseEntity {
             UUID productId : index;
             String(200) productName : trim;
-            // 'min(1)' sets a minimum value constraint
             Int quantity : min(1);
-            // 'positive' ensures the value is greater than zero
             Money unitPrice : positive;
             Money total := unitPrice.multiply(quantity);
 
             belongsTo Order : index;
 
             validate {
-                if (quantity <= 0)
-                ValidationError("Quantity must be greater than 0");
                 if (quantity > 100)
                 ValidationError("Quantity cannot exceed 100 per item");
-                if (unitPrice.amount < 0)
-                ValidationError("Unit price cannot be negative");
             }
-
         }
 
-        // Entity for idempotency key deduplication
+        /// A retried request finds the order its first attempt placed.
         entity IdempotencyKey extends BaseEntity {
             String(100) key : unique;
             String(50) operation : index;
-            UUID? resourceId;
-            JSON? response;
+            UUID resourceId;
             DateTime expiresAt : index;
-
-            validate {
-                if (key.trim().isEmpty())
-                ValidationError("Idempotency key cannot be empty");
-            }
-
         }
-
     }
 
     cache redis {
@@ -186,20 +194,12 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             Money total;
         }
 
-        counter OrderCount : prefix('orders:count:');
+        counter OrdersPlacedToday : prefix('orders:placed:'), ttl(86400);
     }
 
     pubsub mq {
-        alert consumerLag(max) over(5m) > 1000 @severity(critical);
-        alert failedMessages(count) over(5m) > 10 @severity(warning);
-
         topic OrderEvents {
-            publish OrderCreated(UUID orderId, String orderNumber, UUID customerId, Money total, UUID reservationId) {
-                ensure orderNumber.length > 0;
-                ensure total > 0;
-            }
-
-            publish OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
+            publish OrderConfirmed(UUID orderId, String customerId, String customerName, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
                 ensure items.length() > 0;
                 ensure estimatedWeight > 0;
             }
@@ -211,114 +211,101 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             publish OrderStatusChanged(UUID orderId, OrderStatus oldStatus, OrderStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
-
         }
-
-        // React to payment events from another service
-
-        // React to shipping events from another service
     }
 
+    // A customer's status check reads this cache, so the order's own events keep it right.
     subscribe OrderEvents {
-
         on OrderStatusChanged(UUID orderId, OrderStatus oldStatus, OrderStatus newStatus) {
-            Log.info("Order status changed", { orderId: orderId, oldStatus: oldStatus, newStatus: newStatus });
-
-            // Keep cache in sync with order status changes
-            let JSON? cached = redis.OrderCache.get(orderId);
-            if (cached != null) {
-                redis.OrderCache.set(orderId, {
-                    orderId: orderId,
-                    orderNumber: cached.orderNumber,
-                    status: newStatus,
-                    total: cached.total
-                });
-            }
-
+            let Order order = orderDb.Order.findOrFail(orderId);
+            redis.OrderCache.set(orderId, {
+                orderId: orderId,
+                orderNumber: order.orderNumber,
+                status: newStatus,
+                total: order.total
+            });
         }
-
     }
 
     subscribe PaymentEvents {
-
         on PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
             let Order order = orderDb.Order.findOrFail(orderId);
-
-            transaction(orderDb) {
-                order.paymentId = paymentId;
-                order.status = OrderStatus.Confirmed;
-                order.save();
+            // A customer may have cancelled while the charge was out; PaymentService refunds that one.
+            if (order.status == OrderStatus.PaymentPending) {
+                transaction(orderDb) {
+                    order.paymentId = paymentId;
+                    order.status = OrderStatus.Confirmed;
+                    order.save();
+                }
+                dispatch SettlePayment(paymentId, "WRENWOOD-MAIN", amount);
             }
-
-            Log.info("Order confirmed after payment", { orderId: orderId });
-            dispatch SettlePayment(paymentId, "ECOM-DEMO-MERCHANT", amount.amount);
         }
 
         on PaymentFailed(UUID paymentId, UUID orderId, String reason) {
             let Order order = orderDb.Order.findOrFail(orderId);
-
-            transaction(orderDb) {
-                order.status = OrderStatus.Cancelled;
-                order.cancellationReason = #"Payment failed: {reason}";
-                order.save();
+            if (order.status == OrderStatus.PaymentPending) {
+                transaction(orderDb) {
+                    order.status = OrderStatus.Cancelled;
+                    order.cancellationReason = #"The payment did not go through: {reason}";
+                    order.save();
+                }
             }
-
-            Log.warn("Order cancelled due to payment failure", {
-                orderId: orderId,
-                reason: reason
-            });
         }
 
         on PaymentRefunded(UUID paymentId, UUID orderId, Money amount) {
             let Order order = orderDb.Order.findOrFail(orderId);
-
             transaction(orderDb) {
                 order.status = OrderStatus.Refunded;
                 order.save();
             }
-
-            Log.info("Order refunded after payment refund", { orderId: orderId, paymentId: paymentId, amount: amount });
         }
-
     }
 
     subscribe ShipmentEvents {
-
         on ShipmentCreated(UUID shipmentId, UUID orderId) {
-            Log.info("Shipment created for order", { shipmentId: shipmentId, orderId: orderId });
+            let Order order = orderDb.Order.findOrFail(orderId);
+            if (order.isOnItsWay) {
+                transaction(orderDb) {
+                    order.shipmentId = shipmentId;
+                    order.status = OrderStatus.Processing;
+                    order.save();
+                }
+            }
         }
 
         on ShipmentDispatched(UUID shipmentId, UUID orderId, String trackingNumber) {
             let Order order = orderDb.Order.findOrFail(orderId);
-
-            transaction(orderDb) {
-                order.shipmentId = shipmentId;
-                order.status = OrderStatus.Shipped;
-                order.save();
+            if (order.isOnItsWay) {
+                transaction(orderDb) {
+                    order.status = OrderStatus.Shipped;
+                    order.save();
+                }
             }
-
-            Log.info("Order shipped", { orderId: orderId, shipmentId: shipmentId, trackingNumber: trackingNumber });
         }
 
         on ShipmentDelivered(UUID shipmentId, UUID orderId, DateTime deliveredAt) {
             let Order order = orderDb.Order.findOrFail(orderId);
-
-            transaction(orderDb) {
-                order.status = OrderStatus.Delivered;
-                order.save();
+            if (order.isOnItsWay) {
+                transaction(orderDb) {
+                    order.status = OrderStatus.Delivered;
+                    order.save();
+                }
             }
-
-            Log.info("Order delivered", { orderId: orderId, deliveredAt: deliveredAt });
         }
 
         on ShipmentFailed(UUID shipmentId, UUID orderId, String reason) {
-            Log.warn("Shipment failed for order", { shipmentId: shipmentId, orderId: orderId, reason: reason });
+            let Order order = orderDb.Order.findOrFail(orderId);
+            if (order.isOnItsWay) {
+                transaction(orderDb) {
+                    order.status = OrderStatus.DeliveryProblem;
+                    order.save();
+                }
+            }
         }
-
     }
 
     queues {
-        queue ProcessPayment(UUID orderId, Money amount, String currency) {
+        queue ProcessPayment(UUID orderId, String orderNumber, String customerId, Money amount, String currency, String cardToken) {
             ensure amount > 0;
             ensure currency.length == 3;
         }
@@ -327,421 +314,286 @@ service ecommerce.OrderService('config/order-service.dcfg') : version('1.0.0'), 
             ensure customerEmail.length > 0;
         }
 
+        queue SendOrderUpdate(UUID orderId, Email customerEmail, String orderNumber, String subject, String body) {
+            ensure subject.length > 0;
+        }
+
         queue SettlePayment(UUID paymentId, String merchantId, Decimal amount) : fifo(merchantId) {
             ensure amount > 0;
             ensure merchantId.length > 0;
         }
+    }
 
+    fn viewOf(orderDb.Order order) -> OrderView {
+        let Array<OrderLineView> lines = [];
+        foreach item in orderDb.OrderItem.where(orderId: order.id).orderBy(productName: asc).all() {
+            lines.push(OrderLineView {
+                productName: item.productName,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                total: item.total
+            });
+        }
+        return OrderView {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            status: order.status,
+            placedAt: order.createdAt,
+            subtotal: order.subtotal,
+            tax: order.tax,
+            shippingCost: order.shippingCost,
+            total: order.total,
+            shippingAddress: order.shippingAddress,
+            cancellationReason: order.cancellationReason,
+            canCancel: order.canCancel,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail.toString(),
+            lines: lines
+        };
+    }
+
+    fn cancel(orderDb.Order order, String reason) {
+        if (!order.canCancel) {
+            throw CannotCancelError();
+        }
+        transaction(orderDb) {
+            order.status = OrderStatus.Cancelled;
+            order.cancellationReason = reason;
+            order.save();
+        }
     }
 
     rest_api OrderAPI : basePath('/api/v1/orders'), rdbms(orderDb) {
-        // API-level monitoring alerts
         alert responseTime(avg) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 5% @severity(critical);
 
-        // Paginated list endpoint with optional filtering
-        get orders(PageRequest page, OrderStatus? status) : auth(required, providers: [identity, customerKeys]) -> Page<orderDb.Order> {
-            let UUID customerId = Auth.user().id;
-
-            let JSON query = orderDb.Order.where(customerId: customerId);
-
+        // A customer's own orders, newest first.
+        get orders(PageRequest page, OrderStatus? status) : auth(required, providers: [identity]) -> Page<orderDb.Order> {
+            let String customerId = Auth.userId();
             if (status != null) {
-                query = query.where(status: status);
+                return orderDb.Order.where(customerId: customerId, status: status).orderBy(createdAt: desc).page(page);
             }
+            return orderDb.Order.where(customerId: customerId).orderBy(createdAt: desc).page(page);
+        }
 
-            return query.orderBy(createdAt: desc).page(page);
+        // The same orders, for a script holding the customer's API key. A key names its owner's customer row,
+        // and UserService says whose sign-in that is.
+        @path('/by-key')
+        get ordersByKey(PageRequest page) : auth(required, providers: [customerKeys]) -> Page<orderDb.Order> {
+            let CustomerFacts facts = UserService.UserInternalAPI.get.customerFacts(id: UUID.parse(Auth.userId()));
+            return orderDb.Order.where(customerId: facts.subject).orderBy(createdAt: desc).page(page);
         }
 
         @path('/:id')
-        get orderById(UUID id) : auth(required, providers: [identity]) -> orderDb.Order {
+        get orderById(UUID id) : auth(required, providers: [identity]) -> OrderView {
             let Order order = orderDb.Order.findOrFail(id);
-
-            if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
-                throw AuthorizationException("Access denied");
+            if (order.customerId != Auth.userId()) {
+                throw NotYourOrderError();
             }
-
-            return order;
+            return viewOf(order);
         }
 
-        post createOrder(CreateOrderRequest request) : auth(required, providers: [identity]) -> orderDb.Order {
-            // Check idempotency to prevent duplicate orders on retry
-            let JSON? cached = checkIdempotency(request.idempotencyKey, "create_order");
-            if (cached != null) {
-                return cached;
+        post createOrder(CreateOrderRequest request) : auth(required, providers: [identity]) -> OrderView {
+            if (request.items.length() == 0) {
+                throw EmptyOrderError();
+            }
+            if (request.idempotencyKey != null) {
+                let IdempotencyKey? seen = orderDb.IdempotencyKey
+                    .where(key: request.idempotencyKey, operation: "create_order")
+                    .where(expiresAt: gt(DateTime.now()))
+                    .first();
+                if (seen != null) {
+                    let Order earlier = orderDb.Order.findOrFail(seen.resourceId);
+                    return viewOf(earlier);
+                }
             }
 
-            let UUID customerId = Auth.user().id;
             let UUID reservationId = uuid();
-
-            // Cross-service call('config/service.dcfg') : check product availability via ProductService
-            let AvailabilityResponse availability = ProductService.ProductAPI.post.checkAvailability(request.items);
-
-            if (!availability.allAvailable) {
-                throw ValidationException({
-                    code: "INVENTORY_UNAVAILABLE",
-                    message: "Some products are not available",
-                    items: availability.items.filter(i => !i.available)
-                });
-            }
-
-            // Cross-service call('config/service.dcfg') : reserve inventory
-            let ReservationResponse reservation = ProductService.ProductAPI.post.reserveInventory({
+            let ReservationResponse reservation = ProductService.ProductInternalAPI.post.reserveInventory({
                 reservationId: reservationId,
                 items: request.items,
                 ttlSeconds: 600
             });
-
             if (!reservation.success) {
-                throw ValidationException({
-                    code: "RESERVATION_FAILED",
-                    message: "Failed to reserve inventory",
-                    error: reservation.error
-                });
+                throw NotEnoughStockError();
             }
 
             let Order order = orderDb.Order.create({
                 orderNumber: generateOrderNumber(),
-                customerId: customerId,
+                customerId: Auth.userId(),
+                customerEmail: Auth.identity.email,
+                customerName: Auth.identity.fullName ?? Auth.identity.email.toString(),
                 shippingAddress: request.shippingAddress,
                 billingAddress: request.billingAddress ?? request.shippingAddress,
-                status: OrderStatus.Pending,
+                status: OrderStatus.PaymentPending,
                 inventoryReservationId: reservationId,
                 subtotal: Money.of(0),
                 tax: Money.of(0),
                 shippingCost: Money.of(0),
-                discount: Money.of(0)
+                discount: Money.of(0),
+                total: Money.of(0)
             });
 
-            foreach item in request.items {
-                // Fetch product details from ProductService for denormalization
-                let Product product = ProductService.ProductAPI.get.productByIdInternal(item.productId);
+            // The server prices the order; a client only ever says what and how many.
+            let Money itemsTotal = Money.of(0);
+            foreach line in request.items {
+                let ProductFacts product = ProductService.ProductInternalAPI.get.productFacts(id: line.productId);
                 orderDb.OrderItem.create({
                     order: order,
-                    productId: item.productId,
+                    productId: line.productId,
                     productName: product.name,
-                    quantity: item.quantity,
+                    quantity: line.quantity,
                     unitPrice: product.price
+                });
+                itemsTotal = itemsTotal.add(product.price.multiply(line.quantity));
+            }
+            order.priceAt(itemsTotal);
+            order.save();
+
+            if (request.idempotencyKey != null) {
+                orderDb.IdempotencyKey.create({
+                    key: request.idempotencyKey,
+                    operation: "create_order",
+                    resourceId: order.id,
+                    expiresAt: DateTime.now().addHours(24)
                 });
             }
 
-            order.calculateTotals();
-            order.save();
-
-            storeIdempotency(request.idempotencyKey, "create_order", order.id, order);
-
-            return order;
+            redis.OrdersPlacedToday.incr(DateTime.now().format('YYYY-MM-DD'));
+            dispatch ProcessPayment(order.id, order.orderNumber, order.customerId, order.total, "USD", request.card == TestCard.CardThatPays ? "tok_pays" : "tok_declined");
+            dispatch SendOrderConfirmation(order.id, order.customerEmail, order.orderNumber);
+            return viewOf(order);
         }
 
         @path('/:id/cancel')
-        put cancelOrder(UUID id, CancelOrderRequest request) : auth(required, providers: [identity]) -> orderDb.Order {
+        post cancelOrder(UUID id, CancelOrderRequest request) : auth(required, providers: [identity]) -> OrderView {
             let Order order = orderDb.Order.findOrFail(id);
-
-            if (order.customerId != Auth.user().id && !Auth.hasRole("admin")) {
-                throw AuthorizationException("Cannot cancel another user's order");
+            if (order.customerId != Auth.userId()) {
+                throw NotYourOrderError();
             }
-
-            if (!order.canCancel) {
-                throw ValidationException({
-                    code: "ORDER_NOT_CANCELLABLE",
-                    message: #"Order cannot be cancelled in status: {order.status}"
-                });
-            }
-
-            transaction(orderDb) {
-                order.status = OrderStatus.Cancelled;
-                order.cancellationReason = request.reason ?? "Cancelled by customer";
-                order.save();
-            }
-
-            return order;
+            cancel(order, request.reason ?? "You cancelled this order.");
+            return viewOf(order);
         }
-
-        @path('/service/:id')
-        get orderByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> orderDb.Order {
-            return orderDb.Order.findOrFail(id);
-        }
-
-        @path('/:id/confirm-payment')
-        post paymentConfirmation(UUID id, ConfirmPaymentRequest request) : auth(service, providers: [platform]), hidden -> orderDb.Order {
-            let Order order = orderDb.Order.findOrFail(id);
-            order.paymentId = request.paymentId;
-            order.status = OrderStatus.Confirmed;
-            order.save();
-            return order;
-        }
-
-        @path('/:id/update-shipment')
-        post shipmentUpdate(UUID id, UpdateShipmentRequest request) : auth(service, providers: [platform]), hidden -> orderDb.Order {
-            let Order order = orderDb.Order.findOrFail(id);
-            order.shipmentId = request.shipmentId;
-            order.save();
-            return order;
-        }
-
-        // Helper function for idempotency check
-        fn checkIdempotency(String? idempotencyKey, String operation) -> JSON? {
-            if (idempotencyKey == null) return null;
-
-            let IdempotencyKey? existing = orderDb.IdempotencyKey
-            .where(key: idempotencyKey)
-            .where(operation: operation)
-            // 'gt(DateTime.now())' is a comparison filter: greater than current time
-            .where(expiresAt: gt(DateTime.now()))
-            .first();
-
-            if (existing != null) {
-                Log.info("Idempotent request detected", { key: idempotencyKey, operation: operation });
-                return existing.response;
-            }
-
-            return null;
-        }
-
-        fn storeIdempotency(String? idempotencyKey, String operation, UUID resourceId, JSON response) {
-            if (idempotencyKey == null) return;
-
-            orderDb.IdempotencyKey.create({
-                key: idempotencyKey,
-                operation: operation,
-                resourceId: resourceId,
-                response: response,
-                expiresAt: DateTime.now().addHours(24)
-            });
-        }
-
     }
 
-    test("computed canCancel is true for Pending status") {
+    // What the Admin app shows and does.
+    rest_api OrderAdminAPI : basePath('/api/v1/admin/orders'), rdbms(orderDb) {
+        resource orderDb.Order : only(list), auth(required, providers: [identity], roles: [admin]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [admin]) -> OrderSummary {
+            let Array<StatusCount> byStatus = [];
+            foreach status in [OrderStatus.PaymentPending, OrderStatus.Confirmed, OrderStatus.Processing, OrderStatus.Shipped, OrderStatus.Delivered, OrderStatus.Cancelled, OrderStatus.Refunded, OrderStatus.DeliveryProblem] {
+                byStatus.push(StatusCount { status: status, orders: orderDb.Order.where(status: status).count() });
+            }
+            return OrderSummary {
+                placedToday: orderDb.Order.where(createdAt: gte(DateTime.now().startOfDay())).count(),
+                waitingToShip: orderDb.Order.whereIn(status: [OrderStatus.Confirmed, OrderStatus.Processing]).count(),
+                shippedNow: orderDb.Order.where(status: OrderStatus.Shipped).count(),
+                deliveryProblems: orderDb.Order.where(status: OrderStatus.DeliveryProblem).count(),
+                byStatus: byStatus
+            };
+        }
+
+        @path('/:id/view')
+        get orderView(UUID id) : auth(required, providers: [identity], roles: [admin]) -> OrderView {
+            let Order order = orderDb.Order.findOrFail(id);
+            return viewOf(order);
+        }
+
+        @path('/:id/cancel')
+        post cancelFor(UUID id, CancelOrderRequest request) : auth(required, providers: [identity], roles: [admin]) -> OrderView {
+            let Order order = orderDb.Order.findOrFail(id);
+            cancel(order, request.reason ?? "We cancelled this order.");
+            return viewOf(order);
+        }
+    }
+
+    jobs {
+        job CleanupExpiredIdempotencyKeys {
+            foreach key in orderDb.IdempotencyKey.where(expiresAt: lt(DateTime.now().addDays(-1))).all() {
+                key.delete();
+            }
+        }
+    }
+
+    test("a new order can be cancelled") {
         let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-001",
+            customerId: "spec-customer",
+            customerEmail: "ana@example.com",
+            customerName: "Ana Reed",
+            orderNumber: "WW-260101-000001",
             subtotal: Money.of(100.00),
-            tax: Money.of(10.00),
-            shippingCost: Money.of(5.00),
+            tax: Money.of(8.00),
+            shippingCost: Money.of(0.00),
             discount: Money.of(0.00),
-            shippingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701", country: "US" },
-            billingAddress: { street: "123 Main St", city: "Springfield", state: "IL", zipCode: "62701", country: "US" },
+            total: Money.of(100.00),
+            shippingAddress: { street: "4 Mill Lane", city: "York", state: "North Yorkshire", zipCode: "YO1 7HH", country: "GB" },
+            billingAddress: { street: "4 Mill Lane", city: "York", state: "North Yorkshire", zipCode: "YO1 7HH", country: "GB" },
             inventoryReservationId: uuid()
         });
-        order.save();
         assert order.canCancel == true;
+        assert order.isCompleted == false;
     }
 
-    test("validation rejects order with no items") {
-        // First order.save() only refreshes (service create already committed).
-        // Second order.save() runs OrderService.update(..., OrderUpdate()) so
-        // _validate(..., include_collections=True) can reject zero line items.
+    test("cancelling an order announces it") {
         let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-002",
-            subtotal: Money.of(50.00),
-            tax: Money.of(5.00),
-            shippingCost: Money.of(5.00),
-            discount: Money.of(0.00),
-            shippingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
-            billingAddress: { street: "456 Oak Ave", city: "Shelbyville", state: "IL", zipCode: "62565", country: "US" },
-            inventoryReservationId: uuid()
-        });
-        order.save();
-        assert throws(
-        () => order.save(),
-        ValidationError("Order must have at least one item")
-        );
-    }
-
-    test("afterCreate emits OrderCreated event") {
-        let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-003",
-            subtotal: Money.of(200.00),
-            tax: Money.of(20.00),
-            shippingCost: Money.of(10.00),
-            discount: Money.of(0.00),
-            shippingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zipCode: "62702", country: "US" },
-            billingAddress: { street: "789 Elm St", city: "Capital City", state: "IL", zipCode: "62702", country: "US" },
-            inventoryReservationId: uuid()
-        });
-        order.save();
-        assert emitted(OrderCreated(order.id, order.orderNumber, order.customerId, order.total, order.inventoryReservationId));
-        assert dispatched(ProcessPayment(order.id, order.total, "usd"));
-    }
-
-    test("status change to Cancelled emits OrderCancelled") {
-        let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-004",
+            customerId: "spec-customer",
+            customerEmail: "ana@example.com",
+            customerName: "Ana Reed",
+            orderNumber: "WW-260101-000002",
             subtotal: Money.of(75.00),
-            tax: Money.of(7.50),
-            shippingCost: Money.of(5.00),
+            tax: Money.of(6.00),
+            shippingCost: Money.of(0.00),
             discount: Money.of(0.00),
-            shippingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zipCode: "62703", country: "US" },
-            billingAddress: { street: "321 Pine Rd", city: "Ogdenville", state: "IL", zipCode: "62703", country: "US" },
+            total: Money.of(100.00),
+            shippingAddress: { street: "4 Mill Lane", city: "York", state: "North Yorkshire", zipCode: "YO1 7HH", country: "GB" },
+            billingAddress: { street: "4 Mill Lane", city: "York", state: "North Yorkshire", zipCode: "YO1 7HH", country: "GB" },
             inventoryReservationId: uuid(),
             cancellationReason: "Changed my mind"
-        });
-        order.save();
-        // Create a line item so collection validation passes on update
-        orderDb.OrderItem.create({
-            orderId: order.id,
-            productId: uuid(),
-            productName: "Test Product",
-            quantity: 1,
-            unitPrice: Money.of(10.00)
         });
         order.status = OrderStatus.Cancelled;
         order.save();
         assert emitted(OrderCancelled(order.id, order.cancellationReason, order.inventoryReservationId));
     }
 
-    test("computed isCompleted is true for Delivered status") {
+    test("a delivered order is complete and cannot be cancelled") {
         let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-005",
+            customerId: "spec-customer",
+            customerEmail: "ana@example.com",
+            customerName: "Ana Reed",
+            orderNumber: "WW-260101-000003",
             subtotal: Money.of(150.00),
             tax: Money.of(12.00),
             shippingCost: Money.of(0.00),
             discount: Money.of(0.00),
+            total: Money.of(162.00),
             status: OrderStatus.Delivered,
-            shippingAddress: { street: "500 Maple Dr", city: "Lakewood", state: "CO", zipCode: "80226", country: "US" },
-            billingAddress: { street: "500 Maple Dr", city: "Lakewood", state: "CO", zipCode: "80226", country: "US" },
+            shippingAddress: { street: "4 Mill Lane", city: "York", state: "North Yorkshire", zipCode: "YO1 7HH", country: "GB" },
+            billingAddress: { street: "4 Mill Lane", city: "York", state: "North Yorkshire", zipCode: "YO1 7HH", country: "GB" },
             inventoryReservationId: uuid()
         });
-        order.save();
         assert order.isCompleted == true;
+        assert order.canCancel == false;
     }
 
-    test("computed isPendingOrPaymentPending for Pending status") {
+    test("a status change is announced") {
         let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-006",
-            subtotal: Money.of(80.00),
-            tax: Money.of(6.40),
-            shippingCost: Money.of(5.99),
-            discount: Money.of(0.00),
-            status: OrderStatus.Pending,
-            shippingAddress: { street: "601 Birch Ln", city: "Aurora", state: "CO", zipCode: "80010", country: "US" },
-            billingAddress: { street: "601 Birch Ln", city: "Aurora", state: "CO", zipCode: "80010", country: "US" },
-            inventoryReservationId: uuid()
-        });
-        order.save();
-        assert order.isPendingOrPaymentPending == true;
-    }
-
-    test("afterCreate emits ProcessPayment event") {
-        let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-007",
-            subtotal: Money.of(250.00),
-            tax: Money.of(20.00),
-            shippingCost: Money.of(0.00),
-            discount: Money.of(0.00),
-            shippingAddress: { street: "702 Cedar Ct", city: "Boulder", state: "CO", zipCode: "80301", country: "US" },
-            billingAddress: { street: "702 Cedar Ct", city: "Boulder", state: "CO", zipCode: "80301", country: "US" },
-            inventoryReservationId: uuid()
-        });
-        order.save();
-        assert dispatched(ProcessPayment(order.id, order.total, "usd"));
-    }
-
-    test("afterUpdate emits OrderStatusChanged on status change") {
-        let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-008",
+            customerId: "spec-customer",
+            customerEmail: "ana@example.com",
+            customerName: "Ana Reed",
+            orderNumber: "WW-260101-000004",
             subtotal: Money.of(60.00),
             tax: Money.of(4.80),
-            shippingCost: Money.of(5.99),
+            shippingCost: Money.of(0.00),
             discount: Money.of(0.00),
-            shippingAddress: { street: "803 Spruce Way", city: "Denver", state: "CO", zipCode: "80202", country: "US" },
-            billingAddress: { street: "803 Spruce Way", city: "Denver", state: "CO", zipCode: "80202", country: "US" },
+            total: Money.of(100.00),
+            shippingAddress: { street: "4 Mill Lane", city: "York", state: "North Yorkshire", zipCode: "YO1 7HH", country: "GB" },
+            billingAddress: { street: "4 Mill Lane", city: "York", state: "North Yorkshire", zipCode: "YO1 7HH", country: "GB" },
             inventoryReservationId: uuid()
-        });
-        order.save();
-        orderDb.OrderItem.create({
-            orderId: order.id,
-            productId: uuid(),
-            productName: "Status Change Product",
-            quantity: 2,
-            unitPrice: Money.of(30.00)
         });
         order.status = OrderStatus.Processing;
         order.save();
         assert emitted(OrderStatusChanged(order.id, OrderStatus.Pending, OrderStatus.Processing));
     }
-
-    test("afterUpdate emits OrderConfirmed when status is Confirmed") {
-        let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-009",
-            subtotal: Money.of(120.00),
-            tax: Money.of(9.60),
-            shippingCost: Money.of(0.00),
-            discount: Money.of(0.00),
-            shippingAddress: { street: "904 Aspen Blvd", city: "Fort Collins", state: "CO", zipCode: "80521", country: "US" },
-            billingAddress: { street: "904 Aspen Blvd", city: "Fort Collins", state: "CO", zipCode: "80521", country: "US" },
-            inventoryReservationId: uuid(),
-            paymentId: uuid()
-        });
-        order.save();
-        orderDb.OrderItem.create({
-            orderId: order.id,
-            productId: uuid(),
-            productName: "Confirmed Product",
-            quantity: 3,
-            unitPrice: Money.of(40.00)
-        });
-        order.status = OrderStatus.Confirmed;
-        order.save();
-        assert emitted(OrderConfirmed(order.id, order.paymentId, order.inventoryReservationId, order.shippingAddress, order.items.map(i => { productId: i.productId, quantity: i.quantity }), order.items.length() * 1.0));
-    }
-
-    test("validation rejects order with more than 50 items") {
-        let orderDb.Order order = orderDb.Order.create({
-            customerId: uuid(),
-            orderNumber: "ORD-SPEC-010",
-            subtotal: Money.of(500.00),
-            tax: Money.of(40.00),
-            shippingCost: Money.of(0.00),
-            discount: Money.of(0.00),
-            shippingAddress: { street: "1005 Walnut St", city: "Pueblo", state: "CO", zipCode: "81001", country: "US" },
-            billingAddress: { street: "1005 Walnut St", city: "Pueblo", state: "CO", zipCode: "81001", country: "US" },
-            inventoryReservationId: uuid()
-        });
-        order.save();
-        for (let Int i = 0; i < 51; i += 1) {
-            orderDb.OrderItem.create({
-                orderId: order.id,
-                productId: uuid(),
-                productName: #"Excess Item {i}",
-                quantity: 1,
-                unitPrice: Money.of(9.99)
-            });
-        }
-
-        assert throws(
-        () => order.save(),
-        ValidationError("Order cannot have more than 50 items")
-        );
-    }
-
-    jobs {
-        job CleanupExpiredIdempotencyKeys {
-            let DateTime threshold = DateTime.now().addDays(-1);
-            let Array<IdempotencyKey> expired = orderDb.IdempotencyKey
-            .where(expiresAt: lt(threshold))
-            .all();
-
-            let Int count = 0;
-            foreach key in expired {
-                key.delete();
-                count = count + 1;
-            }
-
-            if (count > 0) {
-                Log.info("Cleaned up expired idempotency keys", { count: count });
-            }
-
-        }
-
-    }
-
 }

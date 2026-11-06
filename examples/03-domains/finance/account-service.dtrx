@@ -53,7 +53,7 @@ service finance.AccountService('config/account-service.dcfg') : version('2.0.0')
 
         /// A person the bank knows. One signed-in user has at most one.
         entity Customer extends BaseEntity {
-            UUID userId : unique;
+            String(64) userId : unique;
             String(200) fullName : trim, filterable, sortable;
             Email email;
             Date dateOfBirth : hidden;
@@ -84,7 +84,7 @@ service finance.AccountService('config/account-service.dcfg') : version('2.0.0')
 
     pubsub mq {
         topic AccountEvents {
-            publish AccountOpened(UUID accountId, String accountNumber, UUID ownerUserId, AccountType type);
+            publish AccountOpened(UUID accountId, String accountNumber, String ownerUserId, AccountType type);
 
             publish AccountStatusChanged(UUID accountId, String accountNumber, AccountStatus oldStatus, AccountStatus newStatus) {
                 ensure oldStatus != newStatus;
@@ -255,7 +255,7 @@ service finance.AccountService('config/account-service.dcfg') : version('2.0.0')
 
     test("a new account starts active with a generated number") {
         let Customer customer = accountDb.Customer.create({
-            userId: uuid(),
+            userId: "spec-user",
             fullName: "Mina Okafor",
             email: "mina@example.com",
             dateOfBirth: Date.parse("1990-04-12"),

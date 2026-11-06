@@ -20,9 +20,9 @@ config strings social.Social locale "en-US" {
     latestTitle       = "Latest posts";
     noPosts           = "No posts here yet.";
     handleLine        = "@{handle}";
-    postFacts         = "{when}, {likes} likes, {comments} comments";
+    postFacts         = "{when} · Likes: {likes} · Comments: {comments}";
     openPost          = "Open";
-    followerLine      = "{count} followers";
+    followerLine      = "Followers: {count}";
     homeTitle         = "Following";
     homeSubtitle      = "Posts from the people you follow.";
     chooseHandleFirst = "Choose a handle before you post or follow anyone.";
@@ -72,7 +72,7 @@ config strings social.Social locale "en-US" {
     editProfile       = "Edit profile";
     profileSaved      = "Saved.";
     handleClaimed     = "That handle is yours.";
-    yourCounts        = "{followers} followers, {following} following";
+    yourCounts        = "Followers: {followers} · Following: {following}";
     noticesChoice     = "Notifications";
     pushOn            = "Turn push on";
     pushOff           = "Turn push off";

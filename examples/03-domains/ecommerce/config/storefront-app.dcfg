@@ -40,12 +40,12 @@ config app ecommerce.Storefront {
     ios { teamId = "ABCDE12345"; }
   }
   profile aws extends deployed {
-    web { domain { name = "shop.library.example.com"; } }
+    web { domain { name = "shop.wrenwood.example.com"; } }
   }
   profile azure extends deployed {
-    web { domain { name = "shop.library.example.com"; } }
+    web { domain { name = "shop.wrenwood.example.com"; } }
   }
   profile azureVm extends deployed {
-    web { domain { name = "shop.library.example.com"; } }
+    web { domain { name = "shop.wrenwood.example.com"; } }
   }
 }

@@ -65,13 +65,13 @@
     jobs {
       jobs {
         SyncCarrierTracking {
-          schedule = "*/15 * * * *";
+          schedule = "* * * * *";
           timeout = 120s;
         }
       }
     }
     registration {
-      tags = ["api", "library", "v1"];
+      tags = ["api", "shop", "v1"];
       meta = {};
       healthCheck {
         type = "http";
@@ -101,6 +101,13 @@
     // deploy script refuses to start while its file is absent. The
     // localDefault is a throwaway dev seed written on local profiles only.
     secrets {
+      // The defaults exist only on a local stack, where the key matches the hash seeded in
+      // seed/carrier-mock.dseed. Any other deployment must supply the handles' values.
+      secret carrier_provider_api_key {
+        required = true;
+        purpose = "API key for the parcel carrier (CarrierProvider contract).";
+        localDefault = "dev-only-carrier-key-not-a-credential";
+      }
       secret carrier_webhook_secret {
         required = true;
         purpose = "Keyed-hash key for inbound carrier webhook signature verification.";
@@ -108,9 +115,9 @@
       }
     }
     httpSecurity {
-      allowedHosts = ["shipping-service.example.com", "localhost"];
-      corsOrigins = ["https://app.example.com"];
-      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      allowedHosts = ["ecommerce-shipping-service", "localhost"];
+      corsOrigins = ["http://localhost:4200", "http://localhost:4300", "http://localhost:4500"];
+      corsMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
     }
     cacheOps {
@@ -180,19 +187,7 @@
     alias env = "PROD";
     alias resource = "prod";
 
-    flavor = "ecs-fargate";
     replicas = 2;
-    replace rdbms shippingDb {
-      id = "b2d05363-b3d0-4061-81da-20d9d4ed826d";
-      engine = "postgres";
-      flavor = "rds";
-      host = "postgres.internal";
-      database = "shipping_db";
-      poolSize = 40;
-      maxOverflow = 20;
-      ssl = true;
-      healthCheckSql = "SELECT 1";
-    }
     strategy {
       rolling {
         maxUnavailable = "25%";
@@ -204,10 +199,10 @@
     alias env = "AWS";
     alias resource = "aws";
 
-    // Consumers run inside the ECS task, not as SQS-triggered Lambdas: the
-    // Lambda packaging path is realized for python and typescript only, and
-    // this example generates in every registered language.
-    runtime { consumers = "in-process"; }
+    // Consumers run as SQS-triggered Lambdas: the `mq` topics cross service
+    // boundaries, which on AWS means SNS/SQS, and no language target runs an
+    // SQS pubsub consumer inside the service process.
+    runtime { consumers = "decoupled"; }
 
     replicas = 2;
     scaling {
@@ -236,12 +231,8 @@
       nodeType = "cache.t3.small";
     }
     replace pubsub mq {
-      engine = "kafka";
-      flavor = "msk";
-      instanceType = "kafka.m5.large";
-      brokerCount = 3;
-      storageGb = 100;
-      kafkaVersion = "3.6.0";
+      engine = "sns-sqs";
+      flavor = "managed";
       partitions = 3;
       replicationFactor = 3;
       retention = "7d";

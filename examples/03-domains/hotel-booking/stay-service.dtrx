@@ -1,0 +1,699 @@
+from hotel.common import StayStatus, RoomCondition, TestCard;
+
+// Rooms, what is free and who is staying. A room is sold by type, not by number: the number is chosen at the desk.
+// Holding a room counts it as gone for ten minutes, so two guests paying at once cannot both get the last one, and
+// a job gives back what nobody paid for.
+service hotel.StayService('config/stay-service.dcfg') : version('1.0.0'), description('Rooms, availability, holds and stays') {
+
+    discovery { }
+
+    uses PaymentProvider;
+    uses ChannelProvider;
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            Email email;
+            String? fullName;
+            group "frontdesk" as frontDesk;
+            group "operators" as operator;
+        }
+        provider machine config('config/identity/machine.dcfg') { }
+        provider paymentKeys config('config/identity/payment-keys.dcfg') { }
+        provider emailKeys config('config/identity/email-keys.dcfg') { }
+        provider channelKeys config('config/identity/channel-keys.dcfg') { }
+    }
+
+    exceptions {
+        NoSuchStayError : status(404), message("Stay not found");
+        NoSuchRoomTypeError : status(404), message("There is no room of that kind");
+        BadDatesError : status(422), message("A stay leaves after it arrives, arrives no earlier than today and lasts at most 30 nights");
+        TooManyGuestsError : status(422), message("That room does not sleep that many");
+        SoldOutError : status(409), message("Those dates have just gone. Please choose another room");
+        HoldLapsedError : status(409), message("Your hold has lapsed. Please search again");
+        CardDeclinedError : status(402), message("The card was declined. Your room is still held");
+        CannotCancelError : status(409), message("This stay can no longer be cancelled");
+        BadMoveError : status(409), message("A stay cannot do that from where it is");
+        RoomNotReadyError : status(409), message("That room is not ready");
+        RoomOccupiedError : status(409), message("Someone is in that room");
+    }
+
+    /// How long a guest has to pay.
+    const HOLD_MINUTES = 10;
+
+    /// How close to arrival a stay can still be cancelled, in days.
+    const FREE_CANCEL_DAYS = 2;
+
+    /// What a channel knows this hotel by.
+    const PROPERTY_CODE = "MARRAM-01";
+
+    rdbms stayDb {
+
+        /// What a guest chooses.
+        entity RoomType extends BaseEntity {
+            String(80) name : unique;
+            String(200) summary;
+            Text description;
+            Int sleeps;
+            Money nightlyRate;
+            /// How many rooms of this type can be sold. Taking one out of service does not change it.
+            Int inventory;
+            Boolean listed : filterable = true;
+        }
+
+        /// A door with a number. Only the desk thinks about these.
+        entity Room extends BaseEntity {
+            String(8) number : unique;
+            UUID roomTypeId : index;
+            String(80) roomTypeName : filterable;
+            Int floor;
+            RoomCondition condition : filterable = RoomCondition.Ready;
+        }
+
+        entity Stay extends BaseEntity {
+            /// MH-402193. The code a guest reads out at the desk.
+            String(20) code : unique;
+            UUID roomTypeId : index;
+            String(80) roomTypeName : filterable;
+            String(8)? roomNumber;
+            String(64) guestId : index;
+            String(200) guestName : filterable;
+            Email guestEmail;
+            Date arrival : filterable;
+            Date departure : filterable;
+            Int nights;
+            Int guests;
+            Money total;
+            StayStatus status : filterable = StayStatus.Held;
+            /// A held room goes back on sale at this moment.
+            DateTime? holdUntil;
+            String(40)? chargeId;
+            Text? deskNote;
+
+            index(roomTypeId, arrival, departure);
+            index(status, holdUntil);
+        }
+    }
+
+    pubsub mq {
+        topic StayEvents {
+            publish StayConfirmed(String code, String guestName, String guestEmail, String roomTypeName, String arrival, String departure, String total) {
+                ensure code.length > 0;
+            }
+            publish StayCancelled(String code, String guestEmail, String roomTypeName) {
+                ensure code.length > 0;
+            }
+            publish HoldLapsed(String code, String guestEmail, String roomTypeName) {
+                ensure code.length > 0;
+            }
+            publish ArrivingTomorrow(String code, String guestName, String guestEmail, String roomTypeName) {
+                ensure code.length > 0;
+            }
+            publish GuestLeft(String code, String guestName, String guestEmail) {
+                ensure code.length > 0;
+            }
+        }
+    }
+
+    struct RoomTypeCard {
+        UUID id;
+        String name;
+        String summary;
+        String description;
+        Int sleeps;
+        Money nightlyRate;
+    }
+
+    struct SearchRequest {
+        Date arrival;
+        Date departure;
+        Int guests;
+    }
+
+    /// One room a guest could book for the dates they asked about.
+    struct Offer {
+        UUID roomTypeId;
+        String name;
+        String summary;
+        Int sleeps;
+        Money nightlyRate;
+        Int nights;
+        Money total;
+        Int left;
+    }
+
+    struct HoldRequest {
+        UUID roomTypeId;
+        Date arrival;
+        Date departure;
+        Int guests;
+    }
+
+    struct PayRequest {
+        UUID stayId;
+        TestCard card;
+    }
+
+    /// A stay as a guest sees it. There is no field here for the desk's note.
+    struct StayCard {
+        UUID id;
+        String code;
+        String roomTypeName;
+        String? roomNumber;
+        String guestName;
+        Date arrival;
+        Date departure;
+        Int nights;
+        Int guests;
+        Money total;
+        StayStatus status;
+        /// When a held stay lapses. For any other stay, when it was made: only a hold shows it.
+        DateTime holdEnds;
+        Boolean canCancel;
+    }
+
+    struct DeskStay {
+        StayCard stay;
+        String guestEmail;
+        String? deskNote;
+    }
+
+    struct RoomCard {
+        UUID id;
+        String number;
+        String roomTypeName;
+        Int floor;
+        RoomCondition condition;
+    }
+
+    struct AssignRequest {
+        UUID stayId;
+        String(8) roomNumber;
+    }
+
+    struct NoteRequest {
+        UUID stayId;
+        String(2000) note;
+    }
+
+    struct ConditionRequest {
+        RoomCondition condition;
+    }
+
+    struct DeskSummary {
+        Int arrivals;
+        Int departures;
+        Int inHouse;
+        Int roomsToClean;
+        Int occupancyPercent;
+    }
+
+    /// One night on the occupancy chart.
+    struct OccupancyPoint {
+        String night;
+        Int sold;
+        Int left;
+    }
+
+    /// A stay on the desk's calendar, whose bars run from noon on arrival to noon on departure.
+    struct CalendarStay {
+        UUID id;
+        String title;
+        DateTime startsAt;
+        DateTime endsAt;
+    }
+
+    fn roomTypeCardOf(stayDb.RoomType type) -> RoomTypeCard {
+        return RoomTypeCard {
+            id: type.id,
+            name: type.name,
+            summary: type.summary,
+            description: type.description,
+            sleeps: type.sleeps,
+            nightlyRate: type.nightlyRate
+        };
+    }
+
+    fn canCancel(stayDb.Stay stay) -> Boolean {
+        if (stay.status == StayStatus.Held) {
+            return true;
+        }
+        return stay.status == StayStatus.Confirmed && stay.arrival.isAfter(Date.now().addDays(FREE_CANCEL_DAYS - 1));
+    }
+
+    fn cardOf(stayDb.Stay stay) -> StayCard {
+        return StayCard {
+            id: stay.id,
+            code: stay.code,
+            roomTypeName: stay.roomTypeName,
+            roomNumber: stay.roomNumber,
+            guestName: stay.guestName,
+            arrival: stay.arrival,
+            departure: stay.departure,
+            nights: stay.nights,
+            guests: stay.guests,
+            total: stay.total,
+            status: stay.status,
+            holdEnds: stay.holdUntil ?? stay.createdAt,
+            canCancel: canCancel(stay)
+        };
+    }
+
+    fn cardsOf(Array<stayDb.Stay> stays) -> Array<StayCard> {
+        let Array<StayCard> cards = [];
+        foreach stay in stays {
+            cards.push(cardOf(stay));
+        }
+        return cards;
+    }
+
+    fn checkDates(Date arrival, Date departure) {
+        let Int nights = arrival.diffInDays(departure);
+        if (nights < 1 || nights > 30 || arrival.isBefore(Date.now())) {
+            throw BadDatesError();
+        }
+    }
+
+    /// How many of a room type are sold or held on one night. A lapsed hold no longer counts, even if the job has
+    /// not reached it yet.
+    fn takenOn(UUID roomTypeId, Date night) -> Int {
+        let Array<stayDb.Stay> overlapping = stayDb.Stay
+            .where(roomTypeId: roomTypeId, arrival: lte(night), departure: gt(night))
+            .whereIn(status: [StayStatus.Held, StayStatus.Confirmed, StayStatus.CheckedIn])
+            .all();
+        let Int taken = 0;
+        foreach stay in overlapping {
+            if (stay.status != StayStatus.Held || (stay.holdUntil ?? DateTime.now()) > DateTime.now()) {
+                taken = taken + 1;
+            }
+        }
+        return taken;
+    }
+
+    /// The fewest rooms left on any night of the stay.
+    fn leftFor(stayDb.RoomType type, Date arrival, Date departure) -> Int {
+        let Int left = type.inventory;
+        let Date night = arrival;
+        while (night.isBefore(departure)) {
+            let Int free = type.inventory - takenOn(type.id, night);
+            if (free < left) {
+                left = free;
+            }
+            night = night.addDays(1);
+        }
+        return left;
+    }
+
+    fn ownStay(UUID id) -> stayDb.Stay {
+        let stayDb.Stay? stay = stayDb.Stay.where(id: id, guestId: Auth.userId()).first();
+        if (stay == null) {
+            throw NoSuchStayError();
+        }
+        return stay;
+    }
+
+    /// Money comes back in full, and the room goes back on sale. A held stay was never charged.
+    fn cancelStay(stayDb.Stay stay) {
+        let String? chargeId = stay.chargeId;
+        if (chargeId != null) {
+            let String charge = chargeId;
+            PaymentProvider.PaymentAPI.post.refundCharge(RefundChargeRequest {
+                chargeId: charge,
+                amount: stay.total,
+                idempotencyKey: #"refund-{stay.code}"
+            });
+        }
+        stay.status = StayStatus.Cancelled;
+        stay.holdUntil = null;
+        stay.save();
+        dispatch StayCancelled(stay.code, stay.guestEmail.toString(), stay.roomTypeName);
+    }
+
+    // What anyone may read, and what a guest does with their own stays.
+    rest_api StayAPI : basePath('/api/v1/stays'), rdbms(stayDb) {
+
+        @path('/room-types')
+        get roomTypes() : auth(public) -> Array<RoomTypeCard> {
+            let Array<stayDb.RoomType> types = stayDb.RoomType.where(listed: true).orderBy(nightlyRate: asc).limit(50).all();
+            let Array<RoomTypeCard> cards = [];
+            foreach type in types {
+                cards.push(roomTypeCardOf(type));
+            }
+            return cards;
+        }
+
+        @path('/room-types/:id')
+        get roomType(UUID id) : auth(public) -> RoomTypeCard {
+            let stayDb.RoomType? type = stayDb.RoomType.where(id: id, listed: true).first();
+            if (type == null) {
+                throw NoSuchRoomTypeError();
+            }
+            return roomTypeCardOf(type);
+        }
+
+        // A read, sent as a body so the dates are typed. It changes nothing and holds nothing.
+        @path('/search')
+        post search(SearchRequest request) : auth(public) -> Array<Offer> {
+            checkDates(request.arrival, request.departure);
+            let Int nights = request.arrival.diffInDays(request.departure);
+            let Array<stayDb.RoomType> types = stayDb.RoomType.where(listed: true, sleeps: gte(request.guests)).orderBy(nightlyRate: asc).limit(50).all();
+            let Array<Offer> offers = [];
+            foreach type in types {
+                let Int left = leftFor(type, request.arrival, request.departure);
+                if (left > 0) {
+                    offers.push(Offer {
+                        roomTypeId: type.id,
+                        name: type.name,
+                        summary: type.summary,
+                        sleeps: type.sleeps,
+                        nightlyRate: type.nightlyRate,
+                        nights: nights,
+                        total: type.nightlyRate.multiply(nights),
+                        left: left
+                    });
+                }
+            }
+            return offers;
+        }
+
+        // The room type's row is locked for the check and the insert, so the last room goes to one guest.
+        @path('/hold')
+        post hold(HoldRequest request) : auth(required, providers: [identity]) -> StayCard {
+            checkDates(request.arrival, request.departure);
+            let Int nights = request.arrival.diffInDays(request.departure);
+            let String guestName = Auth.identity.fullName ?? Auth.identity.email.toString();
+            let String code = #"MH-{Random.string(6, '0123456789')}";
+            transaction(stayDb) {
+                let stayDb.RoomType type = stayDb.RoomType.where(id: request.roomTypeId, listed: true).forUpdate().firstOrFail();
+                if (request.guests > type.sleeps) {
+                    throw TooManyGuestsError();
+                }
+                if (leftFor(type, request.arrival, request.departure) < 1) {
+                    throw SoldOutError();
+                }
+                stayDb.Stay.create({
+                    code: code,
+                    roomTypeId: type.id,
+                    roomTypeName: type.name,
+                    guestId: Auth.userId(),
+                    guestName: guestName,
+                    guestEmail: Auth.identity.email,
+                    arrival: request.arrival,
+                    departure: request.departure,
+                    nights: nights,
+                    guests: request.guests,
+                    total: type.nightlyRate.multiply(nights),
+                    holdUntil: DateTime.now().addMinutes(HOLD_MINUTES)
+                });
+            }
+            let stayDb.Stay held = stayDb.Stay.where(code: code).firstOrFail();
+            return cardOf(held);
+        }
+
+        // Paying twice with the same stay finds the first charge at the vendor, so a retry cannot charge twice.
+        @path('/pay')
+        post pay(PayRequest request) : auth(required, providers: [identity]) -> StayCard {
+            let stayDb.Stay stay = ownStay(request.stayId);
+            if (stay.status == StayStatus.Confirmed) {
+                return cardOf(stay);
+            }
+            if (stay.status != StayStatus.Held || (stay.holdUntil ?? DateTime.now()) <= DateTime.now()) {
+                throw HoldLapsedError();
+            }
+            let String cardToken = request.card == TestCard.CardThatIsDeclined ? "tok_declined" : "tok_pays";
+            let Charge answer = PaymentProvider.PaymentAPI.post.createCharge(CreateChargeRequest {
+                cardToken: cardToken,
+                amount: stay.total,
+                currency: "USD",
+                reference: stay.code,
+                idempotencyKey: #"stay-{stay.code}-{cardToken}"
+            });
+            if (answer.status != ChargeStatus.Succeeded) {
+                throw CardDeclinedError();
+            }
+            stay.chargeId = answer.id;
+            stay.status = StayStatus.Confirmed;
+            stay.holdUntil = null;
+            stay.save();
+            dispatch StayConfirmed(stay.code, stay.guestName, stay.guestEmail.toString(), stay.roomTypeName, stay.arrival.format('dd MMMM YYYY'), stay.departure.format('dd MMMM YYYY'), stay.total.toString());
+            return cardOf(stay);
+        }
+
+        @path('/mine')
+        get mine() : auth(required, providers: [identity]) -> Array<StayCard> {
+            return cardsOf(stayDb.Stay.where(guestId: Auth.userId()).orderBy(arrival: desc).limit(100).all());
+        }
+
+        @path('/mine/:id')
+        get oneOfMine(UUID id) : auth(required, providers: [identity]) -> StayCard {
+            return cardOf(ownStay(id));
+        }
+
+        @path('/mine/:id/cancel')
+        post cancelMine(UUID id) : auth(required, providers: [identity]) -> StayCard {
+            let stayDb.Stay stay = ownStay(id);
+            if (!canCancel(stay)) {
+                throw CannotCancelError();
+            }
+            cancelStay(stay);
+            return cardOf(stay);
+        }
+    }
+
+    // What the front desk works with.
+    rest_api DeskAPI : basePath('/api/v1/desk'), rdbms(stayDb) {
+
+        resource stayDb.RoomType : auth(required, providers: [identity], roles: [frontDesk]);
+
+        resource stayDb.Stay : only(list), auth(required, providers: [identity], roles: [frontDesk]);
+
+        @path('/today')
+        get today() : auth(required, providers: [identity], roles: [frontDesk]) -> DeskSummary {
+            let Date day = Date.now();
+            let Int sellable = 0;
+            let Array<stayDb.RoomType> types = stayDb.RoomType.where(listed: true).limit(50).all();
+            let Int taken = 0;
+            foreach type in types {
+                sellable = sellable + type.inventory;
+                taken = taken + takenOn(type.id, day);
+            }
+            return DeskSummary {
+                arrivals: stayDb.Stay.where(arrival: day, status: StayStatus.Confirmed).count(),
+                departures: stayDb.Stay.where(departure: day, status: StayStatus.CheckedIn).count(),
+                inHouse: stayDb.Stay.where(status: StayStatus.CheckedIn).count(),
+                roomsToClean: stayDb.Room.where(condition: RoomCondition.Dirty).count(),
+                occupancyPercent: sellable == 0 ? 0 : (taken * 100 / sellable).toInteger()
+            };
+        }
+
+        @path('/arrivals')
+        get arrivals() : auth(required, providers: [identity], roles: [frontDesk]) -> Array<StayCard> {
+            return cardsOf(stayDb.Stay.where(arrival: Date.now(), status: StayStatus.Confirmed).orderBy(guestName: asc).limit(100).all());
+        }
+
+        @path('/departures')
+        get departures() : auth(required, providers: [identity], roles: [frontDesk]) -> Array<StayCard> {
+            return cardsOf(stayDb.Stay.where(departure: lte(Date.now()), status: StayStatus.CheckedIn).orderBy(guestName: asc).limit(100).all());
+        }
+
+        @path('/occupancy')
+        get occupancy() : auth(required, providers: [identity], roles: [frontDesk]) -> Array<OccupancyPoint> {
+            let Array<stayDb.RoomType> types = stayDb.RoomType.where(listed: true).limit(50).all();
+            let Array<OccupancyPoint> points = [];
+            foreach ahead in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] {
+                let Date night = Date.now().addDays(ahead);
+                let Int sold = 0;
+                let Int left = 0;
+                foreach type in types {
+                    let Int taken = takenOn(type.id, night);
+                    sold = sold + taken;
+                    left = left + type.inventory - taken;
+                }
+                points.push(OccupancyPoint { night: night.format('MMM dd'), sold: sold, left: left });
+            }
+            return points;
+        }
+
+        @path('/calendar')
+        get calendar() : auth(required, providers: [identity], roles: [frontDesk]) -> Array<CalendarStay> {
+            let Array<stayDb.Stay> stays = stayDb.Stay
+                .whereIn(status: [StayStatus.Confirmed, StayStatus.CheckedIn])
+                .where(departure: gte(Date.now().subtractDays(7)))
+                .orderBy(arrival: asc)
+                .limit(300)
+                .all();
+            let Array<CalendarStay> bars = [];
+            foreach stay in stays {
+                bars.push(CalendarStay {
+                    id: stay.id,
+                    title: #"{stay.guestName}, {stay.roomTypeName}",
+                    startsAt: DateTime.parse(#"{stay.arrival.toISOString()}T12:00:00Z"),
+                    endsAt: DateTime.parse(#"{stay.departure.toISOString()}T12:00:00Z")
+                });
+            }
+            return bars;
+        }
+
+        @path('/stays/:id')
+        get oneStay(UUID id) : auth(required, providers: [identity], roles: [frontDesk]) -> DeskStay {
+            let stayDb.Stay stay = stayDb.Stay.findOrFail(id);
+            return DeskStay { stay: cardOf(stay), guestEmail: stay.guestEmail.toString(), deskNote: stay.deskNote };
+        }
+
+        @path('/stays/:id/free-rooms')
+        get freeRooms(UUID id) : auth(required, providers: [identity], roles: [frontDesk]) -> Array<RoomCard> {
+            let stayDb.Stay stay = stayDb.Stay.findOrFail(id);
+            let Array<stayDb.Room> rooms = stayDb.Room.where(roomTypeId: stay.roomTypeId, condition: RoomCondition.Ready).orderBy(number: asc).limit(100).all();
+            let Array<RoomCard> free = [];
+            foreach room in rooms {
+                if (stayDb.Stay.where(roomNumber: room.number, status: StayStatus.CheckedIn).count() == 0) {
+                    free.push(RoomCard { id: room.id, number: room.number, roomTypeName: room.roomTypeName, floor: room.floor, condition: room.condition });
+                }
+            }
+            return free;
+        }
+
+        // A guest gets a room that is clean and empty, and the row of the room is locked while that is checked.
+        @path('/check-in')
+        post checkIn(AssignRequest request) : auth(required, providers: [identity], roles: [frontDesk]) -> StayCard {
+            let stayDb.Stay stay = stayDb.Stay.findOrFail(request.stayId);
+            if (stay.status != StayStatus.Confirmed) {
+                throw BadMoveError();
+            }
+            transaction(stayDb) {
+                let stayDb.Room room = stayDb.Room.where(number: request.roomNumber, roomTypeId: stay.roomTypeId).forUpdate().firstOrFail();
+                if (room.condition != RoomCondition.Ready) {
+                    throw RoomNotReadyError();
+                }
+                if (stayDb.Stay.where(roomNumber: room.number, status: StayStatus.CheckedIn).count() > 0) {
+                    throw RoomOccupiedError();
+                }
+                stay.roomNumber = room.number;
+                stay.status = StayStatus.CheckedIn;
+                stay.save();
+            }
+            return cardOf(stay);
+        }
+
+        // Leaving makes the room dirty, so it reaches the housekeeping board by itself.
+        @path('/stays/:id/check-out')
+        post checkOut(UUID id) : auth(required, providers: [identity], roles: [frontDesk]) -> StayCard {
+            let stayDb.Stay stay = stayDb.Stay.findOrFail(id);
+            if (stay.status != StayStatus.CheckedIn) {
+                throw BadMoveError();
+            }
+            stay.status = StayStatus.CheckedOut;
+            stay.save();
+            let String? number = stay.roomNumber;
+            if (number != null) {
+                let String roomNumber = number;
+                let stayDb.Room room = stayDb.Room.where(number: roomNumber).firstOrFail();
+                room.condition = RoomCondition.Dirty;
+                room.save();
+            }
+            dispatch GuestLeft(stay.code, stay.guestName, stay.guestEmail.toString());
+            return cardOf(stay);
+        }
+
+        @path('/stays/:id/cancel')
+        post cancelAtDesk(UUID id) : auth(required, providers: [identity], roles: [frontDesk]) -> StayCard {
+            let stayDb.Stay stay = stayDb.Stay.findOrFail(id);
+            if (stay.status != StayStatus.Held && stay.status != StayStatus.Confirmed) {
+                throw CannotCancelError();
+            }
+            cancelStay(stay);
+            return cardOf(stay);
+        }
+
+        @path('/note')
+        post addNote(NoteRequest request) : auth(required, providers: [identity], roles: [frontDesk]) -> StayCard {
+            let stayDb.Stay stay = stayDb.Stay.findOrFail(request.stayId);
+            stay.deskNote = request.note;
+            stay.save();
+            return cardOf(stay);
+        }
+
+        @path('/rooms')
+        get rooms() : auth(required, providers: [identity], roles: [frontDesk]) -> Array<RoomCard> {
+            let Array<stayDb.Room> rows = stayDb.Room.all().orderBy(number: asc);
+            let Array<RoomCard> cards = [];
+            foreach room in rows {
+                cards.push(RoomCard { id: room.id, number: room.number, roomTypeName: room.roomTypeName, floor: room.floor, condition: room.condition });
+            }
+            return cards;
+        }
+
+        @path('/rooms/:id/condition')
+        post setCondition(UUID id, ConditionRequest request) : auth(required, providers: [identity], roles: [frontDesk]) -> RoomCard {
+            let stayDb.Room room = stayDb.Room.findOrFail(id);
+            room.condition = request.condition;
+            room.save();
+            return RoomCard { id: room.id, number: room.number, roomTypeName: room.roomTypeName, floor: room.floor, condition: room.condition };
+        }
+    }
+
+    jobs {
+        // A hold nobody paid for goes back on sale. takenOn already ignores it; this tells the guest.
+        job ExpireHolds {
+            let Array<stayDb.Stay> lapsed = stayDb.Stay.where(status: StayStatus.Held).where(holdUntil: lt(DateTime.now())).limit(200).all();
+            foreach stay in lapsed {
+                stay.status = StayStatus.Expired;
+                stay.holdUntil = null;
+                stay.save();
+                dispatch HoldLapsed(stay.code, stay.guestEmail.toString(), stay.roomTypeName);
+            }
+        }
+
+        // A channel that lags sells a room the hotel no longer has, so it hears the next two weeks often.
+        job PushAvailability {
+            let Array<stayDb.RoomType> types = stayDb.RoomType.where(listed: true).limit(50).all();
+            let Array<AvailabilityUpdate> nights = [];
+            foreach ahead in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] {
+                let Date night = Date.now().addDays(ahead);
+                foreach type in types {
+                    nights.push(AvailabilityUpdate {
+                        roomType: type.name,
+                        night: night,
+                        left: type.inventory - takenOn(type.id, night),
+                        nightlyRate: type.nightlyRate
+                    });
+                }
+            }
+            ChannelProvider.ChannelAPI.post.pushAvailability(AvailabilityPush { propertyCode: PROPERTY_CODE, nights: nights });
+        }
+
+        // The day before, once. Each notice has its own key, so running this more often sends nothing twice.
+        job RemindArrivals {
+            let Array<stayDb.Stay> tomorrow = stayDb.Stay.where(arrival: Date.now().addDays(1), status: StayStatus.Confirmed).limit(200).all();
+            foreach stay in tomorrow {
+                dispatch ArrivingTomorrow(stay.code, stay.guestName, stay.guestEmail.toString(), stay.roomTypeName);
+            }
+        }
+    }
+
+    test("a hold counts until it lapses") {
+        let stayDb.RoomType type = stayDb.RoomType.create({
+            name: "Test room",
+            summary: "Summary",
+            description: "Description",
+            sleeps: 2,
+            nightlyRate: 100.00,
+            inventory: 1
+        });
+        let Date night = Date.now().addDays(5);
+        stayDb.Stay.create({
+            code: "MH-000001",
+            roomTypeId: type.id,
+            roomTypeName: type.name,
+            guestId: "guest",
+            guestName: "A Guest",
+            guestEmail: "guest@example.com",
+            arrival: night,
+            departure: night.addDays(1),
+            nights: 1,
+            guests: 2,
+            total: 100.00,
+            holdUntil: DateTime.now().addMinutes(5)
+        });
+        assert takenOn(type.id, night) == 1;
+    }
+}

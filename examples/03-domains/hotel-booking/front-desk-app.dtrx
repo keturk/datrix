@@ -1,0 +1,355 @@
+from hotel.ui import Brand, statRow;
+from hotel.common import StayStatus, RoomCondition;
+
+/// Where the desk works: who is arriving and leaving today, which room is clean, and what the travel sites were told.
+app hotel.FrontDesk('config/front-desk-app.dcfg') : version('1.0.0') {
+    uses hotel.StayService;
+    uses hotel.NoticeService;
+    uses hotel.PaymentMock;
+    uses hotel.EmailMock;
+    uses hotel.ChannelMock;
+
+    theme extends Brand { }
+
+    // The stay an open dialog works on: a form sends this value without showing it.
+    state UUID? openStayId = null;
+    state Boolean noting = false;
+
+    layout Shell : default {
+        nav {
+            link Today : icon(today), group(Msg.navDesk);
+            link CalendarPage : icon(calendar_month), group(Msg.navDesk);
+            link Housekeeping : icon(cleaning_services), group(Msg.navDesk);
+            link AllStaysPage : icon(table_rows), group(Msg.navDesk);
+            link RoomTypes.list : icon(king_bed), group(Msg.navRates);
+            link Charges : icon(credit_card), group(Msg.navVendors);
+            link Outbox : icon(mail), group(Msg.navVendors);
+            link Channel : icon(public), group(Msg.navVendors);
+            link Notices : icon(notifications), group(Msg.navVendors);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            text(Session.claim('name'));
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Today() {
+        data {
+            summary = StayService.DeskAPI.get.today() : poll(30s);
+            arrivals = StayService.DeskAPI.get.arrivals() : poll(30s);
+            departures = StayService.DeskAPI.get.departures() : poll(30s);
+            occupancy = StayService.DeskAPI.get.occupancy() : poll(60s);
+        }
+        view {
+            pageHeader(Msg.todayTitle, Msg.todaySubtitle);
+            grid : style(statRow) {
+                stat(Msg.statArrivals, Fmt.number(summary.arrivals)) : icon(login);
+                stat(Msg.statDepartures, Fmt.number(summary.departures)) : icon(logout);
+                stat(Msg.statInHouse, Fmt.number(summary.inHouse)) : icon(hotel);
+                stat(Msg.statOccupancy, Msg.percent(value: Fmt.number(summary.occupancyPercent))) : icon(pie_chart);
+            }
+            when (summary.roomsToClean > 0) {
+                callout(Msg.roomsToClean(count: Fmt.number(summary.roomsToClean))) : tone(warning);
+            }
+            section(Msg.arrivalsTitle) {
+                when (arrivals.isEmpty) {
+                    emptyState(Msg.noArrivals) : icon(event_available) { }
+                }
+                list(data: arrivals) : onClick(Nav.to(StayDetail, id: item.id)) {
+                    heading(item.guestName);
+                    row {
+                        badge(item.status);
+                        text(item.roomTypeName);
+                        text(Msg.nightsLine(count: Fmt.number(item.nights)));
+                        text(item.code);
+                    }
+                }
+            }
+            section(Msg.departuresTitle) {
+                when (departures.isEmpty) {
+                    emptyState(Msg.noDepartures) : icon(event_available) { }
+                }
+                list(data: departures) : onClick(Nav.to(StayDetail, id: item.id)) {
+                    heading(item.guestName);
+                    row {
+                        text(item.roomNumber ?? Msg.noRoom);
+                        text(item.roomTypeName);
+                        text(Fmt.money(item.total));
+                    }
+                }
+            }
+            section(Msg.occupancyTitle) {
+                card { chart(bar, data: occupancy, x: p => p.night, y: p => p.sold); }
+            }
+        }
+    }
+
+    @path('/calendar')
+    page CalendarPage() {
+        data { stays = StayService.DeskAPI.get.calendar(); }
+        view {
+            pageHeader(Msg.calendarTitle, Msg.calendarSubtitle);
+            calendar(data: stays, at: s => s.startsAt, until: s => s.endsAt) {
+                text(item.title);
+            }
+        }
+    }
+
+    @path('/housekeeping')
+    page Housekeeping() {
+        data { rooms = StayService.DeskAPI.get.rooms() : poll(20s); }
+
+        fn drop(UUID id, RoomCondition condition) {
+            StayService.DeskAPI.post.setCondition(id: id, request: ConditionRequest { condition: condition });
+            rooms.refresh();
+        }
+
+        view {
+            pageHeader(Msg.housekeepingTitle, Msg.housekeepingSubtitle);
+            board(data: rooms, column: r => r.condition) : onMove(drop(item.id, column)) {
+                heading(Msg.roomLine(number: item.number));
+                text(item.roomTypeName);
+                text(Msg.floorLine(floor: Fmt.number(item.floor)));
+            }
+        }
+    }
+
+    @path('/stays/:id')
+    page StayDetail(UUID id) {
+        data {
+            detail = StayService.DeskAPI.get.oneStay(id: id);
+            rooms = StayService.DeskAPI.get.freeRooms(id: id);
+        }
+
+        fn checkInto(String number) {
+            StayService.DeskAPI.post.checkIn(request: AssignRequest { stayId: id, roomNumber: number });
+            detail.refresh();
+            Ui.toast(Msg.checkedIn, tone: success);
+        }
+
+        fn checkOutNow() {
+            StayService.DeskAPI.post.checkOut(id: id);
+            detail.refresh();
+            Ui.toast(Msg.checkedOut, tone: success);
+        }
+
+        fn cancelNow() {
+            StayService.DeskAPI.post.cancelAtDesk(id: id);
+            detail.refresh();
+            Ui.toast(Msg.cancelled, tone: info);
+        }
+
+        fn startNote() {
+            openStayId = id;
+            noting = true;
+        }
+
+        fn stopNote() {
+            noting = false;
+            detail.refresh();
+        }
+
+        view {
+            pageHeader(detail.stay.guestName, detail.stay.code) : back(Today) {
+                badge(detail.stay.status);
+                button(Msg.addNote) : onClick(startNote()), icon(sticky_note_2);
+                when (detail.stay.status == StayStatus.CheckedIn) {
+                    button(Msg.checkOut) : onClick(checkOutNow()), kind(primary), icon(logout);
+                }
+                when (detail.stay.status == StayStatus.Confirmed || detail.stay.status == StayStatus.Held) {
+                    button(Msg.cancelStay) : onClick(cancelNow()), icon(event_busy), tone(danger);
+                }
+            }
+            grid : style(statRow) {
+                stat(Msg.statRoomType, detail.stay.roomTypeName) : icon(king_bed);
+                stat(Msg.statRoom, detail.stay.roomNumber ?? Msg.noRoom) : icon(door_front);
+                stat(Msg.statEmail, detail.guestEmail) : icon(mail);
+                stat(Msg.statTotal, Fmt.money(detail.stay.total)) : icon(payments);
+            }
+            card {
+                text(Msg.stayDates(from: Fmt.date(detail.stay.arrival), until: Fmt.date(detail.stay.departure)));
+                text(Msg.guestsLine(count: Fmt.number(detail.stay.guests)));
+            }
+            when (detail.deskNote != null) {
+                callout(detail.deskNote) : tone(info);
+            }
+            when (detail.stay.status == StayStatus.Confirmed) {
+                section(Msg.chooseRoom) {
+                    when (rooms.isEmpty) {
+                        callout(Msg.noRoomsReady) : tone(warning);
+                    }
+                    foreach (room in rooms) {
+                        card(Msg.roomLine(number: room.number)) {
+                            text(Msg.floorLine(floor: Fmt.number(room.floor)));
+                            button(Msg.checkIn) : onClick(checkInto(room.number)), kind(primary), icon(login);
+                        }
+                    }
+                }
+            }
+            when (noting) {
+                dialog(Msg.addNote) : onClose(stopNote()) {
+                    form(DeskNoteForm);
+                }
+            }
+        }
+    }
+
+    form DeskNoteForm : submit(StayService.DeskAPI.post.addNote) {
+        fn added() {
+            noting = false;
+            Ui.toast(Msg.noteAdded, tone: info);
+        }
+        field stayId : fixed(openStayId);
+        field note;
+        onSuccess(added());
+    }
+
+    @path('/stays')
+    page AllStaysPage() {
+        view {
+            pageHeader(Msg.allStaysTitle, Msg.allStaysSubtitle);
+            table(AllStays);
+        }
+    }
+
+    table AllStays : source(StayService.DeskAPI.stayDb.Stay.list), pageSizes(10, 25, 50), poll(30s) {
+        column code;
+        column guestName;
+        column roomTypeName;
+        column arrival : format(date);
+        column departure : format(date);
+        column total : format(money);
+        column status;
+        filter guestName : live;
+        filter roomTypeName;
+        filter status;
+        filter arrival;
+        rowAction open : onClick(Nav.to(StayDetail, id: row.id));
+    }
+
+    @path('/room-types')
+    workspace RoomTypes : over(StayService.DeskAPI.stayDb.RoomType) {
+        list {
+            column name;
+            column sleeps : format(number);
+            column nightlyRate : format(money);
+            column inventory : format(number);
+            column listed;
+            filter listed;
+        }
+        detail {
+            column name;
+            column summary;
+            column description;
+            column sleeps : format(number);
+            column nightlyRate : format(money);
+            column inventory : format(number);
+            column listed;
+        }
+        edit {
+            field name;
+            field summary;
+            field description;
+            field sleeps;
+            field nightlyRate;
+            field inventory;
+            field listed;
+        }
+    }
+
+    @path('/charges')
+    page Charges() {
+        view {
+            pageHeader(Msg.chargesTitle, Msg.chargesSubtitle);
+            table(ChargeList);
+        }
+    }
+
+    table ChargeList : source(PaymentMock.PaymentDeskAPI.paymentDb.CardCharge.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column reference;
+        column amount : format(money);
+        column status;
+        column declineReason;
+        filter reference;
+        filter status;
+    }
+
+    @path('/outbox')
+    page Outbox() {
+        view {
+            pageHeader(Msg.outboxTitle, Msg.outboxSubtitle);
+            table(OutboxList);
+        }
+    }
+
+    table OutboxList : source(EmailMock.EmailDeskAPI.emailDb.Outbound.list), pageSizes(10, 25, 50), poll(30s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column body;
+        column status;
+        filter recipient;
+    }
+
+    @path('/channel')
+    page Channel() {
+        view {
+            pageHeader(Msg.channelTitle, Msg.channelSubtitle);
+            table(ChannelList);
+        }
+    }
+
+    table ChannelList : source(ChannelMock.ChannelDeskAPI.channelDb.PublishedNight.list), pageSizes(25, 50, 100), poll(60s) {
+        column roomType;
+        column night : format(date);
+        column left : format(number);
+        column nightlyRate : format(money);
+        column receivedAt : format(relative);
+        filter roomType;
+        filter night;
+    }
+
+    @path('/notices')
+    page Notices() {
+        view {
+            pageHeader(Msg.noticesTitle, Msg.noticesSubtitle);
+            table(NoticeList);
+        }
+    }
+
+    table NoticeList : source(NoticeService.NoticeDeskAPI.noticeDb.Notice.list), pageSizes(10, 25, 50), poll(20s) {
+        column createdAt : format(relative);
+        column recipient;
+        column subject;
+        column delivered;
+        column attempts : format(number);
+        filter recipient;
+        filter delivered;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.backHome, Today); }
+        }
+    }
+}

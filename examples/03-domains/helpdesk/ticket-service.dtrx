@@ -1,0 +1,500 @@
+from helpdesk.common import TicketStatus, Priority, TicketTopic;
+
+// Tickets and what was said on them. A customer reads their own tickets and never an agent's internal note: the
+// two audiences get different structs, so a note cannot reach a customer by being left in a field. Every ticket
+// has a response clock set by its priority, and a job raises whatever runs out.
+service helpdesk.TicketService('config/ticket-service.dcfg') : version('1.0.0'), description('Tickets, replies and response clocks') {
+
+    discovery { }
+
+    identity {
+        provider identity config('config/identity/identity.dcfg') {
+            Email email;
+            String? fullName;
+            group "agents" as agent;
+            group "operators" as operator;
+        }
+        provider machine config('config/identity/machine.dcfg') { }
+        provider emailKeys config('config/identity/email-keys.dcfg') { }
+    }
+
+    exceptions {
+        NoSuchTicketError : status(404), message("Ticket not found");
+        ClosedTicketError : status(409), message("This ticket is closed. Please open a new one and mention its number");
+        NotResolvedError : status(409), message("A ticket can be rated once it is resolved");
+        BadScoreError : status(422), message("A score is from 1 to 5");
+        BadMoveError : status(409), message("A ticket cannot move there from where it is");
+    }
+
+    rdbms ticketDb {
+
+        entity Ticket extends BaseEntity {
+            /// LP-402193. The number people say out loud.
+            String(20) number : unique;
+            String(200) subject : filterable;
+            TicketTopic topic : filterable;
+            Priority priority : filterable = Priority.Normal;
+            TicketStatus status : filterable = TicketStatus.New;
+            String(64) customerId : index;
+            String(200) customerName : filterable;
+            Email customerEmail;
+            String(64)? assigneeId : index;
+            String(200)? assigneeName : filterable;
+            /// When a first answer is due. The clock stops at the first reply.
+            DateTime respondBy;
+            DateTime? firstRepliedAt;
+            DateTime? resolvedAt;
+            Boolean breached : filterable = false;
+            /// The customer's score from 1 to 5, once it is resolved.
+            Int? satisfaction;
+
+            index(status, respondBy);
+        }
+
+        /// One thing said on a ticket. Never changed afterwards: what was said stays said.
+        entity TicketMessage extends BaseEntity : appendOnly {
+            UUID ticketId : index;
+            String(200) authorName;
+            Boolean fromCustomer = false;
+            /// Seen by agents only.
+            Boolean internal = false;
+            Text body;
+        }
+
+        /// How long each priority may wait for a first answer.
+        entity ResponsePolicy extends BaseEntity {
+            Priority priority : unique;
+            Int minutes;
+        }
+
+        /// An answer agents send often, editable in the Console.
+        entity SavedReply extends BaseEntity {
+            String(120) title : filterable;
+            Text body;
+        }
+    }
+
+    pubsub mq {
+        topic TicketEvents {
+            publish TicketOpened(String number, String subject, String customerName, String customerEmail) {
+                ensure number.length > 0;
+            }
+            publish AgentReplied(String number, String subject, String agentName, String customerEmail, String body) {
+                ensure body.length > 0;
+            }
+            publish TicketResolved(String number, String subject, String customerEmail) {
+                ensure number.length > 0;
+            }
+            publish ResponseLate(String number, String subject, String priority) {
+                ensure number.length > 0;
+            }
+        }
+    }
+
+    /// A ticket as a list shows it, for either audience.
+    struct TicketCard {
+        UUID id;
+        String number;
+        String subject;
+        TicketTopic topic;
+        Priority priority;
+        TicketStatus status;
+        String customerName;
+        String? assigneeName;
+        DateTime respondBy;
+        DateTime createdAt;
+        Boolean breached;
+        Int? satisfaction;
+    }
+
+    /// What a customer may read. There is no field here that could carry an internal note.
+    struct CustomerMessage {
+        String authorName;
+        Boolean fromCustomer;
+        String body;
+        DateTime createdAt;
+    }
+
+    struct CustomerThread {
+        TicketCard ticket;
+        Array<CustomerMessage> messages;
+    }
+
+    struct AgentMessage {
+        String authorName;
+        Boolean fromCustomer;
+        Boolean internal;
+        String body;
+        DateTime createdAt;
+    }
+
+    struct AgentThread {
+        TicketCard ticket;
+        String customerEmail;
+        Boolean mine;
+        Array<AgentMessage> messages;
+    }
+
+    struct OpenTicketRequest {
+        TicketTopic topic;
+        String(200) subject;
+        String(4000) body;
+    }
+
+    struct ThreadEntry {
+        UUID ticketId;
+        String(4000) body;
+    }
+
+    struct MoveRequest {
+        TicketStatus status;
+    }
+
+    struct RateRequest {
+        Int score;
+    }
+
+    struct DeskSummary {
+        Int open;
+        Int unassigned;
+        Int late;
+        Int resolvedToday;
+        Float averageScore;
+    }
+
+    /// One day on the dashboard's chart.
+    struct VolumePoint {
+        String day;
+        Int opened;
+    }
+
+    fn cardOf(ticketDb.Ticket ticket) -> TicketCard {
+        return TicketCard {
+            id: ticket.id,
+            number: ticket.number,
+            subject: ticket.subject,
+            topic: ticket.topic,
+            priority: ticket.priority,
+            status: ticket.status,
+            customerName: ticket.customerName,
+            assigneeName: ticket.assigneeName,
+            respondBy: ticket.respondBy,
+            createdAt: ticket.createdAt,
+            breached: ticket.breached,
+            satisfaction: ticket.satisfaction
+        };
+    }
+
+    fn cardsOf(Array<ticketDb.Ticket> tickets) -> Array<TicketCard> {
+        let Array<TicketCard> cards = [];
+        foreach ticket in tickets {
+            cards.push(cardOf(ticket));
+        }
+        return cards;
+    }
+
+    /// Whoever asks about a ticket that is not theirs learns only that it was not found.
+    fn ownTicket(UUID id) -> ticketDb.Ticket {
+        let ticketDb.Ticket? ticket = ticketDb.Ticket.where(id: id, customerId: Auth.userId()).first();
+        if (ticket == null) {
+            throw NoSuchTicketError();
+        }
+        return ticket;
+    }
+
+    fn resolve(ticketDb.Ticket ticket) {
+        ticket.status = TicketStatus.Resolved;
+        ticket.resolvedAt = DateTime.now();
+        ticket.save();
+        dispatch TicketResolved(ticket.number, ticket.subject, ticket.customerEmail.toString());
+    }
+
+    fn raised(Priority priority) -> Priority {
+        if (priority == Priority.Low) {
+            return Priority.Normal;
+        }
+        if (priority == Priority.Normal) {
+            return Priority.High;
+        }
+        return Priority.Urgent;
+    }
+
+    // What a customer sees: their own tickets, in their own words and the public answers.
+    rest_api TicketAPI : basePath('/api/v1/tickets'), rdbms(ticketDb) {
+
+        @path('/')
+        get mine() : auth(required, providers: [identity]) -> Array<TicketCard> {
+            return cardsOf(ticketDb.Ticket.where(customerId: Auth.userId()).orderBy(createdAt: desc).limit(100).all());
+        }
+
+        @path('/:id')
+        get thread(UUID id) : auth(required, providers: [identity]) -> CustomerThread {
+            let ticketDb.Ticket ticket = ownTicket(id);
+            let Array<ticketDb.TicketMessage> said = ticketDb.TicketMessage
+                .where(ticketId: ticket.id, internal: false)
+                .orderBy(createdAt: asc)
+                .all();
+            let Array<CustomerMessage> messages = [];
+            foreach message in said {
+                messages.push(CustomerMessage {
+                    authorName: message.authorName,
+                    fromCustomer: message.fromCustomer,
+                    body: message.body,
+                    createdAt: message.createdAt
+                });
+            }
+            return CustomerThread { ticket: cardOf(ticket), messages: messages };
+        }
+
+        @path('/')
+        post openTicket(OpenTicketRequest request) : auth(required, providers: [identity]) -> TicketCard {
+            let ticketDb.ResponsePolicy policy = ticketDb.ResponsePolicy.where(priority: Priority.Normal).firstOrFail();
+            let String customerName = Auth.identity.fullName ?? Auth.identity.email.toString();
+            let ticketDb.Ticket ticket = ticketDb.Ticket.create({
+                number: #"LP-{Random.string(6, '0123456789')}",
+                subject: request.subject,
+                topic: request.topic,
+                customerId: Auth.userId(),
+                customerName: customerName,
+                customerEmail: Auth.identity.email,
+                respondBy: DateTime.now().addMinutes(policy.minutes)
+            });
+            ticketDb.TicketMessage.create({
+                ticketId: ticket.id,
+                authorName: customerName,
+                fromCustomer: true,
+                body: request.body
+            });
+            dispatch TicketOpened(ticket.number, ticket.subject, customerName, ticket.customerEmail.toString());
+            return cardOf(ticket);
+        }
+
+        // Answering a ticket that has gone quiet brings it back to an agent.
+        @path('/reply')
+        post addReply(ThreadEntry request) : auth(required, providers: [identity]) -> TicketCard {
+            let ticketDb.Ticket ticket = ownTicket(request.ticketId);
+            if (ticket.status == TicketStatus.Closed) {
+                throw ClosedTicketError();
+            }
+            ticketDb.TicketMessage.create({
+                ticketId: ticket.id,
+                authorName: ticket.customerName,
+                fromCustomer: true,
+                body: request.body
+            });
+            ticket.status = TicketStatus.Open;
+            ticket.resolvedAt = null;
+            ticket.save();
+            return cardOf(ticket);
+        }
+
+        @path('/:id/rate')
+        post rate(UUID id, RateRequest request) : auth(required, providers: [identity]) -> TicketCard {
+            if (request.score < 1 || request.score > 5) {
+                throw BadScoreError();
+            }
+            let ticketDb.Ticket ticket = ownTicket(id);
+            if (ticket.status != TicketStatus.Resolved && ticket.status != TicketStatus.Closed) {
+                throw NotResolvedError();
+            }
+            ticket.satisfaction = request.score;
+            ticket.save();
+            return cardOf(ticket);
+        }
+    }
+
+    // What an agent works with.
+    rest_api AgentAPI : basePath('/api/v1/agent'), rdbms(ticketDb) {
+
+        resource ticketDb.Ticket : only(list), auth(required, providers: [identity], roles: [agent]);
+
+        resource ticketDb.SavedReply : auth(required, providers: [identity], roles: [agent]);
+
+        // What the reply dialog offers, in the order a person finds them.
+        @path('/reply-choices')
+        get replyChoices() : auth(required, providers: [identity], roles: [agent]) -> Array<ticketDb.SavedReply> {
+            return ticketDb.SavedReply.orderBy(title: asc).limit(100).all();
+        }
+
+        // Everything still moving, soonest clock first.
+        @path('/queue')
+        get queue() : auth(required, providers: [identity], roles: [agent]) -> Array<TicketCard> {
+            return cardsOf(ticketDb.Ticket
+                .whereIn(status: [TicketStatus.New, TicketStatus.Open, TicketStatus.Waiting, TicketStatus.Resolved])
+                .orderBy(respondBy: asc)
+                .limit(200)
+                .all());
+        }
+
+        @path('/mine')
+        get assignedToMe() : auth(required, providers: [identity], roles: [agent]) -> Array<TicketCard> {
+            return cardsOf(ticketDb.Ticket
+                .where(assigneeId: Auth.userId())
+                .whereIn(status: [TicketStatus.New, TicketStatus.Open, TicketStatus.Waiting])
+                .orderBy(respondBy: asc)
+                .limit(100)
+                .all());
+        }
+
+        @path('/threads/:id')
+        get threadView(UUID id) : auth(required, providers: [identity], roles: [agent]) -> AgentThread {
+            let ticketDb.Ticket ticket = ticketDb.Ticket.findOrFail(id);
+            let Array<ticketDb.TicketMessage> said = ticketDb.TicketMessage.where(ticketId: id).orderBy(createdAt: asc).all();
+            let Array<AgentMessage> messages = [];
+            foreach message in said {
+                messages.push(AgentMessage {
+                    authorName: message.authorName,
+                    fromCustomer: message.fromCustomer,
+                    internal: message.internal,
+                    body: message.body,
+                    createdAt: message.createdAt
+                });
+            }
+            return AgentThread {
+                ticket: cardOf(ticket),
+                customerEmail: ticket.customerEmail.toString(),
+                mine: ticket.assigneeId == Auth.userId(),
+                messages: messages
+            };
+        }
+
+        @path('/threads/:id/claim')
+        post claim(UUID id) : auth(required, providers: [identity], roles: [agent]) -> TicketCard {
+            let ticketDb.Ticket ticket = ticketDb.Ticket.findOrFail(id);
+            ticket.assigneeId = Auth.userId();
+            ticket.assigneeName = Auth.identity.fullName ?? Auth.identity.email.toString();
+            if (ticket.status == TicketStatus.New) {
+                ticket.status = TicketStatus.Open;
+            }
+            ticket.save();
+            return cardOf(ticket);
+        }
+
+        // A public answer stops the clock and waits for the customer.
+        @path('/reply')
+        post reply(ThreadEntry request) : auth(required, providers: [identity], roles: [agent]) -> TicketCard {
+            let ticketDb.Ticket ticket = ticketDb.Ticket.findOrFail(request.ticketId);
+            if (ticket.status == TicketStatus.Closed) {
+                throw ClosedTicketError();
+            }
+            let String agentName = Auth.identity.fullName ?? Auth.identity.email.toString();
+            ticketDb.TicketMessage.create({ ticketId: ticket.id, authorName: agentName, body: request.body });
+            if (ticket.firstRepliedAt == null) {
+                ticket.firstRepliedAt = DateTime.now();
+            }
+            if (ticket.assigneeId == null) {
+                ticket.assigneeId = Auth.userId();
+                ticket.assigneeName = agentName;
+            }
+            ticket.status = TicketStatus.Waiting;
+            ticket.save();
+            dispatch AgentReplied(ticket.number, ticket.subject, agentName, ticket.customerEmail.toString(), request.body);
+            return cardOf(ticket);
+        }
+
+        // A note is for colleagues. It stops no clock and tells no one.
+        @path('/note')
+        post note(ThreadEntry request) : auth(required, providers: [identity], roles: [agent]) -> TicketCard {
+            let ticketDb.Ticket ticket = ticketDb.Ticket.findOrFail(request.ticketId);
+            ticketDb.TicketMessage.create({
+                ticketId: ticket.id,
+                authorName: Auth.identity.fullName ?? Auth.identity.email.toString(),
+                internal: true,
+                body: request.body
+            });
+            return cardOf(ticket);
+        }
+
+        // The queue's columns. A ticket closes only after it was resolved.
+        @path('/threads/:id/move')
+        post move(UUID id, MoveRequest request) : auth(required, providers: [identity], roles: [agent]) -> TicketCard {
+            let ticketDb.Ticket ticket = ticketDb.Ticket.findOrFail(id);
+            if (request.status == ticket.status) {
+                return cardOf(ticket);
+            }
+            if (ticket.status == TicketStatus.Closed) {
+                throw ClosedTicketError();
+            }
+            if (request.status == TicketStatus.New || (request.status == TicketStatus.Closed && ticket.status != TicketStatus.Resolved)) {
+                throw BadMoveError();
+            }
+            if (request.status == TicketStatus.Resolved) {
+                resolve(ticket);
+                return cardOf(ticket);
+            }
+            ticket.status = request.status;
+            ticket.save();
+            return cardOf(ticket);
+        }
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [agent]) -> DeskSummary {
+            let Array<ticketDb.Ticket> scored = ticketDb.Ticket.where(satisfaction: gte(1)).limit(500).all();
+            let Int total = 0;
+            let Int count = 0;
+            foreach ticket in scored {
+                total = total + (ticket.satisfaction ?? 0);
+                count = count + 1;
+            }
+            return DeskSummary {
+                open: ticketDb.Ticket.whereIn(status: [TicketStatus.New, TicketStatus.Open, TicketStatus.Waiting]).count(),
+                unassigned: ticketDb.Ticket.whereNull(assigneeId).whereIn(status: [TicketStatus.New, TicketStatus.Open]).count(),
+                late: ticketDb.Ticket.where(breached: true).whereIn(status: [TicketStatus.New, TicketStatus.Open]).count(),
+                resolvedToday: ticketDb.Ticket.where(resolvedAt: gte(DateTime.now().startOfDay())).count(),
+                averageScore: count == 0 ? 0.0 : total.toFloat() / count.toFloat()
+            };
+        }
+
+        @path('/volume')
+        get volume() : auth(required, providers: [identity], roles: [agent]) -> Array<VolumePoint> {
+            let Array<VolumePoint> points = [];
+            foreach back in [13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0] {
+                let DateTime start = DateTime.now().startOfDay().addDays(0 - back);
+                points.push(VolumePoint {
+                    day: start.format('MMM dd'),
+                    opened: ticketDb.Ticket.where(createdAt: gte(start)).where(createdAt: lt(start.addDays(1))).count()
+                });
+            }
+            return points;
+        }
+    }
+
+    jobs {
+        // A ticket past its clock with no answer is marked late, moved up a priority and told to the leads.
+        job WatchResponseClocks {
+            let Array<ticketDb.Ticket> overdue = ticketDb.Ticket
+                .where(breached: false)
+                .whereNull(firstRepliedAt)
+                .whereIn(status: [TicketStatus.New, TicketStatus.Open])
+                .where(respondBy: lt(DateTime.now()))
+                .limit(100)
+                .all();
+            foreach ticket in overdue {
+                ticket.breached = true;
+                ticket.priority = raised(ticket.priority);
+                ticket.save();
+                dispatch ResponseLate(ticket.number, ticket.subject, ticket.priority.toString());
+            }
+        }
+
+        // Nobody came back for three days, so it closes by itself.
+        job CloseQuietTickets {
+            let Array<ticketDb.Ticket> quiet = ticketDb.Ticket
+                .where(status: TicketStatus.Resolved)
+                .where(resolvedAt: lt(DateTime.now().addDays(-3)))
+                .limit(200)
+                .all();
+            foreach ticket in quiet {
+                ticket.status = TicketStatus.Closed;
+                ticket.save();
+            }
+        }
+    }
+
+    test("a higher priority is never lower") {
+        assert raised(Priority.Low) == Priority.Normal;
+        assert raised(Priority.Normal) == Priority.High;
+        assert raised(Priority.High) == Priority.Urgent;
+        assert raised(Priority.Urgent) == Priority.Urgent;
+    }
+}

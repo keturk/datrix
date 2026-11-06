@@ -1,0 +1,40 @@
+config service hotel.EmailMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8091;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms emailDb from postgresContainer(id: "b7c2d91e-5f34-4a06-8e27-1c6a9f4d3b52", database: "hotel_email_mock");
+    httpSecurity from localHttpSecurity(host: "hotel-email-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

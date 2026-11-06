@@ -1,16 +1,16 @@
 +++
-title = "Our new store is open"
+title = "Our new shop is open"
 published = 2026-09-01
-summary = "Everything you need, in one place, now in two languages."
+summary = "The makers we love, in one place, now in two languages."
 cover = "launch.svg"
 +++
-# Our new store is open
+# Our new shop is open
 
-We rebuilt the store from a single description. The catalog, the cart and the checkout all
-come from it, and so does this site.
+We started with a list of the things we kept giving to friends: a candle, a mug, a tablecloth
+that gets better with every wash. Now they are all in one place.
 
-## What is new
+## What you will find
 
-- A faster catalog with live stock.
-- Order tracking from the confirmation to your door.
-- The whole experience in English and Turkish.
+- Stock that is true when you look at it, so "only three left" means three.
+- Tracking from the moment your parcel leaves us until it reaches your door.
+- The whole shop in English and Turkish.

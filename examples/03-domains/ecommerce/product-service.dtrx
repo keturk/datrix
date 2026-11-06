@@ -1,54 +1,87 @@
+from ecommerce.common import OrderLineInput, CartLine, Sluggable, Inventoried, Discountable, ProductArt;
 
-from ecommerce.common import Currency, OrderLineInput, Sluggable, Inventoried, Discountable;
+// The catalog and its stock. Reading it needs no account. A reservation takes stock off the shelf for the few
+// minutes between placing an order and paying for it, and the order's own events settle or release it. Reviews
+// are documents, in a document store beside the relational catalog.
+service ecommerce.ProductService('config/product-service.dcfg') : version('2.0.0'), description('Catalog, stock and reviews') {
 
-service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0'), description('product management service') {
     discovery { }
+
+    exceptions {
+        NotOnSaleError : status(404), message("That product is not on sale");
+        InsufficientInventoryError : status(409), message("There is not enough of that in stock");
+        BadRatingError : status(422), message("A rating is from 1 to 5 stars");
+        CartTooLongError : status(422), message("A cart holds up to 50 products");
+    }
+
     enum ProductStatus {
-        Draft,
-        Active,
-        Discontinued
+        Draft : tone(neutral),
+        Active : tone(success),
+        Discontinued : tone(warning)
     }
 
     enum ReservationStatus {
-        Reserved,
-        Confirmed,
-        Released,
-        Expired
+        Reserved : tone(info),
+        Confirmed : tone(success),
+        Released : tone(neutral),
+        Expired : tone(warning)
     }
 
-    // Structs for API request/response payloads
-    struct AvailabilityItem {
+    /// A product as a shopper reads it.
+    struct ProductCard {
+        UUID id;
+        String name;
+        String description;
+        Money price;
+        Money? compareAtPrice;
+        Percentage discountPercent;
+        Boolean inStock;
+        Int inventory;
+        UUID categoryId;
+        String categoryName;
+        ProductArt art;
+        Array<String> tags;
+    }
+
+    struct CategoryCard {
+        UUID id;
+        String name;
+        String description;
+        ProductArt art;
+        Int products;
+    }
+
+    struct ReviewCard {
+        String authorName;
+        Int rating;
+        String? title;
+        String? body;
+        DateTime createdAt;
+    }
+
+    struct ReviewPage {
+        Int count;
+        Float average;
+        Array<ReviewCard> reviews;
+    }
+
+    struct AddReviewRequest {
         UUID productId;
-        Boolean available;
-        Int availableQuantity;
-    }
-
-    struct AvailabilityResponse {
-        Boolean allAvailable;
-        Array<AvailabilityItem> items;
-    }
-
-    struct ReservationResponse {
-        Boolean success;
-        UUID? reservationId;
-        String? error;
+        Int rating;
+        String(200)? title;
+        String(2000)? body;
     }
 
     struct CreateProductRequest {
-        String name;
+        String(200) name;
         Text description;
         Money price;
         UUID categoryId;
         Int inventory = 0;
     }
 
-    struct UpdateInventoryRequest {
+    struct SetInventoryRequest {
         Int inventory;
-    }
-
-    struct CheckAvailabilityRequest {
-        // Array<Type> defines a collection field
-        Array<OrderLineInput> items;
     }
 
     struct ReserveInventoryRequest {
@@ -57,17 +90,33 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
         Int ttlSeconds = 600;
     }
 
-    struct ConfirmReservationRequest {
-        UUID reservationId;
+    struct ReservationResponse {
+        Boolean success;
+        UUID? reservationId;
     }
 
-    struct ReleaseReservationRequest {
-        UUID reservationId;
+    struct ProductFacts {
+        String name;
+        Money price;
     }
 
-    struct BulkProductRequest {
-        Array<UUID> ids;
+    struct CartCheckRequest {
+        Array<CartLine> lines;
     }
+
+    /// The cart as it stands today, and whether that differs from what the device sent.
+    struct CartCheck {
+        Array<CartLine> lines;
+        Boolean changed;
+    }
+
+    struct CatalogSummary {
+        Int onSale;
+        Int outOfStock;
+        Int openAlerts;
+    }
+
+    const LOW_STOCK = 5;
 
     rdbms productDb {
 
@@ -75,21 +124,19 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
             String(100) name : unique, trim;
             Text? description;
             Slug slug : unique;
+            ProductArt art;
 
             hasMany Product as products;
         }
 
-        // 'with' mixes in multiple traits, adding their fields and methods
+        // 'with' mixes traits in, adding their fields and their methods.
         entity Product extends BaseEntity with Sluggable, Discountable, Inventoried {
-            String(200) name : trim;
+            String(200) name : trim, filterable;
             Text description;
-            ProductStatus status = ProductStatus.Draft;
+            ProductStatus status : filterable = ProductStatus.Draft;
+            Array<String> tags = [];
+            Int viewCount = 0;
 
-            JSON? productMetadata;
-            JSON images;
-            JSON tags;
-
-            // Computed field calling trait methods
             Boolean isAvailable := status == ProductStatus.Active && hasStock();
             Percentage discountPercent := getDiscountPercent();
 
@@ -97,36 +144,25 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
 
             index(categoryId, status);
             index(status, inventory);
-            // 'fulltext(...)' creates a full-text search index
             fulltext(name, description);
 
             afterUpdate {
                 if (isChanged(inventory)) {
                     dispatch InventoryUpdated(id, oldValue(inventory), inventory);
                 }
-
-                if (isChanged(status)) {
-                    // Invalidate cache when status changes
-                    redis.ProductCache.delete(#"product:{id}");
-                    redis.ProductCache.delete(#"product:slug:{slug}");
-                }
-
             }
 
-            // Entity-level methods
             fn publish() {
                 if (status == ProductStatus.Draft) {
                     status = ProductStatus.Active;
                     this.save();
                 }
-
             }
 
             fn discontinue() {
                 status = ProductStatus.Discontinued;
                 this.save();
             }
-
         }
 
         entity InventoryReservation extends BaseEntity {
@@ -143,561 +179,403 @@ service ecommerce.ProductService('config/product-service.dcfg') : version('1.0.0
                 if (quantity <= 0)
                 ValidationError("Reservation quantity must be positive");
             }
-
         }
 
+        /// A product running low, for the Admin dashboard. It closes when stock comes back.
+        entity StockAlert extends BaseEntity {
+            UUID productId : index;
+            String(200) productName;
+            Int remaining;
+            Boolean isOpen = true;
+        }
     }
 
     cache redis {
-        hash ProductCache : prefix('product:'), ttl(3600) {
-            UUID productId : key;
-            String name;
-            Decimal price;
-            Int inventory;
-            ProductStatus status;
-        }
-
-        // 'sortedset' is a scored collection for rankings and leaderboards
-        sortedset PopularProducts : prefix('popular:'), ttl(86400) {
-            UUID productId : member;
-            Int score;
-        }
-
         counter ProductViews : prefix('views:product:');
     }
 
     pubsub mq {
         topic ProductEvents {
-            publish ProductCreated(UUID productId, String name, Money price) {
-                ensure name.length > 0;
-                ensure price > 0;
-            }
-
             publish InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity) {
                 ensure newQuantity >= 0;
             }
-
-            publish InventoryReserved(UUID reservationId, Array<UUID> productIds) {
-                ensure productIds.length() > 0;
-            }
-
-            publish InventoryReleased(UUID reservationId, String reason) {
-                ensure reason.length > 0;
-            }
-
         }
-
     }
 
+    // Stock moved. Going low opens an alert, and coming back closes it.
     subscribe ProductEvents {
-
-        on ProductCreated(UUID productId, String name, Money price) {
-            Log.info("Product created", { productId: productId, name: name, price: price });
-        }
-
         on InventoryUpdated(UUID productId, Int oldQuantity, Int newQuantity) {
-            Log.info("Inventory updated", { productId: productId, oldQuantity: oldQuantity, newQuantity: newQuantity });
+            let StockAlert? open = productDb.StockAlert.where(productId: productId, isOpen: true).first();
+            if (newQuantity > LOW_STOCK) {
+                if (open != null) {
+                    open.isOpen = false;
+                    open.save();
+                }
+            } else if (open != null) {
+                open.remaining = newQuantity;
+                open.save();
+            } else {
+                let Product product = productDb.Product.findOrFail(productId);
+                productDb.StockAlert.create({ productId: productId, productName: product.name, remaining: newQuantity });
+            }
         }
-
-        on InventoryReserved(UUID reservationId, Array<UUID> productIds) {
-            Log.info("Inventory reserved", { reservationId: reservationId, productIds: productIds });
-        }
-
-        on InventoryReleased(UUID reservationId, String reason) {
-            Log.info("Inventory released", { reservationId: reservationId, reason: reason });
-        }
-
     }
 
-    subscribe OrderEvents {
-
-        on OrderConfirmed(UUID orderId, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
-            let Array<InventoryReservation> reservations = productDb.InventoryReservation
-            .where(reservationId: reservationId)
-            .where(status: ReservationStatus.Reserved)
+    fn releaseReservation(UUID reservationId, ReservationStatus outcome) {
+        let Array<InventoryReservation> held = productDb.InventoryReservation
+            .where(reservationId: reservationId, status: ReservationStatus.Reserved)
             .all();
+        transaction(productDb) {
+            foreach reservation in held {
+                let Product product = productDb.Product.findOrFail(reservation.productId);
+                product.inventory = product.inventory + reservation.quantity;
+                product.save();
+                reservation.status = outcome;
+                reservation.save();
+            }
+        }
+    }
 
-            foreach reservation in reservations {
+    // The order's own events settle the reservation, so nothing here calls OrderService.
+    subscribe OrderEvents {
+        on OrderConfirmed(UUID orderId, String customerId, String customerName, UUID? paymentId, UUID reservationId, Address shippingAddress, Array<JSON> items, Decimal estimatedWeight) {
+            foreach reservation in productDb.InventoryReservation.where(reservationId: reservationId, status: ReservationStatus.Reserved).all() {
                 reservation.status = ReservationStatus.Confirmed;
                 reservation.save();
             }
-
-            Log.info("Inventory reservation confirmed", { reservationId: reservationId, orderId: orderId });
         }
 
         on OrderCancelled(UUID orderId, String reason, UUID reservationId) {
-            let Array<InventoryReservation> reservations = productDb.InventoryReservation
-            .where(reservationId: reservationId)
-            .where(status: ReservationStatus.Reserved)
-            .all();
-
-            // 'transaction(productDb)' wraps operations in a database transaction
-            transaction(productDb) {
-                foreach reservation in reservations {
-                    let Product? product = productDb.Product.find(reservation.productId);
-
-                    if (product != null) {
-                        product.inventory = product.inventory + reservation.quantity;
-                        product.save();
-                    }
-
-                    reservation.status = ReservationStatus.Released;
-                    reservation.save();
-                }
-
-            }
-
-            dispatch InventoryReleased(reservationId, #"Order cancelled: {reason}");
-            Log.info("Inventory released for cancelled order", { orderId: orderId, reservationId: reservationId });
+            releaseReservation(reservationId, ReservationStatus.Released);
         }
-
     }
 
-    // NoSQL document database block for unstructured data
+    // Reviews are documents.
     nosql docdb {
-
-        // 'entity' defines a document store (like MongoDB collections)
         entity ProductReview {
-            UUID productId : index;
-            UUID userId : index;
+            String(40) productId : index;
+            String(64) userId : index;
+            String(200) authorName;
             Int rating;
-            String(500)? title;
-            Text? body;
-            JSON? media;
-            Boolean verified = false;
-            DateTime createdAt : server = DateTime.now();
+            String(200)? title;
+            String(2000)? body;
+            DateTime createdAt;
 
-            // Compound indexes for query performance
             index(productId, createdAt);
-            index(userId, createdAt);
         }
-
-        entity ProductAnalytics {
-            UUID productId : index;
-            String eventType;
-            JSON payload;
-            DateTime timestamp = DateTime.now();
-
-            index(productId, eventType, timestamp);
-        }
-
     }
 
-    // Storage block - defines file upload folders with constraints
-    storage store {
-        // 'allowed(...)' restricts MIME types; 'maxSize(...)' limits upload size
-        folder images : path('products/images/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('10mb')
-        folder thumbnails : path('products/thumbnails/'), allowed(['image/jpeg', 'image/png', 'image/webp']), maxSize('2mb')
+    fn cardOf(productDb.Product product) -> ProductCard {
+        let Category category = productDb.Category.findOrFail(product.categoryId);
+        return ProductCard {
+            id: product.id,
+            name: product.name,
+            description: product.description,
+            price: product.price,
+            compareAtPrice: product.compareAtPrice,
+            discountPercent: product.discountPercent,
+            inStock: product.isAvailable,
+            inventory: product.inventory,
+            categoryId: product.categoryId,
+            categoryName: category.name,
+            art: category.art,
+            tags: product.tags
+        };
     }
 
-    // A category is part of the public catalog, read the way a product is, so a page can show a
-    // product's category by name.
-    rest_api CategoryAPI : basePath('/api/v1/categories'), rdbms(productDb) {
-        resource productDb.Category : auth(public), only(list, get);
+    fn cardsOf(Array<productDb.Product> products) -> Array<ProductCard> {
+        let Array<ProductCard> cards = [];
+        foreach product in products {
+            cards.push(cardOf(product));
+        }
+        return cards;
     }
 
-    rest_api ProductAPI : basePath('/api/v1/products'), rdbms(productDb) {
+    // The public catalog: only what is on sale, and only what a shopper reads.
+    rest_api CatalogAPI : basePath('/api/v1/catalog'), rdbms(productDb) {
 
-        resource productDb.Product : auth(public), only(list, get);
-
-        // Creation is not a plain resource verb here: the explicit post(...) below
-        // claims POST /api/v1/products so it can generate the slug and dispatch
-        // ProductCreated. Listing 'create' as well would give one route two
-        // declarations, and only the first would be reachable.
-        resource productDb.Product : auth(required, providers: [identity], roles: [admin]), only(update, delete);
-
-        @path('/slug/:slug')
-        get productBySlug(String slug) : auth(public) -> productDb.Product {
-            let JSON? cached = redis.ProductCache.get(#"slug:{slug}");
-            if (cached != null) return cached;
-
-            let Product product = productDb.Product.where(slug: slug).firstOrFail();
-            redis.ProductCache.set(product.id, product);
-            return product;
+        @path('/categories')
+        get categories() : auth(public) -> Array<CategoryCard> {
+            let Array<CategoryCard> cards = [];
+            foreach category in productDb.Category.orderBy(name: asc).all() {
+                cards.push(CategoryCard {
+                    id: category.id,
+                    name: category.name,
+                    description: category.description ?? "",
+                    art: category.art,
+                    products: productDb.Product.where(categoryId: category.id, status: ProductStatus.Active).count()
+                });
+            }
+            return cards;
         }
 
-        // Full-text search endpoint
-        @path('/search')
-        get(String query, PageRequest page) : auth(public) -> Page<productDb.Product> {
-            return productDb.Product
-            .fulltext(query)
-            .where(status: ProductStatus.Active)
-            .page(page);
+        @path('/products')
+        get products() : auth(public) -> Array<ProductCard> {
+            return cardsOf(productDb.Product.where(status: ProductStatus.Active).orderBy(name: asc).limit(60).all());
+        }
+
+        // A cart lives on the device, so it goes stale: a price moves, stock runs out, a product leaves the shop.
+        // This corrects it. An order never trusts it either way, and looks every price up again.
+        @path('/cart-check')
+        post checkCart(CartCheckRequest request) : auth(public) -> CartCheck {
+            if (request.lines.length > 50) {
+                throw CartTooLongError();
+            }
+            let Array<CartLine> lines = [];
+            let Boolean changed = false;
+            foreach line in request.lines {
+                let Product? product = productDb.Product.where(id: line.productId, status: ProductStatus.Active).first();
+                if (product == null || product.inventory == 0) {
+                    changed = true;
+                } else {
+                    let Int quantity = line.quantity > product.inventory ? product.inventory : line.quantity;
+                    if (quantity != line.quantity || product.price != line.unitPrice || product.name != line.name) {
+                        changed = true;
+                    }
+                    lines.push(CartLine { productId: product.id, name: product.name, unitPrice: product.price, quantity: quantity });
+                }
+            }
+            return CartCheck { lines: lines, changed: changed };
+        }
+
+        @path('/popular')
+        get popular() : auth(public) -> Array<ProductCard> {
+            return cardsOf(productDb.Product.where(status: ProductStatus.Active).orderBy(viewCount: desc).limit(6).all());
+        }
+
+        @path('/search/:query')
+        get search(String query) : auth(public) -> Array<ProductCard> {
+            return cardsOf(productDb.Product.fulltext(query).where(status: ProductStatus.Active).limit(60).all());
         }
 
         @path('/category/:categoryId')
-        get(UUID categoryId, Int? limit) : auth(public) -> Array<productDb.Product> {
-            return productDb.Product
-            .where(categoryId: categoryId)
-            .where(status: ProductStatus.Active)
-            .orderBy(name: asc)
-            .limit(limit ?? 50)
-            .all();
+        get inCategory(UUID categoryId) : auth(public) -> Array<ProductCard> {
+            return cardsOf(productDb.Product.where(categoryId: categoryId, status: ProductStatus.Active).orderBy(name: asc).all());
         }
 
-        post(CreateProductRequest request) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
+        @path('/products/:id')
+        get product(UUID id) : auth(public) -> ProductCard {
+            let Product product = productDb.Product.findOrFail(id);
+            if (product.status == ProductStatus.Draft) {
+                throw NotOnSaleError();
+            }
+            redis.ProductViews.incr(id.toString());
+            return cardOf(product);
+        }
+
+        @path('/products/:id/reviews')
+        get reviews(UUID id) : auth(public) -> ReviewPage {
+            let String productKey = id.toString();
+            let Array<ProductReview> found = docdb.ProductReview.where(productId: productKey).orderBy(createdAt: desc).limit(50).all();
+            let Array<ReviewCard> cards = [];
+            let Int total = 0;
+            foreach review in found {
+                total = total + review.rating;
+                cards.push(ReviewCard {
+                    authorName: review.authorName,
+                    rating: review.rating,
+                    title: review.title,
+                    body: review.body,
+                    createdAt: review.createdAt
+                });
+            }
+            return ReviewPage {
+                count: found.length(),
+                average: found.length() == 0 ? 0.0 : Math.round(total / found.length(), 1),
+                reviews: cards
+            };
+        }
+
+        @path('/reviews')
+        post addReview(AddReviewRequest request) : auth(required, providers: [identity]) -> ReviewCard {
+            if (request.rating < 1 || request.rating > 5) {
+                throw BadRatingError();
+            }
+            let Product product = productDb.Product.findOrFail(request.productId);
+            let DateTime now = DateTime.now();
+            let String authorName = Auth.identity.fullName ?? "A customer";
+            docdb.ProductReview.insert({
+                productId: product.id.toString(),
+                userId: Auth.userId(),
+                authorName: authorName,
+                rating: request.rating,
+                title: request.title,
+                body: request.body,
+                createdAt: now
+            });
+            return ReviewCard {
+                authorName: authorName,
+                rating: request.rating,
+                title: request.title,
+                body: request.body,
+                createdAt: now
+            };
+        }
+    }
+
+    // The catalog as staff work on it. The Admin app's workspace is built over this resource.
+    rest_api ProductAPI : basePath('/api/v1/products'), rdbms(productDb) {
+
+        resource productDb.Category : only(list), auth(required, providers: [identity], roles: [admin]);
+
+        resource productDb.Product : auth(required, providers: [identity], roles: [admin]), only(list, get, update, delete);
+
+        // Not a plain resource verb: creating a product also makes its slug and announces it.
+        post createProduct(CreateProductRequest request) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
             let Product product = productDb.Product.create({
                 name: request.name,
                 description: request.description,
                 price: request.price,
                 categoryId: request.categoryId,
                 inventory: request.inventory,
-                status: ProductStatus.Draft,
-                images: [],
-                tags: []
+                status: ProductStatus.Draft
             });
-            // Call trait method to generate URL slug
             product.generateSlug(request.name);
             product.save();
-
-            dispatch ProductCreated(product.id, product.name, product.price);
-
             return product;
         }
 
         @path('/:id/inventory')
-        put(UUID id, UpdateInventoryRequest request) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
+        post setInventory(UUID id, SetInventoryRequest request) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
             let Product product = productDb.Product.findOrFail(id);
-            let Int oldInventory = product.inventory;
             product.inventory = request.inventory;
             product.save();
-
-            dispatch InventoryUpdated(product.id, oldInventory, request.inventory);
-
             return product;
         }
 
         @path('/:id/publish')
-        put(UUID id) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
+        post publishProduct(UUID id) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
             let Product product = productDb.Product.findOrFail(id);
             product.publish();
             return product;
         }
 
-        // Internal endpoints for cross-service communication
-        @path('/service/check-availability')
-        post checkAvailability(CheckAvailabilityRequest request) : auth(service, providers: [platform]), hidden, idempotent -> AvailabilityResponse {
-            let Array<AvailabilityItem> availability = [];
-            let Boolean allAvailable = true;
-
-            foreach item in request.items {
-                let Product? product = productDb.Product.find(item.productId);
-                if (product == null || product.inventory < item.quantity) {
-                    allAvailable = false;
-                    availability.push({
-                        productId: item.productId,
-                        available: false,
-                        availableQuantity: product?.inventory ?? 0
-                    });
-                } else {
-                    availability.push({
-                        productId: item.productId,
-                        available: true,
-                        availableQuantity: product.inventory
-                    });
-                }
-
-            }
-
-            return { allAvailable: allAvailable, items: availability };
+        @path('/:id/discontinue')
+        post discontinueProduct(UUID id) : auth(required, providers: [identity], roles: [admin]) -> productDb.Product {
+            let Product product = productDb.Product.findOrFail(id);
+            product.discontinue();
+            return product;
         }
 
-        @path('/service/reserve-inventory')
+        @path('/alerts')
+        get openAlerts() : auth(required, providers: [identity], roles: [admin]) -> Array<productDb.StockAlert> {
+            return productDb.StockAlert.where(isOpen: true).orderBy(remaining: asc).all();
+        }
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [admin]) -> CatalogSummary {
+            return CatalogSummary {
+                onSale: productDb.Product.where(status: ProductStatus.Active).count(),
+                outOfStock: productDb.Product.where(status: ProductStatus.Active, inventory: 0).count(),
+                openAlerts: productDb.StockAlert.where(isOpen: true).count()
+            };
+        }
+    }
+
+    // What OrderService calls while a customer waits. Hidden: no client gets these.
+    rest_api ProductInternalAPI : basePath('/api/v1/internal/products'), rdbms(productDb) {
+
+        @path('/reserve')
         post reserveInventory(ReserveInventoryRequest request) : auth(service, providers: [platform]), hidden -> ReservationResponse {
             transaction(productDb) {
                 foreach item in request.items {
                     let Product product = productDb.Product.findOrFail(item.productId);
-
-                    if (product.inventory < item.quantity) {
-                        throw ValidationException({
-                            code: "INSUFFICIENT_INVENTORY",
-                            productId: item.productId,
-                            requested: item.quantity,
-                            available: product.inventory
-                        });
+                    if (product.status != ProductStatus.Active) {
+                        throw NotOnSaleError();
                     }
-
+                    if (product.inventory < item.quantity) {
+                        throw InsufficientInventoryError();
+                    }
                     product.inventory = product.inventory - item.quantity;
                     product.save();
-
                     productDb.InventoryReservation.create({
                         reservationId: request.reservationId,
                         productId: item.productId,
                         quantity: item.quantity,
-                        expiresAt: DateTime.now().addSeconds(request.ttlSeconds),
-                        status: ReservationStatus.Reserved
+                        expiresAt: DateTime.now().addSeconds(request.ttlSeconds)
                     });
                 }
-
             }
-
-            // Lambda expression: '.map(i => i.productId)'
-            let Array<UUID> productIds = request.items.map(i => i.productId);
-            dispatch InventoryReserved(request.reservationId, productIds);
-
-            return { success: true, reservationId: request.reservationId };
+            return ReservationResponse { success: true, reservationId: request.reservationId };
         }
 
-        @path('/service/confirm-reservation')
-        post reservationConfirmation(ConfirmReservationRequest request) : auth(service, providers: [platform]), hidden -> Void {
-            let Array<InventoryReservation> reservations = productDb.InventoryReservation
-            .where(reservationId: request.reservationId)
-            .where(status: ReservationStatus.Reserved)
-            .all();
-
-            foreach reservation in reservations {
-                reservation.status = ReservationStatus.Confirmed;
-                reservation.save();
-            }
-
-            Log.info("Inventory reservation confirmed", { reservationId: request.reservationId });
+        @path('/:id/facts')
+        get productFacts(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> ProductFacts {
+            let Product product = productDb.Product.findOrFail(id);
+            return ProductFacts { name: product.name, price: product.price };
         }
-
-        @path('/service/release-reservation')
-        post reservationRelease(ReleaseReservationRequest request) : auth(service, providers: [platform]), hidden -> Void {
-            let Array<InventoryReservation> reservations = productDb.InventoryReservation
-            .where(reservationId: request.reservationId)
-            .where(status: ReservationStatus.Reserved)
-            .all();
-
-            transaction(productDb) {
-                foreach reservation in reservations {
-                    let Product? product = productDb.Product.find(reservation.productId);
-
-                    if (product != null) {
-                        product.inventory = product.inventory + reservation.quantity;
-                        product.save();
-                    }
-
-                    reservation.status = ReservationStatus.Released;
-                    reservation.save();
-                }
-
-            }
-
-            dispatch InventoryReleased(request.reservationId, "Released by request");
-            Log.info("Inventory reservation released", { reservationId: request.reservationId });
-        }
-
-        @path('/service/:id')
-        get productByIdInternal(UUID id) : auth(service, providers: [platform]), hidden, idempotent -> productDb.Product {
-            return productDb.Product.findOrFail(id);
-        }
-
-        // 'whereIn(...)' filters by a set of values
-        @path('/service/bulk')
-        post productsBulk(BulkProductRequest request) : auth(service, providers: [platform]), hidden, idempotent -> Array<productDb.Product> {
-            return productDb.Product.whereIn(id: request.ids).all();
-        }
-
-        // Wire-contract routes: a Bytes route that declares no media type (it answers
-        // application/octet-stream), a Bytes? route that declares one, and a JSON route
-        // whose result can be null. Each returns deterministic content with no external
-        // dependency, so a cross-language wire comparison can call it against a freshly
-        // booted stack: an id that resolves to no product takes the null branch.
-        @path('/wire/blob')
-        get wireBlob() : auth(required, providers: [identity]) -> Bytes {
-            return "datrix-wire-contract".toBytes();
-        }
-
-        @path('/wire/image/:id')
-        @produces('image/png')
-        get wireImage(UUID id) : auth(required, providers: [identity]) -> Bytes? {
-            let Product? product = productDb.Product.find(id);
-            if (product == null) return null;
-            return product.name.toBytes();
-        }
-
-        @path('/wire/discount/:id')
-        get wireDiscount(UUID id) : auth(required, providers: [identity]) -> Percentage? {
-            let Product? product = productDb.Product.find(id);
-            if (product == null) return null;
-            if (product.discountPercent == 0) return null;
-            return product.discountPercent;
-        }
-
     }
 
-    // The same three wire-contract response shapes served from a serverless block. A
-    // standalone serverless handler has no injected database session, so each route
-    // answers a fixed result: the Bytes routes answer content, and the JSON route
-    // answers null.
-    serverless wireHandlers {
-        @path('/wire-serverless/blob')
-        @name('WireBlob')
-        get() : auth(required, providers: [identity]) -> Bytes {
-            return "datrix-wire-contract".toBytes();
+    jobs {
+        // Whatever was reserved and never paid for goes back on the shelf.
+        job ReleaseExpiredReservations {
+            let Array<InventoryReservation> expired = productDb.InventoryReservation
+                .where(status: ReservationStatus.Reserved)
+                .where(expiresAt: lt(DateTime.now()))
+                .all();
+            foreach reservation in expired {
+                releaseReservation(reservation.reservationId, ReservationStatus.Expired);
+            }
         }
 
-        @path('/wire-serverless/image')
-        @name('WireImage')
-        @produces('image/png')
-        get() : auth(required, providers: [identity]) -> Bytes? {
-            return "datrix-wire-contract".toBytes();
+        // A page view only bumps a cheap counter. This copies the counters to the column the home page sorts on.
+        job UpdatePopularProducts {
+            foreach product in productDb.Product.where(status: ProductStatus.Active).all() {
+                let Int views = redis.ProductViews.get(product.id.toString()) ?? 0;
+                product.viewCount = views;
+                product.save();
+            }
         }
-
-        @path('/wire-serverless/discount')
-        @name('WireDiscount')
-        get() : auth(required, providers: [identity]) -> Percentage? {
-            return null;
-        }
-
     }
 
-    test("validation rejects non-positive reservation quantity") {
-        let productDb.Category category = productDb.Category.create({
-            name: "Test Category",
-            slug: "test-category"
-        });
-        category.save();
+    test("a reservation must be for something") {
+        let productDb.Category category = productDb.Category.create({ name: "Spec candles", slug: "spec-candles", art: ProductArt.Candle });
         let productDb.Product product = productDb.Product.create({
-            name: "SpecTestProduct",
-            description: "Test product for spec",
+            name: "Spec candle",
+            description: "For the spec",
             price: Money.of(29.99),
             status: ProductStatus.Active,
-            slug: "spec-test-product",
-            categoryId: category.id,
-            images: [],
-            tags: []
+            slug: "spec-candle",
+            categoryId: category.id
         });
-        product.save();
         assert throws(
-        () => productDb.InventoryReservation.create({
-            reservationId: uuid(),
-            productId: product.id,
-            quantity: 0,
-            expiresAt: DateTime.now().addDays(1)
-        }),
-        ValidationError("Reservation quantity must be positive")
+            () => productDb.InventoryReservation.create({
+                reservationId: uuid(),
+                productId: product.id,
+                quantity: 0,
+                expiresAt: DateTime.now().addDays(1)
+            }),
+            ValidationError("Reservation quantity must be positive")
         );
     }
 
-    test("afterUpdate emits InventoryUpdated on inventory change") {
-        let productDb.Category category = productDb.Category.create({
-            name: "Inventory Test Category",
-            slug: "inventory-test-category"
-        });
-        category.save();
+    test("changing stock is announced") {
+        let productDb.Category category = productDb.Category.create({ name: "Spec lamps", slug: "spec-lamps", art: ProductArt.Lamp });
         let productDb.Product product = productDb.Product.create({
-            name: "SpecInventoryProduct",
-            description: "Test product for inventory spec",
+            name: "Spec lamp",
+            description: "For the spec",
             price: Money.of(19.99),
             status: ProductStatus.Active,
-            slug: "spec-inventory-product",
-            categoryId: category.id,
-            images: [],
-            tags: []
+            slug: "spec-lamp",
+            categoryId: category.id
         });
-        product.save();
         product.inventory = 50;
         product.save();
         assert emitted(InventoryUpdated(product.id, 0, 50));
     }
 
-    test("publish transitions product from Draft to Active") {
-        let productDb.Category category = productDb.Category.create({
-            name: "Publish Test Category",
-            slug: "publish-test-category"
-        });
-        category.save();
+    test("publishing puts a draft on sale") {
+        let productDb.Category category = productDb.Category.create({ name: "Spec linen", slug: "spec-linen", art: ProductArt.Linen });
         let productDb.Product product = productDb.Product.create({
-            name: "SpecDraftProduct",
-            description: "Draft product for publish spec",
+            name: "Spec napkin",
+            description: "For the spec",
             price: Money.of(39.99),
-            status: ProductStatus.Draft,
-            slug: "spec-draft-product",
-            categoryId: category.id,
-            images: [],
-            tags: []
+            slug: "spec-napkin",
+            categoryId: category.id
         });
-        product.save();
         product.publish();
         assert product.status == ProductStatus.Active;
-    }
-
-    test("discontinue marks product as Discontinued") {
-        let productDb.Category category = productDb.Category.create({
-            name: "Discontinue Test Category",
-            slug: "discontinue-test-category"
-        });
-        category.save();
-        let productDb.Product product = productDb.Product.create({
-            name: "SpecActiveProduct",
-            description: "Active product for discontinue spec",
-            price: Money.of(59.99),
-            status: ProductStatus.Active,
-            slug: "spec-active-product",
-            categoryId: category.id,
-            images: [],
-            tags: []
-        });
-        product.save();
         product.discontinue();
         assert product.status == ProductStatus.Discontinued;
     }
-
-    // Jobs block - defines scheduled/background tasks
-    jobs {
-        // Job to release inventory reservations that have expired
-        job ReleaseExpiredReservations {
-            let Array<InventoryReservation> expired = productDb.InventoryReservation
-            .where(status: ReservationStatus.Reserved)
-            .where(expiresAt: lt(DateTime.now()))
-            .all();
-
-            let Map<String, Array<InventoryReservation>> reservationGroups = {};
-            foreach reservation in expired {
-                let String key = reservation.reservationId.toString();
-                if (reservationGroups[key] == null) {
-                    reservationGroups[key] = [];
-                }
-
-                reservationGroups[key].push(reservation);
-            }
-
-            let Int count = 0;
-            foreach reservationId in JSON.keys(reservationGroups) {
-                let Array<InventoryReservation> batch = reservationGroups[reservationId];
-
-                transaction(productDb) {
-                    foreach item in batch {
-                        let Product? product = productDb.Product.find(item.productId);
-
-                        if (product != null) {
-                            product.inventory = product.inventory + item.quantity;
-                            product.save();
-                        }
-
-                        item.status = ReservationStatus.Expired;
-                        item.save();
-                    }
-
-                }
-
-                dispatch InventoryReleased(UUID.parse(reservationId), "Expired");
-                count = count + 1;
-
-                Log.info("Released expired reservation", { reservationId: reservationId });
-            }
-
-            if (count > 0) {
-                Log.info("Cleanup complete", { expiredReservations: count });
-            }
-
-        }
-
-        job UpdatePopularProducts {
-            let Array<Product> products = productDb.Product.where(status: ProductStatus.Active).all();
-
-            foreach product in products {
-                let Int views = redis.ProductViews.get(product.id.toString()) ?? 0;
-                let Int score = views;
-                redis.PopularProducts.add(product.id, score);
-            }
-
-            Log.info("Updated popular products", { count: products.length() });
-        }
-
-    }
-
 }

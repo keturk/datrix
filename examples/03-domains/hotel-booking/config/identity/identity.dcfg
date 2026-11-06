@@ -1,0 +1,40 @@
+// The people who use Marram House. The generated stack hosts the sign-in: nothing here or in a service handles a
+// password. Anyone may sign up as a guest; frontDesk and operator are granted, never self-assigned.
+config identity identity {
+  base {
+    audience = "customer";
+    mode = "platformManaged";
+    jwksCacheTtlSeconds = 3600;
+    signUp {
+      allowed = true;
+    }
+    publicClient {
+      flows = ["authorization_code"];
+    }
+    identityFields {
+      email {
+        claimPath = "email";
+        guarantee = "required";
+        syncPolicy = "syncOnAuth";
+      }
+      fullName {
+        claimPath = "name";
+        guarantee = "optional";
+        syncPolicy = "syncOnAuth";
+      }
+    }
+    roleSource {
+      claimPath = "urn:zitadel:iam:org:project:roles";
+      guarantee = "optional";
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+}

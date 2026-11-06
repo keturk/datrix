@@ -1,0 +1,55 @@
+config service helpdesk.TicketService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8001;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms ticketDb from postgresContainer(id: "1f7a3c92-8e4b-4d06-a1b7-2c9e5f8d3a14", database: "helpdesk_ticket");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "helpdesk-ticket-service");
+    outboxOps from outboxBatches();
+    kafkaOps from kafkaPolling();
+    serviceCredentialOps from machineCredential();
+    jobs {
+      jobs {
+        WatchResponseClocks {
+          schedule = "* * * * *";
+          timeout = "60s";
+        }
+        CloseQuietTickets {
+          schedule = "0 * * * *";
+          timeout = "120s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

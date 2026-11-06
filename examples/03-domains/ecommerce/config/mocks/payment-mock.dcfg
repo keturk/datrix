@@ -1,0 +1,79 @@
+config service ecommerce.PaymentMock {
+  import "config/templates/mock.dcfg";
+
+  base {
+    port = 8090;
+    flavor = "compose";
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms paymentDb from mockPostgres(id: "be1f0b53-2c7d-4a68-9c54-73f0d2a11e90", database: "payment_mock");
+    httpSecurity from mockHttpSecurity(host: "ecommerce-payment-mock");
+    serviceCredentialOps from mockCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from mockDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+
+  profile aws as "aws" extends base {
+    alias env = "AWS";
+    alias resource = "aws";
+
+    flavor = "ecs-fargate";
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+    }
+    scaling {
+      replicas {
+        min = 1;
+        max = 1;
+      }
+      triggers = [];
+    }
+    replace rdbms paymentDb from mockRds(id: "be1f0b53-2c7d-4a68-9c54-73f0d2a11e90", database: "payment_mock");
+    remoteConfigOps {
+      appconfigMinPollSeconds = 15;
+    }
+  }
+
+  profile azure as "azure" extends base {
+    alias env = "AZURE";
+    alias resource = "azure";
+
+    replace rdbms paymentDb from mockFlexibleServer(id: "be1f0b53-2c7d-4a68-9c54-73f0d2a11e90", database: "payment_mock");
+  }
+
+  profile azureVm as "azvm" extends base {
+    alias env = "AZVM";
+    alias resource = "azvm";
+
+    replace rdbms paymentDb from mockFlexibleServer(id: "be1f0b53-2c7d-4a68-9c54-73f0d2a11e90", database: "payment_mock");
+  }
+}

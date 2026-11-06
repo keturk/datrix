@@ -1,0 +1,52 @@
+// What the Marram House apps take from its brand: colours, type and the shape of a page.
+module hotel.ui {
+
+    theme Brand {
+        color primary      = '#22543d';
+        color onPrimary    = '#ffffff';
+        color surface      = '#ffffff';
+        color onSurface    = '#1f2a24';
+        color background   = '#f6f4ee';
+        color onBackground = '#1f2a24';
+        color success      = '#166534';
+        color onSuccess    = '#ffffff';
+        color warning      = '#854d0e';
+        color onWarning    = '#ffffff';
+        color info         = '#1e40af';
+        color onInfo       = '#ffffff';
+        color danger       = '#991b1b';
+        color onDanger     = '#ffffff';
+        color neutral      = '#5c665f';
+        color onNeutral    = '#ffffff';
+        space sm           = 8;
+        space md           = 16;
+        space lg           = 24;
+        radius card        = 12;
+        font body          = font('Inter', 15, 400);
+        font heading       = font('Inter', 24, 600);
+        breakpoint md      = 768;
+        breakpoint lg      = 1024;
+        scheme dark {
+            color surface      = '#232b26';
+            color onSurface    = '#e7ece8';
+            color background   = '#181e1a';
+            color onBackground = '#e7ece8';
+            color primary      = '#9ad4b3';
+            color onPrimary    = '#10301f';
+        }
+    }
+
+    /// Figures across the top of a page.
+    style statRow {
+        columns: 2;
+        gap: space.md;
+        at (md) { columns: 4; }
+    }
+
+    /// Rooms and stays.
+    style cardGrid {
+        columns: 1;
+        gap: space.md;
+        at (md) { columns: 2; }
+    }
+}

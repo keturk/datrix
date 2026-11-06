@@ -1,0 +1,52 @@
+// The contract of the card vendor. The hotel calls only this contract and never knows what serves it:
+// config/providers/payment-provider.dcfg says where it is served. A card reaches it only as the vendor's token.
+extern service hotel.PaymentProvider('config/providers/payment-provider.dcfg')
+    : version('1.0.0'), description('Card payments') {
+
+    enum ChargeStatus {
+        Succeeded,
+        Declined,
+        Refunded
+    }
+
+    struct CreateChargeRequest {
+        String(60) cardToken;
+        Money amount;
+        String(3) currency;
+        String(80) reference;
+        /// The caller's key: charging again with the same key returns the first charge.
+        String(120) idempotencyKey;
+    }
+
+    struct RefundChargeRequest {
+        String(40) chargeId;
+        Money amount;
+        String(120) idempotencyKey;
+    }
+
+    struct Charge {
+        String(40) id;
+        ChargeStatus status;
+        String(200)? declineReason;
+    }
+
+    rest_api PaymentAPI : basePath('/v1') {
+        @path('/charges')
+        post createCharge(CreateChargeRequest request) -> Charge {
+            ensure request.amount > 0;
+            ensure request.idempotencyKey != "";
+        }
+
+        @path('/refunds')
+        post refundCharge(RefundChargeRequest request) -> Charge {
+            ensure request.chargeId != "";
+        }
+    }
+
+    errors {
+        ChargeNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-Payment-Api-Key');
+    health : path('/health');
+}

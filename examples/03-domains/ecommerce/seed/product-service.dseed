@@ -1,0 +1,39 @@
+// A shop worth looking around on first start. Prices are invented, and so are the makers.
+seed service ecommerce.ProductService {
+  rdbms productDb {
+    baseline {
+      Category table on(slug) {
+        id,                    name,               description,                                             slug,       art;
+        @uuid("cat-candles"),  "Candles",          "Soy wax, poured in small batches.",                     "candles",  Candle;
+        @uuid("cat-ceramics"), "Ceramics",         "Stoneware for the table, thrown by hand.",              "ceramics", Ceramic;
+        @uuid("cat-linen"),    "Linen",            "Washed linen for the bed and the table.",               "linen",    Linen;
+        @uuid("cat-lamps"),    "Lamps",            "Warm light for the corners that need it.",              "lamps",    Lamp;
+        @uuid("cat-kitchen"),  "Kitchen",          "Things that earn their place on the counter.",          "kitchen",  Kitchen;
+      }
+      Product table on(slug) {
+        id,                     name,                     description,                                                                                     price,  compareAtPrice, inventory, status, slug,                 categoryId,            tags;
+        @uuid("p-fig"),         "Fig Leaf Candle",        "Green fig and cedar, burning for about forty hours. The jar makes a good tumbler afterwards.",   24.00,  null,           42,        Active, "fig-leaf-candle",    @uuid("cat-candles"),  ["soy", "gift"];
+        @uuid("p-smoke"),       "Bonfire Candle",         "Woodsmoke and black pepper, for the first cold evening of the year.",                            24.00,  30.00,          3,         Active, "bonfire-candle",     @uuid("cat-candles"),  ["soy", "autumn"];
+        @uuid("p-taper"),       "Beeswax Tapers, Pair",   "Dripless, hand-dipped, and the colour of honey. Fits a standard holder.",                        14.50,  null,           60,        Active, "beeswax-tapers",     @uuid("cat-candles"),  ["beeswax"];
+        @uuid("p-mug"),         "Oat Glaze Mug",          "Holds a generous cup and fits in two hands. Dishwasher safe.",                                   22.00,  null,           35,        Active, "oat-glaze-mug",      @uuid("cat-ceramics"), ["stoneware"];
+        @uuid("p-bowl"),        "Wide Serving Bowl",      "Thirty centimetres across, with a speckled glaze that hides nothing and forgives everything.",   68.00,  85.00,          8,         Active, "wide-serving-bowl",  @uuid("cat-ceramics"), ["stoneware", "gift"];
+        @uuid("p-plate"),       "Dinner Plate, Set of 4", "Heavy enough to stay put, with a rim that keeps the sauce in.",                                  96.00,  null,           14,        Active, "dinner-plates",      @uuid("cat-ceramics"), ["stoneware"];
+        @uuid("p-duvet"),       "Washed Linen Duvet Set", "Softer every time you wash it. Double, with two pillowcases.",                                   189.00, 220.00,         11,        Active, "linen-duvet-set",    @uuid("cat-linen"),    ["bedroom"];
+        @uuid("p-cloth"),       "Linen Tablecloth",       "Two metres long, in a colour somewhere between oatmeal and fog.",                                74.00,  null,           19,        Active, "linen-tablecloth",   @uuid("cat-linen"),    ["table"];
+        @uuid("p-napkin"),      "Linen Napkins, Set of 6", "They come out of the wash looking better than they went in.",                                   38.00,  null,           0,         Active, "linen-napkins",      @uuid("cat-linen"),    ["table", "gift"];
+        @uuid("p-lamp"),        "Pleated Table Lamp",     "Paper pleats on a ceramic base. Takes any E27 bulb.",                                            118.00, null,           9,         Active, "pleated-table-lamp", @uuid("cat-lamps"),    ["bedroom"];
+        @uuid("p-floor"),       "Arc Floor Lamp",         "Reaches over a sofa from a marble foot. Assembly takes about five minutes.",                     245.00, 290.00,         4,         Active, "arc-floor-lamp",     @uuid("cat-lamps"),    ["living room"];
+        @uuid("p-board"),       "Olive Wood Board",       "Every one is different, and each will outlast the kitchen it goes into.",                        56.00,  null,           23,        Active, "olive-wood-board",   @uuid("cat-kitchen"),  ["wood", "gift"];
+        @uuid("p-knife"),       "Carbon Steel Knife",     "Takes an edge and keeps it. It will darken with use, which is the point.",                       82.00,  null,           16,        Active, "carbon-steel-knife", @uuid("cat-kitchen"),  ["steel"];
+        @uuid("p-draft"),       "Stoneware Teapot",       "Coming next season. Staff can see this one, and a customer cannot.",                             64.00,  null,           0,         Draft,  "stoneware-teapot",   @uuid("cat-ceramics"), ["stoneware"];
+        @uuid("p-gone"),        "Rattan Tray",            "We have sold the last of these and will not be making more.",                                    42.00,  null,           0,         Discontinued, "rattan-tray",  @uuid("cat-kitchen"),  ["rattan"];
+      }
+      StockAlert table on(id) {
+        id,                  productId,        productName,       remaining, isOpen;
+        @uuid("alert-smoke"), @uuid("p-smoke"), "Bonfire Candle",  3,         true;
+        @uuid("alert-floor"), @uuid("p-floor"), "Arc Floor Lamp",  4,         true;
+        @uuid("alert-napkin"), @uuid("p-napkin"), "Linen Napkins, Set of 6", 0, true;
+      }
+    }
+  }
+}

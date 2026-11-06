@@ -1,0 +1,86 @@
+// Implements the EmailProvider contract in the stack: every email lands in an outbox the Provider Desk app
+// shows, and nothing leaves the machine.
+service ecommerce.EmailMock('config/mocks/email-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the email vendor') {
+
+    discovery { }
+
+    enum DeliveryStatus {
+        Delivered : tone(success),
+        Bounced : tone(danger)
+    }
+
+    rdbms emailDb {
+
+        /// An email the vendor accepted.
+        entity Outbound extends BaseEntity {
+            String(200) recipient : filterable;
+            String(200) subject : filterable;
+            String(2000) body;
+            DeliveryStatus status : filterable;
+            String(40) deliveryId : unique;
+            String(120) idempotencyKey : unique;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct SendEmailRequest {
+        String(200) to;
+        String(200) subject;
+        String(2000) body;
+        String(120) idempotencyKey;
+    }
+
+    struct Delivery {
+        String(40) id;
+        DeliveryStatus status;
+    }
+
+    // The vendor's public API: exactly the EmailProvider contract.
+    rest_api EmailAPI : basePath('/v1'), rdbms(emailDb) {
+        @path('/deliveries')
+        post sendEmail(SendEmailRequest request) : auth(required, providers: [emailKeys]) -> Delivery {
+            let Outbound? existing = Outbound.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return Delivery { id: existing.deliveryId, status: existing.status };
+            }
+            let Outbound created = Outbound.create({
+                deliveryId: #"em_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey,
+                recipient: request.to,
+                subject: request.subject,
+                body: request.body,
+                status: request.to.endsWith("@bounce.example.com") ? DeliveryStatus.Bounced : DeliveryStatus.Delivered
+            });
+            return Delivery { id: created.deliveryId, status: created.status };
+        }
+    }
+
+    // What the Provider Desk app shows: the outbox.
+    rest_api EmailDeskAPI : basePath('/api/v1/desk/email'), rdbms(emailDb) {
+        resource Outbound : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a repeated idempotency key finds the first email") {
+        let Outbound first = emailDb.Outbound.create({
+            deliveryId: "em_0001",
+            idempotencyKey: "order-1",
+            recipient: "ana@example.com",
+            subject: "Your order",
+            body: "Thank you.",
+            status: DeliveryStatus.Delivered
+        });
+        let Outbound? again = emailDb.Outbound.where(idempotencyKey: "order-1").first();
+        assert again != null;
+        assert again.deliveryId == first.deliveryId;
+    }
+}

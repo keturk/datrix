@@ -23,7 +23,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('2.0.0'
 
         /// A dish waiting in someone's cart, at the price the restaurant gave when it was added.
         entity CartLine extends BaseEntity {
-            UUID userId : index;
+            String(64) userId : index;
             UUID restaurantId;
             String(200) restaurantName;
             UUID menuItemId;
@@ -34,7 +34,7 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('2.0.0'
 
         entity Order extends BaseEntity {
             String(20) orderNumber : unique, filterable;
-            UUID userId : index;
+            String(64) userId : index;
             UUID restaurantId : index;
             String(200) restaurantName : filterable;
             OrderStatus status : filterable = OrderStatus.Placed;
@@ -215,7 +215,8 @@ service fooddelivery.OrderService('config/order-service.dcfg') : version('2.0.0'
                 amount: total,
                 currency: "USD",
                 reference: orderNumber,
-                idempotencyKey: #"cart-{lines[0].id}"
+                // Per cart and per card: a retry cannot charge twice, and a declined card can be swapped for another.
+                idempotencyKey: #"cart-{lines[0].id}-{request.cardToken}"
             });
             if (charge.status == ChargeStatus.Declined) {
                 throw CardDeclinedError();

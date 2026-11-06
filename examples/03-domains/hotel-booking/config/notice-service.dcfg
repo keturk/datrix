@@ -1,0 +1,62 @@
+config service hotel.NoticeService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8002;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms noticeDb from postgresContainer(id: "9f3b6c42-1a57-4e80-b7d3-8c2e5f1a6d03", database: "hotel_notice");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "hotel-notice-service");
+    outboxOps from outboxBatches();
+    kafkaOps from kafkaPolling();
+    serviceCredentialOps from machineCredential();
+    microserviceClientOps from peerClient();
+    retryBudgetOps from retryBudget();
+    jobs {
+      jobs {
+        RetryNotices {
+          schedule = "*/5 * * * *";
+          timeout = "120s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+    secrets {
+      // The default only exists on a local stack, where it matches the hash seeded in seed/, so the
+      // example runs with nothing to configure. Any other deployment must supply the handle's value.
+      secret email_provider_api_key {
+        required = true;
+        purpose = "API key for the email vendor (EmailProvider contract).";
+        localDefault = "dev-only-email-key-not-a-credential";
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

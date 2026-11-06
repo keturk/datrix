@@ -1,0 +1,27 @@
+// What the Marram House services and apps share.
+module hotel.common {
+
+    /// A stay from the first hold to the last goodbye.
+    enum StayStatus {
+        Held : tone(warning),
+        Confirmed : tone(info),
+        CheckedIn : tone(success),
+        CheckedOut : tone(neutral),
+        Cancelled : tone(danger),
+        Expired : tone(neutral)
+    }
+
+    /// The housekeeping board's columns.
+    enum RoomCondition {
+        Ready : tone(success),
+        Dirty : tone(warning),
+        OutOfService : tone(danger)
+    }
+
+    /// Stands in for the card form a real vendor would host. The application never sees a card number: it only
+    /// ever holds the vendor's token, and these two choose which token the mock receives.
+    enum TestCard {
+        CardThatPays,
+        CardThatIsDeclined
+    }
+}

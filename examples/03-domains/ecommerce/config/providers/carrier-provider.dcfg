@@ -1,0 +1,37 @@
+// Where the CarrierProvider contract is served. Every profile here points at the mock in the same stack;
+// pointing one at a real carrier changes only this file.
+config extern ecommerce.CarrierProvider {
+  base {
+    deployment = "external";
+    url = "http://ecommerce-carrier-mock:8091";
+    auth {
+      type = "apiKey";
+      header = "X-Carrier-Api-Key";
+      // A logical handle; the consuming service declares it and its value is never in a file here.
+      secret = "carrier_provider_api_key";
+    }
+    timeout = "10s";
+    retry {
+      maxAttempts = 3;
+      backoff = "exponential";
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+
+  profile aws as "aws" extends base {
+  }
+
+  profile azure as "azure" extends base {
+  }
+
+  profile azureVm as "azvm" extends base {
+  }
+}

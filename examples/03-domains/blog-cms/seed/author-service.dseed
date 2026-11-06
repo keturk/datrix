@@ -1,19 +1,13 @@
 // The writers a visitor meets on a fresh start. They have profiles but no accounts: a person who
 // signs in gets a profile of their own the first time they open the Studio.
-registry {
-  "seed:writer-mina"  = @uuid("writer-mina");
-  "seed:writer-tomas" = @uuid("writer-tomas");
-  "seed:writer-priya" = @uuid("writer-priya");
-}
-
 seed service blog.AuthorService {
   rdbms authorDb {
     baseline {
       Author table on(userId) {
         id,                      userId,                    displayName,      bio,                                                                       status;
-        @uuid("author-mina"),    @ref("seed:writer-mina"),  "Mina Okafor",    "Writes about coasts, tides and the towns that live beside them.",         Active;
-        @uuid("author-tomas"),   @ref("seed:writer-tomas"), "Tomas Lindqvist", "Former surveyor. Maps the places maps get wrong.",                        Active;
-        @uuid("author-priya"),   @ref("seed:writer-priya"), "Priya Raman",    "Covers small farms, seed banks and the people who keep them going.",      Active;
+        @uuid("author-mina"),    "writer-mina",  "Mina Okafor",    "Writes about coasts, tides and the towns that live beside them.",         Active;
+        @uuid("author-tomas"),   "writer-tomas", "Tomas Lindqvist", "Former surveyor. Maps the places maps get wrong.",                        Active;
+        @uuid("author-priya"),   "writer-priya", "Priya Raman",    "Covers small farms, seed banks and the people who keep them going.",      Active;
       }
     }
   }

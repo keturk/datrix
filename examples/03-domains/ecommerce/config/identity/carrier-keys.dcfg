@@ -1,0 +1,43 @@
+// API keys of the parcel carrier. mode = self: CarrierMock issues and verifies them itself, and only the
+// SHA-256 hash of a key is stored.
+config identity carrierKeys {
+  base {
+    provider = "apiKey";
+    mode = "self";
+    audience = "customer";
+    apiKey {
+      header = "X-Carrier-Api-Key";
+      store = "ecommerce.CarrierMock";
+      storeBlock = "carrierDb";
+      entity = "ApiKey";
+      fields {
+        hash = "keyHash";
+        owner = "ownerId";
+        scopes = "scopes";
+        active = "isActive";
+        expiresAt = "expiresAt";
+        lastUsedAt = "lastUsedAt";
+      }
+      lastUsedResolutionSeconds = 60;
+      serviceProviders = ["platform"];
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+
+  profile development as "dev" extends base {
+  }
+
+  profile production as "prod" extends base {
+  }
+
+  profile aws as "aws" extends base {
+  }
+
+  profile azure as "azure" extends base {
+  }
+
+  profile azureVm as "azvm" extends base {
+  }
+}

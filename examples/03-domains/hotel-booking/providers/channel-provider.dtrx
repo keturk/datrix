@@ -1,0 +1,36 @@
+// The contract of the channel manager, which tells travel sites how many rooms are left. The hotel sends a figure
+// per room type per night, and a channel that lags behind sells a room the hotel no longer has, so a job keeps it
+// current. config/providers/channel-provider.dcfg says where it is served.
+extern service hotel.ChannelProvider('config/providers/channel-provider.dcfg')
+    : version('1.0.0'), description('Rooms left, for the travel sites') {
+
+    struct AvailabilityUpdate {
+        String(80) roomType;
+        Date night;
+        Int left;
+        Money nightlyRate;
+    }
+
+    struct AvailabilityPush {
+        String(40) propertyCode;
+        Array<AvailabilityUpdate> nights;
+    }
+
+    struct PushReceipt {
+        Int accepted;
+    }
+
+    rest_api ChannelAPI : basePath('/v1') {
+        @path('/availability')
+        post pushAvailability(AvailabilityPush request) -> PushReceipt {
+            ensure request.propertyCode != "";
+        }
+    }
+
+    errors {
+        UnknownProperty(String message);
+    }
+
+    auth : apiKey(header: 'X-Channel-Api-Key');
+    health : path('/health');
+}

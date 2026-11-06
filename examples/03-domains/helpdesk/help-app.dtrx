@@ -1,0 +1,242 @@
+from helpdesk.ui import Brand, cardGrid;
+from helpdesk.common import TicketStatus, Priority, TicketTopic;
+
+/// Where a customer gets help. Anyone can read and search the help centre; opening a ticket needs a sign-in.
+app helpdesk.HelpCentre('config/help-app.dcfg') : version('1.0.0') {
+    uses helpdesk.TicketService;
+    uses helpdesk.KnowledgeService;
+
+    theme extends Brand { }
+
+    // The ticket a reply dialog works on: a form sends this value without showing it.
+    state UUID? openTicketId = null;
+    state Boolean replying = false;
+
+    layout Shell : default {
+        nav {
+            link Home : icon(support_agent);
+            link Tickets : icon(forum);
+        }
+        view {
+            stack {
+                topBar {
+                    brand(Msg.appName);
+                    spacer;
+                    nav;
+                    // A visitor reads the help centre with no session, so the bar serves both.
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            text(Session.claim('name'));
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    component ArticleCards(Array<ArticleCard> articles) {
+        view {
+            grid : style(cardGrid) {
+                foreach (article in articles) {
+                    card(article.title) {
+                        badge(article.topic);
+                        text(article.summary);
+                        link(Msg.readArticle, ArticleDetail, id: article.id) : icon(arrow_forward);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/')
+    page Home() {
+        data { articles = KnowledgeService.HelpAPI.get.articles(); }
+        state String searchFor = "";
+
+        view {
+            pageHeader(Msg.homeTitle, Msg.homeSubtitle) {
+                link(Msg.openTicket, NewTicket) : kind(primary), icon(edit_note);
+            }
+            card {
+                row {
+                    input(Msg.searchLabel) : bind(searchFor);
+                    button(Msg.search) : onClick(Nav.to(Search, query: searchFor)), kind(primary), icon(search);
+                }
+            }
+            section(Msg.popularTitle) {
+                when (articles.isEmpty) {
+                    emptyState(Msg.noArticles) : icon(menu_book) { }
+                }
+                ArticleCards(articles: articles);
+            }
+        }
+    }
+
+    @path('/search/:query')
+    page Search(String query) {
+        data { results = KnowledgeService.HelpAPI.get.search(query: query); }
+        view {
+            pageHeader(Msg.searchTitle(query: query), Msg.searchSubtitle) : back(Home);
+            when (results.isEmpty) {
+                emptyState(Msg.noResults) : icon(search_off) {
+                    link(Msg.openTicket, NewTicket) : kind(primary);
+                }
+            }
+            ArticleCards(articles: results);
+        }
+    }
+
+    @path('/articles/:id')
+    page ArticleDetail(UUID id) {
+        data { page = KnowledgeService.HelpAPI.get.article(id: id); }
+        state Boolean voted = false;
+
+        fn vote(Boolean helped) {
+            KnowledgeService.HelpAPI.post.vote(id: id, request: VoteRequest { helped: helped });
+            voted = true;
+            Ui.toast(Msg.thanksForVote, tone: success);
+        }
+
+        view {
+            pageHeader(page.article.title, Msg.updatedLine(when: Fmt.relative(page.updatedAt))) : back(Home) {
+                badge(page.article.topic);
+            }
+            card { markdown(page.body); }
+            card(Msg.didThisHelp) {
+                when (voted) {
+                    text(Msg.thanksForVote);
+                } otherwise {
+                    row {
+                        button(Msg.yes) : onClick(vote(true)), icon(thumb_up);
+                        button(Msg.no) : onClick(vote(false)), icon(thumb_down);
+                        spacer;
+                        link(Msg.openTicket, NewTicket) : icon(edit_note);
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/tickets')
+    page Tickets() {
+        data { tickets = TicketService.TicketAPI.get.mine() : poll(30s); }
+        view {
+            pageHeader(Msg.ticketsTitle, Msg.ticketsSubtitle) {
+                link(Msg.openTicket, NewTicket) : kind(primary), icon(edit_note);
+            }
+            when (tickets.isEmpty) {
+                emptyState(Msg.noTickets) : icon(forum) { link(Msg.browseHelp, Home); }
+            }
+            list(data: tickets) : onClick(Nav.to(TicketDetail, id: item.id)) {
+                heading(Msg.ticketLine(number: item.number, subject: item.subject));
+                row {
+                    badge(item.status);
+                    badge(item.topic);
+                    text(Msg.openedLine(when: Fmt.relative(item.createdAt)));
+                }
+            }
+        }
+    }
+
+    @path('/tickets/new')
+    page NewTicket() {
+        view {
+            pageHeader(Msg.newTicketTitle, Msg.newTicketSubtitle) : back(Tickets);
+            card { form(OpenTicketForm); }
+        }
+    }
+
+    form OpenTicketForm : submit(TicketService.TicketAPI.post.openTicket) {
+        fn opened(UUID id) {
+            Ui.toast(Msg.ticketOpened, tone: success);
+            Nav.to(TicketDetail, id: id);
+        }
+        field topic;
+        field subject;
+        field body;
+        onSuccess(opened(result.id));
+    }
+
+    @path('/tickets/:id')
+    page TicketDetail(UUID id) {
+        data { thread = TicketService.TicketAPI.get.thread(id: id) : poll(15s); }
+
+        fn startReply() {
+            openTicketId = id;
+            replying = true;
+        }
+
+        fn stopReply() {
+            replying = false;
+            thread.refresh();
+        }
+
+        fn rate(Int score) {
+            TicketService.TicketAPI.post.rate(id: id, request: RateRequest { score: score });
+            thread.refresh();
+            Ui.toast(Msg.thanksForScore, tone: success);
+        }
+
+        view {
+            pageHeader(thread.ticket.subject, thread.ticket.number) : back(Tickets) {
+                badge(thread.ticket.status);
+                when (thread.ticket.status != TicketStatus.Closed) {
+                    button(Msg.reply) : onClick(startReply()), kind(primary), icon(reply);
+                }
+            }
+            when (thread.ticket.status == TicketStatus.Resolved && thread.ticket.satisfaction == null) {
+                card(Msg.howDidWeDo) {
+                    row {
+                        button(Msg.scoreBad) : onClick(rate(1)), icon(sentiment_very_dissatisfied);
+                        button(Msg.scorePoor) : onClick(rate(2)), icon(sentiment_dissatisfied);
+                        button(Msg.scoreOkay) : onClick(rate(3)), icon(sentiment_neutral);
+                        button(Msg.scoreGood) : onClick(rate(4)), icon(sentiment_satisfied);
+                        button(Msg.scoreGreat) : onClick(rate(5)), icon(sentiment_very_satisfied);
+                    }
+                }
+            }
+            when (thread.ticket.status == TicketStatus.Closed) {
+                callout(Msg.ticketClosedNote) : tone(info);
+            }
+            card {
+                timeline(data: thread.messages, at: m => m.createdAt) {
+                    heading(item.authorName);
+                    markdown(item.body);
+                }
+            }
+            when (replying) {
+                dialog(Msg.reply) : onClose(stopReply()) {
+                    form(CustomerReplyForm);
+                }
+            }
+        }
+    }
+
+    form CustomerReplyForm : submit(TicketService.TicketAPI.post.addReply) {
+        fn sent() {
+            replying = false;
+            Ui.toast(Msg.replySent, tone: success);
+        }
+        field ticketId : fixed(openTicketId);
+        field body;
+        onSuccess(sent());
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFoundTitle) : icon(search_off) { link(Msg.backHome, Home); }
+        }
+    }
+
+    test("the help centre says when it has no articles") {
+        respond(KnowledgeService.HelpAPI.get.articles(), []);
+        let Screen screen = render(Home);
+        assert screen.shows(Msg.noArticles);
+    }
+}

@@ -1,0 +1,16 @@
+// A help centre with something in it, and one draft that a reader cannot find.
+seed service helpdesk.KnowledgeService {
+  rdbms knowledgeDb {
+    baseline {
+      Article table on(id) {
+        id,              title,                                  summary,                                                       topic,    published, helpful, notHelpful, body;
+        @uuid("a-renew"), "Why was my card charged twice?",      "A renewal and a domain transfer can land on the same day.",    Billing,  true,      41,      3,          "A renewal and a domain transfer are separate charges. If they land on the same day your bank may show them together.\n\nOpen **Billing** and compare the two invoices. If only one matches a service you have, ask us and we will refund the other.";
+        @uuid("a-point"), "Pointing a domain at your website",   "Set two records at your registrar, then wait up to an hour.",  Domains,  true,      87,      5,          "Add an **A record** for the bare domain and a **CNAME** for `www`. Both values are on your site's overview page.\n\nThe change can take up to an hour to be seen everywhere. Until then some visitors reach the old site.";
+        @uuid("a-mail"),  "Email is not arriving",               "Check your MX records and your spam rules, in that order.",    Email,    true,      63,      9,          "Most missing email has one of two causes: **MX records** that point elsewhere, or a spam rule of your own.\n\nCheck the records first. Then look in the spam folder of the receiving account, and at any forwarding rule you set up.";
+        @uuid("a-ssl"),   "My site says it is not secure",       "A new certificate takes a few minutes after a domain change.", Websites, true,      52,      4,          "We issue a certificate as soon as your domain points at us. That takes a few minutes.\n\nIf the warning is still there after an hour, a page may be loading an image over plain `http`. Your browser's console names it.";
+        @uuid("a-plan"),  "Moving to a bigger plan",             "Your next invoice covers the difference, with no downtime.",   Billing,  true,      18,      1,          "Change your plan under **Billing**. It applies at once and nothing goes offline.\n\nYour next invoice covers the difference for the rest of the period.";
+        @uuid("a-draft"), "Restoring from a backup (draft)",     "Not finished: the screens are changing.",                      Websites, false,     0,       0,          "This article is still being written.";
+      }
+    }
+  }
+}

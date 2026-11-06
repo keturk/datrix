@@ -48,7 +48,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
             String(30) subject : filterable;
             String(500) reason;
             Money? amount;
-            UUID? reviewedBy;
+            String(64)? reviewedBy;
             String(500)? reviewNote;
             UUID accountId : hidden;
             String(1000)? analystNote;
@@ -113,7 +113,7 @@ service finance.ComplianceService('config/compliance-service.dcfg') : version('2
     }
 
     subscribe AccountEvents {
-        on AccountOpened(UUID accountId, String accountNumber, UUID ownerUserId, AccountType type) {
+        on AccountOpened(UUID accountId, String accountNumber, String ownerUserId, AccountType type) {
             audit("account.opened", accountNumber, #"Opened as {type}");
         }
 

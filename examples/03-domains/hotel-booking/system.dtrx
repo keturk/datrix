@@ -1,0 +1,18 @@
+include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/payment-provider.dtrx';
+include 'providers/email-provider.dtrx';
+include 'providers/channel-provider.dtrx';
+include 'stay-service.dtrx';
+include 'notice-service.dtrx';
+include 'mocks/payment-mock.dtrx';
+include 'mocks/email-mock.dtrx';
+include 'mocks/channel-mock.dtrx';
+include 'guest-app.dtrx';
+include 'front-desk-app.dtrx';
+
+/// Marram House: a small hotel on the coast. A guest searches for dates, holds a room for ten minutes while they
+/// pay, and manages the stay afterwards. The front desk runs arrivals, departures and housekeeping. The card
+/// vendor, the email vendor and the channel manager run as mocks in the same stack.
+system hotel.System('config/system.dcfg') : version('1.0.0') {
+}

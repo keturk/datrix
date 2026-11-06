@@ -1,14 +1,24 @@
 include 'common.dtrx';
+include 'providers/payment-provider.dtrx';
+include 'providers/carrier-provider.dtrx';
+include 'providers/email-provider.dtrx';
 include 'user-service.dtrx';
 include 'product-service.dtrx';
 include 'order-service.dtrx';
 include 'payment-service.dtrx';
 include 'shipping-service.dtrx';
 include 'notification-service.dtrx';
+include 'mocks/payment-mock.dtrx';
+include 'mocks/carrier-mock.dtrx';
+include 'mocks/email-mock.dtrx';
 include 'ui.dtrx';
 include 'storefront-app.dtrx';
 include 'admin-app.dtrx';
+include 'desk-app.dtrx';
 include 'site-app.dtrx';
 
-system ecommerce('config/system.dcfg') : version('1.0.0') {
+/// Wrenwood: a homeware shop. A customer browses, pays and follows a parcel to their door; staff run the
+/// catalog, the orders and the refunds; a public site tells the story in two languages. The card vendor, the
+/// carrier and the email vendor run as mocks in the same stack, so all of it works with nothing to sign up for.
+system ecommerce.System('config/system.dcfg') : version('2.0.0') {
 }

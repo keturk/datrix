@@ -1,0 +1,91 @@
+// Implements the ChannelProvider contract in the stack: it keeps the latest figure per room type and night, so the
+// Front Desk can show what the travel sites have been told. Nothing leaves the machine.
+service hotel.ChannelMock('config/mocks/channel-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the channel manager') {
+
+    discovery { }
+
+    exceptions {
+        UnknownPropertyError : status(404), message("The channel manager does not know that property");
+    }
+
+    rdbms channelDb {
+
+        /// What the travel sites currently believe about one room type on one night.
+        entity PublishedNight extends BaseEntity {
+            String(80) roomType : filterable;
+            Date night : filterable;
+            Int left;
+            Money nightlyRate;
+            DateTime receivedAt;
+
+            index(roomType, night) : unique;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct AvailabilityUpdate {
+        String(80) roomType;
+        Date night;
+        Int left;
+        Money nightlyRate;
+    }
+
+    struct AvailabilityPush {
+        String(40) propertyCode;
+        Array<AvailabilityUpdate> nights;
+    }
+
+    struct PushReceipt {
+        Int accepted;
+    }
+
+    /// The only property this mock manages.
+    const KNOWN_PROPERTY = "MARRAM-01";
+
+    // The vendor's public API: exactly the ChannelProvider contract.
+    rest_api ChannelAPI : basePath('/v1'), rdbms(channelDb) {
+        @path('/availability')
+        post pushAvailability(AvailabilityPush request) : auth(required, providers: [channelKeys]) -> PushReceipt {
+            if (request.propertyCode != KNOWN_PROPERTY) {
+                throw UnknownPropertyError();
+            }
+            foreach update in request.nights {
+                let PublishedNight? existing = PublishedNight.where(roomType: update.roomType, night: update.night).first();
+                if (existing != null) {
+                    existing.left = update.left;
+                    existing.nightlyRate = update.nightlyRate;
+                    existing.receivedAt = DateTime.now();
+                    existing.save();
+                } else {
+                    PublishedNight.create({
+                        roomType: update.roomType,
+                        night: update.night,
+                        left: update.left,
+                        nightlyRate: update.nightlyRate,
+                        receivedAt: DateTime.now()
+                    });
+                }
+            }
+            return PushReceipt { accepted: request.nights.length };
+        }
+    }
+
+    // What the Front Desk shows: every figure the sites hold.
+    rest_api ChannelDeskAPI : basePath('/api/v1/desk/channel'), rdbms(channelDb) {
+        resource PublishedNight : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    test("a known property is the one this mock manages") {
+        assert KNOWN_PROPERTY == "MARRAM-01";
+    }
+}

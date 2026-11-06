@@ -7,9 +7,9 @@ seed service finance.TransactionService {
       LedgerAccount table on(accountId) {
         id,                     accountId,             accountNumber,  ownerUserId,        type,     status, currency, balance;
         @uuid("ledger-clearing"), @uuid("clearing"),   "QB0000000000", null,               Checking, Active, "USD",    -7450.00;
-        @uuid("ledger-mina"),    @uuid("account-mina"), "QB1000000001", @uuid("user-mina"), Checking, Active, "USD",    2200.00;
-        @uuid("ledger-mina2"),   @uuid("account-mina2"), "QB1000000002", @uuid("user-mina"), Savings,  Active, "USD",   5000.00;
-        @uuid("ledger-ben"),     @uuid("account-ben"),  "QB1000000003", @uuid("user-ben"),  Checking, Frozen, "USD",    250.00;
+        @uuid("ledger-mina"),    @uuid("account-mina"), "QB1000000001", "user-mina", Checking, Active, "USD",    2200.00;
+        @uuid("ledger-mina2"),   @uuid("account-mina2"), "QB1000000002", "user-mina", Savings,  Active, "USD",   5000.00;
+        @uuid("ledger-ben"),     @uuid("account-ben"),  "QB1000000003", "user-ben",  Checking, Frozen, "USD",    250.00;
       }
       Transfer table on(reference) {
         id,                 reference,      kind,     status, fromAccountId,            toAccountId,           fromNumber,     toNumber,       amount,  memo;

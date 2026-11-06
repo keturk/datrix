@@ -1,46 +1,48 @@
-from ecommerce.common import OrderLineInput;
-from ecommerce.OrderService import CreateOrderRequest, CancelOrderRequest;
-from ecommerce.ui import Brand, Panel, StatusBadge;
+from ecommerce.common import OrderLineInput, CartLine, TestCard, ProductArt;
+from ecommerce.ui import Brand, statRow, cardGrid, twoColumns;
 
-/// Customer storefront: browse the catalog, place and track orders.
-app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
+/// Where a customer shops, on the web and on a phone. Anyone can browse and fill a cart, which lives on their
+/// device; the checkout, the orders and the account start a sign-in.
+app ecommerce.Storefront('config/storefront-app.dcfg') : version('2.0.0') {
     uses ecommerce.ProductService;
     uses ecommerce.OrderService;
+    uses ecommerce.PaymentService;
+    uses ecommerce.ShippingService;
     uses ecommerce.UserService;
     uses ecommerce.NotificationService;
 
-    // The shell's sidebar and search resolve against these breakpoint tokens.
-    theme extends Brand {
-        breakpoint md = 768;
-        breakpoint lg = 1024;
-    }
+    theme extends Brand { }
 
-    // Mobile receives order notifications. The device registry is injected into the one used
-    // service whose configuration declares integrations.push.
+    // A phone hears when an order moves. The device registry is injected into the one used service whose
+    // configuration declares integrations.push.
     push : targets(flutter);
 
-    // Login is not declared: the app reaches authenticated endpoints and the used services
-    // expose exactly one human identity provider, so hosted login against it is derived.
+    assets {
+        image logo = 'assets/logo.svg';
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+        image candle = 'assets/candle.png';
+        image ceramic = 'assets/ceramic.png';
+        image linen = 'assets/linen.png';
+        image lamp = 'assets/lamp.png';
+        image kitchen = 'assets/kitchen.png';
+    }
 
-    // Survives restarts; never tokens or secrets.
-    state Array<OrderLineInput> cart = [] : persisted;
+    // Lives on the device, and survives a restart and a sign-in.
+    state Array<CartLine> cart = [] : persisted;
 
-    // Order notices shown in the top bar's notification menu until the customer clears them.
-    state Array<String> notices = [];
+    state UUID? reviewing = null : persisted;
 
-    // While muted, new order notices are not added; the notification menu shows the switch checked.
-    state Boolean noticesMuted = false;
-
-    fn addToCart(UUID productId, Int quantity) {
+    fn addToCart(UUID productId, String name, Money unitPrice, Int quantity) {
         foreach line in cart {
             if (line.productId == productId) {
                 line.quantity = line.quantity + quantity;
-                Ui.toast(Msg.quantityUpdated);
+                Ui.toast(Msg.quantityUpdated, tone: success);
                 return;
             }
         }
-        cart = cart.append(OrderLineInput { productId: productId, quantity: quantity });
-        Ui.toast(Msg.addedToCart);
+        cart = cart.append({ productId: productId, name: name, unitPrice: unitPrice, quantity: quantity });
+        Ui.toast(Msg.addedToCart, tone: success);
     }
 
     fn cartCount() -> Int {
@@ -49,45 +51,24 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
         return total;
     }
 
-    fn pushNotice(String text) {
-        if (!noticesMuted) { notices = notices.append(text); }
+    fn orderLines() -> Array<OrderLineInput> {
+        return cart.map(line => OrderLineInput { productId: line.productId, quantity: line.quantity });
     }
-    fn clearNotices() { notices = []; }
-    fn toggleNoticesMuted() { noticesMuted = !noticesMuted; }
-    fn unreadCount() -> Int { return notices.length; }
 
-    // The only layout, so every page uses it: the application shell. A link names a page:
-    // path, label and visibility come from the page, and `group` heads it in the sidebar.
-    // The sidebar is a collapsible rail from the `lg` breakpoint and a drawer below it; the
-    // top bar carries the organization text, a search shown from `md`, the notification menu
-    // and the account menu. Mobile keeps its bottom navigation bar for the same links.
-    layout AppShell {
-        state String query = '';
-
+    layout Shop : default {
         nav {
-            link ProductList : icon(storefront), group(Msg.navShop);
-            link Cart : icon(shopping_cart), group(Msg.navShop), badge(cartCount());
-            link OrderList : icon(receipt_long), group(Msg.navAccount);
+            link Home : icon(home);
+            link Shop : icon(storefront);
+            link Cart : icon(shopping_cart), badge(cartCount());
+            link Orders : icon(receipt_long);
+            link Account : icon(person);
         }
         view {
-            sidebar : collapsible, at(lg) {
-                brand(Msg.appName) { image(logo, Msg.logoAlt); }
-                nav;
-            }
             stack {
                 topBar {
-                    text(Msg.organizationName);
+                    brand(Msg.appName) { image(logo, Msg.logoAlt); }
                     spacer;
-                    search(Msg.searchLabel) : bind(query), placeholder(Msg.searchExample), from(md);
-                    menu(Msg.notifications) {
-                        iconButton(notifications, Msg.notifications) : trigger;
-                        badge(unreadCount());
-                        list(data: notices) {
-                            text(item);
-                        }
-                        menuItem(Msg.markAllRead) : onClick(clearNotices());
-                        menuItem(Msg.muteNotices) : onClick(toggleNoticesMuted()), checked(noticesMuted), multiple;
-                    }
+                    nav;
                     // Anyone can browse, so the top bar has a visitor with no session to serve as well.
                     when (Session.isAuthenticated) {
                         menu(Msg.account) {
@@ -105,185 +86,486 @@ app ecommerce.Storefront('config/storefront-app.dcfg') : version('1.0.0') {
         }
     }
 
-    redirect '/shop' -> ProductList;
-
-    @path('/')
-    page Home() {
+    /// A drawing of the kind of thing it is, since this shop stores no photographs.
+    component Art(ProductArt art) {
         view {
-            Panel {
-                heading(Msg.welcome);
-                link(Msg.browseProducts, ProductList) : kind(primary);
+            when (art == ProductArt.Candle) { image(candle, Msg.artCandle); }
+            when (art == ProductArt.Ceramic) { image(ceramic, Msg.artCeramic); }
+            when (art == ProductArt.Linen) { image(linen, Msg.artLinen); }
+            when (art == ProductArt.Lamp) { image(lamp, Msg.artLamp); }
+            when (art == ProductArt.Kitchen) { image(kitchen, Msg.artKitchen); }
+        }
+    }
+
+    component ProductCards(Array<ProductCard> products) {
+        view {
+            grid : style(cardGrid) {
+                foreach (product in products) {
+                    card(product.name) {
+                        Art(art: product.art);
+                        text(product.categoryName);
+                        row {
+                            heading(Fmt.money(product.price));
+                            when (product.discountPercent > 0) {
+                                badge(Msg.percentOff(percent: Fmt.number(product.discountPercent))) : tone(success);
+                            }
+                            when (!product.inStock) {
+                                badge(Msg.soldOut) : tone(warning);
+                            }
+                        }
+                        link(Msg.seeProduct, ProductDetail, id: product.id) : kind(primary), icon(arrow_forward);
+                    }
+                }
             }
         }
     }
 
-    // Public: the page reaches only the public resource list.
-    @path('/products')
-    page ProductList() {
-        view { table(Catalog); }
+    redirect '/shop' -> Shop;
+
+    @path('/')
+    page Home() {
+        data {
+            categories = ProductService.CatalogAPI.get.categories();
+            popular = ProductService.CatalogAPI.get.popular();
+        }
+        view {
+            pageHeader(Msg.homeTitle, Msg.homeSubtitle) {
+                link(Msg.browseAll, Shop) : kind(primary), icon(storefront);
+            }
+            section(Msg.categoriesTitle) {
+                grid : style(cardGrid) {
+                    foreach (category in categories) {
+                        card(category.name) {
+                            Art(art: category.art);
+                            text(category.description);
+                            link(Msg.seeCategory(count: Fmt.number(category.products)), CategoryPage, id: category.id, name: category.name) : icon(arrow_forward);
+                        }
+                    }
+                }
+            }
+            section(Msg.popularTitle) {
+                ProductCards(products: popular);
+            }
+        }
     }
 
-    table Catalog : source(ProductService.ProductAPI.productDb.Product.list) {
-        columns(auto) except [id, createdAt, updatedAt, slug, categoryId, description, productMetadata, images, tags];
-        column price : format(money);
-        column compareAtPrice : format(money);
-        // A product's slug is optional, so the page is addressed by its id.
-        rowAction open : onClick(Nav.to(ProductDetail, id: row.id));
+    @path('/products')
+    page Shop() {
+        data { products = ProductService.CatalogAPI.get.products(); }
+        state String searchFor = '';
+
+        fn search() {
+            Nav.to(SearchResults, q: searchFor.trim());
+        }
+
+        view {
+            pageHeader(Msg.shopTitle, Msg.shopSubtitle);
+            card {
+                input(Msg.searchLabel) : bind(searchFor);
+                button(Msg.search) : onClick(search()), kind(primary), icon(search);
+            }
+            ProductCards(products: products);
+        }
+    }
+
+    @path('/search/:q')
+    page SearchResults(String q) {
+        data { products = ProductService.CatalogAPI.get.search(query: q); }
+        view {
+            pageHeader(Msg.resultsTitle(q: q), Msg.resultsSubtitle) : back(Shop);
+            when (products.length == 0) {
+                emptyState(Msg.noMatches) : icon(search_off) { link(Msg.browseAll, Shop) : kind(primary); }
+            }
+            ProductCards(products: products);
+        }
+    }
+
+    @path('/categories/:id/:name')
+    page CategoryPage(UUID id, String name) {
+        data { products = ProductService.CatalogAPI.get.inCategory(categoryId: id); }
+        view {
+            pageHeader(name, Msg.categorySubtitle) : back(Home);
+            when (products.length == 0) {
+                emptyState(Msg.noneHere) : icon(storefront) { link(Msg.browseAll, Shop) : kind(primary); }
+            }
+            ProductCards(products: products);
+        }
     }
 
     @path('/products/:id')
     page ProductDetail(UUID id) {
-        data { product = ProductService.ProductAPI.productDb.Product.get(id: id); }
+        data {
+            product = ProductService.CatalogAPI.get.product(id: id);
+            page = ProductService.CatalogAPI.get.reviews(id: id);
+        }
         state Int quantity = 1;
 
         fn increment() { if (quantity < 10) { quantity = quantity + 1; } }
         fn decrement() { if (quantity > 1) { quantity = quantity - 1; } }
 
-        view {
-            heading(product.name);
-            markdown(product.description);
-            when (product.discountPercent > 0) {
-                callout(Msg.discount(percent: product.discountPercent)) : tone(success);
-            }
-            when (product.isAvailable) {
-                row {
-                    iconButton(remove, Msg.decrease) : onClick(decrement()), disabled(quantity <= 1);
-                    text(Fmt.number(quantity));
-                    iconButton(add, Msg.increase) : onClick(increment()), disabled(quantity >= 10);
-                }
-                button(Msg.addToCart) : onClick(addToCart(product.id, quantity)), kind(primary), hint(Msg.addToCartHint);
-            } otherwise {
-                callout(Msg.outOfStock) : tone(warning);
-            }
-            when (Share.isAvailable) {
-                button(Msg.share) : onClick(Share.page(ProductDetail, id: id)), kind(secondary);
-            }
+        // Anyone can read this page, so it reaches no route that needs a sign-in. The next page does.
+        fn writeReview() {
+            reviewing = id;
+            Nav.to(WriteReview, id: id);
         }
-    }
 
-    // Public: reaches no endpoint. Checkout navigates to a page whose derived guard requires
-    // login, so an anonymous session is sent through hosted login first.
-    @path('/cart')
-    page Cart() {
-        fn remove(UUID productId) { cart = cart.filter(line => line.productId != productId); }
-        fn checkout() {
-            if (cart.isEmpty) { Ui.toast(Msg.cartEmpty); return; }
-            Nav.to(NewOrder);
-        }
         view {
-            when (cart.isEmpty) { callout(Msg.cartEmpty); } otherwise {
-                foreach (line in cart) {
-                    row {
-                        text(Fmt.number(line.quantity));
-                        button(Msg.remove) : onClick(remove(line.productId)), kind(link);
+            pageHeader(product.name, product.categoryName) : back(Shop) {
+                when (product.discountPercent > 0) {
+                    badge(Msg.percentOff(percent: Fmt.number(product.discountPercent))) : tone(success);
+                }
+            }
+            grid : style(twoColumns) {
+                Art(art: product.art);
+                card {
+                    heading(Fmt.money(product.price));
+                    when (product.compareAtPrice != null) {
+                        text(Msg.wasPrice(price: Fmt.money(product.compareAtPrice)));
+                    }
+                    markdown(product.description);
+                    when (product.inStock) {
+                        when (product.inventory <= 5) {
+                            callout(Msg.lowStock(count: Fmt.number(product.inventory))) : tone(warning);
+                        }
+                        row {
+                            iconButton(remove, Msg.decrease) : onClick(decrement()), disabled(quantity <= 1);
+                            text(Fmt.number(quantity));
+                            iconButton(add, Msg.increase) : onClick(increment()), disabled(quantity >= 10);
+                        }
+                        button(Msg.addToCart) : onClick(addToCart(product.id, product.name, product.price, quantity)), kind(primary), icon(add_shopping_cart);
+                    } otherwise {
+                        callout(Msg.outOfStock) : tone(warning);
+                    }
+                    when (Share.isAvailable) {
+                        button(Msg.share) : onClick(Share.page(ProductDetail, id: id)), kind(secondary), icon(share);
                     }
                 }
-                button(Msg.checkout) : onClick(checkout()), kind(primary);
+            }
+            section(Msg.reviewsTitle) {
+                row {
+                    when (page.count > 0) {
+                        text(Msg.ratingLine(average: Fmt.number(page.average), count: Fmt.number(page.count)));
+                    }
+                    button(Msg.writeReview) : onClick(writeReview()), icon(rate_review);
+                }
+                when (page.count == 0) {
+                    emptyState(Msg.noReviews) : icon(rate_review);
+                }
+                list(data: page.reviews) {
+                    heading(item.title ?? Msg.untitledReview);
+                    text(Msg.reviewBy(name: item.authorName, stars: Fmt.number(item.rating), when: Fmt.relative(item.createdAt)));
+                    when (item.body != null) {
+                        text(item.body);
+                    }
+                }
             }
         }
     }
 
-    // Login required: `get orders(...)` requires an identity-provider login.
-    // The route returns a Page<Order>, so the table pages through it and its rows are the page's items.
-    @path('/orders')
-    page OrderList() {
-        view { table(Orders); }
+    @path('/products/:id/review')
+    page WriteReview(UUID id) {
+        data { product = ProductService.CatalogAPI.get.product(id: id); }
+        view {
+            pageHeader(Msg.reviewTitle(name: product.name), Msg.reviewSubtitle) : back(Shop);
+            card { form(ReviewProduct); }
+        }
     }
 
-    table Orders : source(OrderService.OrderAPI.get.orders), poll(30s) {
-        // An address is a struct with no text form of its own, so no cell shows it. A customer
-        // knows an order by its number, so the ids behind it are not shown either.
-        columns(auto) except [id, updatedAt, customerId, inventoryReservationId, paymentId, shipmentId, shippingAddress, billingAddress, cancellationReason];
-        column createdAt : format(dateTime);
-        column status : render(StatusBadge);
-        column subtotal : format(money);
-        column tax : format(money);
-        column shippingCost : format(money);
-        column discount : format(money);
-        rowAction open : onClick(Nav.to(OrderDetail, id: row.id));
+    form ReviewProduct : submit(ProductService.CatalogAPI.post.addReview) {
+        fn reviewed() {
+            Ui.toast(Msg.reviewThanks, tone: success);
+            if (reviewing != null) {
+                let UUID target = reviewing;
+                Nav.to(ProductDetail, id: target);
+            }
+        }
+        field productId : fixed(reviewing);
+        field rating;
+        field title;
+        field body;
+        onSuccess(reviewed());
     }
 
-    @path('/orders/new')
-    page NewOrder() {
-        view { form(CreateOrder); }
+    // Public: reaches no endpoint. Checkout navigates to a page that needs a sign-in, so a visitor goes through
+    // the hosted login first, and the cart waits for them on this device.
+    @path('/cart')
+    page Cart() {
+        fn removeLine(UUID productId) {
+            cart = cart.filter(line => line.productId != productId);
+        }
+
+        fn subtotal() -> Money {
+            let Money sum = 0;
+            foreach line in cart {
+                sum = sum + line.unitPrice * line.quantity;
+            }
+            return sum;
+        }
+
+        state Boolean checking = false;
+
+        // The cart is whatever this device remembered. This asks the shop what those things cost today.
+        fn checkPrices() {
+            checking = true;
+            let CartCheck checked = ProductService.CatalogAPI.post.checkCart(request: CartCheckRequest { lines: cart });
+            cart = checked.lines;
+            checking = false;
+            if (checked.changed) {
+                Ui.toast(Msg.cartCorrected, tone: warning);
+            } else {
+                Ui.toast(Msg.cartCurrent, tone: success);
+            }
+        }
+
+        view {
+            pageHeader(Msg.cartTitle, Msg.cartSubtitle);
+            when (cart.isEmpty) {
+                emptyState(Msg.cartEmpty) : icon(shopping_cart) { link(Msg.browseAll, Shop) : kind(primary); }
+            } otherwise {
+                foreach (line in cart) {
+                    card(line.name) {
+                        row {
+                            text(Msg.cartLine(quantity: Fmt.number(line.quantity), price: Fmt.money(line.unitPrice)));
+                            spacer;
+                            heading(Fmt.money(line.unitPrice * line.quantity));
+                            button(Msg.remove) : onClick(removeLine(line.productId)), kind(link), icon(delete);
+                        }
+                    }
+                }
+                card {
+                    row {
+                        heading(Msg.subtotalLine(amount: Fmt.money(subtotal())));
+                        spacer;
+                        button(Msg.checkPrices) : onClick(checkPrices()), kind(link), busy(checking), icon(refresh);
+                        link(Msg.checkout, Checkout) : kind(primary), icon(lock);
+                    }
+                    text(Msg.taxNote);
+                }
+            }
+        }
     }
 
-    // The bound struct is the submit endpoint's body type. Its lines are the cart's: a
-    // fixed member, sent as the cart stands when the order is placed and never shown.
-    form CreateOrder : submit(OrderService.OrderAPI.post.createOrder) {
-        field items : fixed(cart);
-        fn placed(UUID id, String orderNumber) {
+    @path('/checkout')
+    page Checkout() {
+        data { me = UserService.UserAPI.get.me(); }
+        view {
+            pageHeader(Msg.checkoutTitle(name: me.fullName), Msg.checkoutSubtitle) : back(Cart);
+            callout(Msg.testCardNote) : tone(info);
+            card { form(PlaceOrder); }
+        }
+    }
+
+    form PlaceOrder : submit(OrderService.OrderAPI.post.createOrder) {
+        fn placed(UUID id) {
             cart = [];
-            pushNotice(Msg.orderPlaced(orderNumber: orderNumber).text);
-            Ui.toast(Msg.orderPlaced(orderNumber: orderNumber));
+            Ui.toast(Msg.orderPlaced, tone: success);
             Nav.to(OrderDetail, id: id);
         }
-        step shipping { field shippingAddress; field billingAddress; }
-        onSuccess(placed(result.id, result.orderNumber));
-        onError(Ui.toast(Msg.orderFailed));
+        field items : fixed(orderLines());
+        step shipping {
+            field shippingAddress;
+        }
+        step payment {
+            field card;
+        }
+        onSuccess(placed(result.id));
+        onError(Ui.toast(Msg.orderFailed, tone: danger));
+    }
+
+    @path('/orders')
+    page Orders() {
+        view {
+            pageHeader(Msg.ordersTitle, Msg.ordersSubtitle);
+            table(MyOrders);
+        }
+    }
+
+    table MyOrders : source(OrderService.OrderAPI.get.orders), poll(30s) {
+        column orderNumber;
+        column createdAt : format(relative);
+        column total : format(money);
+        column status;
+        rowAction open : onClick(Nav.to(OrderDetail, id: row.id));
     }
 
     @path('/orders/:id')
     page OrderDetail(UUID id) {
-        data { order = OrderService.OrderAPI.get.orderById(id: id); }
+        data {
+            order = OrderService.OrderAPI.get.orderById(id: id) : poll(10s);
+            payments = PaymentService.PaymentAPI.get.forOrder(orderId: id) : poll(10s);
+            shipments = ShippingService.ShippingAPI.get.forOrder(orderId: id) : poll(10s);
+        }
         state Boolean cancelling = false;
 
         // The cancel button shows its progress and ignores a second press until the call is answered.
-        fn cancel() {
+        fn cancelIt() {
             if (!Ui.confirm(Msg.confirmCancel)) { return; }
             cancelling = true;
             try {
-                OrderService.OrderAPI.put.cancelOrder(id: id, request: CancelOrderRequest { reason: Msg.customerRequest.text });
+                OrderService.OrderAPI.post.cancelOrder(id: id, request: CancelOrderRequest { reason: Msg.customerRequest.text });
                 order.refresh();
-                Ui.toast(Msg.orderCancelled);
+                Ui.toast(Msg.orderCancelled, tone: info);
             } catch (ConflictError e) {
-                Ui.toast(Msg.cannotCancel);
+                Ui.toast(Msg.cannotCancel, tone: warning);
             }
             cancelling = false;
         }
 
         view {
-            heading(Msg.orderTitle(number: order.orderNumber));
-            StatusBadge(order.status);
-            text(Fmt.money(order.total));
-            when (order.canCancel) {
-                button(Msg.cancelOrder) : onClick(cancel()), tone(danger), busy(cancelling);
+            pageHeader(Msg.orderTitle(number: order.orderNumber), Msg.placedLine(when: Fmt.dateTime(order.placedAt))) : back(Orders) {
+                badge(order.status);
+                when (order.canCancel) {
+                    button(Msg.cancelOrder) : onClick(cancelIt()), tone(danger), busy(cancelling), icon(cancel);
+                }
+            }
+            when (order.cancellationReason != null) {
+                callout(order.cancellationReason) : tone(warning);
+            }
+            grid : style(twoColumns) {
+                section(Msg.itemsTitle) {
+                    list(data: order.lines) {
+                        heading(item.productName);
+                        text(Msg.cartLine(quantity: Fmt.number(item.quantity), price: Fmt.money(item.unitPrice)));
+                        text(Fmt.money(item.total));
+                    }
+                    card {
+                        text(Msg.subtotalLine(amount: Fmt.money(order.subtotal)));
+                        text(Msg.taxLine(amount: Fmt.money(order.tax)));
+                        text(Msg.shippingLine(amount: Fmt.money(order.shippingCost)));
+                        heading(Msg.totalLine(amount: Fmt.money(order.total)));
+                    }
+                }
+                section(Msg.deliveryTitle) {
+                    card(Msg.deliverTo(name: order.customerName)) {
+                        text(order.shippingAddress.street);
+                        text(Msg.cityLine(city: order.shippingAddress.city, zip: order.shippingAddress.zipCode));
+                    }
+                    foreach (shipment in shipments) {
+                        card(Msg.trackingLine(number: shipment.trackingNumber)) {
+                            badge(shipment.status);
+                            when (shipment.estimatedDelivery != null) {
+                                text(Msg.expectedLine(when: Fmt.date(shipment.estimatedDelivery)));
+                            }
+                            timeline(data: shipment.steps, at: s => s.at) {
+                                badge(item.status);
+                                text(item.location);
+                            }
+                            link(Msg.shareTracking, Track, number: shipment.trackingNumber) : icon(share);
+                        }
+                    }
+                    foreach (payment in payments) {
+                        card(Msg.paymentTitle) {
+                            badge(payment.status);
+                            text(Fmt.money(payment.amount));
+                            when (payment.errorMessage != null) {
+                                callout(payment.errorMessage) : tone(danger);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
-    page NotFound() : fallback {
-        view { callout(Msg.notFound) : tone(warning); link(Msg.home, Home); }
+    // Anyone holding a tracking number can read this, and it shows them a city and no name.
+    @path('/track/:number')
+    page Track(String number) {
+        data { tracking = ShippingService.ShippingAPI.get.track(trackingNumber: number) : poll(30s); }
+        view {
+            pageHeader(Msg.trackingLine(number: number), Msg.goingTo(city: tracking.city)) {
+                badge(tracking.status);
+            }
+            when (tracking.estimatedDelivery != null) {
+                callout(Msg.expectedLine(when: Fmt.date(tracking.estimatedDelivery))) : tone(info);
+            }
+            card {
+                timeline(data: tracking.steps, at: s => s.at) {
+                    badge(item.status);
+                    text(item.location);
+                }
+            }
+        }
     }
 
-    assets {
-        image logo = 'assets/logo.svg';
-        icon app = 'assets/icon.png';
-        splash app = 'assets/splash.png';
+    @path('/account')
+    page Account() {
+        data {
+            me = UserService.UserAPI.get.me();
+            keys = UserService.UserAPI.get.myApiKeys();
+        }
+        state String newKey = '';
+
+        fn issue() {
+            newKey = UserService.UserAPI.post.issueApiKey(request: IssueApiKeyRequest { label: Msg.keyLabel.text }).apiKey;
+            keys.refresh();
+        }
+
+        fn revoke(UUID keyId) {
+            UserService.UserAPI.post.revokeApiKey(id: keyId);
+            keys.refresh();
+            Ui.toast(Msg.keyRevoked, tone: info);
+        }
+
+        view {
+            pageHeader(me.fullName, me.email);
+            grid : style(twoColumns) {
+                section(Msg.profileTitle) {
+                    card { form(EditProfile); }
+                }
+                section(Msg.keysTitle) {
+                    text(Msg.keysNote);
+                    when (newKey != '') {
+                        callout(Msg.newKeyLine(key: newKey)) : tone(warning);
+                    }
+                    button(Msg.issueKey) : onClick(issue()), icon(key);
+                    list(data: keys) {
+                        heading(item.label);
+                        text(Msg.keyLine(prefix: item.keyPrefix, when: Fmt.relative(item.createdAt)));
+                        button(Msg.revokeKey) : onClick(revoke(item.id)), tone(danger), icon(key_off);
+                    }
+                }
+            }
+        }
+    }
+
+    form EditProfile : submit(UserService.UserAPI.put.updateMe) {
+        fn saved() {
+            Ui.toast(Msg.profileSaved, tone: success);
+        }
+        field fullName;
+        field phoneNumber;
+        field defaultAddress;
+        field emailNotifications;
+        onSuccess(saved());
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFound) : icon(search_off) { link(Msg.home, Home) : kind(primary); }
+        }
     }
 
     test("adding the same product twice increases its quantity") {
         let UUID id = uuid();
-        addToCart(id, 1);
-        addToCart(id, 2);
+        addToCart(id, "Mug", 22.00, 1);
+        addToCart(id, "Mug", 22.00, 2);
         assert cart.length == 1;
         assert cart.first.quantity == 3;
     }
 
-    test("checkout with an empty cart stays on the cart") {
+    test("an empty cart says so") {
         let Screen screen = render(Cart);
-        screen.tap(button, Msg.checkout);
         assert screen.shows(Msg.cartEmpty);
-        assert !navigated(NewOrder);
     }
 
-    // The order page's guard requires a signed-in customer.
     test("a conflicting cancellation tells the customer") {
         let UUID id = uuid();
         signIn([]);
-        respond(OrderService.OrderAPI.get.orderById(id: id), sample(orderDb.Order, id: id, canCancel: true));
+        respond(OrderService.OrderAPI.get.orderById(id: id), sample(OrderView, id: id, canCancel: true));
+        respond(PaymentService.PaymentAPI.get.forOrder(orderId: id), []);
+        respond(ShippingService.ShippingAPI.get.forOrder(orderId: id), []);
         respondError(
-            OrderService.OrderAPI.put.cancelOrder(id: id, request: CancelOrderRequest { reason: Msg.customerRequest.text }),
+            OrderService.OrderAPI.post.cancelOrder(id: id, request: CancelOrderRequest { reason: Msg.customerRequest.text }),
             ConflictError('already shipped')
         );
         answerConfirm(true);

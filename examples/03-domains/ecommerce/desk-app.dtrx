@@ -1,0 +1,112 @@
+from ecommerce.ui import Brand;
+
+/// What the three mock vendors saw: every charge, parcel and email the shop sent them, and the one thing a person
+/// can break on purpose. Pointing the extern configs at real vendors retires this app. Every page needs the
+/// operator role.
+app ecommerce.ProviderDesk('config/desk-app.dcfg') : version('2.0.0') {
+    uses ecommerce.PaymentMock;
+    uses ecommerce.CarrierMock;
+    uses ecommerce.EmailMock;
+
+    theme extends Brand { }
+
+    fn loseParcel(UUID id) {
+        if (Ui.confirm(Msg.confirmLose)) {
+            CarrierMock.CarrierDeskAPI.post.lose(id: id);
+            Ui.toast(Msg.parcelLost, tone: warning);
+        }
+    }
+
+    layout Shell : default {
+        nav {
+            link Charges : icon(credit_card);
+            link Parcels : icon(local_shipping);
+            link Outbox : icon(mail);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Charges() {
+        view {
+            pageHeader(Msg.chargesTitle, Msg.chargesSubtitle);
+            callout(Msg.chargesNote) : tone(info);
+            table(ChargeList);
+        }
+    }
+
+    table ChargeList : source(PaymentMock.PaymentDeskAPI.paymentDb.CardCharge.list), poll(10s) {
+        column reference;
+        column amount : format(money);
+        column refunded : format(money);
+        column createdAt : format(relative);
+        column status;
+        column declineReason;
+        filter status;
+        filter reference;
+    }
+
+    @path('/parcels')
+    page Parcels() {
+        view {
+            pageHeader(Msg.parcelsTitle, Msg.parcelsSubtitle);
+            callout(Msg.parcelsNote) : tone(info);
+            table(ParcelList);
+        }
+    }
+
+    table ParcelList : source(CarrierMock.CarrierDeskAPI.carrierDb.CarrierConsignment.list), poll(10s) {
+        column trackingNumber;
+        column recipientName;
+        column city;
+        column location;
+        column createdAt : format(relative);
+        column status;
+        filter status;
+        rowAction loseIt : onClick(loseParcel(row.id));
+    }
+
+    @path('/outbox')
+    page Outbox() {
+        view {
+            pageHeader(Msg.outboxTitle, Msg.outboxSubtitle);
+            table(EmailList);
+        }
+    }
+
+    table EmailList : source(EmailMock.EmailDeskAPI.emailDb.Outbound.list), poll(10s) {
+        column recipient;
+        column subject;
+        column body;
+        column createdAt : format(relative);
+        column status;
+        filter status;
+        filter recipient;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFound) : icon(search_off) { link(Msg.home, Charges) : kind(primary); }
+        }
+    }
+}

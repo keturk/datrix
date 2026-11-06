@@ -1,0 +1,87 @@
+config service ecommerce.CarrierMock {
+  import "config/templates/mock.dcfg";
+
+  base {
+    port = 8091;
+    flavor = "compose";
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms carrierDb from mockPostgres(id: "3a4c8e21-97b6-4f05-8d1e-5c02f7b6a341", database: "carrier_mock");
+    httpSecurity from mockHttpSecurity(host: "ecommerce-carrier-mock");
+    serviceCredentialOps from mockCredential();
+    jobs {
+      jobs {
+        AdvanceConsignments {
+          schedule = "* * * * *";
+          timeout = "60s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from mockDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+
+  profile aws as "aws" extends base {
+    alias env = "AWS";
+    alias resource = "aws";
+
+    flavor = "ecs-fargate";
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+    }
+    scaling {
+      replicas {
+        min = 1;
+        max = 1;
+      }
+      triggers = [];
+    }
+    replace rdbms carrierDb from mockRds(id: "3a4c8e21-97b6-4f05-8d1e-5c02f7b6a341", database: "carrier_mock");
+    remoteConfigOps {
+      appconfigMinPollSeconds = 15;
+    }
+  }
+
+  profile azure as "azure" extends base {
+    alias env = "AZURE";
+    alias resource = "azure";
+
+    replace rdbms carrierDb from mockFlexibleServer(id: "3a4c8e21-97b6-4f05-8d1e-5c02f7b6a341", database: "carrier_mock");
+  }
+
+  profile azureVm as "azvm" extends base {
+    alias env = "AZVM";
+    alias resource = "azvm";
+
+    replace rdbms carrierDb from mockFlexibleServer(id: "3a4c8e21-97b6-4f05-8d1e-5c02f7b6a341", database: "carrier_mock");
+  }
+}

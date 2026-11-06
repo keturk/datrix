@@ -1,0 +1,15 @@
+include 'common.dtrx';
+include 'ui.dtrx';
+include 'providers/email-provider.dtrx';
+include 'ticket-service.dtrx';
+include 'knowledge-service.dtrx';
+include 'notice-service.dtrx';
+include 'mocks/email-mock.dtrx';
+include 'help-app.dtrx';
+include 'console-app.dtrx';
+
+/// Lanternpost: the support desk of a small web host. Customers read the help centre and open tickets, agents
+/// work a queue against a response clock, and a job raises whatever is about to be late. The email vendor runs
+/// as a mock in the same stack.
+system helpdesk.System('config/system.dcfg') : version('1.0.0') {
+}

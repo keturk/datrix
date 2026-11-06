@@ -1,15 +1,16 @@
 +++
 title = "Yeni mağazamız açıldı"
 published = 2026-09-01
-summary = "İhtiyacınız olan her şey tek yerde, artık iki dilde."
+summary = "Sevdiğimiz üreticiler tek yerde, artık iki dilde."
 cover = "launch.svg"
 +++
 # Yeni mağazamız açıldı
 
-Mağazayı tek bir tanımdan yeniden inşa ettik. Katalog, sepet ve ödeme bu tanımdan gelir; bu site de öyle.
+İşe, arkadaşlarımıza hediye edip durduğumuz şeylerin listesiyle başladık: bir mum, bir kupa, her
+yıkamada güzelleşen bir masa örtüsü. Şimdi hepsi tek bir yerde.
 
-## Yenilikler
+## Neler bulacaksınız
 
-- Canlı stok bilgisiyle daha hızlı katalog.
-- Onaydan kapınıza kadar sipariş takibi.
-- Tüm deneyim İngilizce ve Türkçe.
+- Baktığınız anda doğru olan stok bilgisi: "yalnızca üç tane kaldı" gerçekten üç demektir.
+- Paketiniz bizden çıktığı andan kapınıza ulaşana kadar takip.
+- Tüm mağaza İngilizce ve Türkçe.

@@ -1,48 +1,350 @@
-from ecommerce.ui import Brand;
+from ecommerce.ui import Brand, statRow, twoColumns;
 
-/// Staff console: browse and edit the product catalog.
-app ecommerce.Admin('config/admin-app.dcfg') : version('1.0.0') {
+/// Where staff run the shop: how the day is going, the catalog, the orders and their refunds, the customers.
+/// Every page needs the admin role.
+app ecommerce.Admin('config/admin-app.dcfg') : version('2.0.0') {
     uses ecommerce.ProductService;
+    uses ecommerce.OrderService;
+    uses ecommerce.PaymentService;
+    uses ecommerce.ShippingService;
     uses ecommerce.UserService;
-    theme extends Brand { }
-    layout Console { nav { link Products.list; } }
 
-    // A product holds its category's id; this cell shows the category's name.
-    component CategoryName(UUID categoryId) {
-        data { category = ProductService.CategoryAPI.productDb.Category.get(id: categoryId); }
-        view { text(category.name); }
+    theme extends Brand { }
+
+    state UUID? refunding = null : persisted;
+
+    fn suspend(UUID id) {
+        UserService.UserAdminAPI.post.setStatus(id: id, request: SetStatusRequest { status: CustomerStatus.Suspended });
+        Ui.toast(Msg.customerSuspended, tone: info);
     }
 
-    // Each minted page carries the guard derived from the operation it reaches: list/detail
-    // are public reads, edit reaches the admin-only update -- so the edit page is admin-only.
-    // `auth(...)` here tightens all of them to staff.
+    fn restore(UUID id) {
+        UserService.UserAdminAPI.post.setStatus(id: id, request: SetStatusRequest { status: CustomerStatus.Active });
+        Ui.toast(Msg.customerRestored, tone: success);
+    }
+
+    layout Console : default {
+        nav {
+            link Dashboard : icon(dashboard), group(Msg.navToday);
+            link Orders : icon(receipt_long), group(Msg.navToday);
+            link Shipments : icon(local_shipping), group(Msg.navToday);
+            link Products.list : icon(inventory_2), group(Msg.navCatalog);
+            link StockAlerts : icon(warning), group(Msg.navCatalog);
+            link Customers : icon(group), group(Msg.navPeople);
+            link Payments : icon(payments), group(Msg.navMoney);
+            link Settlements : icon(account_balance), group(Msg.navMoney);
+        }
+        view {
+            sidebar : collapsible, at(lg) {
+                brand(Msg.appName);
+                nav;
+            }
+            stack {
+                topBar {
+                    spacer;
+                    when (Session.isAuthenticated) {
+                        menu(Msg.account) {
+                            avatar(Fmt.initials(Session.claim('name'))) : trigger;
+                            text(Session.claim('name'));
+                            divider;
+                            menuItem(Msg.signOut) : onClick(Session.logout());
+                        }
+                    } otherwise {
+                        button(Msg.signIn) : onClick(Session.login());
+                    }
+                }
+                slot;
+            }
+        }
+    }
+
+    @path('/')
+    page Dashboard() {
+        data {
+            orders = OrderService.OrderAdminAPI.get.summary() : poll(30s);
+            money = PaymentService.PaymentAdminAPI.get.summary() : poll(30s);
+            shipping = ShippingService.ShippingAdminAPI.get.summary() : poll(30s);
+            catalog = ProductService.ProductAPI.get.summary() : poll(60s);
+            customers = UserService.UserAdminAPI.get.summary() : poll(60s);
+            alerts = ProductService.ProductAPI.get.openAlerts() : poll(60s);
+        }
+        view {
+            pageHeader(Msg.dashboardTitle, Msg.dashboardSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statTakenToday, Fmt.money(money.takenToday)) : icon(payments);
+                stat(Msg.statTakenWeek, Fmt.money(money.takenThisWeek)) : icon(trending_up);
+                stat(Msg.statPlacedToday, Fmt.number(orders.placedToday)) : icon(receipt_long);
+                stat(Msg.statToShip, Fmt.number(orders.waitingToShip)) : icon(inventory);
+                stat(Msg.statMoving, Fmt.number(shipping.moving)) : icon(local_shipping);
+                stat(Msg.statProblems, Fmt.number(orders.deliveryProblems)) : icon(report);
+                stat(Msg.statOnSale, Fmt.number(catalog.onSale)) : icon(storefront);
+                stat(Msg.statCustomers, Fmt.number(customers.customers)) : icon(group);
+            }
+            grid : style(twoColumns) {
+                section(Msg.pipelineTitle) {
+                    chart(bar, data: orders.byStatus, x: s => s.status, y: s => s.orders);
+                }
+                section(Msg.alertsTitle) {
+                    when (alerts.length == 0) {
+                        emptyState(Msg.noAlerts) : icon(check_circle);
+                    }
+                    list(data: alerts) {
+                        heading(item.productName);
+                        text(Msg.remainingLine(count: Fmt.number(item.remaining)));
+                    }
+                    link(Msg.allAlerts, StockAlerts) : icon(arrow_forward);
+                }
+            }
+        }
+    }
+
+    @path('/orders')
+    page Orders() {
+        view {
+            pageHeader(Msg.ordersTitle, Msg.ordersSubtitle);
+            table(AllOrders);
+        }
+    }
+
+    table AllOrders : source(OrderService.OrderAdminAPI.orderDb.Order.list), poll(30s) {
+        column orderNumber;
+        column customerName;
+        column createdAt : format(relative);
+        column total : format(money);
+        column status;
+        filter status;
+        filter orderNumber;
+        rowAction open : onClick(Nav.to(OrderDetail, id: row.id));
+    }
+
+    @path('/orders/:id')
+    page OrderDetail(UUID id) {
+        data {
+            order = OrderService.OrderAdminAPI.get.orderView(id: id) : poll(15s);
+            payments = PaymentService.PaymentAdminAPI.get.forOrder(orderId: id) : poll(15s);
+            shipments = ShippingService.ShippingAdminAPI.get.forOrder(orderId: id) : poll(15s);
+        }
+
+        fn cancelIt() {
+            if (!Ui.confirm(Msg.confirmCancel)) { return; }
+            OrderService.OrderAdminAPI.post.cancelFor(id: id, request: CancelOrderRequest { reason: Msg.staffCancelled.text });
+            order.refresh();
+            Ui.toast(Msg.orderCancelled, tone: info);
+        }
+
+        fn startRefund(UUID paymentId) {
+            refunding = paymentId;
+            Nav.to(RefundPayment, orderId: id);
+        }
+
+        view {
+            pageHeader(Msg.orderTitle(number: order.orderNumber), Msg.orderBy(name: order.customerName, email: order.customerEmail, when: Fmt.dateTime(order.placedAt))) : back(Orders) {
+                badge(order.status);
+                when (order.canCancel) {
+                    button(Msg.cancelOrder) : onClick(cancelIt()), tone(danger), icon(cancel);
+                }
+            }
+            when (order.cancellationReason != null) {
+                callout(order.cancellationReason) : tone(warning);
+            }
+            grid : style(twoColumns) {
+                section(Msg.itemsTitle) {
+                    list(data: order.lines) {
+                        heading(item.productName);
+                        text(Msg.lineFacts(quantity: Fmt.number(item.quantity), price: Fmt.money(item.unitPrice), total: Fmt.money(item.total)));
+                    }
+                    card {
+                        text(Msg.moneyLine(subtotal: Fmt.money(order.subtotal), tax: Fmt.money(order.tax), shipping: Fmt.money(order.shippingCost)));
+                        heading(Msg.totalLine(amount: Fmt.money(order.total)));
+                    }
+                }
+                section(Msg.moneyAndParcel) {
+                    foreach (payment in payments) {
+                        card(Msg.paymentLine(reference: payment.transactionId)) {
+                            badge(payment.status);
+                            text(Fmt.money(payment.amount));
+                            when (payment.errorMessage != null) {
+                                callout(payment.errorMessage) : tone(danger);
+                            }
+                            when (payment.canRefund) {
+                                button(Msg.refund) : onClick(startRefund(payment.id)), icon(undo);
+                            }
+                        }
+                    }
+                    foreach (shipment in shipments) {
+                        card(Msg.trackingLine(number: shipment.trackingNumber)) {
+                            badge(shipment.status);
+                            text(Msg.deliverTo(name: shipment.recipientName, city: shipment.destination.city));
+                            when (shipment.failureReason != null) {
+                                callout(shipment.failureReason) : tone(danger);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @path('/orders/:orderId/refund')
+    page RefundPayment(UUID orderId) {
+        data { order = OrderService.OrderAdminAPI.get.orderView(id: orderId); }
+        view {
+            pageHeader(Msg.refundTitle(number: order.orderNumber), Msg.refundSubtitle(total: Fmt.money(order.total))) : back(Orders);
+            card { form(GiveRefund); }
+        }
+    }
+
+    form GiveRefund : submit(PaymentService.PaymentAdminAPI.post.refundPayment) {
+        fn refunded() {
+            Ui.toast(Msg.refunded, tone: success);
+            Nav.to(Orders);
+        }
+        field paymentId : fixed(refunding);
+        field amount;
+        field reason;
+        onSuccess(refunded());
+    }
+
+    @path('/shipments')
+    page Shipments() {
+        data { shipping = ShippingService.ShippingAdminAPI.get.summary() : poll(30s); }
+        view {
+            pageHeader(Msg.shipmentsTitle, Msg.shipmentsSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statMoving, Fmt.number(shipping.moving)) : icon(local_shipping);
+                stat(Msg.statDelivered, Fmt.number(shipping.deliveredThisWeek)) : icon(check_circle);
+                stat(Msg.statLost, Fmt.number(shipping.failed)) : icon(report);
+            }
+            table(AllShipments);
+        }
+    }
+
+    table AllShipments : source(ShippingService.ShippingAdminAPI.shippingDb.Shipment.list), poll(30s) {
+        column trackingNumber;
+        column recipientName;
+        column createdAt : format(relative);
+        column estimatedDelivery : format(date);
+        column status;
+        filter status;
+    }
+
+    // Each page the workspace mints carries the guard derived from the route it reaches, which is admin-only.
     @path('/products')
-    workspace Products : over(ProductService.ProductAPI.productDb.Product),
-                         auth(required, providers: [identity], roles: [admin]), fallback {
-        // The metadata, images and tags are JSON documents with no text form, so no page shows
-        // them. Staff read a product by its name, so neither table shows its id, and the list
-        // writes out its columns, name first, leaving the slug and timestamps to the detail.
+    workspace Products : over(ProductService.ProductAPI.productDb.Product) {
         list {
             column name;
-            column categoryId : render(CategoryName);
             column price : format(money);
             column compareAtPrice : format(money);
             column inventory;
             column status;
+            filter status;
         }
         detail {
-            columns(auto) except [id, productMetadata, images, tags];
-            column createdAt : format(dateTime);
-            column updatedAt : format(dateTime);
+            column name;
+            column description;
             column price : format(money);
             column compareAtPrice : format(money);
-            column categoryId : render(CategoryName);
+            column discountPercent : format(percent);
+            column inventory;
+            column status;
+            column updatedAt : format(dateTime);
         }
-        // Staff pick a product's category by name; the slug follows the name, and the
-        // documents have no form input.
+        // Staff pick a category by name; the slug follows the name.
         edit {
-            fields(auto) except [slug, productMetadata, images, tags];
-            field categoryId : options(ProductService.CategoryAPI.productDb.Category.list, value: c => c.id, label: c => c.name);
+            field name;
+            field description;
+            field price;
+            field compareAtPrice;
+            field inventory;
+            field status;
+            field categoryId : options(ProductService.ProductAPI.productDb.Category.list, value: c => c.id, label: c => c.name);
+        }
+    }
+
+    @path('/stock')
+    page StockAlerts() {
+        data { alerts = ProductService.ProductAPI.get.openAlerts() : poll(30s); }
+        view {
+            pageHeader(Msg.alertsPageTitle, Msg.alertsPageSubtitle);
+            when (alerts.length == 0) {
+                emptyState(Msg.noAlerts) : icon(check_circle);
+            }
+            list(data: alerts) {
+                heading(item.productName);
+                text(Msg.remainingLine(count: Fmt.number(item.remaining)));
+                text(Fmt.relative(item.updatedAt));
+            }
+        }
+    }
+
+    @path('/customers')
+    page Customers() {
+        data { customers = UserService.UserAdminAPI.get.summary() : poll(60s); }
+        view {
+            pageHeader(Msg.customersTitle, Msg.customersSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statCustomers, Fmt.number(customers.customers)) : icon(group);
+                stat(Msg.statJoined, Fmt.number(customers.joinedThisWeek)) : icon(person_add);
+                stat(Msg.statSuspended, Fmt.number(customers.suspended)) : icon(block);
+            }
+            table(AllCustomers);
+        }
+    }
+
+    table AllCustomers : source(UserService.UserAdminAPI.userDb.Customer.list), poll(60s) {
+        column fullName;
+        column email;
+        column createdAt : format(relative);
+        column status;
+        filter status;
+        rowAction suspend : onClick(suspend(row.id));
+        rowAction restore : onClick(restore(row.id));
+    }
+
+    @path('/payments')
+    page Payments() {
+        data { money = PaymentService.PaymentAdminAPI.get.summary() : poll(30s); }
+        view {
+            pageHeader(Msg.paymentsTitle, Msg.paymentsSubtitle);
+            grid : style(statRow) {
+                stat(Msg.statTakenToday, Fmt.money(money.takenToday)) : icon(payments);
+                stat(Msg.statTakenWeek, Fmt.money(money.takenThisWeek)) : icon(trending_up);
+                stat(Msg.statRefunded, Fmt.money(money.refundedThisWeek)) : icon(undo);
+                stat(Msg.statFailed, Fmt.number(money.failedThisWeek)) : icon(report);
+            }
+            table(AllPayments);
+        }
+    }
+
+    table AllPayments : source(PaymentService.PaymentAdminAPI.paymentDb.Payment.list), poll(30s) {
+        column orderNumber;
+        column amount : format(money);
+        column createdAt : format(relative);
+        column status;
+        column errorMessage;
+        filter status;
+        filter orderNumber;
+        rowAction open : onClick(Nav.to(OrderDetail, id: row.orderId));
+    }
+
+    @path('/settlements')
+    page Settlements() {
+        view {
+            pageHeader(Msg.settlementsTitle, Msg.settlementsSubtitle);
+            table(AllSettlements);
+        }
+    }
+
+    table AllSettlements : source(PaymentService.PaymentAdminAPI.paymentDb.Settlement.list), poll(60s) {
+        column merchantId;
+        column amount : format(money);
+        column settledAt : format(dateTime);
+        filter merchantId;
+    }
+
+    page NotFound() : fallback {
+        view {
+            emptyState(Msg.notFound) : icon(search_off) { link(Msg.home, Dashboard) : kind(primary); }
         }
     }
 }

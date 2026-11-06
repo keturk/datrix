@@ -6,9 +6,9 @@ seed service finance.AccountService {
     baseline {
       Customer table on(userId) {
         id,                    userId,               fullName,       email,                dateOfBirth,   documentLast4, kycStatus, kycReason;
-        @uuid("customer-mina"), @uuid("user-mina"),  "Mina Okafor",  "mina@example.com",   "1990-04-12",  "1234",        Clear,     null;
-        @uuid("customer-ben"),  @uuid("user-ben"),   "Ben Carter",   "ben@example.com",    "1984-11-02",  "5678",        Clear,     null;
-        @uuid("customer-lea"),  @uuid("user-lea"),   "Lea Novak",    "lea@example.com",    "1978-07-21",  "9999",        Pending,   "A person needs to look at this document";
+        @uuid("customer-mina"), "user-mina",  "Mina Okafor",  "mina@example.com",   "1990-04-12",  "1234",        Clear,     null;
+        @uuid("customer-ben"),  "user-ben",   "Ben Carter",   "ben@example.com",    "1984-11-02",  "5678",        Clear,     null;
+        @uuid("customer-lea"),  "user-lea",   "Lea Novak",    "lea@example.com",    "1978-07-21",  "9999",        Pending,   "A person needs to look at this document";
       }
       Account table on(accountNumber) {
         id,                     accountNumber,    customerName,  type,     status, customerId;

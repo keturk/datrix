@@ -1,0 +1,26 @@
+// What the Lanternpost services and apps share.
+module helpdesk.common {
+
+    /// The columns of the queue, in the order a ticket crosses them.
+    enum TicketStatus {
+        New : tone(info),
+        Open : tone(warning),
+        Waiting : tone(neutral),
+        Resolved : tone(success),
+        Closed : tone(neutral)
+    }
+
+    enum Priority {
+        Low : tone(neutral),
+        Normal : tone(info),
+        High : tone(warning),
+        Urgent : tone(danger)
+    }
+
+    enum TicketTopic {
+        Billing : tone(neutral),
+        Domains : tone(neutral),
+        Email : tone(neutral),
+        Websites : tone(neutral)
+    }
+}

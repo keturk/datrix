@@ -1,17 +1,17 @@
 config strings ecommerce.Site locale "tr-TR" {
   messages {
-    siteName          = "Acme Mağaza";
-    logoAlt           = "Acme Mağaza logosu";
-    heroAlt           = "Acme Mağaza başlığını taşıyan turkuaz bir afiş";
+    siteName          = "Wrenwood";
+    logoAlt           = "Wrenwood logosu";
+    heroAlt           = "Yapraklı yeşil bir afiş";
     coverAlt          = "Makale görseli";
-    homeHeading       = "Eviniz için her şey, kapınızda";
-    homeTagline       = "Yeni ürünler, dürüst fiyatlar ve ödemeden kapınıza kadar takip.";
-    homeDescription   = "Acme Mağaza: canlı stok, kolay ödeme ve sipariş takibiyle günlük ürünler kataloğu.";
+    homeHeading       = "Daha sakin bir ev için";
+    homeTagline       = "Nasıl olduğunu önemseyen insanların yaptığı mumlar, seramikler, ketenler ve ışıklar.";
+    homeDescription   = "Wrenwood, küçük atölyelerden mum, seramik, keten ve lamba satar; canlı stok ve kapınıza kadar takip sunar.";
     readMore          = "Makaleyi oku";
-    aboutHeading      = "Acme Mağaza hakkında";
-    aboutBody         = "Acme Mağaza, büyük kataloğu olan küçük bir perakendecidir. Mağazayı bir kez tanımlarız, gerisi ondan gelir.";
-    aboutDescription  = "Biz kimiz ve Acme Mağaza nasıl inşa edildi.";
-    articleDescription = "Acme Mağaza'dan haberler ve rehberler.";
+    aboutHeading      = "Wrenwood hakkında";
+    aboutBody         = "Wrenwood, kısa bir üretici listesiyle çalışan küçük bir mağazadır. Kendi evimizde tutacağımız şeyleri satarız ve bir şey tükendiğinde bunu söyleriz.";
+    aboutDescription  = "Biz kimiz ve sattıklarımızı nasıl seçiyoruz.";
+    articleDescription = "Wrenwood'dan haberler ve rehberler.";
     notFoundHeading   = "Sayfa bulunamadı";
     notFoundBody      = "Aradığınız sayfa mevcut değil ya da taşınmış.";
     framework.empty = "Henüz bir şey yok";

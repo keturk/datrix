@@ -57,7 +57,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('2.0.
             Money? copay;
             DateTime? coverageCheckedAt;
             /// The sign-in behind this record. A walk-in has none.
-            UUID? userId : unique, hidden;
+            String(64)? userId : unique, hidden;
         }
     }
 
@@ -76,14 +76,14 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('2.0.
     }
 
     struct CardForUserRequest {
-        UUID userId;
+        String(64) userId;
         String(200) fullName;
     }
 
     /// What another service needs to know about a patient, and no more.
     struct PatientCard {
         UUID id;
-        UUID? userId;
+        String(64)? userId;
         String(20) recordNumber;
         String(200) fullName;
         Phone? phone;
@@ -126,7 +126,7 @@ service healthcare.PatientService('config/patient-service.dcfg') : version('2.0.
         }
     }
 
-    fn patientForUser(UUID userId, String fullName) -> patientDb.Patient {
+    fn patientForUser(String userId, String fullName) -> patientDb.Patient {
         let patientDb.Patient? existing = patientDb.Patient.where(userId: userId).first();
         if (existing != null) {
             return existing;

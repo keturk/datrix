@@ -32,7 +32,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
     rdbms deliveryDb {
 
         entity Driver extends BaseEntity {
-            UUID userId : unique;
+            String(64) userId : unique;
             String(200) name : filterable;
             DriverStatus status : filterable = DriverStatus.OffShift;
         }
@@ -50,7 +50,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
             Float dropoffLongitude;
             Float? distanceKm;
             Int? minutes;
-            UUID? driverUserId : index;
+            String(64)? driverUserId : index;
 
             index(status);
         }
@@ -122,7 +122,7 @@ service fooddelivery.DeliveryService('config/delivery-service.dcfg') : version('
         return RouteView { delivery: delivery, route: [pickup, dropoff], pickup: pickup, dropoff: dropoff };
     }
 
-    fn ownedDelivery(UUID id, UUID userId) -> deliveryDb.Delivery {
+    fn ownedDelivery(UUID id, String userId) -> deliveryDb.Delivery {
         let deliveryDb.Delivery delivery = deliveryDb.Delivery.findOrFail(id);
         if (delivery.driverUserId != userId) {
             throw NotYourDeliveryError();

@@ -1,0 +1,41 @@
+// A queue with something in every column, and one ticket whose clock ran out at midnight, so the job has
+// something to raise on its first run. The customers are seeded rows: they have no sign-in, so a new sign-up sees none.
+seed service helpdesk.TicketService {
+  rdbms ticketDb {
+    baseline {
+      ResponsePolicy table on(priority) {
+        id,             priority, minutes;
+        @uuid("p-low"), Low,      480;
+        @uuid("p-nor"), Normal,   60;
+        @uuid("p-hig"), High,     30;
+        @uuid("p-urg"), Urgent,   15;
+      }
+      SavedReply table on(id) {
+        id,              title,                 body;
+        @uuid("s-look"), "Looking into it",     "Thanks for writing in. I am looking into this now and will come back to you within the hour.";
+        @uuid("s-more"), "Need more detail",    "Could you tell me the domain this is about, and roughly when it started? A screenshot helps if you have one.";
+        @uuid("s-done"), "Fixed on our side",   "This is fixed on our side now. Could you try again and let me know how it goes?";
+      }
+      Ticket table on(number) {
+        id,             number,      subject,                               topic,    priority, status,   customerId,  customerName,    customerEmail,               assigneeId, assigneeName, respondBy,            firstRepliedAt,       resolvedAt,           breached, satisfaction;
+        @uuid("t-1"),   "LP-100231", "Card charged twice in October",       Billing,  Normal,   New,      "seed-tess", "Tess Marlow",   "tess@example.com",          null,       null,         @datetime("+0d 00:00"), null,               null,                 false,    null;
+        @uuid("t-2"),   "LP-100232", "Domain still points at the old host", Domains,  High,     Open,     "seed-omar", "Omar Pell",     "omar@example.com",          "seed-iris", "Iris Vane",  @datetime("+1d 09:00"), null,               null,                 false,    null;
+        @uuid("t-3"),   "LP-100233", "No email since this morning",         Email,    Urgent,   Waiting,  "seed-lin",  "Lin Cho",       "lin@example.com",           "seed-iris", "Iris Vane",  @datetime("-1d 11:00"), @datetime("-1d 10:40"), null,               false,    null;
+        @uuid("t-4"),   "LP-100234", "Site says it is not secure",          Websites, Normal,   Resolved, "seed-amos", "Amos Reed",     "amos@example.com",          "seed-jude", "Jude Okoye", @datetime("-2d 10:00"), @datetime("-2d 09:30"), @datetime("-1d 16:00"), false, 5;
+        @uuid("t-5"),   "LP-100235", "How do I move to a bigger plan?",     Billing,  Low,      Closed,   "seed-tess", "Tess Marlow",   "tess@example.com",          "seed-jude", "Jude Okoye", @datetime("-6d 10:00"), @datetime("-6d 09:15"), @datetime("-5d 14:00"), false, 4;
+      }
+      TicketMessage table on(id) {
+        id,           ticketId,     authorName,   fromCustomer, internal, body;
+        @uuid("m-1"), @uuid("t-1"), "Tess Marlow", true,        false,    "My statement shows two charges of $14 on the same day. I only have one site with you.";
+        @uuid("m-2"), @uuid("t-2"), "Omar Pell",   true,        false,    "I changed the records yesterday and my domain still shows the old site.";
+        @uuid("m-3"), @uuid("t-2"), "Iris Vane",   false,       true,     "The A record is right. The CNAME for www still points at the previous host.";
+        @uuid("m-4"), @uuid("t-3"), "Lin Cho",     true,        false,    "Nobody has been able to email us since about nine.";
+        @uuid("m-5"), @uuid("t-3"), "Iris Vane",   false,       false,    "Your MX records were removed this morning. Could you check whether anyone changed them at your registrar?";
+        @uuid("m-6"), @uuid("t-4"), "Amos Reed",   true,        false,    "Chrome warns that my new site is not secure.";
+        @uuid("m-7"), @uuid("t-4"), "Jude Okoye",  false,       false,    "A logo on your home page loads over plain http. Change it to https and the warning goes.";
+        @uuid("m-8"), @uuid("t-5"), "Tess Marlow", true,        false,    "How do I move to a bigger plan?";
+        @uuid("m-9"), @uuid("t-5"), "Jude Okoye",  false,       false,    "Under Billing, choose Change plan. It applies at once and nothing goes offline.";
+      }
+    }
+  }
+}

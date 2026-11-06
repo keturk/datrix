@@ -1,0 +1,79 @@
+config service ecommerce.EmailMock {
+  import "config/templates/mock.dcfg";
+
+  base {
+    port = 8092;
+    flavor = "compose";
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms emailDb from mockPostgres(id: "c92b64d7-1e30-4a8f-b6c2-08a5e3f71d56", database: "email_mock");
+    httpSecurity from mockHttpSecurity(host: "ecommerce-email-mock");
+    serviceCredentialOps from mockCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from mockDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+
+  profile aws as "aws" extends base {
+    alias env = "AWS";
+    alias resource = "aws";
+
+    flavor = "ecs-fargate";
+    resources {
+      requests {
+        cpu = "100m";
+        memory = "256Mi";
+      }
+    }
+    scaling {
+      replicas {
+        min = 1;
+        max = 1;
+      }
+      triggers = [];
+    }
+    replace rdbms emailDb from mockRds(id: "c92b64d7-1e30-4a8f-b6c2-08a5e3f71d56", database: "email_mock");
+    remoteConfigOps {
+      appconfigMinPollSeconds = 15;
+    }
+  }
+
+  profile azure as "azure" extends base {
+    alias env = "AZURE";
+    alias resource = "azure";
+
+    replace rdbms emailDb from mockFlexibleServer(id: "c92b64d7-1e30-4a8f-b6c2-08a5e3f71d56", database: "email_mock");
+  }
+
+  profile azureVm as "azvm" extends base {
+    alias env = "AZVM";
+    alias resource = "azvm";
+
+    replace rdbms emailDb from mockFlexibleServer(id: "c92b64d7-1e30-4a8f-b6c2-08a5e3f71d56", database: "email_mock");
+  }
+}

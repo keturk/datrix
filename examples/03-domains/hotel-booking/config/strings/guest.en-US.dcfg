@@ -1,0 +1,69 @@
+config strings hotel.Guest locale "en-US" {
+  messages {
+    appName          = "Marram House";
+    account          = "Account";
+    signIn           = "Sign in";
+    signOut          = "Sign out";
+    backHome         = "Back to the rooms";
+    notFoundTitle    = "Page not found";
+    homeTitle        = "A quiet place by the sea";
+    homeSubtitle     = "Nine rooms above the dunes, ten minutes' walk from the harbour.";
+    whenTitle        = "When would you like to come?";
+    arrivalLabel     = "Arriving";
+    departureLabel   = "Leaving";
+    guestsLabel      = "Guests";
+    search           = "See what is free";
+    chooseDates      = "Please choose both dates first.";
+    roomsTitle       = "The rooms";
+    sleepsLine       = "Sleeps {count}";
+    fromLine         = "From {price} a night";
+    seeRoom          = "See the room";
+    chooseDatesLink  = "Choose your dates";
+    offersTitle      = "What is free";
+    offersSubtitle   = "Prices are for the whole stay and include everything.";
+    nothingFree      = "Nothing is free on those dates";
+    otherDates       = "Try other dates";
+    nightsLine       = "{count} nights";
+    fewLeft          = "Only {count} left at this price";
+    bookThis         = "Book this room";
+    reviewTitle      = "Hold this room";
+    reviewSubtitle   = "We keep it for ten minutes while you pay, and nobody else can book it.";
+    holdRoom         = "Hold it for ten minutes";
+    nothingChosen    = "You have not chosen a room yet";
+    payTitle         = "Pay for your stay";
+    heldUntil        = "Your room is held. It goes back on sale {when}.";
+    stayDates        = "{from} to {until}";
+    testCardsNote    = "This is a demonstration. A real vendor's card form would go here, and these two buttons choose what the mock vendor answers.";
+    payCard          = "Pay with a card that works";
+    declinedCard     = "Try a card that is declined";
+    paid             = "Paid, and your email is on its way.";
+    holdGone         = "This stay is no longer waiting for payment.";
+    seeStay          = "See the stay";
+    staysTitle       = "Your stays";
+    staysSubtitle    = "Coming up, and the ones you have had.";
+    noStays          = "You have not stayed with us yet";
+    findRoom         = "Find a room";
+    guestsLine       = "{count} guests";
+    yourRoom         = "Your room is {number}.";
+    finishPaying     = "Finish paying";
+    cancelStay       = "Cancel this stay";
+    cancelled        = "Cancelled. Anything you paid is on its way back.";
+    cancelNote       = "Free up to two days before you arrive.";
+  }
+  labels {
+    page.Home       = "Rooms";
+    page.RoomPage   = "Room";
+    page.Offers     = "What is free";
+    page.Review     = "Hold this room";
+    page.Pay        = "Pay";
+    page.Stays      = "Your stays";
+    page.StayPage   = "Stay";
+    page.NotFound   = "Not found";
+    enum.StayStatus.Held = "Waiting for payment";
+    enum.StayStatus.Confirmed = "Booked";
+    enum.StayStatus.CheckedIn = "Staying now";
+    enum.StayStatus.CheckedOut = "Stayed";
+    enum.StayStatus.Cancelled = "Cancelled";
+    enum.StayStatus.Expired = "Lapsed";
+  }
+}

@@ -1,0 +1,171 @@
+// Implements the CarrierProvider contract in the stack: no parcel moves. A consignment goes through its steps
+// by the clock, in minutes, so the Storefront's order page shows a delivery finish while you watch. The
+// Provider Desk app can also lose a parcel, which is the failure a shop has to handle.
+service ecommerce.CarrierMock('config/mocks/carrier-mock.dcfg')
+    : version('1.0.0'), description('In-stack mock of the parcel carrier') {
+
+    discovery { }
+
+    exceptions {
+        NoSuchConsignmentError : status(404), message("There is no consignment with that reference");
+        AlreadyPickedUpError : status(409), message("That parcel has already been picked up");
+    }
+
+    enum ConsignmentStatus {
+        Accepted : tone(info),
+        PickedUp : tone(info),
+        InTransit : tone(info),
+        OutForDelivery : tone(warning),
+        Delivered : tone(success),
+        Lost : tone(danger),
+        Cancelled : tone(neutral)
+    }
+
+    const MINUTES_TO_PICKUP = 1;
+    const MINUTES_TO_TRANSIT = 2;
+    const MINUTES_TO_ROUND = 3;
+    const MINUTES_TO_DELIVERY = 4;
+
+    rdbms carrierDb {
+
+        /// A parcel the carrier took.
+        entity CarrierConsignment extends BaseEntity {
+            String(20) trackingNumber : filterable;
+            String(200) recipientName;
+            String(100) city : filterable;
+            String(2) country;
+            Float weightKg;
+            String(100) location = "Sorting centre, Leeds";
+            ConsignmentStatus status : filterable = ConsignmentStatus.Accepted;
+            String(40) reference : unique;
+            String(120) idempotencyKey : unique;
+        }
+
+        /// API keys the vendor issued. Only the SHA-256 hash of a key is stored.
+        entity ApiKey extends BaseEntity {
+            String(64) keyHash : unique;
+            UUID ownerId : index;
+            Array<String> scopes = [];
+            Boolean isActive = true;
+            DateTime? expiresAt;
+            DateTime? lastUsedAt;
+        }
+    }
+
+    struct CreateConsignmentRequest {
+        String(20) trackingNumber;
+        String(200) recipientName;
+        String(100) city;
+        String(2) country;
+        Float weightKg;
+        String(120) idempotencyKey;
+    }
+
+    struct Consignment {
+        String(40) reference;
+        ConsignmentStatus status;
+        String(100) location;
+    }
+
+    fn answerOf(carrierDb.CarrierConsignment row) -> Consignment {
+        return Consignment { reference: row.reference, status: row.status, location: row.location };
+    }
+
+    // The vendor's public API: exactly the CarrierProvider contract.
+    rest_api CarrierAPI : basePath('/v1'), rdbms(carrierDb) {
+        @path('/consignments')
+        post createConsignment(CreateConsignmentRequest request) : auth(required, providers: [carrierKeys]) -> Consignment {
+            let CarrierConsignment? existing = CarrierConsignment.where(idempotencyKey: request.idempotencyKey).first();
+            if (existing != null) {
+                return answerOf(existing);
+            }
+            let CarrierConsignment created = CarrierConsignment.create({
+                trackingNumber: request.trackingNumber,
+                recipientName: request.recipientName,
+                city: request.city,
+                country: request.country,
+                weightKg: request.weightKg,
+                reference: #"cons_{Random.string(24, '0123456789abcdef')}",
+                idempotencyKey: request.idempotencyKey
+            });
+            return answerOf(created);
+        }
+
+        @path('/consignments/:reference')
+        get consignment(String reference) : auth(required, providers: [carrierKeys]) -> Consignment {
+            let CarrierConsignment? row = CarrierConsignment.where(reference: reference).first();
+            if (row == null) {
+                throw NoSuchConsignmentError();
+            }
+            return answerOf(row);
+        }
+
+        @path('/consignments/:reference/cancel')
+        post cancelConsignment(String reference) : auth(required, providers: [carrierKeys]) -> Consignment {
+            let CarrierConsignment? row = CarrierConsignment.where(reference: reference).first();
+            if (row == null) {
+                throw NoSuchConsignmentError();
+            }
+            if (row.status != ConsignmentStatus.Accepted && row.status != ConsignmentStatus.Cancelled) {
+                throw AlreadyPickedUpError();
+            }
+            row.status = ConsignmentStatus.Cancelled;
+            row.location = "Wrenwood warehouse, Leeds";
+            row.save();
+            return answerOf(row);
+        }
+    }
+
+    // What the Provider Desk app shows: everything the carrier took, and the one thing a person can do to it.
+    rest_api CarrierDeskAPI : basePath('/api/v1/desk/carrier'), rdbms(carrierDb) {
+        resource CarrierConsignment : only(list), auth(required, providers: [identity], roles: [operator]);
+
+        @path('/:id/lose')
+        post lose(UUID id) : auth(required, providers: [identity], roles: [operator]) -> Consignment {
+            let CarrierConsignment row = CarrierConsignment.findOrFail(id);
+            row.status = ConsignmentStatus.Lost;
+            row.location = "Unknown";
+            row.save();
+            return answerOf(row);
+        }
+    }
+
+    jobs {
+        job AdvanceConsignments {
+            let DateTime now = DateTime.now();
+            let Array<carrierDb.CarrierConsignment> open = carrierDb.CarrierConsignment
+                .whereIn(status: [ConsignmentStatus.Accepted, ConsignmentStatus.PickedUp, ConsignmentStatus.InTransit, ConsignmentStatus.OutForDelivery])
+                .limit(200)
+                .all();
+            foreach row in open {
+                if (row.createdAt < now.addMinutes(-MINUTES_TO_DELIVERY)) {
+                    row.status = ConsignmentStatus.Delivered;
+                    row.location = row.city;
+                } else if (row.createdAt < now.addMinutes(-MINUTES_TO_ROUND)) {
+                    row.status = ConsignmentStatus.OutForDelivery;
+                    row.location = #"Local depot, {row.city}";
+                } else if (row.createdAt < now.addMinutes(-MINUTES_TO_TRANSIT)) {
+                    row.status = ConsignmentStatus.InTransit;
+                    row.location = "On the road";
+                } else if (row.createdAt < now.addMinutes(-MINUTES_TO_PICKUP)) {
+                    row.status = ConsignmentStatus.PickedUp;
+                    row.location = "Wrenwood warehouse, Leeds";
+                }
+                row.save();
+            }
+        }
+    }
+
+    test("a consignment starts accepted") {
+        let carrierDb.CarrierConsignment row = carrierDb.CarrierConsignment.create({
+            trackingNumber: "WWT0000000001",
+            recipientName: "Theo Marsh",
+            city: "York",
+            country: "GB",
+            weightKg: 3.0,
+            reference: "cons_0001",
+            idempotencyKey: "ship-1"
+        });
+        assert row.status == ConsignmentStatus.Accepted;
+    }
+}

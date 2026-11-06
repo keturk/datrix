@@ -1,0 +1,96 @@
+// Tells people what happened, by email. An event becomes a notice row first, then a delivery, so the vendor being
+// down loses nothing: the row stays undelivered and a job tries again. Each notice has its own key, which is also
+// what the vendor uses to refuse a second copy.
+service helpdesk.NoticeService('config/notice-service.dcfg') : version('1.0.0'), description('Customer and agent email') {
+
+    discovery { }
+
+    uses TicketService;
+    uses EmailProvider;
+
+    /// Who hears that a response clock ran out.
+    const LEADS = "support-leads@lanternpost.example.com";
+
+    rdbms noticeDb {
+
+        entity Notice extends BaseEntity {
+            String(200) recipient : filterable;
+            String(200) subject;
+            String(2000) body;
+            Boolean delivered : filterable = false;
+            Int attempts = 0;
+            String(120) noticeKey : unique;
+
+            index(delivered);
+        }
+    }
+
+    fn deliver(noticeDb.Notice notice) {
+        notice.attempts = notice.attempts + 1;
+        try {
+            EmailProvider.EmailAPI.post.sendEmail(SendEmailRequest {
+                to: notice.recipient,
+                subject: notice.subject,
+                body: notice.body,
+                idempotencyKey: notice.noticeKey
+            });
+            notice.delivered = true;
+        } catch (Exception e) {
+            Log.warn("Notice not delivered", { noticeKey: notice.noticeKey });
+        }
+        notice.save();
+    }
+
+    /// A redelivered event finds its row already there and sends nothing twice.
+    fn tell(String recipient, String subject, String body, String key) {
+        if (noticeDb.Notice.where(noticeKey: key).first() != null) {
+            return;
+        }
+        deliver(noticeDb.Notice.create({ recipient: recipient, subject: subject, body: body, noticeKey: key }));
+    }
+
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
+    subscribe TicketEvents {
+        on TicketOpened(String number, String subject, String customerName, String customerEmail) {
+            tell(customerEmail, #"We have your ticket {number}", #"Hello {customerName}. We have your question about \"{subject}\" and will answer it soon.", #"opened-{number}");
+        }
+
+        on AgentReplied(String number, String subject, String agentName, String customerEmail, String body) {
+            tell(customerEmail, #"{agentName} answered {number}", body, #"reply-{number}-{Hash.sha256(body)}");
+        }
+
+        on TicketResolved(String number, String subject, String customerEmail) {
+            tell(customerEmail, #"{number} is resolved", #"We think \"{subject}\" is resolved. Reply on the ticket if it is not, and tell us how we did.", #"resolved-{number}");
+        }
+
+        on ResponseLate(String number, String subject, String priority) {
+            tell(LEADS, #"{number} is late", #"Nobody has answered \"{subject}\" in time. It is now {priority}.", #"late-{number}");
+        }
+    }
+
+    rest_api NoticeDeskAPI : basePath('/api/v1/desk/notices'), rdbms(noticeDb) {
+        resource Notice : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    jobs {
+        job RetryNotices {
+            let Array<noticeDb.Notice> waiting = noticeDb.Notice.where(delivered: false).where(attempts: lt(10)).limit(100).all();
+            foreach notice in waiting {
+                deliver(notice);
+            }
+        }
+    }
+
+    test("a new notice has not been delivered") {
+        let noticeDb.Notice created = noticeDb.Notice.create({
+            recipient: "someone@example.com",
+            subject: "Subject",
+            body: "Body",
+            noticeKey: "test-key"
+        });
+        assert created.delivered == false;
+        assert created.attempts == 0;
+    }
+}

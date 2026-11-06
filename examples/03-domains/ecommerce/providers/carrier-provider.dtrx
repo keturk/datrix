@@ -1,0 +1,53 @@
+// The contract of the parcel carrier. config/providers/carrier-provider.dcfg says where it is served. The
+// shop books a consignment here and reads where it has got to; the carrier may also push the same news to
+// the signed webhook on ShippingService.
+extern service ecommerce.CarrierProvider('config/providers/carrier-provider.dcfg')
+    : version('1.0.0'), description('Parcel carrier') {
+
+    enum ConsignmentStatus {
+        Accepted,
+        PickedUp,
+        InTransit,
+        OutForDelivery,
+        Delivered,
+        Lost,
+        Cancelled
+    }
+
+    struct CreateConsignmentRequest {
+        String(20) trackingNumber;
+        String(200) recipientName;
+        String(100) city;
+        String(2) country;
+        Float weightKg;
+        /// The caller's key: booking again with the same key returns the first consignment.
+        String(120) idempotencyKey;
+    }
+
+    struct Consignment {
+        String(40) reference;
+        ConsignmentStatus status;
+        String(100) location;
+    }
+
+    rest_api CarrierAPI : basePath('/v1') {
+        @path('/consignments')
+        post createConsignment(CreateConsignmentRequest request) -> Consignment {
+            ensure request.idempotencyKey != "";
+        }
+
+        @path('/consignments/{reference}')
+        get consignment(String reference) -> Consignment;
+
+        /// Only a parcel the carrier has not picked up can be called off.
+        @path('/consignments/{reference}/cancel')
+        post cancelConsignment(String reference) -> Consignment;
+    }
+
+    errors {
+        ConsignmentNotFound(String message);
+    }
+
+    auth : apiKey(header: 'X-Carrier-Api-Key');
+    health : path('/health');
+}

@@ -1,0 +1,52 @@
+config strings ecommerce.ProviderDesk locale "en-US" {
+  messages {
+    appName         = "Wrenwood vendor desk";
+    account         = "Account";
+    signIn          = "Sign in";
+    signOut         = "Sign out";
+    notFound        = "Page not found";
+    home            = "Back to the charges";
+    chargesTitle    = "Charges";
+    chargesSubtitle = "What the card vendor was asked to do.";
+    chargesNote     = "This is a mock of the card vendor. Nothing here touched a real card.";
+    parcelsTitle    = "Parcels";
+    parcelsSubtitle = "What the carrier took, moving on by the clock.";
+    parcelsNote     = "A parcel takes about four minutes from booking to doorstep. Lose one to see what the shop does about it.";
+    confirmLose     = "Lose this parcel? The shop will write to the customer about it.";
+    parcelLost      = "Lost, on purpose.";
+    outboxTitle     = "Outbox";
+    outboxSubtitle  = "Every email the shop sent. None of them left this machine.";
+  }
+  labels {
+    page.Charges  = "Charges";
+    page.Parcels  = "Parcels";
+    page.Outbox   = "Outbox";
+    page.NotFound = "Not found";
+    field.CardCharge.reference = "Order";
+    field.CardCharge.amount = "Amount";
+    field.CardCharge.refunded = "Refunded";
+    field.CardCharge.createdAt = "When";
+    field.CardCharge.status = "Status";
+    field.CardCharge.declineReason = "Why it was declined";
+    field.CarrierConsignment.trackingNumber = "Tracking number";
+    field.CarrierConsignment.recipientName = "To";
+    field.CarrierConsignment.city = "City";
+    field.CarrierConsignment.location = "Where it is";
+    field.CarrierConsignment.createdAt = "Booked";
+    field.CarrierConsignment.status = "Status";
+    field.Outbound.recipient = "To";
+    field.Outbound.subject = "Subject";
+    field.Outbound.body = "Message";
+    field.Outbound.createdAt = "Sent";
+    field.Outbound.status = "Status";
+    filter.ChargeList.status = "Status";
+    filter.ChargeList.reference = "Order";
+    filter.ParcelList.status = "Status";
+    filter.EmailList.status = "Status";
+    filter.EmailList.recipient = "To";
+    action.ParcelList.loseIt = "Lose it";
+    enum.ConsignmentStatus.PickedUp = "Picked up";
+    enum.ConsignmentStatus.InTransit = "On the road";
+    enum.ConsignmentStatus.OutForDelivery = "Out for delivery";
+  }
+}

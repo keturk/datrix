@@ -1,0 +1,97 @@
+// Tells guests what happened, by email. An event becomes a notice row first, then a delivery, so the vendor being
+// down loses nothing: the row stays undelivered and a job tries again. Each notice has its own key, which is also
+// what the vendor uses to refuse a second copy.
+service hotel.NoticeService('config/notice-service.dcfg') : version('1.0.0'), description('Guest email') {
+
+    discovery { }
+
+    uses StayService;
+    uses EmailProvider;
+
+    rdbms noticeDb {
+
+        entity Notice extends BaseEntity {
+            String(200) recipient : filterable;
+            String(200) subject;
+            String(2000) body;
+            Boolean delivered : filterable = false;
+            Int attempts = 0;
+            String(120) noticeKey : unique;
+
+            index(delivered);
+        }
+    }
+
+    fn deliver(noticeDb.Notice notice) {
+        notice.attempts = notice.attempts + 1;
+        try {
+            EmailProvider.EmailAPI.post.sendEmail(SendEmailRequest {
+                to: notice.recipient,
+                subject: notice.subject,
+                body: notice.body,
+                idempotencyKey: notice.noticeKey
+            });
+            notice.delivered = true;
+        } catch (Exception e) {
+            Log.warn("Notice not delivered", { noticeKey: notice.noticeKey });
+        }
+        notice.save();
+    }
+
+    /// A redelivered event finds its row already there and sends nothing twice.
+    fn tell(String recipient, String subject, String body, String key) {
+        if (noticeDb.Notice.where(noticeKey: key).first() != null) {
+            return;
+        }
+        deliver(noticeDb.Notice.create({ recipient: recipient, subject: subject, body: body, noticeKey: key }));
+    }
+
+    // A service reads another service's topics through a pubsub block of its own.
+    pubsub mq { }
+
+    subscribe StayEvents {
+        on StayConfirmed(String code, String guestName, String guestEmail, String roomTypeName, String arrival, String departure, String total) {
+            tell(guestEmail, #"Your stay {code} is booked", #"Hello {guestName}. {roomTypeName}, from {arrival} to {departure}. We have taken {total}. Keep this code for the desk: {code}.", #"booked-{code}");
+        }
+
+        on StayCancelled(String code, String guestEmail, String roomTypeName) {
+            tell(guestEmail, #"Your stay {code} is cancelled", #"Your {roomTypeName} is cancelled. Anything you paid is on its way back.", #"cancelled-{code}");
+        }
+
+        on HoldLapsed(String code, String guestEmail, String roomTypeName) {
+            tell(guestEmail, #"We let go of your {roomTypeName}", #"Your hold ran out before payment, so the room is back on sale. You have not been charged.", #"lapsed-{code}");
+        }
+
+        on ArrivingTomorrow(String code, String guestName, String guestEmail, String roomTypeName) {
+            tell(guestEmail, #"See you tomorrow, {guestName}", #"Your {roomTypeName} will be ready from two o'clock. Your code is {code}.", #"tomorrow-{code}");
+        }
+
+        on GuestLeft(String code, String guestName, String guestEmail) {
+            tell(guestEmail, #"Thank you for staying, {guestName}", #"We hope to see you again. Your stay was {code}.", #"thanks-{code}");
+        }
+    }
+
+    rest_api NoticeDeskAPI : basePath('/api/v1/desk/notices'), rdbms(noticeDb) {
+        resource Notice : only(list), auth(required, providers: [identity], roles: [operator]);
+    }
+
+    jobs {
+        job RetryNotices {
+            let Array<noticeDb.Notice> waiting = noticeDb.Notice.where(delivered: false).where(attempts: lt(10)).limit(100).all();
+            foreach notice in waiting {
+                deliver(notice);
+            }
+        }
+    }
+
+    test("a new notice has not been delivered") {
+        let noticeDb.Notice created = noticeDb.Notice.create({
+            recipient: "someone@example.com",
+            subject: "Subject",
+            body: "Body",
+            noticeKey: "test-key"
+        });
+        assert created.delivered == false;
+        assert created.attempts == 0;
+    }
+}

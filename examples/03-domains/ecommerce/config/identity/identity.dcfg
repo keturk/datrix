@@ -12,6 +12,20 @@ config identity identity {
       flows = ["authorization_code"];
     }
     jwksCacheTtlSeconds = 3600;
+    // The services read these off the token, and the apps' account menus read
+    // the name with Session.claim('name').
+    identityFields {
+      email {
+        claimPath = "email";
+        guarantee = "required";
+        syncPolicy = "syncOnAuth";
+      }
+      fullName {
+        claimPath = "name";
+        guarantee = "optional";
+        syncPolicy = "syncOnAuth";
+      }
+    }
   }
 
   profile development as "dev" extends base {

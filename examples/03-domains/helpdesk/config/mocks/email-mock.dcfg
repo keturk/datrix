@@ -1,0 +1,40 @@
+config service helpdesk.EmailMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8091;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms emailDb from postgresContainer(id: "5d0b6e1c-3a57-4f28-9c41-7e2d8b6f1a90", database: "helpdesk_email_mock");
+    httpSecurity from localHttpSecurity(host: "helpdesk-email-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

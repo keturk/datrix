@@ -57,7 +57,7 @@ service healthcare.RecordService('config/record-service.dcfg') : version('2.0.0'
             Money visitCharge;
             UUID appointmentId : unique;
             UUID patientId : index;
-            UUID? patientUserId : index, hidden;
+            String(64)? patientUserId : index, hidden;
         }
 
         entity Prescription extends BaseEntity {
@@ -71,7 +71,7 @@ service healthcare.RecordService('config/record-service.dcfg') : version('2.0.0'
             String(200)? rejectionReason;
             String(40)? ticketId : hidden;
             UUID patientId : index;
-            UUID? patientUserId : index, hidden;
+            String(64)? patientUserId : index, hidden;
 
             index(status);
         }
@@ -89,7 +89,7 @@ service healthcare.RecordService('config/record-service.dcfg') : version('2.0.0'
             String(40)? claimNumber : hidden;
             UUID visitNoteId : unique;
             UUID patientId : index;
-            UUID? patientUserId : index, hidden;
+            String(64)? patientUserId : index, hidden;
         }
 
         /// Who opened a chart. The table refuses every change and delete.
@@ -97,7 +97,7 @@ service healthcare.RecordService('config/record-service.dcfg') : version('2.0.0'
             String(200) viewerName;
             String(200) purpose;
             UUID patientId : index;
-            UUID? patientUserId : index, hidden;
+            String(64)? patientUserId : index, hidden;
         }
     }
 
@@ -106,7 +106,7 @@ service healthcare.RecordService('config/record-service.dcfg') : version('2.0.0'
 
     subscribe AppointmentEvents {
         // A finished visit opens its note. Delivery is at least once, so a second copy finds the first.
-        on AppointmentStatusChanged(UUID appointmentId, UUID patientId, UUID? patientUserId, String patientName, String clinicianName, String specialty, String reason, DateTime startsAt, Money visitCharge, AppointmentStatus oldStatus, AppointmentStatus newStatus) {
+        on AppointmentStatusChanged(UUID appointmentId, UUID patientId, String? patientUserId, String patientName, String clinicianName, String specialty, String reason, DateTime startsAt, Money visitCharge, AppointmentStatus oldStatus, AppointmentStatus newStatus) {
             if (newStatus == AppointmentStatus.Completed && recordDb.VisitNote.where(appointmentId: appointmentId).first() == null) {
                 recordDb.VisitNote.create({
                     appointmentId: appointmentId,

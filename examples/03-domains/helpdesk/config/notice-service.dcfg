@@ -1,0 +1,62 @@
+config service helpdesk.NoticeService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8003;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms noticeDb from postgresContainer(id: "c3e91f0a-7d26-4b84-95e1-4f8a2b6d7c35", database: "helpdesk_notice");
+    pubsub mq from kafkaContainer();
+    httpSecurity from localHttpSecurity(host: "helpdesk-notice-service");
+    outboxOps from outboxBatches();
+    kafkaOps from kafkaPolling();
+    serviceCredentialOps from machineCredential();
+    microserviceClientOps from peerClient();
+    retryBudgetOps from retryBudget();
+    jobs {
+      jobs {
+        RetryNotices {
+          schedule = "*/5 * * * *";
+          timeout = "120s";
+        }
+      }
+    }
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+    secrets {
+      // The default only exists on a local stack, where it matches the hash seeded in seed/, so the
+      // example runs with nothing to configure. Any other deployment must supply the handle's value.
+      secret email_provider_api_key {
+        required = true;
+        purpose = "API key for the email vendor (EmailProvider contract).";
+        localDefault = "dev-only-email-key-not-a-credential";
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

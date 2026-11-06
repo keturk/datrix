@@ -71,7 +71,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('2.0.0'), des
             String(200) preparedByName;
             String(200)? approvedByName;
             DateTime? paidAt;
-            UUID? preparedBy : hidden;
+            String(64)? preparedBy : hidden;
         }
 
         entity Payslip extends BaseEntity {
@@ -115,7 +115,7 @@ service hr.PayrollService('config/payroll-service.dcfg') : version('2.0.0'), des
 
     /// Builds a run from everyone with an active profile. A job and a person both come here, so the
     /// unique period is what stops a second run for one month.
-    fn prepareRun(String period, UUID? preparedBy, String preparedByName) -> payrollDb.PayRun {
+    fn prepareRun(String period, String? preparedBy, String preparedByName) -> payrollDb.PayRun {
         if (payrollDb.PayRun.where(period: period).first() != null) {
             throw RunExistsError();
         }

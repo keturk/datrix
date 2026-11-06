@@ -63,7 +63,7 @@
       controllerPort = 9093;
     }
     registration {
-      tags = ["api", "library", "v1"];
+      tags = ["api", "shop", "v1"];
       meta = {};
       healthCheck {
         type = "http";
@@ -89,16 +89,10 @@
         }
       }
     }
-    integrations {
-      emailTemplates {
-        emailVerification = "Hi {{ fullName }}, confirm your email address with this code: {{ token }}";
-        passwordReset = "Hi {{ fullName }}, reset your password with this code: {{ token }}";
-      }
-    }
     httpSecurity {
-      allowedHosts = ["user-service.example.com", "localhost"];
-      corsOrigins = ["https://app.example.com"];
-      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      allowedHosts = ["ecommerce-user-service", "localhost"];
+      corsOrigins = ["http://localhost:4200", "http://localhost:4300", "http://localhost:4500"];
+      corsMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
     }
     cacheOps {
@@ -168,19 +162,7 @@
     alias env = "PROD";
     alias resource = "prod";
 
-    flavor = "ecs-fargate";
     replicas = 2;
-    replace rdbms userDb {
-      id = "7b1b4bfd-288a-4152-afb4-1272464aa557";
-      engine = "postgres";
-      flavor = "rds";
-      host = "postgres.internal";
-      database = "user_db";
-      poolSize = 40;
-      maxOverflow = 20;
-      ssl = true;
-      healthCheckSql = "SELECT 1";
-    }
     strategy {
       rolling {
         maxUnavailable = "25%";
@@ -192,10 +174,10 @@
     alias env = "AWS";
     alias resource = "aws";
 
-    // Consumers run inside the ECS task, not as SQS-triggered Lambdas: the
-    // Lambda packaging path is realized for python and typescript only, and
-    // this example generates in every registered language.
-    runtime { consumers = "in-process"; }
+    // Consumers run as SQS-triggered Lambdas: the `mq` topics cross service
+    // boundaries, which on AWS means SNS/SQS, and no language target runs an
+    // SQS pubsub consumer inside the service process.
+    runtime { consumers = "decoupled"; }
 
     replicas = 2;
     scaling {
@@ -224,12 +206,8 @@
       nodeType = "cache.t3.small";
     }
     replace pubsub mq {
-      engine = "kafka";
-      flavor = "msk";
-      instanceType = "kafka.m5.large";
-      brokerCount = 3;
-      storageGb = 100;
-      kafkaVersion = "3.6.0";
+      engine = "sns-sqs";
+      flavor = "managed";
       partitions = 3;
       replicationFactor = 3;
       retention = "7d";

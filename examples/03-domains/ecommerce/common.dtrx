@@ -1,45 +1,17 @@
-
-// Shared module - defines reusable types, traits, structs, and functions
-// BaseEntity, Address, MAX_PAGE_SIZE and DEFAULT_PAGE_SIZE are provided by the Datrix
-// standard library.
+// What several services and the apps share. BaseEntity and Address come from the Datrix standard library.
 module ecommerce.common {
 
-    // Extends stdlib BaseEntity with audit tracking fields
-    abstract entity AuditedEntity extends BaseEntity {
-        UUID? createdBy;
-        UUID? updatedBy;
-    }
-
-    // SoftDeletable and Sluggable are builtin traits -- no need to define them.
-    // Use 'with SoftDeletable' or 'with Sluggable' on entities directly.
-
-    // Trait for inventory management with stock reservation logic
+    /// How much of a product is on the shelf. A reservation takes stock away and a release puts it back.
     trait Inventoried {
-        // 'min(0)' sets a minimum value constraint
         Int inventory : min(0) = 0;
-
-        fn reserveInventory(Int quantity) -> Boolean {
-            if (inventory >= quantity) {
-                inventory = inventory - quantity;
-                return true;
-            }
-
-            return false;
-        }
-
-        fn releaseInventory(Int quantity) {
-            inventory = inventory + quantity;
-        }
 
         fn hasStock() -> Boolean {
             return inventory > 0;
         }
-
     }
 
-    // Trait for price comparison and discount calculation
+    /// A price, and the higher price it is reduced from, if it is.
     trait Discountable {
-        // Money is a semantic amount type; currency is modeled explicitly where needed
         Money price : positive;
         Money? compareAtPrice;
 
@@ -50,32 +22,50 @@ module ecommerce.common {
         fn getDiscountPercent() -> Percentage {
             if (!hasDiscount()) return 0;
             let Money listPrice = compareAtPrice ?? price;
-            return ((listPrice - price) / listPrice) * 100;
+            return Math.round(((listPrice - price) / listPrice) * 100, 0);
         }
-
     }
 
+    /// One line of an order: the server looks up the price, so a client can only say what and how many.
     struct OrderLineInput {
         UUID productId;
         Int quantity;
     }
 
-    enum Currency {
-        USD,
-        EUR,
-        GBP
+    /// A line of a cart on a customer's device. The name and price are for showing it; an order sends only
+    /// what and how many, and the server looks the price up again.
+    struct CartLine {
+        UUID productId;
+        String name;
+        Money unitPrice;
+        Int quantity;
+    }
+
+    /// Stands in for the card form a real vendor would host. The application never sees a card number:
+    /// it only ever holds the vendor's token, and these two choose which token the mock is handed.
+    enum TestCard {
+        CardThatPays,
+        CardThatIsDeclined
+    }
+
+    /// The picture a product is shown with, chosen by its category. This shop stores no photographs.
+    enum ProductArt {
+        Candle,
+        Ceramic,
+        Linen,
+        Lamp,
+        Kitchen
     }
 
     fn generateOrderNumber() -> String {
-        return #"ORD-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(4, '0123456789')}";
+        return #"WW-{DateTime.now().format('yyMMDD')}-{Random.string(6, '0123456789')}";
     }
 
     fn generateTransactionId() -> String {
-        return #"TXN-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(8)}";
+        return #"TXN-{DateTime.now().format('YYYYMMDDHHmmss')}-{Random.string(8, '0123456789ABCDEF')}";
     }
 
     fn generateTrackingNumber() -> String {
-        return #"TRACK-{DateTime.now().format('YYYYMMDD')}-{Random.string(10).toUpperCase()}";
+        return #"WWT{Random.string(10, '0123456789')}";
     }
-
 }

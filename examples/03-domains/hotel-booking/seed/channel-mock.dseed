@@ -1,0 +1,12 @@
+// The key the stay service presents to the channel manager. The key itself is the development default of its
+// secret; the vendor stores only its SHA-256 hash.
+seed service hotel.ChannelMock {
+  rdbms channelDb {
+    baseline {
+      ApiKey table on(keyHash) {
+        id,                   keyHash,                                                            ownerId;
+        @uuid("channel-key"), "eb92b0a9de839f47eafe24621be4bb35be86d62434756120104239806ab2a000", @uuid("owner-marram");
+      }
+    }
+  }
+}

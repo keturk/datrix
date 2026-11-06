@@ -1,0 +1,40 @@
+config service helpdesk.KnowledgeService {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8002;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms knowledgeDb from postgresContainer(id: "8b4d2e67-1c93-4a58-b0f2-6a7c3e9d1f28", database: "helpdesk_knowledge");
+    httpSecurity from localHttpSecurity(host: "helpdesk-knowledge-service");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

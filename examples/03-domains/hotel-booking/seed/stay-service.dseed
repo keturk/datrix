@@ -1,0 +1,35 @@
+// A hotel with a working day in it: guests arriving and leaving today, someone in the house, and one room waiting to
+// be cleaned. The guests are seeded rows: they have no sign-in, so a new sign-up sees none of these stays.
+seed service hotel.StayService {
+  rdbms stayDb {
+    baseline {
+      RoomType table on(name) {
+        id,               name,             summary,                                        sleeps, nightlyRate, inventory, description;
+        @uuid("t-dune"),  "Dune Room",      "Small and quiet, looking over the marram.",    2,      140.00,      4,         "A small room at the back of the house, with the dunes outside the window and the sea somewhere behind them.\n\nA double bed, a desk, and a shower.";
+        @uuid("t-tide"),  "Tide Room",      "Larger, with a view of the water.",            3,      195.00,      3,         "On the first floor, with two windows over the water and a chair to watch it from.\n\nA king bed, a day bed, and a bath.";
+        @uuid("t-loft"),  "The Net Loft",   "The whole top floor, for a family.",           5,      310.00,      2,         "Under the roof where the nets were once mended. **Two bedrooms**, a small kitchen and a long table.";
+      }
+      Room table on(number) {
+        id,              number, roomTypeId,      roomTypeName,   floor, condition;
+        @uuid("r-101"),  "101",  @uuid("t-dune"), "Dune Room",    1,     Ready;
+        @uuid("r-102"),  "102",  @uuid("t-dune"), "Dune Room",    1,     Ready;
+        @uuid("r-103"),  "103",  @uuid("t-dune"), "Dune Room",    1,     Dirty;
+        @uuid("r-104"),  "104",  @uuid("t-dune"), "Dune Room",    1,     OutOfService;
+        @uuid("r-201"),  "201",  @uuid("t-tide"), "Tide Room",    2,     Ready;
+        @uuid("r-202"),  "202",  @uuid("t-tide"), "Tide Room",    2,     Ready;
+        @uuid("r-203"),  "203",  @uuid("t-tide"), "Tide Room",    2,     Ready;
+        @uuid("r-301"),  "301",  @uuid("t-loft"), "The Net Loft", 3,     Ready;
+        @uuid("r-302"),  "302",  @uuid("t-loft"), "The Net Loft", 3,     Ready;
+      }
+      Stay table on(code) {
+        id,           code,        roomTypeId,      roomTypeName,   roomNumber, guestId,      guestName,      guestEmail,           arrival,       departure,     nights, guests, total,   status,     chargeId;
+        @uuid("s-1"), "MH-100201", @uuid("t-dune"), "Dune Room",    null,       "seed-pia",   "Pia Lund",     "pia@example.com",    @date("+0d"),  @date("+2d"),  2,      2,      280.00,  Confirmed,  "ch_seed_pia";
+        @uuid("s-2"), "MH-100202", @uuid("t-tide"), "Tide Room",    null,       "seed-noor",  "Noor Haddad",  "noor@example.com",   @date("+0d"),  @date("+3d"),  3,      3,      585.00,  Confirmed,  "ch_seed_noor";
+        @uuid("s-3"), "MH-100203", @uuid("t-tide"), "Tide Room",    "201",      "seed-eli",   "Eli Marsh",    "eli@example.com",    @date("-2d"),  @date("+0d"),  2,      2,      390.00,  CheckedIn,  "ch_seed_eli";
+        @uuid("s-4"), "MH-100204", @uuid("t-loft"), "The Net Loft", "301",      "seed-rhys",  "Rhys Bowen",   "rhys@example.com",   @date("-1d"),  @date("+4d"),  5,      5,      1550.00, CheckedIn,  "ch_seed_rhys";
+        @uuid("s-5"), "MH-100205", @uuid("t-dune"), "Dune Room",    null,       "seed-tova",  "Tova Stein",   "tova@example.com",   @date("+1d"),  @date("+3d"),  2,      1,      280.00,  Confirmed,  "ch_seed_tova";
+        @uuid("s-6"), "MH-100206", @uuid("t-dune"), "Dune Room",    "103",      "seed-ivo",   "Ivo Petrov",   "ivo@example.com",    @date("-3d"),  @date("-1d"),  2,      2,      280.00,  CheckedOut, "ch_seed_ivo";
+      }
+    }
+  }
+}

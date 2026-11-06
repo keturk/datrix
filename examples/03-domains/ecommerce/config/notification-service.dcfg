@@ -33,7 +33,7 @@
       defaultUser = "postgres";
     }
     registration {
-      tags = ["api", "library", "v1"];
+      tags = ["api", "shop", "v1"];
       meta = {};
       healthCheck {
         type = "http";
@@ -54,10 +54,19 @@
         }
       }
     }
+    // The default exists only on a local stack, where it matches the hash seeded in seed/email-mock.dseed.
+    // Any other deployment must supply the handle's value.
+    secrets {
+      secret email_provider_api_key {
+        required = true;
+        purpose = "API key for the email vendor (EmailProvider contract).";
+        localDefault = "dev-only-email-key-not-a-credential";
+      }
+    }
     httpSecurity {
-      allowedHosts = ["notification-service.example.com", "localhost"];
-      corsOrigins = ["https://app.example.com"];
-      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      allowedHosts = ["ecommerce-notification-service", "localhost"];
+      corsOrigins = ["http://localhost:4200", "http://localhost:4300", "http://localhost:4500"];
+      corsMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
     }
     cacheOps {
@@ -115,9 +124,6 @@
       push {
         provider = "fcm";
       }
-      emailTemplates {
-        orderConfirmation ="Your order {{ orderNumber }} ({{ orderId }}) is confirmed.";
-      }
     }
   }
 
@@ -135,19 +141,7 @@
     alias env = "PROD";
     alias resource = "prod";
 
-    flavor = "ecs-fargate";
     replicas = 2;
-    replace rdbms notificationDb {
-      id = "64704790-5f82-4b4e-8d2b-0dbc989dfd3f";
-      engine = "postgres";
-      flavor = "rds";
-      host = "postgres.internal";
-      database = "notification_db";
-      poolSize = 40;
-      maxOverflow = 20;
-      ssl = true;
-      healthCheckSql = "SELECT 1";
-    }
     strategy {
       rolling {
         maxUnavailable = "25%";
@@ -159,10 +153,10 @@
     alias env = "AWS";
     alias resource = "aws";
 
-    // Consumers run inside the ECS task, not as SQS-triggered Lambdas: the
-    // Lambda packaging path is realized for python and typescript only, and
-    // this example generates in every registered language.
-    runtime { consumers = "in-process"; }
+    // Consumers run as SQS-triggered Lambdas: the `mq` topics this service reads
+    // cross service boundaries, which on AWS means SNS/SQS, and no language
+    // target runs an SQS pubsub consumer inside the service process.
+    runtime { consumers = "decoupled"; }
 
     replicas = 2;
     scaling {

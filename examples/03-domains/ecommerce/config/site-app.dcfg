@@ -23,19 +23,19 @@ config app ecommerce.Site {
   // `sitemap.xml` and every canonical and alternate-language link from this origin.
   profile aws extends base {
     web {
-      domain { name = "www.library.example.com"; }
+      domain { name = "www.wrenwood.example.com"; }
       indexable = true;
     }
   }
   profile azure extends base {
     web {
-      domain { name = "www.library.example.com"; }
+      domain { name = "www.wrenwood.example.com"; }
       indexable = true;
     }
   }
   profile azureVm extends base {
     web {
-      domain { name = "www.library.example.com"; }
+      domain { name = "www.wrenwood.example.com"; }
       indexable = true;
     }
   }

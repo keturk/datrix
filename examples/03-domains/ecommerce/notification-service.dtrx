@@ -1,41 +1,63 @@
+// Sends the shop's email: OrderService queues what to say and this service says it through the EmailProvider
+// contract, keeping a row for every send. Being a queue consumer, a slow email vendor never slows an order.
+service ecommerce.NotificationService('config/notification-service.dcfg')
+    : version('2.0.0'), description('Customer email, sent from the order queues') {
 
-service ecommerce.NotificationService('config/notification-service.dcfg') : version('1.0.0'), description('order notification consumer') {
     discovery {
         ecommerce.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
+
+    uses ecommerce.EmailProvider;
 
     rdbms notificationDb {
 
         entity NotificationAudit extends BaseEntity {
             UUID orderId : index;
             Email recipientEmail;
-            String(64) orderNumber;
+            String(30) orderNumber;
+            String(200) subject;
+            Boolean delivered;
         }
+    }
 
+    fn send(UUID orderId, Email recipient, String orderNumber, String subject, String body) {
+        let Delivery delivery = EmailProvider.EmailAPI.post.sendEmail(SendEmailRequest {
+            to: recipient.toString(),
+            subject: subject,
+            body: body,
+            idempotencyKey: #"{orderId}-{subject}"
+        });
+        notificationDb.NotificationAudit.create({
+            orderId: orderId,
+            recipientEmail: recipient,
+            orderNumber: orderNumber,
+            subject: subject,
+            delivered: delivery.status == DeliveryStatus.Delivered
+        });
     }
 
     enqueue ecommerce.OrderService.SendOrderConfirmation(UUID orderId, Email customerEmail, String orderNumber) {
-        Log.info("SendOrderConfirmation task", { orderId: orderId, orderNumber: orderNumber });
-
-        Email.sendTemplate({
-            to: customerEmail,
-            subject: #"Order {orderNumber} confirmed",
-            template: "orderConfirmation",
-            data: {
-                orderId: orderId,
-                orderNumber: orderNumber
-            }
-
-        });
-
-        let NotificationAudit row = notificationDb.NotificationAudit.create({
-            orderId: orderId,
-            recipientEmail: customerEmail,
-            orderNumber: orderNumber
-        });
-        row.save();
-
-        Log.info("Order confirmation email queued for delivery", { orderId: orderId });
+        send(
+            orderId,
+            customerEmail,
+            orderNumber,
+            #"We have your order {orderNumber}",
+            "Thank you. We will write again as soon as your payment has gone through and when your parcel leaves us."
+        );
     }
 
+    enqueue ecommerce.OrderService.SendOrderUpdate(UUID orderId, Email customerEmail, String orderNumber, String subject, String body) {
+        send(orderId, customerEmail, orderNumber, subject, body);
+    }
+
+    test("an audit row names the order it was sent for") {
+        let NotificationAudit row = notificationDb.NotificationAudit.create({
+            orderId: uuid(),
+            recipientEmail: "ana@example.com",
+            orderNumber: "WW-260101-000001",
+            subject: "We have your order",
+            delivered: true
+        });
+        assert row.delivered == true;
+    }
 }

@@ -41,7 +41,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         entity LedgerAccount extends BaseEntity {
             UUID accountId : unique;
             String(20) accountNumber : unique, filterable;
-            UUID? ownerUserId : index;
+            String(64)? ownerUserId : index;
             AccountType type : filterable;
             AccountStatus status : filterable = AccountStatus.Active;
             String(3) currency = "USD";
@@ -103,7 +103,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
     }
 
     subscribe AccountEvents {
-        on AccountOpened(UUID accountId, String accountNumber, UUID ownerUserId, AccountType type) {
+        on AccountOpened(UUID accountId, String accountNumber, String ownerUserId, AccountType type) {
             if (ledgerDb.LedgerAccount.where(accountId: accountId).first() == null) {
                 ledgerDb.LedgerAccount.create({
                     accountId: accountId,
@@ -187,7 +187,7 @@ service finance.TransactionService('config/transaction-service.dcfg') : version(
         dispatch TransferPosted(transfer.id, transfer.reference, transfer.fromAccountId, transfer.amount, transfer.amount >= REVIEW_THRESHOLD);
     }
 
-    fn ownedAccount(UUID id, UUID userId) -> ledgerDb.LedgerAccount {
+    fn ownedAccount(UUID id, String userId) -> ledgerDb.LedgerAccount {
         let ledgerDb.LedgerAccount account = ledgerDb.LedgerAccount.findOrFail(id);
         if (account.ownerUserId != userId) {
             throw NotYourAccountError();

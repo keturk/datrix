@@ -1,0 +1,40 @@
+config service hotel.ChannelMock {
+  import "config/templates/infrastructure.dcfg";
+
+  base {
+    port = 8092;
+    replicas = 1;
+    healthCheck {
+      path = "/health";
+      initialDelay = "10s";
+    }
+    rdbms channelDb from postgresContainer(id: "e43a7c18-9d62-4b1f-b305-7f8e2c6a1d94", database: "hotel_channel_mock");
+    httpSecurity from localHttpSecurity(host: "hotel-channel-mock");
+    serviceCredentialOps from machineCredential();
+    resilience {
+      defaults {
+        timeout = "10s";
+      }
+      dependencyPolicy {
+        defaults {
+          rdbms from standardDatabasePolicy();
+        }
+      }
+    }
+  }
+
+  profile test as "test" extends base {
+    alias env = "TEST";
+    alias resource = "test";
+  }
+
+  profile development as "dev" extends base {
+    alias env = "DEV";
+    alias resource = "dev";
+  }
+
+  profile production as "prod" extends base {
+    alias env = "PROD";
+    alias resource = "prod";
+  }
+}

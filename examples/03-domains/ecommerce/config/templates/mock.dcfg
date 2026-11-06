@@ -1,0 +1,65 @@
+// What every in-stack vendor mock shares. A mock is a small service with a database and an API key provider,
+// and it runs on every profile, so a cloud deployment works before a real vendor is signed up: the extern
+// config points each contract at the mock until that one file is changed.
+config shared ecommerce.MockTemplates {
+
+  template mockPostgres(id, database) {
+    id = id;
+    engine = "postgres";
+    flavor = "container";
+    host = "localhost";
+    port = 5432;
+    database = database;
+    poolSize = 5;
+    maxOverflow = 5;
+    ssl = false;
+    healthCheckSql = "SELECT 1";
+    dockerImage = "postgres:17-alpine";
+    volumePath = "/var/lib/postgresql/data";
+    defaultUser = "postgres";
+  }
+
+  template mockRds(id, database) {
+    id = id;
+    engine = "postgres";
+    flavor = "rds";
+    port = 5432;
+    database = database;
+    poolSize = 5;
+    maxOverflow = 5;
+    ssl = true;
+    instanceClass = "db.t3.micro";
+    healthCheckSql = "SELECT 1";
+  }
+
+  template mockFlexibleServer(id, database) {
+    id = id;
+    engine = "postgres";
+    flavor = "flexible-server";
+    port = 5432;
+    database = database;
+    poolSize = 5;
+    maxOverflow = 5;
+    ssl = true;
+    sku = "Standard_B1ms";
+    tier = "Burstable";
+    storageGb = 32;
+    healthCheckSql = "SELECT 1";
+  }
+
+  template mockHttpSecurity(host) {
+    allowedHosts = [host, "localhost"];
+    corsOrigins = ["http://localhost:4500"];
+    corsMethods = ["GET", "POST", "OPTIONS"];
+    corsHeaders = ["Authorization", "Content-Type"];
+  }
+
+  template mockCredential() {
+    tokenExpirySkewSeconds = 30;
+  }
+
+  template mockDatabasePolicy() {
+    availability = "required";
+    health = "ready";
+  }
+}

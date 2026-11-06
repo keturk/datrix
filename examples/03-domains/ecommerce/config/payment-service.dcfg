@@ -45,7 +45,7 @@
       controllerPort = 9093;
     }
     registration {
-      tags = ["api", "library", "v1"];
+      tags = ["api", "shop", "v1"];
       meta = {};
       healthCheck {
         type = "http";
@@ -66,34 +66,21 @@
         }
       }
     }
-    // Operator-provisioned handles: each is mounted as a compose file secret
-    // and the deploy script refuses to start while its file is absent. The
-    // localDefault is a throwaway dev seed written on local profiles only
-    // (development, test); on every other profile the operator writes the
-    // real value to secrets/<service>/<handle> before deploying.
+    // Operator-provisioned handle: it is mounted as a compose file secret and the
+    // deploy script refuses to start while its file is absent. The localDefault is
+    // written on local profiles only, where it matches the hash seeded in
+    // seed/payment-mock.dseed; on every other profile the operator writes the real value.
     secrets {
-      secret stripe_secret_key {
+      secret payment_provider_api_key {
         required = true;
-        purpose = "Stripe secret API key for payment processing.";
-        localDefault = "dev-only-stripe-secret-key-not-a-credential";
-      }
-      secret payment_webhook_secret {
-        required = true;
-        purpose = "Signing key for inbound payment-gateway webhook signature verification.";
-        localDefault = "dev-only-payment-webhook-signing-key-not-a-credential";
-      }
-    }
-    integrations {
-      payment {
-        provider = "stripe";
-        currency = "USD";
-        testMode = false;
+        purpose = "API key for the card vendor (PaymentProvider contract).";
+        localDefault = "dev-only-payment-key-not-a-credential";
       }
     }
     httpSecurity {
-      allowedHosts = ["payment-service.example.com", "localhost"];
-      corsOrigins = ["https://app.example.com"];
-      corsMethods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"];
+      allowedHosts = ["ecommerce-payment-service", "localhost"];
+      corsOrigins = ["http://localhost:4200", "http://localhost:4300", "http://localhost:4500"];
+      corsMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
       corsHeaders = ["Authorization", "Content-Type"];
     }
     cacheOps {
@@ -163,19 +150,7 @@
     alias env = "PROD";
     alias resource = "prod";
 
-    flavor = "ecs-fargate";
     replicas = 2;
-    replace rdbms paymentDb {
-      id = "5e69f2e0-30ab-47c0-b98b-fdc4c8ddc711";
-      engine = "postgres";
-      flavor = "rds";
-      host = "postgres.internal";
-      database = "payment_db";
-      poolSize = 40;
-      maxOverflow = 20;
-      ssl = true;
-      healthCheckSql = "SELECT 1";
-    }
     strategy {
       rolling {
         maxUnavailable = "25%";
@@ -187,10 +162,10 @@
     alias env = "AWS";
     alias resource = "aws";
 
-    // Consumers run inside the ECS task, not as SQS-triggered Lambdas: the
-    // Lambda packaging path is realized for python and typescript only, and
-    // this example generates in every registered language.
-    runtime { consumers = "in-process"; }
+    // Consumers run as SQS-triggered Lambdas: the `mq` topics cross service
+    // boundaries, which on AWS means SNS/SQS, and no language target runs an
+    // SQS pubsub consumer inside the service process.
+    runtime { consumers = "decoupled"; }
 
     replicas = 2;
     scaling {
@@ -213,12 +188,8 @@
       healthCheckSql = "SELECT 1";
     }
     replace pubsub mq {
-      engine = "kafka";
-      flavor = "msk";
-      instanceType = "kafka.m5.large";
-      brokerCount = 3;
-      storageGb = 100;
-      kafkaVersion = "3.6.0";
+      engine = "sns-sqs";
+      flavor = "managed";
       partitions = 3;
       replicationFactor = 3;
       retention = "7d";
@@ -234,9 +205,7 @@
     alias env = "AZURE";
     alias resource = "azure";
 
-    // Consumers run inside the web app, not in separate compute: the pubsub
-    // alert is recorded by the consumers, and only the web app exports
-    // application series, so a decoupled consumer's alert could never fire.
+    // Consumers run inside the web app, not in separate compute.
     runtime { consumers = "in-process"; }
 
     replicas = 2;

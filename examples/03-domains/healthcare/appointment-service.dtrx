@@ -52,7 +52,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
             Money visitCharge;
             DateTime? reminderSentAt;
             UUID patientId : index;
-            UUID? patientUserId : index, hidden;
+            String(64)? patientUserId : index, hidden;
             UUID clinicianId : index;
             UUID slotId;
 
@@ -66,7 +66,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
 
     pubsub mq {
         topic AppointmentEvents {
-            publish AppointmentStatusChanged(UUID appointmentId, UUID patientId, UUID? patientUserId, String patientName, String clinicianName, String specialty, String reason, DateTime startsAt, Money visitCharge, AppointmentStatus oldStatus, AppointmentStatus newStatus) {
+            publish AppointmentStatusChanged(UUID appointmentId, UUID patientId, String? patientUserId, String patientName, String clinicianName, String specialty, String reason, DateTime startsAt, Money visitCharge, AppointmentStatus oldStatus, AppointmentStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
         }
@@ -102,7 +102,7 @@ service healthcare.AppointmentService('config/appointment-service.dcfg') : versi
     }
 
     /// Takes the slot under a lock, so two patients pressing the button together get one visit.
-    fn takeSlot(UUID slotId, UUID patientId, UUID? patientUserId, String patientName, VisitKind kind, String reason) -> appointmentDb.Appointment {
+    fn takeSlot(UUID slotId, UUID patientId, String? patientUserId, String patientName, VisitKind kind, String reason) -> appointmentDb.Appointment {
         transaction(appointmentDb) {
             let appointmentDb.OpenSlot slot = appointmentDb.OpenSlot.where(id: slotId).forUpdate().firstOrFail();
             if (slot.isTaken) {

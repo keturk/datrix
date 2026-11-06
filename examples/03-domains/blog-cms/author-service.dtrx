@@ -37,7 +37,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('2.0.0'), des
 
         entity Author extends BaseEntity {
             /// The signed-in person this profile belongs to.
-            UUID userId : unique;
+            String(64) userId : unique;
             String(100) displayName : trim, filterable, sortable;
             String(500)? bio;
             URL? avatarUrl;
@@ -55,7 +55,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('2.0.0'), des
 
     pubsub mq {
         topic AuthorEvents {
-            publish AuthorStatusChanged(UUID authorId, UUID userId, AuthorStatus oldStatus, AuthorStatus newStatus) {
+            publish AuthorStatusChanged(UUID authorId, String userId, AuthorStatus oldStatus, AuthorStatus newStatus) {
                 ensure oldStatus != newStatus;
             }
         }
@@ -70,7 +70,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('2.0.0'), des
     /// What anyone may read about an author.
     struct AuthorCard {
         UUID id;
-        UUID userId;
+        String userId;
         String displayName;
         String? bio;
         URL? avatarUrl;
@@ -95,7 +95,7 @@ service blog.AuthorService('config/author-service.dcfg') : version('2.0.0'), des
         }
 
         @path('/card/:userId')
-        get authorCard(UUID userId) : auth(public) -> AuthorCard {
+        get authorCard(String userId) : auth(public) -> AuthorCard {
             let Author author = Author.where(userId: userId).firstOrFail();
             return toCard(author);
         }
@@ -144,12 +144,12 @@ service blog.AuthorService('config/author-service.dcfg') : version('2.0.0'), des
     }
 
     test("a new author is active") {
-        let Author author = authorDb.Author.create({ userId: uuid(), displayName: "Mina Okafor" });
+        let Author author = authorDb.Author.create({ userId: "spec-user", displayName: "Mina Okafor" });
         assert author.isActive;
     }
 
     test("suspending an author announces it") {
-        let Author author = authorDb.Author.create({ userId: uuid(), displayName: "Mina Okafor" });
+        let Author author = authorDb.Author.create({ userId: "spec-user", displayName: "Mina Okafor" });
         author.status = AuthorStatus.Suspended;
         author.save();
         assert !author.isActive;

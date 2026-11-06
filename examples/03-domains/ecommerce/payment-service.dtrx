@@ -1,70 +1,60 @@
+from ecommerce.common import generateTransactionId;
 
-from ecommerce.common import Currency, generateTransactionId;
+// Takes the money. OrderService queues a charge; this service asks the card vendor through the PaymentProvider
+// contract and announces the outcome, which is what moves the order on. Cancelling a paid order comes back here
+// as an event and refunds it, with no call between the two services.
+service ecommerce.PaymentService('config/payment-service.dcfg') : version('2.0.0'), description('Charges, refunds and settlement') {
 
-service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0'), description('payment management service') {
+    // Its queues and its events come from OrderService; there is no direct call in either direction.
     discovery {
         ecommerce.OrderService { loadBalance: roundRobin, healthyOnly: true }
     }
 
-    enum PaymentMethod {
-        CreditCard,
-        DebitCard,
-        PayPal,
-        BankTransfer
+    uses ecommerce.PaymentProvider;
+
+    exceptions {
+        NotYourPaymentError : status(404), message("There is no such payment");
+        CannotRefundError : status(409), message("That payment cannot be refunded");
+        RefundTooLargeError : status(422), message("That is more than is left to refund");
     }
 
     enum PaymentStatus {
-        Pending,
-        Processing,
-        Completed,
-        Failed,
-        Refunded
-    }
-
-    struct ChargeResult {
-        Boolean success;
-        String? transactionId;
-        String? response;
-        String? error;
-    }
-
-    struct RefundResult {
-        Boolean success;
-        String? refundTransactionId;
-        String? error;
-    }
-
-    struct ProcessPaymentRequest {
-        UUID orderId;
-        Money amount;
-        PaymentMethod method;
-        String? cardToken;
+        Pending : tone(neutral),
+        Processing : tone(info),
+        Completed : tone(success),
+        Failed : tone(danger),
+        Refunded : tone(warning)
     }
 
     struct RefundPaymentRequest {
+        UUID paymentId;
         Money amount;
-        String reason;
+        String(500) reason;
     }
 
-    struct StripeWebhookRequest {
-        JSON payload;
+    struct PaymentSummary {
+        Money takenToday;
+        Money takenThisWeek;
+        Int failedThisWeek;
+        Money refundedThisWeek;
     }
 
-    // ': audit' on the rdbms block enables audit logging for all entities
+    // ': audit' on the rdbms block records every change to every entity in it.
     rdbms paymentDb : audit {
         alert queryDuration(avg) over(5m) > 200ms @severity(warning);
         alert transactionDuration(max) over(1m) > 2s @severity(critical);
 
         entity Payment extends BaseEntity {
             UUID orderId : index;
-            UUID customerId : index;
+            String(30) orderNumber : filterable;
+            String(64) customerId : index;
             Money amount;
-            PaymentMethod method;
-            PaymentStatus status = PaymentStatus.Pending;
+            String(3) currency = "USD";
+            PaymentStatus status : filterable = PaymentStatus.Pending;
             String(100) transactionId : unique;
 
-            String? gatewayResponse;
-            String? errorMessage;
+            String(40)? providerChargeId;
+            String(200)? errorMessage;
             DateTime? processedAt;
 
             Boolean isSuccessful := status == PaymentStatus.Completed;
@@ -73,10 +63,8 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
             hasMany Refund as refunds;
 
             index(customerId, status);
-            index(orderId);
-            index(transactionId);
 
-            // Emit different events based on the new status value
+            // One event per outcome: every other service learns about money from these.
             afterUpdate {
                 if (isChanged(status)) {
                     if (status == PaymentStatus.Completed) {
@@ -86,31 +74,28 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
                     } else if (status == PaymentStatus.Refunded) {
                         dispatch PaymentRefunded(id, orderId, amount);
                     }
-
                 }
-
             }
-
         }
 
         entity Refund extends BaseEntity {
             Money amount;
             String(500) reason;
-            PaymentStatus status = PaymentStatus.Pending;
-            String? refundTransactionId;
-            String? errorMessage;
-            DateTime? processedAt;
+            String(120) requestedBy;
 
             belongsTo Payment : index;
-
-            Boolean isSuccessful := status == PaymentStatus.Completed;
         }
 
+        /// What this shop's books owe the merchant account, one row per settled payment.
+        entity Settlement extends BaseEntity {
+            UUID paymentId : unique;
+            String(40) merchantId : filterable;
+            Decimal(12, 2) amount;
+            DateTime settledAt;
+        }
     }
 
     pubsub mq {
-        alert failedMessages(count) over(5m) > 5 @severity(critical);
-
         topic PaymentEvents {
             publish PaymentProcessed(UUID paymentId, UUID orderId, Money amount) {
                 ensure amount > 0;
@@ -123,378 +108,179 @@ service ecommerce.PaymentService('config/payment-service.dcfg') : version('1.0.0
             publish PaymentRefunded(UUID paymentId, UUID orderId, Money amount) {
                 ensure amount > 0;
             }
-
         }
-
     }
 
+    fn refund(paymentDb.Payment payment, Money amount, String reason, String requestedBy) {
+        let Charge answer = PaymentProvider.PaymentAPI.post.refundCharge(RefundChargeRequest {
+            chargeId: payment.providerChargeId ?? "",
+            amount: amount,
+            idempotencyKey: #"refund-{payment.id}-{amount.toString()}"
+        });
+        paymentDb.Refund.create({
+            payment: payment,
+            amount: amount,
+            reason: reason,
+            requestedBy: requestedBy
+        });
+        if (answer.status == ChargeStatus.Refunded) {
+            payment.status = PaymentStatus.Refunded;
+            payment.save();
+        }
+    }
+
+    // The order was cancelled. If it had been paid for, the money goes back without anyone having to ask.
     subscribe OrderEvents {
-
-        on OrderCreated(UUID orderId, String orderNumber, UUID customerId, Money total, UUID reservationId) {
-            Log.info("New order created, awaiting payment", {
-                orderId: orderId,
-                orderNumber: orderNumber,
-                total: total,
-                reservationId: reservationId
-            });
+        on OrderCancelled(UUID orderId, String reason, UUID reservationId) {
+            let Payment? payment = paymentDb.Payment.where(orderId: orderId, status: PaymentStatus.Completed).first();
+            if (payment != null) {
+                refund(payment, payment.amount, reason, "automatic");
+            }
         }
-
     }
 
-    enqueue ecommerce.OrderService.ProcessPayment(UUID orderId, Money amount, String currency) {
-        let Order order = ecommerce.OrderService.OrderAPI.get.orderByIdInternal(orderId);
-        let UUID customerId = order.customerId;
-
+    enqueue ecommerce.OrderService.ProcessPayment(UUID orderId, String orderNumber, String customerId, Money amount, String currency, String cardToken) {
         let Payment payment = paymentDb.Payment.create({
             orderId: orderId,
+            orderNumber: orderNumber,
             customerId: customerId,
             amount: amount,
-            method: PaymentMethod.CreditCard,
+            currency: currency,
             transactionId: generateTransactionId(),
-            status: PaymentStatus.Pending
+            status: PaymentStatus.Processing
         });
-        Log.info("Payment initiated from queue", { orderId: orderId, paymentId: payment.id });
-
-        processPaymentAsync(payment, null);
+        let Charge answer = PaymentProvider.PaymentAPI.post.createCharge(CreateChargeRequest {
+            cardToken: cardToken,
+            amount: amount,
+            currency: currency,
+            reference: orderNumber,
+            idempotencyKey: #"order-{orderId}"
+        });
+        payment.providerChargeId = answer.id;
+        payment.processedAt = DateTime.now();
+        if (answer.status == ChargeStatus.Succeeded) {
+            payment.status = PaymentStatus.Completed;
+        } else {
+            payment.status = PaymentStatus.Failed;
+            payment.errorMessage = answer.declineReason ?? "The card was declined";
+        }
+        payment.save();
     }
 
+    // In order per merchant: the queue is FIFO on merchantId, so one account's ledger never interleaves.
     enqueue ecommerce.OrderService.SettlePayment(UUID paymentId, String merchantId, Decimal amount) {
-        let Payment payment = paymentDb.Payment.findOrFail(paymentId);
-
-        if (payment.status != PaymentStatus.Completed) {
-            Log.warn("SettlePayment skipped: payment not completed", { paymentId: paymentId, status: payment.status });
-            return;
+        if (paymentDb.Settlement.where(paymentId: paymentId).first() == null) {
+            paymentDb.Settlement.create({
+                paymentId: paymentId,
+                merchantId: merchantId,
+                amount: amount,
+                settledAt: DateTime.now()
+            });
         }
-
-        Log.info("Ledger settlement recorded", {
-            paymentId: paymentId,
-            merchantId: merchantId,
-            amount: amount,
-            orderId: payment.orderId
-        });
     }
 
     rest_api PaymentAPI : basePath('/api/v1/payments'), rdbms(paymentDb) {
         alert responseTime(avg) over(5m) > 500ms @severity(warning);
         alert errorRate(ratio) over(5m) > 3% @severity(critical);
 
-        resource paymentDb.Payment : auth(required, providers: [identity]), only(get);
-
+        // An array, because a new order has no payment for the first moments of its life.
         @path('/order/:orderId')
-        get(UUID orderId) : auth(required, providers: [identity]) -> paymentDb.Payment {
-            return paymentDb.Payment.where(orderId: orderId).firstOrFail();
+        get forOrder(UUID orderId) : auth(required, providers: [identity]) -> Array<paymentDb.Payment> {
+            return paymentDb.Payment.where(orderId: orderId, customerId: Auth.userId()).orderBy(createdAt: desc).all();
         }
-
-        @path('/my-payments')
-        get(PageRequest page) : auth(required, providers: [identity]) -> Page<paymentDb.Payment> {
-            let UUID customerId = Auth.user().id;
-            return paymentDb.Payment
-            .where(customerId: customerId)
-            .orderBy(createdAt: desc)
-            .page(page);
-        }
-
-        @path('/process')
-        post(ProcessPaymentRequest request) : auth(required, providers: [identity]) -> paymentDb.Payment {
-            let UUID customerId = Auth.user().id;
-
-            let Payment payment = paymentDb.Payment.create({
-                orderId: request.orderId,
-                customerId: customerId,
-                amount: request.amount,
-                method: request.method,
-                transactionId: generateTransactionId(),
-                status: PaymentStatus.Pending
-            });
-
-            // Delegate to async processing function
-            processPaymentAsync(payment, request.cardToken);
-
-            return payment;
-        }
-
-        @path('/:id/refund')
-        post(UUID id, RefundPaymentRequest request) : auth(required, providers: [identity], roles: [admin]) -> paymentDb.Refund {
-            let Payment payment = paymentDb.Payment.findOrFail(id);
-
-            if (!payment.canRefund) {
-                throw ValidationException(#"Cannot refund payment in status: {payment.status}");
-            }
-
-            // Calculate total already refunded to prevent over-refunding
-            let Money totalRefunded = Money.of(0);
-            foreach refund in payment.refunds {
-                if (refund.isSuccessful) {
-                    totalRefunded = totalRefunded.add(refund.amount);
-                }
-
-            }
-
-            if (totalRefunded.add(request.amount).amount > payment.amount.amount) {
-                throw ValidationException("Refund amount exceeds original payment");
-            }
-
-            let Refund refund = paymentDb.Refund.create({
-                payment: payment,
-                amount: request.amount,
-                reason: request.reason,
-                status: PaymentStatus.Pending
-            });
-
-            let Boolean success = processRefundViaGateway(payment, refund);
-
-            if (success) {
-                refund.status = PaymentStatus.Completed;
-                refund.processedAt = DateTime.now();
-                refund.save();
-
-                let Money newTotalRefunded = totalRefunded.add(request.amount);
-                if (newTotalRefunded.amount >= payment.amount.amount) {
-                    payment.status = PaymentStatus.Refunded;
-                    payment.save();
-                }
-
-            } else {
-                refund.status = PaymentStatus.Failed;
-                refund.save();
-            }
-
-            return refund;
-        }
-
-        // Inbound payment-gateway callback. The sender is an external machine,
-        // so the endpoint carries no user auth — authenticity comes from the
-        // gateway's payload signature, verified against a logical secret handle
-        // declared in config/payment-service.dcfg before the body is trusted.
-        @path('/webhook/stripe')
-        post(StripeWebhookRequest request) : auth(webhook),
-            verify(signature, provider: stripe, secretRef: payment_webhook_secret)
-            -> Void {
-
-            let String eventType = request.payload.type;
-            let JSON data = request.payload.data.object;
-
-            if (eventType == "payment_intent.succeeded") {
-                let String transactionId = data.metadata.transactionId;
-                let Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
-
-                if (payment != null && payment.status == PaymentStatus.Processing) {
-                    payment.status = PaymentStatus.Completed;
-                    payment.processedAt = DateTime.now();
-                    payment.gatewayResponse = JSON.stringify(data);
-                    payment.save();
-                }
-
-            } else if (eventType == "payment_intent.payment_failed") {
-                let String transactionId = data.metadata.transactionId;
-                let Payment? payment = paymentDb.Payment.where(transactionId: transactionId).first();
-
-                if (payment != null && payment.status == PaymentStatus.Processing) {
-                    payment.status = PaymentStatus.Failed;
-                    payment.errorMessage = data.last_payment_error?.message ?? "Payment failed";
-                    payment.gatewayResponse = JSON.stringify(data);
-                    payment.save();
-                }
-
-            }
-
-        }
-
-        fn processRefundViaGateway(paymentDb.Payment payment, paymentDb.Refund refund) -> Boolean {
-            let Boolean success = false;
-            let String? transactionId = null;
-
-            // 'try/catch' for error handling with external gateway calls
-            try {
-                if (payment.method == PaymentMethod.CreditCard || payment.method == PaymentMethod.DebitCard) {
-                    let JSON result = StripeGateway.refund({
-                        transactionId: payment.transactionId,
-                        amount: refund.amount.amount * 100
-                    });
-                    success = result.success;
-                    transactionId = result.refundTransactionId;
-
-                    if (!success) {
-                        refund.errorMessage = result.error ?? "Stripe refund failed";
-                    }
-
-                } else if (payment.method == PaymentMethod.PayPal) {
-                    // PayPal gateway requires integrations.payment.provider: paypal in DCFG.
-                    // This example profile configures Stripe only; refunds are not executed here.
-                    Log.info("PayPal refund skipped: configure PayPal as payment provider to enable gateway refunds", {
-                        paymentId: payment.id,
-                        refundId: refund.id
-                    });
-                    refund.errorMessage = "PayPal refunds require PayPal payment integration in integrations.dcfg";
-                    return false;
-                } else if (payment.method == PaymentMethod.BankTransfer) {
-                    Log.info("Bank transfer refund requires manual processing", {
-                        paymentId: payment.id,
-                        refundId: refund.id,
-                        amount: refund.amount
-                    });
-                    refund.errorMessage = "Bank transfer refunds require manual processing";
-                    return false;
-                }
-
-                if (success && transactionId != null) {
-                    refund.refundTransactionId = transactionId;
-                }
-
-            } catch (Exception e) {
-                Log.error("Refund processing error", {
-                    paymentId: payment.id,
-                    error: e.message
-                });
-                refund.errorMessage = #"Gateway error: {e.message}";
-                return false;
-            }
-
-            return success;
-        }
-
     }
 
-    test("computed isSuccessful reflects Completed status") {
+    // What the Admin app shows and does.
+    rest_api PaymentAdminAPI : basePath('/api/v1/admin/payments'), rdbms(paymentDb) {
+        resource paymentDb.Payment : only(list, get), auth(required, providers: [identity], roles: [admin]);
+        resource paymentDb.Settlement : only(list), auth(required, providers: [identity], roles: [admin]);
+
+        @path('/summary')
+        get summary() : auth(required, providers: [identity], roles: [admin]) -> PaymentSummary {
+            let DateTime today = DateTime.now().startOfDay();
+            let DateTime weekAgo = DateTime.now().addDays(-7);
+            let Money takenToday = 0;
+            foreach paid in paymentDb.Payment.where(status: PaymentStatus.Completed, createdAt: gte(today)).all() {
+                takenToday = takenToday + paid.amount;
+            }
+            let Money takenThisWeek = 0;
+            foreach paid in paymentDb.Payment.where(status: PaymentStatus.Completed, createdAt: gte(weekAgo)).all() {
+                takenThisWeek = takenThisWeek + paid.amount;
+            }
+            let Money refundedThisWeek = 0;
+            foreach given in paymentDb.Refund.where(createdAt: gte(weekAgo)).all() {
+                refundedThisWeek = refundedThisWeek + given.amount;
+            }
+            return PaymentSummary {
+                takenToday: takenToday,
+                takenThisWeek: takenThisWeek,
+                failedThisWeek: paymentDb.Payment.where(status: PaymentStatus.Failed, createdAt: gte(weekAgo)).count(),
+                refundedThisWeek: refundedThisWeek
+            };
+        }
+
+        @path('/order/:orderId')
+        get forOrder(UUID orderId) : auth(required, providers: [identity], roles: [admin]) -> Array<paymentDb.Payment> {
+            return paymentDb.Payment.where(orderId: orderId).orderBy(createdAt: desc).all();
+        }
+
+        @path('/refund')
+        post refundPayment(RefundPaymentRequest request) : auth(required, providers: [identity], roles: [admin]) -> paymentDb.Payment {
+            let Payment payment = paymentDb.Payment.findOrFail(request.paymentId);
+            if (!payment.canRefund) {
+                throw CannotRefundError();
+            }
+            let Money given = 0;
+            foreach earlier in paymentDb.Refund.where(paymentId: payment.id).all() {
+                given = given + earlier.amount;
+            }
+            if (given + request.amount > payment.amount) {
+                throw RefundTooLargeError();
+            }
+            refund(payment, request.amount, request.reason, Auth.identity.email.toString());
+            return payment;
+        }
+    }
+
+    test("a completed payment can be refunded") {
         let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
-            customerId: uuid(),
-            amount: Money.of(99.99),
-            method: PaymentMethod.CreditCard,
+            orderNumber: "WW-260101-000001",
+            customerId: "spec-customer",
+            amount: 49.99,
             transactionId: "TXN-SPEC-001",
             status: PaymentStatus.Completed
         });
-        payment.save();
         assert payment.isSuccessful == true;
-    }
-
-    test("computed canRefund requires Completed status") {
-        let paymentDb.Payment payment = paymentDb.Payment.create({
-            orderId: uuid(),
-            customerId: uuid(),
-            amount: Money.of(49.99),
-            method: PaymentMethod.PayPal,
-            transactionId: "TXN-SPEC-002",
-            status: PaymentStatus.Completed
-        });
-        payment.save();
         assert payment.canRefund == true;
     }
 
-    test("afterUpdate emits PaymentProcessed when status is Completed") {
+    test("completing a payment announces it") {
         let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
-            customerId: uuid(),
-            amount: Money.of(175.50),
-            method: PaymentMethod.CreditCard,
-            transactionId: "TXN-SPEC-003",
+            orderNumber: "WW-260101-000002",
+            customerId: "spec-customer",
+            amount: 175.50,
+            transactionId: "TXN-SPEC-002",
             status: PaymentStatus.Processing
         });
-        payment.save();
         payment.status = PaymentStatus.Completed;
         payment.save();
         assert emitted(PaymentProcessed(payment.id, payment.orderId, payment.amount));
     }
 
-    test("afterUpdate emits PaymentFailed when status is Failed") {
+    test("a failed payment says why") {
         let paymentDb.Payment payment = paymentDb.Payment.create({
             orderId: uuid(),
-            customerId: uuid(),
-            amount: Money.of(220.00),
-            method: PaymentMethod.DebitCard,
-            transactionId: "TXN-SPEC-004",
+            orderNumber: "WW-260101-000003",
+            customerId: "spec-customer",
+            amount: 220.00,
+            transactionId: "TXN-SPEC-003",
             status: PaymentStatus.Processing,
-            errorMessage: "Insufficient funds"
+            errorMessage: "The issuer declined this card"
         });
-        payment.save();
         payment.status = PaymentStatus.Failed;
         payment.save();
-        assert emitted(PaymentFailed(payment.id, payment.orderId, "Insufficient funds"));
+        assert emitted(PaymentFailed(payment.id, payment.orderId, "The issuer declined this card"));
     }
-
-    test("afterUpdate emits PaymentRefunded when status is Refunded") {
-        let paymentDb.Payment payment = paymentDb.Payment.create({
-            orderId: uuid(),
-            customerId: uuid(),
-            amount: Money.of(89.99),
-            method: PaymentMethod.PayPal,
-            transactionId: "TXN-SPEC-005",
-            status: PaymentStatus.Completed
-        });
-        payment.save();
-        payment.status = PaymentStatus.Refunded;
-        payment.save();
-        assert emitted(PaymentRefunded(payment.id, payment.orderId, payment.amount));
-    }
-
-    // Service-level async function for payment processing
-    fn processPaymentAsync(paymentDb.Payment payment, String? cardToken) {
-        payment.status = PaymentStatus.Processing;
-        payment.save();
-
-        let Boolean success = false;
-        let String? error = null;
-        let String? gatewayResponse = null;
-
-        try {
-            if (payment.method == PaymentMethod.CreditCard || payment.method == PaymentMethod.DebitCard) {
-                // External gateway integration call
-                let JSON result = StripeGateway.charge({
-                    amount: payment.amount.amount * 100,
-                    currency: "usd",
-                    source: cardToken,
-                    metadata: {
-                        transactionId: payment.transactionId,
-                        orderId: payment.orderId.toString(),
-                        customerId: payment.customerId.toString()
-                    }
-
-                });
-
-                success = result.success;
-                gatewayResponse = JSON.stringify(result);
-
-                if (!success) {
-                    error = result.error ?? "Stripe charge failed";
-                }
-
-            } else if (payment.method == PaymentMethod.PayPal) {
-                // PayPal gateway requires integrations.payment.provider: paypal in DCFG.
-                // This example profile configures Stripe only; charges are not executed here.
-                Log.info("PayPal charge skipped: configure PayPal as payment provider to enable gateway charges", {
-                    paymentId: payment.id,
-                    transactionId: payment.transactionId
-                });
-                error = "PayPal charges require PayPal payment integration in integrations.dcfg";
-                success = false;
-            } else if (payment.method == PaymentMethod.BankTransfer) {
-                payment.gatewayResponse = "Bank transfer initiated - awaiting confirmation";
-                payment.save();
-                return;
-            } else {
-                error = #"Unsupported payment method: {payment.method}";
-            }
-
-        } catch (Exception e) {
-            success = false;
-            error = #"Payment gateway error: {e.message}";
-            Log.error("Payment processing exception", {
-                paymentId: payment.id,
-                error: e.message
-            });
-        }
-
-        if (success) {
-            payment.status = PaymentStatus.Completed;
-            payment.processedAt = DateTime.now();
-            payment.gatewayResponse = gatewayResponse;
-        } else {
-            payment.status = PaymentStatus.Failed;
-            payment.errorMessage = error ?? "Payment processing failed";
-            payment.gatewayResponse = gatewayResponse;
-        }
-
-        payment.save();
-    }
-
 }

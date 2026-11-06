@@ -28,7 +28,6 @@ config strings realestate.Homes locale "en-US" {
     bookViewing      = "Book a viewing";
     makeOffer        = "Make an offer";
     viewOrOffer      = "Book a viewing or make an offer";
-    seeHome          = "See the home";
     statPrice        = "Asking";
     statBeds         = "Bedrooms";
     statBaths        = "Bathrooms";

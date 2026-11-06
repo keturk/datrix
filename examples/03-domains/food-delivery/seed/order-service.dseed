@@ -5,9 +5,9 @@ seed service fooddelivery.OrderService {
     baseline {
       Order table on(orderNumber) {
         id,                orderNumber, userId,             restaurantId,             restaurantName, status,        pickupAddress,  pickupLatitude, pickupLongitude, dropoffAddress,            dropoffLatitude, dropoffLongitude, subtotal, deliveryFee, total, chargeId;
-        @uuid("order-a"),  "SB-SEED01", @uuid("user-ana"),  @uuid("rest-lemongrass"), "Lemongrass",   Placed,        "4 Market Row", 45.515,         -122.675,        "9 Oak Street, Riverside", 45.530,          -122.650,         25.50,    3.50,        29.00, "ch_seed01";
-        @uuid("order-b"),  "SB-SEED02", @uuid("user-ben"),  @uuid("rest-lemongrass"), "Lemongrass",   Preparing,     "4 Market Row", 45.515,         -122.675,        "2 Elm Row, City Center",  45.520,          -122.670,         12.00,    2.50,        14.50, "ch_seed02";
-        @uuid("order-c"),  "SB-SEED03", @uuid("user-lea"),  @uuid("rest-lemongrass"), "Lemongrass",   Delivered,     "4 Market Row", 45.515,         -122.675,        "7 Pine Way, South Park",  45.495,          -122.665,         19.00,    4.00,        23.00, "ch_seed03";
+        @uuid("order-a"),  "SB-SEED01", "user-ana",  @uuid("rest-lemongrass"), "Lemongrass",   Placed,        "4 Market Row", 45.515,         -122.675,        "9 Oak Street, Riverside", 45.530,          -122.650,         25.50,    3.50,        29.00, "ch_seed01";
+        @uuid("order-b"),  "SB-SEED02", "user-ben",  @uuid("rest-lemongrass"), "Lemongrass",   Preparing,     "4 Market Row", 45.515,         -122.675,        "2 Elm Row, City Center",  45.520,          -122.670,         12.00,    2.50,        14.50, "ch_seed02";
+        @uuid("order-c"),  "SB-SEED03", "user-lea",  @uuid("rest-lemongrass"), "Lemongrass",   Delivered,     "4 Market Row", 45.515,         -122.675,        "7 Pine Way, South Park",  45.495,          -122.665,         19.00,    4.00,        23.00, "ch_seed03";
       }
       OrderItem table on(id) {
         id,               orderId,          menuItemId,            name,           unitPrice, quantity;

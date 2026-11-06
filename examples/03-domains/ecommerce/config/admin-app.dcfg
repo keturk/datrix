@@ -18,12 +18,12 @@ config app ecommerce.Admin {
     web { port = 4300; }
   }
   profile aws extends base {
-    web { domain { name = "admin.library.example.com"; } }
+    web { domain { name = "admin.wrenwood.example.com"; } }
   }
   profile azure extends base {
-    web { domain { name = "admin.library.example.com"; } }
+    web { domain { name = "admin.wrenwood.example.com"; } }
   }
   profile azureVm extends base {
-    web { domain { name = "admin.library.example.com"; } }
+    web { domain { name = "admin.wrenwood.example.com"; } }
   }
 }
