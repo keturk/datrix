@@ -43,23 +43,25 @@ Focused feature examples organized into categories, each demonstrating a specifi
 
 ## 03-domains
 
-Complete domain implementations demonstrating real-world microservices architectures.
+Complete applications you can run: services, frontends and data, with every outside vendor running as a mock in the same stack. Each one has a README that says what to try.
 
-| Domain | Description |
-|--------|-------------|
-| [blog-cms](03-domains/blog-cms/) | Content management platform with authors, articles, and comments |
-| [city-services](03-domains/city-services/) | City services platform with spatial operations using the geo extension |
-| [ecommerce](03-domains/ecommerce/) | E-commerce platform with orders, payments, and shipping |
-| [finance](03-domains/finance/) | Financial services platform |
-| [food-delivery](03-domains/food-delivery/) | Food delivery service |
-| [healthcare](03-domains/healthcare/) | Healthcare system for patients, appointments, and medical records |
-| [hr-platform](03-domains/hr-platform/) | Human resources platform |
-| [iot-platform](03-domains/iot-platform/) | IoT device management platform |
-| [learning-management](03-domains/learning-management/) | Educational platform for courses and student enrollment |
-| [logistics](03-domains/logistics/) | Logistics and supply chain management |
-| [real-estate](03-domains/real-estate/) | Real estate listings and management |
-| [social-platform](03-domains/social-platform/) | Social networking with user profiles, posts, and notifications |
-| [task-management](03-domains/task-management/) | Project management with tasks, projects, and team collaboration |
+| Example | The application | What it shows best |
+|---------|-----------------|--------------------|
+| [blog-cms](03-domains/blog-cms/) | Fieldnotes, a small publication | A public site and a studio for writers and editors |
+| [city-services](03-domains/city-services/) | Port Alder 311, a city's service desk | Spatial queries with the geo extension, and a map |
+| [ecommerce](03-domains/ecommerce/) | Wrenwood, a homeware shop | An event-driven order flow across services, a prerendered site, and four cloud and compose profiles |
+| [finance](03-domains/finance/) | Quillon Bank, a retail bank (Python) | A double-entry ledger, and an AI agent whose actions wait for approval |
+| [food-delivery](03-domains/food-delivery/) | Saltbox, food delivery for three audiences | Customer, kitchen and driver apps over one order |
+| [healthcare](03-domains/healthcare/) | Ferncrest Clinic, a small clinic | Bookings, signed clinical notes and insurer claims |
+| [helpdesk](03-domains/helpdesk/) | Lanternpost, a support desk | A ticket board, private notes and response clocks kept by a job |
+| [hotel-booking](03-domains/hotel-booking/) | Marram House, a small hotel | Per-night availability, a row lock on the last room, and holds that lapse |
+| [hr-platform](03-domains/hr-platform/) | Alderbrook People, an HR platform | Hiring through a signed offer to an employee who reads payslips |
+| [iot-platform](03-domains/iot-platform/) | Coldframe, cold-storage monitoring | Device readings that open alerts and page someone |
+| [learning-management](03-domains/learning-management/) | Larkhill Academy, a learning platform (Python) | Courses, payments, and an AI tutor with refunds a person approves |
+| [logistics](03-domains/logistics/) | Quayline Freight, a parcel carrier | Route planning, a driver app and public tracking |
+| [real-estate](03-domains/real-estate/) | Cobblestone Homes, a home-selling agency | Search, viewings, offers and a lender's pre-approval |
+| [social-platform](03-domains/social-platform/) | Rookery, short notes and follows | Vendor moderation with a person on a trust and safety desk |
+| [task-management](03-domains/task-management/) | Millrace, a team's projects | A drag-and-drop board, blocked tasks and chat notifications |
 
 ---
 
