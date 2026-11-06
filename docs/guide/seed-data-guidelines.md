@@ -470,10 +470,12 @@ datrix seed capture --profile stg --all-services --category baseline
 
 Capture rules:
 - Tenant boundaries are respected; either `--tenant` or `--all-tenants` is required for multi-tenant systems
-- Secrets and credential-like fields are redacted by default
+- Fields declared `sensitive` are redacted by default
+- A `Password` column is never captured; a required `Password` field is reported missing, so that entity's table is written by hand with `@hash()`
 - Production capture is read-only and defaults to `--category reference`
 - Foreign keys are converted to `@ref()` or `@lookup()` where stable natural keys are available
 - An `Array<T>` column is written as its list literal (`["read", "write"]`, `[]` when empty), an enum element as the member it stores
+- A `JSON` column is written as `@json()`; a struct, `Set<T>` or `Map<K, V>` column is refused, because a relational seed binds none of them
 
 ---
 
