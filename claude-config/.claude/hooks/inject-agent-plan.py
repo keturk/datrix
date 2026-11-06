@@ -19,12 +19,25 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _agent_plan as plan  # noqa: E402
 
 
+def _scope_rule() -> str:
+    """How the session fills `## Scope`: an unattended order names a unit or a finding, not its files."""
+    if plan.unattended():
+        return (
+            "`scripts: <names>` covering what your order reaches and what proves it; "
+            "`guard-plan-scope.py` refuses anything outside it, and in this unattended session it reads "
+            "the plan again on each refusal, so add what the order turns out to need"
+        )
+    return (
+        "`scripts: <names>` taken from the order's own words; it locks on first sight and "
+        "`guard-plan-scope.py` refuses anything outside it"
+    )
+
+
 def _instruction(path: str) -> str:
     return (
         f"First, Write `{path}` with `{plan.STEPS_HEADING}` (`- [ ] <step>` lines), "
         f"`{plan.CRITERIA_HEADING}` (what proves it done), `## Scope` (`paths: <globs>` and "
-        "`scripts: <names>` taken from the order's own words; it locks on first sight and "
-        "`guard-plan-scope.py` refuses anything outside it) and an empty "
+        f"{_scope_rule()}) and an empty "
         f"`{plan.VERIFICATION_HEADING}`. Tick steps as done; before stopping, fill "
         f"`{plan.VERIFICATION_HEADING}` with what you ran and what it printed, or add "
         "`Status: STOPPED_BY_JON` / `Status: BLOCKED B<n>`. The Stop hook enforces it. "

@@ -23,8 +23,9 @@ from typing import Final
 REPO_ROOT: Final = "d:/datrix"
 STATE_DIR: Final = os.path.join(REPO_ROOT, ".claude", "hooks", ".state")
 STAMP_DIR: Final = os.path.join(REPO_ROOT, ".tmp", "fixture-probes")
+PROBE_SCRIPT: Final = "probe-fixture"
 PROBE_COMMAND: Final = (
-    'powershell -File "d:/datrix/datrix/scripts/dev/probe-fixture.ps1" -Path <system.dtrx> -ConfigProfile <profile>'
+    f'powershell -File "d:/datrix/datrix/scripts/dev/{PROBE_SCRIPT}.ps1" -Path <system.dtrx> -ConfigProfile <profile>'
 )
 
 #: The directory of a fixture project: the first directory below `tests/fixtures/` (below

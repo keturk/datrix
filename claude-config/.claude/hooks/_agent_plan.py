@@ -20,6 +20,15 @@ STEPS_HEADING: Final = "## Steps"
 CRITERIA_HEADING: Final = "## Completion criteria"
 VERIFICATION_HEADING: Final = "## Verification"
 
+#: Set to "1" by the skill chain on each headless session it launches: nobody reads that session, so no
+#: message of Jon's will ever reach it. A session cannot set it for its own hooks.
+UNATTENDED_ENV: Final = "DATRIX_UNATTENDED"
+
+
+def unattended() -> bool:
+    """Whether this session was launched by the skill chain, with no Jon to answer it."""
+    return os.environ.get(UNATTENDED_ENV) == "1"
+
 
 def safe_id(session_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]", "_", session_id or "unknown")
