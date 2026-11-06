@@ -141,14 +141,19 @@ some module OUTSIDE the defining package binds, and whose constructed type anoth
 builds — which is what keeps the registered test-axis domains' `build_<kind>_test_context` wrappers from
 reading as dead when the production path builds the identical value generically inside
 `TestGeneratorOrchestrator`. A builder that branches, walks the model, logs, or returns `None` has more
-than one statement and is never a thin delegation, whatever types it touches. **Hard zero: no exemption
+than one statement and is never a thin delegation, whatever types it touches. A **generator-document
+reference** is a production call too: each scanned package's `generator.dal` is parsed by the kernel's DAL
+generator parser and each `<namespace>.<name>` reference translated by the kernel's namespace resolver, so
+a builder the definitions name (`context ... from backend_cqrs_renders.build_command_context;`) is live with
+no Python call site, and so is a builder a same-module chain reaches from it. A name in a `.dal` comment is
+no reference. **Hard zero: no exemption
 file, no pinned baseline** — a baseline on a gate whose entire job is "notice code nobody wired in" would
 exempt exactly the defect class it exists to catch. Language package set from the installed
 `datrix.languages` entry points at runtime, never a literal list; the gate refuses to run against fewer
 than two languages rather than passing vacuously. A unit test importing several generator packages would
 be the cross-package coupling `scan\check-import-boundaries.ps1` forbids, so this proof lives here.
 
-`-Census` prints every builder with its calling packages, every live thin delegation with the delegate
+`-Census` prints every builder with its calling packages (a generator document counts for its package), every live thin delegation with the delegate
 and context type it resolved through, and every dead builder; exit 0. `-Dbg` names each self-test check
 as it passes.
 
@@ -156,9 +161,9 @@ Module: `datrix_scripts.gates.realization.shared_builder_reachability_gate`; POS
 `--self-test`, `--census`.
 
 **Assertions:**
-- Zero `build_*` definitions under the scanned subpackages have neither a resolved external caller nor a live thin delegation.
-- **Correctness floors (over-reporting is as much a failure as under-reporting):** five named genuinely-wired builders are never flagged dead; `build_api_context`'s resolved callers span several language packages (cross-package resolution); `extract_max_length` resolves through its aliased same-named private wrappers (alias resolution); and every registered test-axis wrapper is live through its OWN `plan_<kind>_tests` delegate and constructs `TestPlanContext` — a rule folding every wrapper onto one delegate would pass a bare "something was rescued" check while proving nothing. A floor whose expected caller package is not installed is a loud configuration error (exit 2), never a silent skip.
-- Non-vacuity self-test (every invocation, before any real census): a planted orphan `build_*` is flagged by name and clears once a real cross-module caller is wired; a caller reached ONLY through an aliased private wrapper is still resolved (the shape no text search can see); a thin wrapper over a production-bound plan is recognized as live with its delegate and context type recorded; a **multi-statement** builder touching the same production-bound plan and constructing the same production-built context type is STILL dead (the half that matters most — a delegation rule that rescued it would have quietly disabled the whole gate); and a thin wrapper whose delegate nothing outside the defining package binds is still dead.
+- Zero `build_*` definitions under the scanned subpackages have neither a resolved external caller (a Python call or a generator-document reference), a live thin delegation, nor a same-module chain from an externally referenced root.
+- **Correctness floors (over-reporting is as much a failure as under-reporting):** five named genuinely-wired builders are never flagged dead; `build_api_context`'s resolved callers span several language packages (cross-package resolution); `type_name_for` resolves through its aliased same-named private wrapper (alias resolution); every registered test-axis wrapper is live through its OWN `plan_<kind>_tests` delegate and constructs `TestPlanContext` — a rule folding every wrapper onto one delegate would pass a bare "something was rescued" check while proving nothing; `build_cqrs_projection_context` is live through its same-module root `build_projection_context` (same-module resolution); and `build_command_context` is referenced from the generator document of each expected language package (generator-document resolution). A floor whose expected caller package is not installed is a loud configuration error (exit 2), never a silent skip.
+- Non-vacuity self-test (every invocation, before any real census): a planted orphan `build_*` is flagged by name and clears once a real cross-module caller is wired; a caller reached ONLY through an aliased private wrapper is still resolved (the shape no text search can see); a thin wrapper over a production-bound plan is recognized as live with its delegate and context type recorded; a **multi-statement** builder touching the same production-bound plan and constructing the same production-built context type is STILL dead (the half that matters most — a delegation rule that rescued it would have quietly disabled the whole gate); a thin wrapper whose delegate nothing outside the defining package binds is still dead; and a builder a planted generator document references is live, as is one a same-module chain reaches from it, while a builder named only in a `.dal` comment is still dead.
 
 ## `zero-environment-runtime-gate.ps1`
 

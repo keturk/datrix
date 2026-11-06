@@ -819,15 +819,16 @@ a template counts as named when a Python string constant in any framework `src/`
 excluded) equals its path below `templates/` or its file name, when an f-string / `+` concatenation /
 `{placeholder}` constant matches it with at least one literal character left in the file-name part, when a
 template statically includes, imports or extends it (`jinja2.meta`), or when a compiled DAL generator
-`FileDefinition` of any registered generator target names it (definition modules imported, IR walked).
-Exists because dead templates are reviewed and shipped while no generator can render them — two
+`FileDefinition` of any registered generator target names it (definition modules imported, IR walked; a
+target declaring no definitions module, such as a platform that builds its output without DAL generator
+domains, names no template and is not walked). Exists because dead templates are reviewed and shipped while no generator can render them — two
 cache-access templates once sat beside the live one that way.
 
 **Assertions:**
 - Every shipped template is named by one of the four mechanisms above (a literal may also name a template by its bare file stem, the way a render plan composing `{dir}/{stem}.{ext}.j2` does); a DAL generator template name that matches no template on disk is a dangling reference and fails too.
 - An unnamed template that a declared contract requires to exist is listed in `datrix/scripts/config/template-reachability-exemptions.json` (template path + written reason); dead output is otherwise deleted. An entry whose template is named or gone is stale and fails the gate.
 - A pattern names every variant it can spell (`f"pubsub_connection_{engine}.py.j2"` names every engine's template), so the gate proves each template is reachable by a name, not that every placeholder value is produced at runtime.
-- Non-vacuity self-test (every invocation): a planted workspace with a literal-named, a pattern-named, an included, a docstring-only and an unnamed template yields exactly the docstring-only and unnamed ones; the live DAL generator walk must find template names; and the real workspace must hold templates.
+- Non-vacuity self-test (every invocation): a planted workspace with a literal-named, a pattern-named, an included, a docstring-only and an unnamed template yields exactly the docstring-only and unnamed ones; the live DAL generator walk must find template names and reach every target declaring a definitions module; and the real workspace must hold templates.
 
 Exit code 2 also covers a template that does not parse, or a missing or malformed exemptions file.
 

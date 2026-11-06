@@ -63,7 +63,7 @@ Parameters: `-OutputRoot` (default `D:\datrix\.test-output\ingress-gate`), `-Lan
 
 ## `gates\realization\shared-builder-reachability-gate.ps1`
 
-Every module-level `build_*` function in `datrix_codegen_common`'s `algorithms/` and `context_models/` must have a production caller. Hard zero, no exemption file.
+Every module-level `build_*` function in `datrix_codegen_common`'s `algorithms/` and `context_models/` must have a production caller: a Python call or a reference in a scanned package's `generator.dal`. Hard zero, no exemption file.
 
 | Form | Command |
 |------|---------|

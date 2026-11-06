@@ -682,14 +682,16 @@ provider another platform has is not a gap; a capability a platform realizes by 
 recorded as a `<kind>:<id>` row in that platform's own `capability_gaps`. A row accounts for the violation
 here and suppresses nothing in any other gate. There is no exemption file.
 
-Declarations are read through one extractor (presence only) and compared as plain facts. Seven surfaces:
+Declarations are read through one extractor (presence only) and compared as plain facts. Nine surfaces:
 1. block types: every block type any platform realizes by at least one flavor is realized by at least one flavor on every platform (`block_type:<id>` row).
 2. observability categories: at least one native provider per category any platform realizes (`observability_category:<id>` row).
 3. supported runtimes: a floor of at least one runtime (no row kind).
 4. identity features: offered through at least one provider on every platform (`identity_feature:<id>` row).
-5. static web hosting: each platform's origin equals its OWN edge (`domain` when the edge binds custom domains, `loopback_port` otherwise).
+5. static web hosting: the origin of each platform that hosts a static web target equals its OWN edge (`domain` when the edge binds custom domains, `loopback_port` otherwise).
 6. custom-domain surfaces: an edge-binding platform carries both `gateway` and `web`, any other carries neither.
 7. model realizations: at least one provider with a flavor cell.
+8. identity policies: every value of a policy-shaped identity feature any platform realizes, on every platform (`identity_feature:<feature>=<value>` row).
+9. web hosting: a platform hosts a static web target at some origin when any other does (`config:web` row). `static_web_hosting` is a required field, so `None` is the platform's statement that it hosts none; the row counts it.
 
 Retired surfaces: secret backends and deployable constructs (construction-time floors, product
 vocabulary), the set-shaped optional fields (each platform's own vocabulary) and the presence-shaped

@@ -5,14 +5,16 @@
 
 .DESCRIPTION
  Proves every installed `datrix.platforms` plugin realizes every CAPABILITY
- any installed platform realizes, across seven surfaces: block types (a
+ any installed platform realizes, across nine surfaces: block types (a
  platform realizes each block type by at least one flavor), observability
  categories (at least one native provider per category), a supported-runtime
  floor, identity features (offered through at least one provider), static web
  hosting origin and custom-domain surfaces (each platform against its OWN
  edge: `domain` and both surfaces when the edge binds custom domains,
- `loopback_port` and neither otherwise), and model realizations (at least one
- provider with a flavor cell). Compares capabilities, never implementations:
+ `loopback_port` and neither otherwise), model realizations (at least one
+ provider with a flavor cell), identity policies (each portable policy value
+ through at least one provider) and a web hosting floor (a platform hosting no
+ static web target carries a `config:web` row). Compares capabilities, never implementations:
  a platform that lacks one flavor, vendor product or provider another has is
  not a gap. A capability a platform realizes by no implementation is a
  `<kind>:<id>` row in that platform's own `capability_gaps`, which accounts
