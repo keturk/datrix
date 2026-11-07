@@ -38,6 +38,7 @@ Focused feature examples organized into categories, each demonstrating a specifi
 - **05-infrastructure-combinations** — Multi-database, multi-infrastructure setups
 - **04-extensions** — Extension features (geo spatial types and PostGIS operations)
 - **06-advanced-language-features** — Structs, integrations, advanced flow control, external integration
+- **07-client-apps** — Client capabilities written once in a module or in `datrix.ui` and copied into the app that imports them: a module `fn` and struct, a component using itself, component events and `bind`, one `test` per member
 
 ---
 

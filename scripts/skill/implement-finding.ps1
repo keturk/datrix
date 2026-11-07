@@ -31,7 +31,7 @@
     next batch starts.
 
     Every fix and repair step prints the finding's absolute path in its header as it starts:
-      === step 01-fix D:\datrix\findings\kernel\<the finding>.md (claude-opus-5-5, high) ===
+      === step 01-fix D:\datrix\findings\kernel\<the finding>.md (claude-opus-5-5, medium) ===
 
     Step logs: <workspace>\.tmp\skill-chain\<timestamp>\.
 
@@ -59,7 +59,7 @@
     The model of each session. Default: claude-opus-5-5.
 
 .PARAMETER Effort
-    The effort of each session. Default: high.
+    The effort of each session. Default: medium.
 
 .PARAMETER PermissionMode
     The permission mode of every session. Default: auto. The guards run in every mode.
