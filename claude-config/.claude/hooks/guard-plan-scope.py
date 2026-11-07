@@ -14,8 +14,13 @@ script may be named with its folder and suffix: `test/failure-ledger.ps1` is `fa
 Once a scope is seen it is locked: the agent's own edit of the plan cannot widen it. This hook then
 refuses a file edit outside `paths` (workspace-relative globs, plus the absolute trees the plan
 names) and a command that runs a repo script not named in `scripts`. The plan file, the scratchpad, `.tmp` and Claude's memory folders are always
-writable. Only Jon widens a scope: any message of his may carry a new order, so a refused call after
-it reads the plan afresh, and a changed scope locks again until his next message.
+writable. In an attended session only Jon widens a scope: any message of his may carry a new order, so
+a refused call after it reads the plan afresh, and a changed scope locks again until his next message.
+
+An unattended session (`_agent_plan.unattended`, set by the skill chain at launch) never receives a
+message of his, and its order names a unit or a finding, not the files it reaches. There every refused
+call reads the plan afresh, so the session can declare what its order turns out to need; what the plan
+does not declare stays refused. The refusal names the remedy that works in the session that got it.
 
 A skill whose order can reach any repo is not fenced at all: while one is the session's latest
 skill, nothing is refused. `/fix-test-suites` orders every repo and test suite. `/implement-finding`
@@ -70,7 +75,7 @@ _SKILL_WRITABLE: Final = {"absorb-design": ("design/*.md", "datrix*/docs/*", "da
 #: Scripts a skill's own steps run beyond any plan scope, by skill.
 _SKILL_RUNNABLE: Final = {"absorb-design": ("skill-assist",)}
 #: Scripts another guard demands before it lets the work go on, under every skill and scope: refusing
-#: one here leaves the session no way forward, since only Jon can widen a locked scope.
+#: one here leaves an attended session no way forward, since only Jon can widen its locked scope.
 _GUARD_DEMANDED: Final = frozenset({PROBE_SCRIPT})
 _ALWAYS_WRITABLE: Final = (".agent_output/*", ".tmp/*")
 _SCRATCHPAD_MARK: Final = "/scratchpad/"
@@ -160,12 +165,13 @@ def _locked(session_id: str, jon_messages: int) -> dict[str, list[str]] | None:
     return scope
 
 
-def _rescoped_by_jon(session_id: str, jon_messages: int, scope: dict[str, list[str]]) -> dict[str, list[str]]:
-    """The scope a refused call is judged by: the plan's, when Jon has spoken since the lock and the plan
-    says something new. An unchanged plan spends nothing, so a refusal before the agent writes his new
-    order into the plan does not cost that order; a changed one locks until his next message."""
+def _rescoped(session_id: str, jon_messages: int, scope: dict[str, list[str]]) -> dict[str, list[str]]:
+    """The scope a refused call is judged by: the plan's, when the plan says something new and either Jon
+    has spoken since the lock or the session is unattended, where no message of his will ever come. An
+    unchanged plan spends nothing, so a refusal before the agent writes his new order into the plan does
+    not cost that order; a changed one locks until his next message."""
     lock = _read_lock(session_id)
-    if lock is None or lock[1] >= jon_messages:
+    if lock is None or (lock[1] >= jon_messages and not plan.unattended()):
         return scope
     declared = _declared(session_id)
     if declared is None or _canonical(declared) == _canonical(scope):
@@ -254,16 +260,9 @@ def main() -> None:
     if problems and skill in _WORKSPACE_WIDE_SKILLS:
         sys.exit(0)
     if problems:
-        problems = _violations(data, _rescoped_by_jon(session_id, jon_messages, scope), skill)
+        problems = _violations(data, _rescoped(session_id, jon_messages, scope), skill)
     if problems:
-        print(
-            "Refused by the session scope (`## Scope` in the plan, locked until Jon's next message):\n- "
-            + "\n- ".join(problems)
-            + "\nIf Jon's latest message orders this, write his order's paths and scripts into the plan's "
-            "`## Scope` and retry: the plan is read afresh once per message of his. Otherwise it is not "
-            "part of his order: do not do it and do not route around this; tell him in one line if it matters.",
-            file=sys.stderr,
-        )
+        print(_refusal(problems), file=sys.stderr)
         sys.exit(2)
     sys.exit(0)
 

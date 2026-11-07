@@ -284,6 +284,20 @@ check("an attended session is fenced", verdict, "block")
 check("its refusal names Jon's message", "locked until Jon" in message, True)
 check("its plan edit widens nothing", unit_call(*edit(CATALOG), ATTENDED)[0], "block")
 
+
+def plan_instruction(environment):
+    """What `inject-agent-plan.py` tells a session with no plan yet about filling `## Scope`."""
+    run = subprocess.run([sys.executable, os.path.join(H, "inject-agent-plan.py")],
+                         input=json.dumps({"session_id": SID}), capture_output=True, text=True, env=environment)
+    return json.loads(run.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+reset()
+check("an unattended session is told to add what its order needs",
+      "add what the order turns out to need" in plan_instruction(UNATTENDED), True)
+check("and is not told the scope locks", "locks on first sight" in plan_instruction(UNATTENDED), False)
+check("an attended session is told it locks", "locks on first sight" in plan_instruction(ATTENDED), True)
+
 reset(TRANSCRIPT)
 print()
 if fails:

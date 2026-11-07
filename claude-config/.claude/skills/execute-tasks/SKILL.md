@@ -298,7 +298,7 @@ On abort, report what was completed, what failed, and what cannot proceed.
 <!-- PHASE: verify -->
 ## Phase 3: Verification
 
-For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures. If the first fix attempt fails, escalate immediately to Opus at high effort (Decision Escalation Protocol).
+For each task (in parallel, up to 5 tasks concurrently), run targeted tests and fix all failures. If the first fix attempt fails, escalate immediately to Opus at medium effort (Decision Escalation Protocol).
 
 **Assumes all tests were passing before implementation started.**
 
