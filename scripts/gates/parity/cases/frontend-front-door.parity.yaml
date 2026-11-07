@@ -1,0 +1,14 @@
+- id: frontend-front-door.verbs
+  tags:
+  - parity
+  - hosting
+  input: frontend-front-door
+  stage: parity
+  observer: realized_frontend_verbs
+  selector:
+    facet: verbs
+  expectation:
+  - deploy
+  - destroy
+  - down
+  reason: A frontend tree's front door deploys its clients, stops the hosting it brought up and deletes what it provisioned on every platform, and offers no reset because it provisions no data store.

@@ -1162,8 +1162,9 @@ Module: `datrix_scripts.gates.repo_hygiene.stateless_generator`; POSIX twin opti
 
 ## `seal-integrity-gate.ps1`
 
-**Only the model seals or unseals a node.** A sealed `Node` refuses every attribute assignment; the flag
-that marks it sealed lives in the node's `__dict__` under `_SEAL_FLAG` (`"_sealed"`), and only
+**Only the model seals or unseals a node.** A sealed `Node`, and a `SealableValue` a sealed node holds,
+refuses every attribute assignment; the flag that marks it sealed lives in its `__dict__` under
+`_SEAL_FLAG` (`"_sealed"`), and only
 `Node.seal()` and `Node.__deepcopy__` in `datrix_common/datrix_model/base.py` write it.
 `datrix_scripts.gates.repo_hygiene.seal_integrity` parses every `*.py` under every `datrix-*/src` tree on
 disk with Python `ast` and fails on every other write of the flag, where the key is the literal

@@ -1,0 +1,20 @@
+- id: where-comparisons.every-call-is-realized
+  tags:
+  - parity
+  - entity-query-chain
+  input: advanced-queries
+  stage: parity
+  observer: where_comparisons
+  selector:
+    facet: calls
+  expectation:
+  - contains
+  - endsWith
+  - gt
+  - gte
+  - lt
+  - lte
+  - ne
+  - notIn
+  - startsWith
+  reason: Every language lowers each where comparison call to a filter of its own, so one spelling of a comparison means one thing on every target.
