@@ -67,6 +67,7 @@ from datrix_codegen_kernel.parity._conformance_probes_response_body_wire_field i
     EventEnvelopeCensus,
     IdiomOccurrence,
     RealizedClientForm,
+    RealizedComponentEvents,
     RealizedElementState,
     RealizedExternalLinkScheme,
     RealizedRouteUrl,
@@ -703,6 +704,9 @@ class _PlantedClientProbes:
 
     def client_element_state(self, generated_root: Path) -> tuple[RealizedElementState, ...]:
         return (RealizedElementState("library.pages.lend", 1, 0, 1, 1, 0, Path(_CANARY) / "lend-page.src"),)
+
+    def client_component_events(self, generated_root: Path) -> tuple[RealizedComponentEvents, ...]:
+        return (RealizedComponentEvents("library.components.picker", ("onPick",), ("onPick",), Path(_CANARY) / "picker.src"),)
 
 
 def _planted_client_class(probes: object) -> type:

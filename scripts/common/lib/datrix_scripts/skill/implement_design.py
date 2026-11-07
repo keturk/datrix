@@ -230,7 +230,8 @@ def limit_options(violations: list[str]) -> list[str]:
     if not violations:
         return []
     return ["LEDGER LIMITS EXCEEDED: " + "; ".join(violations) + ". Before the unit, shrink the ledger to the "
-            "limits: move detail into proof files (a '## Files changed' list goes into a proof file under that "
+            "limits: merge open units one acceptance proves into one row, move detail into proof files (a "
+            "'## Files changed' list goes into a proof file under that "
             "same heading), keep only the Units and Decisions sections."]
 
 

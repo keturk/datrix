@@ -44,6 +44,7 @@ from datrix_codegen_kernel.parity._conformance_probes_response_body_wire_field i
     EventEnvelopeCensus,
     PublishedEventEnvelope,
     RealizedClientForm,
+    RealizedComponentEvents,
     RealizedElementState,
     RealizedExternalLinkScheme,
     RealizedGatewayProblem,
@@ -811,6 +812,43 @@ def _offer_element_states(result: object) -> Iterable[dict[str, SelectorValue]]:
 
 
 # ---------------------------------------------------------------------------
+# Client component events: client_component_events
+# ---------------------------------------------------------------------------
+
+CLIENT_COMPONENT_EVENTS: Final[str] = "client_component_events"
+#: How a reading joins a component's event names: sorted, as the probe returns them.
+_EVENT_NAME_SEPARATOR: Final[str] = ","
+
+
+def _component_events(result: object) -> tuple[RealizedComponentEvents, ...]:
+    return _items(result, RealizedComponentEvents, CLIENT_COMPONENT_EVENTS)
+
+
+def _read_component_events(result: object, selector: Selector) -> Observation:
+    """The events one component lets a caller handle and the events its own code raises."""
+    wanted = _text(selector, OWNER_KEY)
+    matches = [events for events in _component_events(result) if events.owner_key == wanted]
+    if len(matches) != 1:
+        raise SelectorError(f"component {wanted} is emitted {len(matches)} times")
+    events = matches[0]
+    return Observation(
+        Shape.MAPPING,
+        {
+            "declared": _EVENT_NAME_SEPARATOR.join(events.declared),
+            "raised": _EVENT_NAME_SEPARATOR.join(events.raised),
+        },
+    )
+
+
+def _read_component_event_owners(result: object, selector: Selector) -> Observation:
+    return _set(events.owner_key for events in _component_events(result))
+
+
+def _offer_component_events(result: object) -> Iterable[dict[str, SelectorValue]]:
+    return [{OWNER_KEY: events.owner_key} for events in _component_events(result)]
+
+
+# ---------------------------------------------------------------------------
 # Documentation text: documentation_surfaces
 # ---------------------------------------------------------------------------
 
@@ -1181,6 +1219,33 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
                         summary="every view owner (<app>.<role>.<name>, kebab case) the apps emit",
                     ),
                     _read_element_state_owners,
+                ),
+            ),
+        ),
+        ProbeReadings(
+            CLIENT_COMPONENT_EVENTS,
+            ProbeArgument.CLIENT_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "events",
+                        Shape.MAPPING,
+                        (OWNER_KEY,),
+                        summary=(
+                            "the events one component lets a caller handle and the events its own code "
+                            "raises, each by declared name, sorted"
+                        ),
+                    ),
+                    _read_component_events,
+                    _offer_component_events,
+                ),
+                FacetReading(
+                    ParityFacet(
+                        "components",
+                        Shape.SET,
+                        summary="every component (<app>.components.<name>, kebab case) the apps emit",
+                    ),
+                    _read_component_event_owners,
                 ),
             ),
         ),

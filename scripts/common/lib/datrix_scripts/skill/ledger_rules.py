@@ -4,6 +4,9 @@ Every unit session re-reads the whole ledger, so what it holds is paid again by 
 is the work plan and nothing else: a ``## Units`` table and a ``## Decisions`` list, bounded as a whole file
 (``MAX_LEDGER_BYTES``) and line by line. Detail belongs in the unit's proof file, which no session re-reads.
 
+Every open unit is one more session that re-reads the design and the ledger, so a ledger holds at most
+``MAX_OPEN_UNITS`` of them. A design that needs more merges what one acceptance proves, or is split.
+
 The files a unit changed are not kept in the ledger. Each unit lists them under ``## Files changed`` in its own
 proof file (``<ledger name>-proof/<id>.md``); ``write_files_supplement`` gathers them into the supplement file
 ``<ledger name>-files.md`` that ``/verify-implementation`` takes as its ``FILES`` input.
@@ -22,6 +25,8 @@ MAX_LEDGER_BYTES: Final = 24_000
 MAX_CELL_CHARS: Final = 400
 MAX_STATE_CELL_CHARS: Final = 240
 MAX_TEXT_LINE_CHARS: Final = 300
+MAX_OPEN_UNITS: Final = 15
+OPEN_STATE: Final = "[ ]"
 ALLOWED_SECTIONS: Final = ("units", "decisions")
 MAX_REPORTED: Final = 5
 
@@ -59,10 +64,20 @@ def line_violations(number: int, line: str, section: str) -> list[str]:
     return []
 
 
+def open_unit_count(text: str) -> int:
+    """How many table rows of *text* are units still to do: their last cell, the state, starts ``[ ]``."""
+    rows = (row_cells(line) for line in text.splitlines() if line.lstrip().startswith("|"))
+    return sum(1 for cells in rows if cells and cells[-1].strip().startswith(OPEN_STATE))
+
+
 def text_violations(text: str) -> list[str]:
-    """Every way *text* breaks the ledger rules, the whole-file size first; empty when it keeps them."""
+    """Every way *text* breaks the ledger rules, the whole-file limits first; empty when it keeps them."""
     size = len(text.encode("utf-8"))
     found = [f"the ledger is {size} bytes (max {MAX_LEDGER_BYTES})"] if size > MAX_LEDGER_BYTES else []
+    open_units = open_unit_count(text)
+    if open_units > MAX_OPEN_UNITS:
+        found.append(f"the ledger holds {open_units} open units (max {MAX_OPEN_UNITS}; merge what one acceptance "
+                     "proves into one row, or the design is too big and is split)")
     section = ""
     for number, line in enumerate(text.splitlines(), start=1):
         heading = SECTION_HEADING.match(line)
@@ -159,6 +174,16 @@ def _check_each_limit_names_the_line_it_breaks() -> None:
         assert len(found) == 1 and expected in found[0], (expected, found)
 
 
+def _check_only_open_units_count_against_the_ceiling() -> None:
+    open_row = "| U{0} | c | [ ] |\n"
+    at_ceiling = GOOD_LEDGER + "".join(open_row.format(n) for n in range(MAX_OPEN_UNITS))
+    assert text_violations(at_ceiling) == [], text_violations(at_ceiling)
+    found = text_violations(at_ceiling + open_row.format(MAX_OPEN_UNITS))
+    assert len(found) == 1 and f"holds {MAX_OPEN_UNITS + 1} open units" in found[0], found
+    finished = GOOD_LEDGER + "".join(f"| U{n} | c | [x] proof p.md |\n" for n in range(2 * MAX_OPEN_UNITS))
+    assert text_violations(finished) == [], text_violations(finished)
+
+
 def _check_the_changed_files_come_from_the_proof_files() -> None:
     with TemporaryDirectory() as raw:
         ledger = Path(raw) / "implement-direct-d.md"
@@ -176,5 +201,6 @@ LEDGER_CHECKS: Final = (
     _check_a_ledger_inside_the_limits_has_no_violation,
     _check_a_file_of_a_hundred_thousand_short_lines_is_refused,
     _check_each_limit_names_the_line_it_breaks,
+    _check_only_open_units_count_against_the_ceiling,
     _check_the_changed_files_come_from_the_proof_files,
 )

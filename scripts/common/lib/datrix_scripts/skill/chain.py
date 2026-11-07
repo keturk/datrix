@@ -786,7 +786,7 @@ def _check_a_dry_run_prints_the_steps_and_runs_none() -> None:
         with contextlib.redirect_stdout(printed):
             chain.verify_design("/verify-implementation\nDESIGN: d", design, lambda report: None)
             chain.absorb_design(design, keep_source=True)
-            row = chain.step("fix", "/implement-finding", model="claude-opus-5-5", effort="high")
+            row = chain.step("fix", "/implement-finding", model="claude-opus-5-5", effort="medium")
         assert row.dry_run and not chain.steps and not chain.run_dir.exists(), (row, chain.steps)
     proof = workspace / ".tmp" / "verify-proven-d.md"
     on = f"{VERIFY_ABSORB_MODEL}, {VERIFY_ABSORB_EFFORT}"
@@ -794,7 +794,7 @@ def _check_a_dry_run_prints_the_steps_and_runs_none() -> None:
         "", f"=== step 01-verify ({on}) ===", "/verify-implementation", "DESIGN: d",
         "", f"=== step 02-absorb ({on}) ===", "/absorb-design", f"DOCUMENT: {design}", f"VERIFIED: {proof}",
         "KEEP SOURCE: true",
-        "", "=== step 03-fix (claude-opus-5-5, high) ===", "/implement-finding",
+        "", "=== step 03-fix (claude-opus-5-5, medium) ===", "/implement-finding",
     ], printed.getvalue()
 
 
