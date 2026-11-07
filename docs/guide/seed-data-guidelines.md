@@ -264,7 +264,7 @@ orderDb.Order table {
 
 Seed values reach the database only as bound parameters on every supported language. Every RDBMS seed table reaches the database through a statement that holds only dialect-quoted identifiers and named placeholders. Row values are bound by the database driver or ORM at run time — no seed value is ever written into SQL text.
 
-**Python typed-cell rules:** At generation time, Python converts each cell to its field's type. A cell on a column type with no plain binding — geometry, geography, binary, duration, struct, set or map — is rejected at generation time. An `Array<T>` cell (a list literal such as `["read", "write"]`) is bound as one JSON text, the document its JSON column stores, with an enum element written as its stored label; on every language the elements come from one shared derivation. For types with plain binding:
+**Python typed-cell rules:** At generation time, Python converts each cell to its field's type. A cell on a column type with no plain binding — geometry, geography, binary, duration, struct, set or map — is rejected at generation time. An `Array<T>` cell (a list literal such as `["read", "write"]`) is bound as one JSON text, the document its JSON column stores, with an enum element written as its wire value; on every language the elements come from one shared derivation. For types with plain binding:
 - `UUID` cells accept a UUID string (8-4-4-4-12 format)
 - `Decimal` and `Money` cells accept a string or number
 - `Date` cells use ISO date format (`YYYY-MM-DD`)
@@ -470,11 +470,11 @@ datrix seed capture --profile stg --all-services --category baseline
 
 Capture rules:
 - Tenant boundaries are respected; either `--tenant` or `--all-tenants` is required for multi-tenant systems
-- Fields declared `sensitive` are redacted by default
+- Fields declared `sensitive` are redacted by default; a column whose field cannot hold the `"<redacted>"` text (a number, boolean, date, enum or array, say) is left out, and a required one is reported missing, so that entity's table is written by hand
 - A `Password` column is never captured; a required `Password` field is reported missing, so that entity's table is written by hand with `@hash()`
 - Production capture is read-only and defaults to `--category reference`
 - Foreign keys are converted to `@ref()` or `@lookup()` where stable natural keys are available
-- An `Array<T>` column is written as its list literal (`["read", "write"]`, `[]` when empty), an enum element as the member it stores
+- An `Array<T>` column is written as its list literal (`["read", "write"]`, `[]` when empty), an enum element as the member its wire value spells
 - A `JSON` column is written as `@json()`; a struct, `Set<T>` or `Map<K, V>` column is refused, because a relational seed binds none of them
 
 ---

@@ -650,7 +650,7 @@ Applications declare managed identity providers in an `identity {}` block. The p
 The parser and transformer produce an `IdentityBlock` AST node containing one `ProviderDecl` per named provider. Each `ProviderDecl` carries:
 
 - Provider name and bound config path (`.dcfg` file)
-- Identity fields (typed field declarations that become `Auth.identity.*` accessors at runtime)
+- Identity fields (typed field declarations that become `Auth.identity.*` accessors at runtime, each read through the claim path its `identityFields` entry maps)
 - Group-to-role mappings (`group "<local>" as <role>`)
 
 Every externally reachable surface carries an explicit `auth(...)` contract (modes: `public`, `optional`, `required`, `service`, `webhook`); `auth(webhook)` endpoints additionally require a `verify(...)` contract that authenticates the external sender. Surfaces without an explicit `auth(...)` contract are refused when the source is transformed. There is no block-level auth default: a `rest_api` or `graphql_api` header accepts only `basePath(...)`, `rdbms(...)` and `nosql(...)`, so every surface declares its own `auth(...)`.
