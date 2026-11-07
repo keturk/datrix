@@ -1,0 +1,14 @@
+- id: client-component-events.module-copy-raises
+  tags:
+  - parity
+  - frontend-client
+  input: shared-ui
+  stage: parity
+  observer: client_component_events
+  selector:
+    facet: events
+    owner: notes.components.stepper
+  expectation:
+    declared: onChange,onReset
+    raised: onChange,onReset
+  reason: 'Every client target renders a component an app imports from a user module as that app''s own component, with each event the module declares open to a caller and each emit in the module''s code raising that event: here the Stepper the notes app copies from notes.ui, which declares onChange and onReset and raises both.'

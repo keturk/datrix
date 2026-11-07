@@ -1,0 +1,40 @@
+- id: agents.approvals.approve-request
+  tags: [parity, ai-agents, approvals]
+  input: agents
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: post, path: '/api/v1/support/approvals/{id}/approve'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: An approval decision is a POST under the service's base path and the approvals prefix, answering 200 with the decided request on every language.
+- id: agents.approvals.deny-request
+  tags: [parity, ai-agents, approvals]
+  input: agents
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: post, path: '/api/v1/support/approvals/{id}/deny'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: A denial is a POST beside the approval, answering 200 with the denied request on every language, never 201 for a row it did not create.
+- id: agents.approvals.read-request
+  tags: [parity, ai-agents, approvals]
+  input: agents
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/support/approvals/{id}'}
+  expectation: {status: '200', body: object, media-type: application/json}
+  reason: An approver reads one request, its arguments and state, as one object on every language.
+- id: agents.approvals.list-requests
+  tags: [parity, ai-agents, approvals]
+  input: agents
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: route, verb: get, path: '/api/v1/support/approvals'}
+  expectation: {status: '200', body: list, media-type: application/json}
+  reason: The request list answers a bare JSON array, oldest first, never the page envelope, on every language.
+- id: agents.approvals.list-requests-query-keys
+  tags: [parity, ai-agents, approvals]
+  input: agents
+  stage: parity
+  observer: route_wire_contracts
+  selector: {facet: query-keys, verb: get, path: '/api/v1/support/approvals'}
+  expectation: [state]
+  reason: The request list binds the one state filter and no other query key on every language.
