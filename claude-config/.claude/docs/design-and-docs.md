@@ -16,6 +16,45 @@ unspecified features.
   implementing straight from the design.
 - **Never modify a design doc during implementation.**
 
+## A design is sized to be proven in slices
+
+A design's cost is paid once per implementation session, and each session re-reads the design and
+its ledger, so size is a design defect, not an implementation detail.
+
+- **At most 100 lines, counting everything.** A design that needs more is split along a seam into
+  several designs, each complete on its own.
+- **G1 is an obligation, not a batch size.** A counted `capability_gaps` row is the legal state of
+  what a design leaves out, so a large realization is a series of designs, each removing or
+  narrowing what it delivers. Never argue that a capability must land whole because a partial one
+  "breaks G1".
+- **Generated output first.** A design that changes what is emitted names its first slice: the
+  smallest work that generates a reference example, or one service of it, and compiles. Everything
+  else widens that path. A runtime module no generated code has called is unproven, however green
+  its own tests.
+- **Every decision is needed by the Problem.** A defect the design merely turned up, a fix on
+  another target its acceptance does not need, or a new check of a fact something else already
+  holds goes to its own design or a findings file. Fixing it "while here" is how a design doubles.
+- **State who needs it.** The Problem names what consumes the capability: a product, a shipped
+  example, or a gate. No product consumer is a reason to take the smallest slice first.
+- **The whole design fits 15 open units.** One unit is one session and one provable step, and
+  `ledger_rules.py` refuses a ledger with more. A census that cannot fit is a split, decided now
+  rather than discovered at the ledger.
+
+## Acceptance runs on the `test` profile only
+
+A design's acceptance and verification criteria may require generating, building or running only on
+the `test` profile, which is docker compose on the local machine. No criterion requires generating
+for, building on or deploying to another profile (`development`, `production`, `aws`, `azure`, any
+other) or reaching a cloud account. There is no cloud account to run it on, and the extra runs prove
+nothing that a `test`-profile run and the static checks do not. A fact about what another target
+emits is a case row, a parity row or a test over a fixture, never a per-profile generation run.
+
+- **Writing a design:** state each acceptance criterion so that one `test`-profile run, the gates
+  and the tagged tests settle it. A runtime module that only another profile emits is proven by its
+  own spec in the project's scratch harness or in the package that owns it.
+- **Reviewing a design:** `/verify-design` classes a criterion that needs another profile as
+  BLOCKING (checklist C8), and `/verify-implementation` does not run one.
+
 ## Reviewing a design for readiness
 
 Whether a design is ready is answered by `/verify-design`, never by a free-form review: one closed

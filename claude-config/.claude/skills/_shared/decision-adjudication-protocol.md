@@ -3,7 +3,7 @@
 **Used by every agent and every skill — main session, subagent, orchestrator, `claude -p` step.** It
 governs what an agent does with ANY question or decision it cannot settle itself — including, but NOT
 limited to, a subagent's BLOCKED report and an `APPROVAL_REQUIRED` growth request (Jon's order: a
-question goes to the decision advisor (Opus 5.5, high effort), the agent acts on its recommendation, and only when it
+question goes to the decision advisor (Opus 5.5, medium effort), the agent acts on its recommendation, and only when it
 cannot recommend anything is Jon asked).
 
 Read this alongside `execution-contract.md` (§1 the closed blocker list, §3 the four-part proof).
@@ -25,7 +25,7 @@ you may not stop early.
 |---|---|---|
 | **1** | **INVESTIGATE** | Read the code and the docs **yourself**. Reproduce the error. Open the `file:line`. Read the governing design doc. Most "decisions" dissolve here — they were missing information, not genuine ties. |
 | **2** | **DECIDE** | If the evidence settles it, **decide and act**. Escalating a decision you are able to make is as much a failure as stopping. Mild discomfort deciding is not a tie. |
-| **3** | **ADVISE** | If, after genuine investigation, you **truly cannot decide** — dispatch the **decision advisor** (`subagent_type: "decision-advisor"`: Opus 5.5, high effort, read-only). On `VERDICT: RECOMMEND` its recommendation is **binding**; you execute it. |
+| **3** | **ADVISE** | If, after genuine investigation, you **truly cannot decide** — dispatch the **decision advisor** (`subagent_type: "decision-advisor"`: Opus 5.5, medium effort, read-only). On `VERDICT: RECOMMEND` its recommendation is **binding**; you execute it. |
 | **4** | **ASK JON** | **Only** when the advisor returns `VERDICT: ASK_JON`. Never before. Never instead. |
 
 **Jon is the last rung, not the first.** If you find yourself drafting an `AskUserQuestion` or an
@@ -216,7 +216,7 @@ You reach this rung when **either**:
   the design docs, the architecture docs, the code, or CLAUDE.md.
 
 **You do not decide it yourself, and you do not stop.** You hand the decision to the **decision advisor**
-(Opus 5.5 at **high** effort) and then you execute whatever it decides.
+(Opus 5.5 at **medium** effort) and then you execute whatever it decides.
 
 Why the advisor and not you: reaching this rung means *the plan cannot be executed as written*. That is a
 design-level judgment about what should happen instead — re-plan, re-scope, fix at another layer,
@@ -228,7 +228,7 @@ is rung 4, and only the advisor's `VERDICT: ASK_JON` can put you there.
 
 ```
 Agent tool parameters:
-  subagent_type: "decision-advisor"   # .claude/agents/decision-advisor.md: Opus 5.5, high effort,
+  subagent_type: "decision-advisor"   # .claude/agents/decision-advisor.md: Opus 5.5, medium effort,
                                       # read-only; its first line is VERDICT: RECOMMEND | ASK_JON
   run_in_background: false            # you need the decision before you can proceed
   description: "Decision advisor: {task_id or short question name}"

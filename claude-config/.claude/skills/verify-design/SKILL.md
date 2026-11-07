@@ -34,7 +34,7 @@ Never edit a design that is implemented (`Status: Implemented`) or being impleme
 ## Phase 0 — The ledger
 
 The ledger is `d:\datrix\.tmp\verify-design\<stem>.md`, one per design. It holds the verdict, the
-date, the checklist version (`checklist: 1`; raise it whenever this file's checklist changes) and
+date, the checklist version (`checklist: 2`; raise it whenever this file's checklist changes) and
 the SHA-256 of the design and of every design in its dependency chain
 (`Get-FileHash -Algorithm SHA256`). A design whose ledger says READY, under the current checklist
 version, with every hash unchanged, is reported `READY (unchanged since <date>)` and not reviewed
@@ -78,8 +78,9 @@ Check every design in scope against each item. These are the only questions.
 | C5 | **Everything it adds is consumed.** Each new change kind, diagnostic, model field, entry kind, verb or knob has its consumer stated: its outcome, phase, renderer, refusal, and a test. | trace each to the design or the lower design that consumes it |
 | C6 | **One reading.** No sentence admits two readings that would build different behaviour, and every work item names its package, file or symbol and the change. Detail the code standards or existing conventions settle (names, signatures, test placement, fixture layout) is not ambiguity. | for each candidate, write both readings and the behaviour each builds |
 | C7 | **Rules.** All twelve guideline bullets answered and true; security posture stated where it touches auth, secrets, transport, trust-boundary input, permissions, logs or an emitted default, and the more secure option chosen; no Jon order or standing decision contradicted; no `TBD`, deferral, open question or effort figure. | `design-check`; design-principles.md; design-and-docs.md |
+| C8 | **Provable slices** (`design-and-docs.md`, "A design is sized to be proven in slices"). At most 100 lines; when it changes what is emitted, its first slice generates a reference example, or one service of it, and compiles; every decision is needed by its Problem; its work fits 15 open units; every acceptance or verification criterion generates, builds or runs only on the `test` profile (docker compose on the local machine), never on `development`, `production`, `aws`, `azure` or any other profile (`design-and-docs.md`, "Acceptance runs on the `test` profile only"). | line count; read the work items and acceptance; for each decision ask what breaks in the Problem without it |
 
-Size is reported, never judged: a design over 100 lines is listed with its count for Jon.
+An accepted size recorded as Jon's decision is settled for C8.
 
 ## Phase 3 — Prove, then class each candidate
 
@@ -90,7 +91,7 @@ or fail. No evidence, no finding.
 
 | Class | Meaning | Reported as |
 |---|---|---|
-| **BLOCKING** | It fails C1–C7: a contradiction, a dependency on a later design, a wrong code fact, a target that would behave differently or fail, something added with no consumer, two readings that build different behaviour, or a guideline, security or order breach | each, in full |
+| **BLOCKING** | It fails C1–C8: a contradiction, a dependency on a later design, a wrong code fact, a target that would behave differently or fail, something added with no consumer, two readings that build different behaviour, a guideline, security or order breach, or a design too big or unordered to prove in slices | each, in full |
 | **IMPLEMENTER_CHOICE** | A detail the design leaves open that the code standards, conventions or the design's own rules settle the same way for any implementer | one line each, with the rule that settles it |
 | **FALSE_POSITIVE** | The design, a lower design, the guidelines or the code already answers it | one line each, with the line that answers it |
 
@@ -109,7 +110,8 @@ when every design in it is.
 1. Fix each BLOCKING finding whose fix follows from a rule, a doc, the code or vendor documentation:
    the change in the design that closes it, with its evidence cited in the design, the design's
    tests and conformance bullets kept true. Never close a finding by deleting what the design needs,
-   or by compressing it into vaguer text.
+   or by compressing it into vaguer text. A C8 size finding is closed by splitting the design along a
+   seam, each part complete on its own, never by packing the same text into longer lines.
 2. A finding that needs a genuine choice between correct options goes to Jon (through the
    `decision-advisor` unless subagents are forbidden) in one line: the finding, the options and your
    recommendation. Keep fixing every finding that does not depend on the answer.
@@ -129,5 +131,4 @@ Report to Jon, short:
   `--fix`) or recommended;
 - IMPLEMENTER_CHOICE and FALSE_POSITIVE findings, one line each with the line or rule that settles
   them, so the next reviewer sees they were considered;
-- designs over 100 lines, with their counts;
 - the questions sent to Jon, if any.

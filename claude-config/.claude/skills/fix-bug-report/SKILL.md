@@ -1,7 +1,7 @@
 ---
 description: Analyze bug reports from any product and any of its deployment profiles, classify as app-definition or generator-level, fix root causes product-neutrally without breaking other products or sibling profiles, and update reports with resolution
 model: claude-opus-5-5
-effort: high
+effort: medium
 ---
 
 # Fix Bug Report

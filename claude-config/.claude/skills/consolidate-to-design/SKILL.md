@@ -1,6 +1,6 @@
 ---
 model: claude-opus-5-5
-effort: high
+effort: medium
 description: Turn the consolidated-NNN-*.md findings files in d:\datrix\findings and its area subfolders into implementation-ready design documents in d:\datrix\design — numbered from 010 in steps of 10, each at most 100 lines, never referencing a later design, and consistent across every platform and every language the change reaches. Scripts and local models do the reading, grouping and checking; this skill writes the designs. Writes no findings files: whatever the work turns up goes into an existing design or a new one. Deletes each consolidated file once its content is in designs. Use when Jon asks to "turn the findings into designs", "consolidate to design", or runs /consolidate-to-design.
 ---
 
@@ -41,7 +41,8 @@ Every model answer is a lead: prove it with a ranged Read before a design relies
    that needs more is split along its natural seam into several designs, each complete on its own.
 2. **Ready for implementation.** An implementer needs nothing but the design and the code.
    Every fact is looked up now and cited `path:line` (code you read this session, never the
-   finding's old line numbers). No `TBD`, "verify during implementation", "decide later", open
+   finding's old line numbers). It also meets `design-and-docs.md`, "A design is sized to be proven
+   in slices". No `TBD`, "verify during implementation", "decide later", open
    questions, or "for now". Work items name package, file, symbol and the change; contracts and
    test lists, not code bodies. Size is a **census** (what it names, with the count and the query
    that produced it) — no hours, days or effort figure (`design-and-docs.md`).

@@ -1,7 +1,7 @@
 ---
 description: Implement a design document directly, with no task generation and no orchestrator - build it in this session from the design itself, then verify against the design and absorb it into the docs
 model: claude-opus-5-5
-effort: high
+effort: medium
 disable-model-invocation: true
 ---
 
@@ -123,7 +123,7 @@ The units are **one markdown table, one row per unit**, with the columns below i
 | Field | Content |
 |---|---|
 | id | `U01`, `U02`, … in execution order |
-| change | one cohesive behaviour in one package (and one language where it is language-specific) |
+| change | one provable step: what a single acceptance proves, across packages when the pieces only make sense together |
 | files | edit sites, `path:line` where known |
 | requires | the units that must be done first |
 | acceptance | the design's invariant/requirement this unit satisfies, plus its **negative** check (the old/forbidden state is gone on the whole affected surface) and **positive** check (the new path is exercised) |
@@ -132,7 +132,7 @@ The units are **one markdown table, one row per unit**, with the columns below i
 
 **The ledger stays small.** Every unit session re-reads the whole ledger before it does anything, so what a row carries is paid again by every later unit. The full proof of a unit — each command, the output that matters, the census counts, the reasoning behind a "nothing here" verdict — goes to its proof file, `D:\datrix\.tmp\implement-direct-{slug}-proof\<id>.md`, written with `Write`; the row's state cell holds one line and that path, never pasted output. A `## Decisions` line is one sentence plus its rule or `file:line`. `/verify-implementation` and Jon open a proof file when they need it.
 
-**The ledger has hard limits, and the script refuses one that breaks them** (`datrix_scripts/skill/ledger_rules.py`): the whole file at most 24,000 bytes; a table cell at most 400 characters and a state cell at most 240; any other line, a decision included, at most 300; and no section but `## Units` and `## Decisions`. Nothing else is kept in it: no list of changed files, no list of findings filed, no copied test output. A session that starts on a ledger over a limit is given a `LEDGER LIMITS EXCEEDED` line naming the breaks, and shrinks the ledger first by moving the detail into proof files; the script stops the chain when that session leaves it over.
+**The ledger has hard limits, and the script refuses one that breaks them** (`datrix_scripts/skill/ledger_rules.py`): the whole file at most 24,000 bytes; at most 15 open units; a table cell at most 400 characters and a state cell at most 240; any other line, a decision included, at most 300; and no section but `## Units` and `## Decisions`. Nothing else is kept in it: no list of changed files, no list of findings filed, no copied test output. A session that starts on a ledger over a limit is given a `LEDGER LIMITS EXCEEDED` line naming the breaks, and shrinks the ledger first by moving the detail into proof files; the script stops the chain when that session leaves it over.
 
 **The files a unit changed go in its proof file**, one path per line under a `## Files changed` heading. The script gathers them into the supplement file `D:\datrix\.tmp\implement-direct-{slug}-files.md`, which `/verify-implementation` takes as its `FILES` input.
 
@@ -140,6 +140,7 @@ Ordering rules, the ones the task path enforced for you:
 
 - **Enforcement before what it governs.** A unit that establishes or enforces an invariant (a validator, a fail-loud guard, a parser-level rejection, a conformance check) comes **before**, and is required by, every unit that relies on it or migrates content it polices. Never order a migration ahead of its guard: it would pass against an absent check.
 - **Shared layer first.** Place logic at the most language/platform-agnostic layer that can own it (`datrix-common`, `datrix-codegen-kernel`, `datrix-codegen-common`); per-language and per-platform units require the shared unit. A hoist ported to N targets is one shared unit plus N per-target units.
+- **Generated output first.** When the design changes what is emitted, a row among the first five open units generates a reference example, or one service of it, and compiles it. Later rows widen that path. Never build modules for many units with no generated code calling them: they carry parked decisions about their callers that only generating can test.
 - **Every surface in a set gets a row.** An invariant over a set of surfaces has a unit or an explicit acceptance line for **each** member. A guard shipped on the obvious surface with the rest silently dropped is a failed run even under green tests.
 - **Every migration step gets a row**, and every old-path fixture/example/config from the census is converted in the same run. "Convert X to Y" is work here, not future work, unless the design explicitly defers it.
 - **Tests and docs ride inside each unit.** No separate test, verify, or docs unit.
@@ -150,7 +151,7 @@ Ordering rules, the ones the task path enforced for you:
   
   A census that cannot complete (a run stops early, the workspace does not load) is not a census: the census unit stays unchecked and says why, rather than guessing the site list. A later fix unit reads the census file instead of re-running discovery, and after its own fix reruns the same census command to prove its sites are gone, updating the file.
 
-Keep units bite-sized: one package, one behaviour, roughly 80–250 production lines. A bigger unit is split. There is no ceiling on the number of units.
+**A ledger holds at most 15 open units.** Each one is a fresh session that re-reads the design and the ledger, so more rows cost more than larger rows. A unit is one provable step, up to about 600 production lines. A design that cannot fit is too big: merge what one acceptance proves, then put a split of the design to the decision advisor with its census. Never drop or narrow an acceptance to fit.
 
 Below the units, a `## Decisions` heading holds every implementation decision the run made (Step 1, Step 3): one line each, the choice and the rule, doc or `file:line` that settles it. It is how Jon and `/verify-implementation` audit what was decided without being asked.
 
@@ -165,7 +166,7 @@ For each unit, in order:
 3. **Land every seam comparison as code.** Wherever the unit adds a producer or a consumer of a set of names or values, compute `consumed − produced`, require it empty or explained, and land the comparison as a generation-time validator or a test, not a one-off diff. Parse structure; prove the matcher finds an instance you know exists.
 4. **Write the tests of the new behaviour** in the owning package: real objects, no mocks, each test carrying a feature tag, with the negative case alongside the positive. Update the docs the change touches in the owning repo's `docs/`, as content, with no pointer to the design.
 5. **Run only the tests of what you changed**, naming first the failure the run could show that your evidence cannot: `test.ps1 <pkg> -Specific "a.py,b.py"` for the files, and `-Tag <tag>[,<tag>]` for the behaviour, **in every package it reaches** (at most 3 tags per run). Never a whole suite, never a sweep assembled from targeting flags.
-6. **Prove the unit.** Run the unit's negative and positive acceptance check, write each command and its output, and the files the unit changed under `## Files changed`, to the unit's proof file, and tick the row with its one-line state (Step 2). An unproven unit is not done, whatever the suite colour.
+6. **Prove the unit.** Run the unit's negative and positive acceptance check, write each command and its output, and the files the unit changed under `## Files changed`, to the unit's proof file, and tick the row with its one-line state (Step 2). An unproven unit is not done, whatever the suite colour. The row's acceptance is the whole proof: no mutation harness and no extra oracle scripts. Undoing a line by hand to show a test can fail is enough where you doubt one.
 7. **Cross-surface check.** If the unit touched a shared layer, run the tagged tests of the changed behaviour in each package the change reaches before moving on. "datrix-codegen-python is green" is not done for a shared-layer change.
 
 Generation checks follow the one-example, one-language rule: regenerate only the affected project, only for the language it failed under, and prefer a test over a generation run. Never `-All` / `-Domains` / `-TestSet`.
@@ -219,6 +220,7 @@ If the run ended on a blocker, report that instead: the four-part proof and the 
 - **NO covering the easy surface and dropping the rest** — every member of an invariant's surface set has a unit or an acceptance line.
 - **NO implementing a single-target design without reading its sibling targets** (languages, platforms, frontends) — where a sibling already does it properly, the new target matches its behaviour; a per-target difference is a defect.
 - **NO stopping partway because the design is big or context is long** — expand, compact, continue.
+- **NO mutation harness or per-unit oracle scripts** — the acceptance is the proof; extra proof is spend nobody asked for.
 - **NO asking Jon how or where to build what the design asks** — placement, moves to the right layer, required libraries, names and fixtures are decided and recorded under `## Decisions`, never put as `APPROVAL_REQUIRED`.
 - **NO absorbing before PROVEN** — absorb deletes the one document verify measures against.
 - **NO editing the design document**, including its `Status:` line.

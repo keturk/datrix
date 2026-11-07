@@ -1,6 +1,6 @@
 ---
 model: claude-opus-5-5
-effort: high
+effort: medium
 ---
 
 # Operationalize Design Document
