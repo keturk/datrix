@@ -78,6 +78,12 @@ config strings ecommerce.Site locale "tr-TR" {
     framework.goHome = "Ana sayfaya git";
     framework.showSecret = "Değeri göster";
     framework.hideSecret = "Değeri gizle";
+    framework.zoomInToLoad = "Yüklemek için yakınlaştırın";
+    framework.mapLayers = "Harita katmanları";
+    framework.mapLegend = "Gösterge";
+    framework.basemap = "Altlık harita";
+    framework.rateLimited = "Çok fazla istek gönderildi. Biraz bekleyip tekrar deneyin.";
+    framework.retryIn = "{seconds} sn sonra tekrar dene";
   }
   labels {
     page.Home          = "Ana sayfa";
