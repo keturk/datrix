@@ -1,0 +1,8 @@
+// A UI module shared by an app: its component and function are copied into the app that imports
+// them, so a new client capability needs no target code.
+include 'note-service.dtrx';
+include 'ui.dtrx';
+include 'notes-app.dtrx';
+
+system notes.System('config/system.dcfg') : version('1.0.0') {
+}

@@ -1,0 +1,15 @@
+// What the app reads: one public greeting, so a browser reaches something through the gateway.
+service notes.NoteService('config/note-service.dcfg') : version('1.0.0'), description('The greeting the notes app shows') {
+    discovery { }
+
+    struct Welcome {
+        String(80) message;
+    }
+
+    rest_api NoteAPI : basePath('/notes') {
+        @path('/welcome')
+        get welcome() : auth(public) -> Welcome {
+            return Welcome { message: "Welcome back" };
+        }
+    }
+}

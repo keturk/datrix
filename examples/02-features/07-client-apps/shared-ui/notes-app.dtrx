@@ -1,0 +1,141 @@
+from datrix.ui import Disclosure, DisclosurePanel, MaxOpenings, nextOpenings;
+from notes.ui import Chooser, OutlineNode, OutlineTree, Shelf, Stepper, leaf;
+
+/// Pages that use a shipped panel and a module's components, and call a function of each from their own bodies.
+/// Each member the app imports has one test here.
+app notes.Notes('config/notes-app.dcfg') : version('1.0.0') {
+    uses notes.NoteService;
+
+    assets {
+        icon app = 'assets/icon.png';
+        splash app = 'assets/splash.png';
+    }
+
+    @path('/')
+    page Home() {
+        data { welcome = NoteService.NoteAPI.get.welcome() : enabled(greet); }
+        state Boolean greet = true;
+        state Int reads = 0;
+        state OutlineNode outline = leaf('Notes');
+        state String selected = '';
+        state Int total = 0;
+        state String how = '';
+        state Int steps = 0;
+        state Int value = 0;
+        state Array<Int> kept = [];
+
+        fn read() {
+            reads = nextOpenings(true, reads);
+        }
+
+        view {
+            pageHeader(Msg.homeTitle, Msg.homeSubtitle);
+            text(welcome.message);
+            OutlineTree(outline) : onSelect(selected = chosen.label);
+            text(selected);
+            Chooser(1, 2) : onPick(total = chosen);
+            Chooser(3, 4) : onPick(how = label);
+            text(how);
+            Stepper(total) : onReset(total = 0);
+            Stepper : bind(steps);
+            Stepper : bind(value);
+            text(Fmt.number(steps + value + total));
+            when (reads > 0) {
+                Shelf(kept) : onHeld(kept = values);
+            }
+            DisclosurePanel(Msg.panelTitle) {
+                text(Msg.panelBody);
+                button(Msg.markRead) : onClick(read());
+                text(Fmt.number(reads));
+            }
+        }
+    }
+
+    /// One use of each component, each with what the caller then shows.
+    @path('/events')
+    page Events() {
+        state OutlineNode outline = leaf('Notes');
+        state String selected = '';
+        state Int total = 0;
+        state Int steps = 0;
+        state Array<Int> held = [1];
+        state Array<Int> handed = [];
+
+        view {
+            DisclosurePanel(Msg.panelTitle) {
+                text(Msg.panelBody);
+            }
+            OutlineTree(outline) : onSelect(selected = chosen.label);
+            when (selected == 'Notes') {
+                text(Msg.entryChosen);
+            }
+            Chooser(1, 2) : onPick(total = chosen);
+            when (total == 1) {
+                text(Msg.firstTaken);
+            }
+            Stepper : bind(steps);
+            when (steps == 1) {
+                text(Msg.stepped);
+            }
+            Shelf(held) : onHeld(handed = values);
+            when (handed.length == 1) {
+                text(Msg.handedBack);
+            }
+        }
+    }
+
+    test("nextOpenings counts an opening") {
+        assert nextOpenings(true, 0) == 1;
+        assert nextOpenings(false, 0) == 0;
+    }
+
+    test("MaxOpenings stops the count") {
+        assert nextOpenings(true, MaxOpenings) == MaxOpenings;
+    }
+
+    test("Disclosure tells its two states apart") {
+        let Disclosure shown = Disclosure.Expanded;
+        assert shown != Disclosure.Collapsed;
+    }
+
+    test("DisclosurePanel shows what it holds once opened") {
+        let Screen screen = render(Events);
+        assert !screen.shows(Msg.panelBody);
+        screen.tap(button, Msg.panelTitle);
+        assert screen.shows(Msg.panelBody);
+    }
+
+    test("leaf holds nothing under it") {
+        let OutlineNode node = leaf('Notes');
+        assert node.label == 'Notes';
+        assert node.children.length == 0;
+    }
+
+    test("OutlineTree tells its caller the chosen entry") {
+        let Screen screen = render(Events);
+        assert !screen.shows(Msg.entryChosen);
+        screen.tap(button, Msg.chooseEntry);
+        assert screen.shows(Msg.entryChosen);
+    }
+
+    test("Chooser hands its caller the chosen value") {
+        let Screen screen = render(Events);
+        assert !screen.shows(Msg.firstTaken);
+        screen.tap(button, Msg.pickFirst);
+        assert screen.shows(Msg.firstTaken);
+    }
+
+    test("Stepper writes a bound member back") {
+        let Screen screen = render(Events);
+        assert !screen.shows(Msg.stepped);
+        screen.tap(button, Msg.stepUp);
+        assert screen.shows(Msg.stepped);
+    }
+
+    test("Shelf hands its list back") {
+        let Screen screen = render(Events);
+        assert !screen.shows(Msg.handedBack);
+        screen.tap(button, Msg.handBack);
+        assert screen.shows(Msg.handedBack);
+    }
+}

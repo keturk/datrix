@@ -1,0 +1,18 @@
+config app notes.Notes {
+  base {
+    targets = ["angular", "flutter"];
+    clients {
+      angular {
+        scope = "@notes";
+      }
+    }
+    appId = "com.example.notes";
+    strings = ["config/strings/notes.en-US.dcfg"];
+    web {
+      port = 4200;
+    }
+  }
+
+  profile test as "test" extends base {
+  }
+}

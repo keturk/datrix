@@ -1,0 +1,19 @@
+config strings notes.Notes locale "en-US" {
+  messages {
+    homeTitle = "Notes";
+    homeSubtitle = "One section you can open and close.";
+    panelTitle = "Reading list";
+    panelBody = "Three chapters left.";
+    markRead = "Mark a chapter read";
+    chooseEntry = "Choose this entry";
+    stepUp = "One more";
+    stepReset = "Start over";
+    pickFirst = "Take the first";
+    pickSecond = "Take the second";
+    handBack = "Hand the list back";
+    entryChosen = "An entry was chosen";
+    firstTaken = "The first was taken";
+    stepped = "One step taken";
+    handedBack = "The list came back";
+  }
+}

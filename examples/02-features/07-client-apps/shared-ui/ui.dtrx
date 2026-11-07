@@ -1,0 +1,76 @@
+// A client capability written once, in a module. Each importing app gets its own copy of what it
+// imports and of what that reaches, and every client target renders the copy with no target code.
+module notes.ui {
+
+    /// One entry of an outline, holding the entries under it.
+    struct OutlineNode {
+        String label;
+        Array<OutlineNode> children;
+    }
+
+    /// An entry with nothing under it yet.
+    fn leaf(String label) -> OutlineNode {
+        return OutlineNode { label: label, children: [] };
+    }
+
+    /// One entry of an outline and, under it, every entry it holds: a component may use itself.
+    /// It tells its caller which entry was chosen, and passes on what the entries under it choose.
+    component OutlineTree(OutlineNode node) : event(onSelect(OutlineNode chosen)) {
+        fn select(OutlineNode entry) {
+            emit onSelect(entry);
+        }
+
+        view {
+            stack {
+                button(Msg.chooseEntry) : onClick(select(node));
+                text(node.label);
+                foreach (child in node.children) {
+                    OutlineTree(child) : onSelect(select(chosen));
+                }
+            }
+        }
+    }
+
+    /// A count its caller holds: `bind` on a use reads `value` and writes it back through `onChange`.
+    component Stepper(Int value) : event(onChange(Int value), onReset()) {
+        fn step(Int by) {
+            emit onChange(value + by);
+        }
+
+        fn reset() {
+            emit onReset();
+        }
+
+        view {
+            stack {
+                button(Msg.stepUp) : onClick(step(1));
+                button(Msg.stepReset) : onClick(reset());
+            }
+        }
+    }
+
+    /// A list its caller holds, handed back when asked: the caller stores a list of its own.
+    component Shelf(Array<Int> held) : event(onHeld(Array<Int> values)) {
+        fn handBack() {
+            emit onHeld(held);
+        }
+
+        view {
+            button(Msg.handBack) : onClick(handBack());
+        }
+    }
+
+    /// A choice of two values, telling its caller both the value and how it was reached.
+    component Chooser(Int first, Int second) : event(onPick(Int chosen, String label)) {
+        fn pick(Int value, String label) {
+            emit onPick(value, label);
+        }
+
+        view {
+            stack {
+                button(Msg.pickFirst) : onClick(pick(first, 'first'));
+                button(Msg.pickSecond) : onClick(pick(second, 'second'));
+            }
+        }
+    }
+}
