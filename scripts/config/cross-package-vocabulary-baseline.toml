@@ -26,20 +26,11 @@
 #   reason = "why a design requires this duplicate (optional)"
 
 [[baseline]]
-file = "datrix-codegen-angular/src/datrix_codegen_angular/capabilities.py"
-count = 1
-reason = "Angular's own ClientTargetCapabilityDeclaration columns: _SUPPORTED_GROUPS (its supported builtin-group stance), _ANGULAR_UNSUPPORTED_UI_GROUPS (its unsupported stance, each with Angular's own reason) and _ANGULAR_VALUE_STRUCT_REALIZATIONS (how Angular holds each runtime value struct, keyed by CLIENT_RUNTIME_VALUE_STRUCTS). A client target states what it realizes on its own declaration, checked at plugin registration, never in a shared table; the key set coincides with Flutter's declaration because the targets realize the same groups and structs. The server-only groups are read from SERVER_ONLY_BUILTIN_GROUPS, not restated."
-
-[[baseline]]
-file = "datrix-codegen-angular/src/datrix_codegen_angular/dgen/api.py"
+file = "datrix-codegen-angular/src/datrix_codegen_angular/dgen/_api_routes.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-aws/src/datrix_codegen_aws/dgen/registrations.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/aws_mapping/_gateway.py"
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/aws_mapping/_gateway_auth.py"
 count = 1
 
 [[baseline]]
@@ -59,24 +50,29 @@ file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/_cw_widget_base.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/resource_mapper.py"
+file = "datrix-codegen-aws/src/datrix_codegen_aws/generators/_resource_mapper_required_postgres_extensions.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-aws/src/datrix_codegen_aws/plugin/capability.py"
-count = 2
-reason = "Both hits are this platform's own realization columns. _AWS_IDENTITY_PROVIDER_REALIZATIONS: open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict. _AWS_MODEL_REALIZATIONS: AI agents (Decision 46 invariant 5) require each platform to declare per-provider model realization on its own PlatformCapabilityDeclaration and forbid any provider name in a shared layer, so its key set legitimately coincides with every other platform's model realization dict and with the python target's per-provider client table."
+file = "datrix-codegen-aws/src/datrix_codegen_aws/plugin/_capability_identity.py"
+count = 1
+reason = "_AWS_MODEL_REALIZATIONS: this platform's own model-provider realization column. AI agents (Decision 46 invariant 5) require each platform to declare per-provider model realization on its own PlatformCapabilityDeclaration."
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/plugin/_capability_plan_builders.py"
+count = 1
+reason = "_AWS_NOTIFICATION_TABLES: this platform's own notification realization column, keyed by the channels (email, sms, push). Each platform declares how it realizes a channel on its own PlatformCapabilityDeclaration; the values differ per platform."
 
 [[baseline]]
 file = "datrix-codegen-azure/src/datrix_codegen_azure/environment_label.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/_managed_backend_wiring.py"
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/_managed_backend_wiring_managed_pooled_maps.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/bicep_builder/_gateway_apim.py"
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/bicep_builder/_gateway_apim_apim_rate_limit_plan_product_conte.py"
 count = 1
 
 [[baseline]]
@@ -102,9 +98,9 @@ file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/azure_vm_capability
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/capability.py"
+file = "datrix-codegen-azure/src/datrix_codegen_azure/plugin/_capability_azure_block_realizations.py"
 count = 1
-reason = "_AZURE_IDENTITY_PROVIDER_REALIZATIONS: this platform's own identity-provider realization column. Open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration and forbids a central table, so the key set legitimately coincides with every other platform's identity realization dict."
+reason = "_AZURE_NOTIFICATION_TABLES: this platform's own notification realization column, keyed by the channels (email, sms, push). Each platform declares how it realizes a channel on its own PlatformCapabilityDeclaration; the values differ per platform."
 
 [[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/algorithms/cache.py"
@@ -115,8 +111,8 @@ file = "datrix-codegen-common/src/datrix_codegen_common/context_models/webhook_v
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/base.py"
-count = 2
+file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/_transpile_operands.py"
+count = 1
 
 [[baseline]]
 file = "datrix-codegen-common/src/datrix_codegen_common/transpiler/skeleton/nosql_dispatch.py"
@@ -124,10 +120,6 @@ count = 1
 
 [[baseline]]
 file = "datrix-codegen-component/src/datrix_codegen_component/dgen/registrations.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/compose/_compose_pooled_pubsub.py"
 count = 1
 
 [[baseline]]
@@ -139,19 +131,15 @@ file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/images/init_s
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/external_init.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/health_check.py"
 count = 1
 
 [[baseline]]
 file = "datrix-codegen-docker/src/datrix_codegen_docker/generators/infra/infrastructure.py"
-count = 2
+count = 1
 
 [[baseline]]
-file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/capability.py"
+file = "datrix-codegen-docker/src/datrix_codegen_docker/plugin/_capability_docker_model_realizations.py"
 count = 2
 reason = "Floor is 1, not 3: _DOCKER_MODEL_REALIZATIONS is this platform's own model-provider realization column. AI agents (Decision 46 invariant 5) require each platform to declare per-provider realization on its own PlatformCapabilityDeclaration and forbid any provider name in a shared layer, so its key set legitimately coincides with the python target's per-provider client table (datrix-codegen-python generators/agents/renderer.py). The other two hits (_DOCKER_UNREALIZABLE_SURFACES, _LOCAL_NOTIFICATION_TABLES) carry no such reason and still drive to 0."
 
@@ -192,14 +180,6 @@ file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/api_helpers.p
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/extension_validation.py"
-count = 1
-
-[[baseline]]
-file = "datrix-codegen-kernel/src/datrix_codegen_kernel/pooling/db_extensions.py"
-count = 1
-
-[[baseline]]
 file = "datrix-codegen-kernel/src/datrix_codegen_kernel/sql_facts/type_mappings.py"
 count = 3
 
@@ -231,24 +211,20 @@ count = 2
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/messaging/_pubsub_emit_support.py"
-count = 3
+count = 2
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/generators/service/_service_generator_ast.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/runtime_spec.py"
+file = "datrix-codegen-python/src/datrix_codegen_python/_runtime_spec_python_base_image_family.py"
 count = 1
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_expr_call_dispatch.py"
 count = 1
 reason = "_SPEC_ASSERTION_HANDLERS: this language target's lowering table for the spec-test assertion builtins, keyed by the vocabulary datrix-common's test validator declares (SPEC_ASSERTION_BUILTIN_NAMES). Its values are this package's own transpile callables, so the table can have no shared home (Decision 36 D9, a per-target realization), and its key set is held equal to the obligation computed for python (spec_assertion_builtin_names_required_for) by tests/integration/generators/test_agents_spec_statements.py."
-
-[[baseline]]
-file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_expr_types.py"
-count = 2
 
 [[baseline]]
 file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/operators.py"
@@ -265,19 +241,20 @@ count = 3
 
 [[baseline]]
 file = "datrix-codegen-sql/src/datrix_codegen_sql/dgen/registrations.py"
-count = 2
+count = 1
 
 [[baseline]]
 file = "datrix-codegen-sql/src/datrix_codegen_sql/dialects/reflector_registry.py"
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/_nosql_query_dispatch_ts.py"
+file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/_nosql_insert_ts.py"
 count = 1
 
 [[baseline]]
 file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/operators.py"
-count = 1
+count = 3
+reason = "_TS_BINARY_OVERRIDES, _TS_UNARY_OVERRIDES and _TS_ASSIGNMENT_OVERRIDES: this language's spelling of the operators it overrides in the shared tables (== is ===). The keys are DSL operators; the values are TypeScript's, and differ from the equal key sets in Dart and Python."
 
 [[baseline]]
 file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/type_mappings.py"
@@ -328,11 +305,11 @@ file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/messa
 count = 1
 
 [[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/service/nest_service_jinja_context.py"
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/generators/service/_nest_service_context_support.py"
 count = 2
 
 [[baseline]]
-file = "datrix-codegen-typescript/src/datrix_codegen_typescript/runtime_spec.py"
+file = "datrix-codegen-typescript/src/datrix_codegen_typescript/_runtime_spec_type_script_base_image_family.py"
 count = 2
 
 [[baseline]]
@@ -354,14 +331,14 @@ count = 1
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/engine_defaults.py"
-count = 4
+count = 3
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/config/platform/diagnostics.py"
 count = 1
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/config/unified_loader.py"
+file = "datrix-common/src/datrix_common/config/_unified_loader_unified_service_config.py"
 count = 1
 
 [[baseline]]
@@ -370,7 +347,7 @@ count = 1
 reason = "_STATEMENT_LISTS: the fields of Python's own ast nodes that hold statement lists, read by this offline model-class generator. datrix-testing cases/removal.py reads the same stdlib ast fields in a different tool; the fact belongs to Python's ast module, not to either package, and neither tool may import the other."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/datrix_model/auth_contract.py"
+file = "datrix-common/src/datrix_common/datrix_model/_auth_contract_verify_contract.py"
 count = 1
 
 [[baseline]]
@@ -392,7 +369,7 @@ count = 1
 reason = "TEMPORAL_INPUT_KIND_BY_SCALAR_NAME: the UI input kind (date/dateTime/time) each temporal scalar derives to, the one table the UI derivation and the UI validator both read. Its key set (Date, DateTime, Time) coincides with Python's cross-field test inference set and the migration canonicalizer's timestamp category because every one enumerates the DSL's temporal scalars; each maps them to a different fact of its own subsystem."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/identity/planner/plan_entry.py"
+file = "datrix-common/src/datrix_common/identity/planner/_plan_entry_api_key_plan_entry.py"
 count = 1
 reason = "_DEFAULT_ALLOWED_ALGORITHMS: the JWS algorithms an identity plan entry allows when its config names none. datrix-codegen-typescript's deployment-test digest map is keyed by the algorithms its test signer realizes; both hold only RS256 today, by coincidence of policy and realization."
 
@@ -402,11 +379,7 @@ count = 1
 reason = "MANAGED_CREDENTIAL_PROVISIONED_PARAMETERS: the shared side of the ManagedCredentialKind vocabulary -- per kind, the deploy-time parameter names a provisioning platform writes -- keyed by every declared kind. This IS the one home; the python target's per-kind credential realization (generators/agents/renderer.py, its own reasoned entry) is keyed by the same kinds by design and can never be merged into a shared layer without naming a platform's emitted class there."
 
 [[baseline]]
-file = "datrix-common/src/datrix_common/types/constraints.py"
-count = 1
-
-[[baseline]]
-file = "datrix-common/src/datrix_common/types/geo.py"
+file = "datrix-common/src/datrix_common/types/geo_column.py"
 count = 1
 
 [[baseline]]
@@ -420,32 +393,24 @@ reason = "_QUOTES: the quote characters of a Datrix string literal, a fact of th
 
 [[baseline]]
 file = "datrix-language/src/datrix_language/parser/nesting.py"
-count = 1
-reason = "_OPENERS: the bracket characters that open a nesting level in Datrix source. datrix-testing brace_code.py holds the openers of the generated brace languages it checks (TypeScript, Dart) and the tokens that follow a type argument list there; the sets coincide because the languages share bracket characters, not because they share a rule."
+count = 2
+reason = "_OPENERS and _CLOSERS: the bracket characters that open and close a nesting level in Datrix source. datrix-testing holds the brackets of the generated brace languages and of log lines it reads, and it may not import this package (the harness sits below the parser), so neither side can consume the other."
 
 [[baseline]]
 file = "datrix-language/src/datrix_language/transformers/alert_transformer.py"
 count = 2
 
 [[baseline]]
-file = "datrix-language/src/datrix_language/transformers/config_transformer.py"
+file = "datrix-language/src/datrix_language/transformers/_config_transformer_readers.py"
 count = 1
 reason = "_STRING_ONLY_ATTRIBUTES: the .dcfg config-key attributes only a String key accepts. datrix-common datrix_model/scalars.py's STRING_CONSTRAINTS is the scalar-declaration constraints only a String scalar accepts; the sets coincide at {pattern} while the vocabularies differ (numeric: min/max here, min/max/range there)."
 
 [[baseline]]
-file = "datrix-rdbms-schema/src/datrix_rdbms_schema/canonicalize.py"
+file = "datrix-rdbms-schema/src/datrix_rdbms_schema/_canonicalize_rules.py"
 count = 1
 
 [[baseline]]
-file = "datrix-rdbms-schema/src/datrix_rdbms_schema/live_snapshot_export.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/code_body_validator.py"
-count = 1
-
-[[baseline]]
-file = "datrix-semantic/src/datrix_semantic/validators/contract.py"
+file = "datrix-semantic/src/datrix_semantic/_body_type_queries.py"
 count = 1
 
 [[baseline]]
@@ -458,14 +423,19 @@ count = 2
 reason = "SPEC_ASSERTION_BUILTIN_NAMES and SPEC_STATEMENT_BUILTIN_NAMES: the declared spec-test builtin vocabularies every language's lowering table is keyed by. This IS the one home; each language's lowering table (python transpiler/_expr_call_dispatch.py and transpiler/visitor_statements.py, each its own reasoned entry) holds that language's own emitted callables or method names under the same keys and is held equal to the obligation computed for it by that package's seam test."
 
 [[baseline]]
-file = "datrix-testing/src/datrix_testing/bicep.py"
+file = "datrix-testing/src/datrix_testing/_bicep_values.py"
 count = 1
 reason = "_KEYWORD_LITERALS: the literal keywords of the Bicep language this harness parses, and the value each stands for. datrix-codegen-python's _IDENTIFIER_KEYWORD_LITERALS is the Datrix literal keywords and their Python spelling; the two languages share the words true/false/null, not a vocabulary."
 
 [[baseline]]
-file = "datrix-testing/src/datrix_testing/brace_code.py"
-count = 2
-reason = "_OPENERS and _TYPE_ARGUMENT_FOLLOWERS: bracket facts of the generated brace languages this harness reads (TypeScript, Dart) -- each opener's closer, and what may follow a closed type argument list. datrix-language parser/nesting.py holds the openers of Datrix source; the sets coincide by bracket characters, not by rule."
+file = "datrix-testing/src/datrix_testing/_brace_spans.py"
+count = 1
+reason = "_TYPE_ARGUMENT_FOLLOWERS: what may follow a closing type-argument bracket in the generated brace languages this harness reads (TypeScript, Dart). The equal set in datrix-language is the openers of Datrix source, a different language's fact."
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/_brace_tokens.py"
+count = 1
+reason = "_OPENERS: the bracket characters that open a level in the generated brace languages this harness reads (TypeScript, Dart). The harness may not import datrix-language, whose equal set is the openers of Datrix source."
 
 [[baseline]]
 file = "datrix-testing/src/datrix_testing/cases/fences.py"
@@ -485,3 +455,148 @@ count = 1
 file = "datrix-testing/src/datrix_testing/nginx_config.py"
 count = 1
 reason = "_QUOTES: the quote characters of an nginx configuration token, read by this test harness's nginx parser. The equal sets elsewhere are the quote characters of Datrix, YAML and fence attributes -- different languages that happen to quote alike."
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/plugin/_aws_vm_identity_realizations.py"
+count = 1
+reason = "_AWS_VM_IDENTITY_PROVIDER_REALIZATIONS: this platform's own identity-provider realization column. Open-world identity (Decision 22 I3) requires each platform to declare its (provider type, feature) support on its own PlatformCapabilityDeclaration."
+
+[[baseline]]
+file = "datrix-codegen-aws/src/datrix_codegen_aws/plugin/aws_vm_capability.py"
+count = 2
+reason = "_AWS_VM_MODEL_REALIZATIONS and _AWS_VM_NOTIFICATION_TABLES: this platform's own model-provider and notification realization columns. AI agents (Decision 46 invariant 5) require per-provider model realization on each platform's own PlatformCapabilityDeclaration, and each platform declares how it realizes a notification channel there; the values differ per platform."
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/azure_naming.py"
+count = 1
+reason = "_FLEXIBLE_SERVER_DNS_SUFFIX: Azure's own DNS suffix per RDBMS engine, keyed by the engine name. The key set is the shipped engines; the values exist only on this platform."
+
+[[baseline]]
+file = "datrix-codegen-azure/src/datrix_codegen_azure/generators/pooling/_rdbms.py"
+count = 1
+reason = "_POOLED_ENGINE_BICEP: Azure's own Bicep resource types per RDBMS engine, keyed by the engine name. The key set is the shipped engines; the values exist only on this platform."
+
+[[baseline]]
+file = "datrix-codegen-common/src/datrix_codegen_common/generation/_ui_contract_models_lambda_wire_path.py"
+count = 1
+reason = "_WORKSPACE_FORM_SCHEMA_BY_SECTION_KIND: the wire schema of each workspace form section kind (edit reads the update schema), keyed by the vocabulary datrix-common's WORKSPACE_FORM_SECTION_KINDS declares. A table keyed by a vocabulary, not a copy of it."
+
+[[baseline]]
+file = "datrix-codegen-docker/src/datrix_codegen_docker/zitadel_applier.py"
+count = 1
+reason = "_ALLOWED_URL_SCHEMES: the schemes a Management API base may use, refused before the bearer token is attached. This source is inlined verbatim into the emitted apply_provisioning.py, so it can import no shared home, and it is its own policy: tightening it does not change the JWKS fetch or the addresses a user is sent to."
+
+[[baseline]]
+file = "datrix-codegen-flutter/src/datrix_codegen_flutter/generation/elements/input_elements.py"
+count = 1
+reason = "_TEXT_KINDS: the DtxTextKind each text-entry element renders as in Dart, a client realization table keyed by datrix-common's TEXT_ENTRY_ELEMENTS. The values exist only on this target."
+
+[[baseline]]
+file = "datrix-codegen-flutter/src/datrix_codegen_flutter/transpiler/operators.py"
+count = 3
+reason = "_DART_BINARY_OVERRIDES, _DART_UNARY_OVERRIDES and _DART_ASSIGNMENT_OVERRIDES: this language's spelling of the operators it overrides in the shared tables. The keys are DSL operators; the values are Dart's, and differ from the equal key sets in TypeScript and Python."
+
+[[baseline]]
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/deployment/schema_read_wiring.py"
+count = 1
+reason = "SCHEMA_VERB_SCRIPT_IMPORTS: the one home of the import line every platform's deploy script adds for its schema verbs. datrix-codegen-python's _PY_FUNCTOOLS_IMPORT holds the same line for a transpiled builtin: either can change without the other."
+
+[[baseline]]
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/generation/inlined_runtime.py"
+count = 1
+reason = "_FORMATTED_PREFIX_LETTERS: the Python string prefixes that make a literal formatted. datrix-testing's _BOOLEAN_TEXTS is how PostgreSQL prints a boolean: an unrelated fact that also holds the letters f and t."
+
+[[baseline]]
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/seed/target_writers/rdbms.py"
+count = 2
+reason = "_NAMED_UPSERT_BUILDERS and _NAMED_INSERT_IF_NOT_EXISTS_BUILDERS: the seed writer's statement builder per SQL dialect, keyed by the dialect name. The key set is the shipped dialects; the values are this writer's functions."
+
+[[baseline]]
+file = "datrix-codegen-kernel/src/datrix_codegen_kernel/sql_facts/_type_mappings_sql_type_map.py"
+count = 1
+reason = "SQL_TYPE_MAP: the SQL type of every canonical scalar, the SQL target's own scalar realization table, keyed by the canonical scalar names as DART_TYPE_MAP, PYTHON_TYPE_MAP and TYPESCRIPT_TYPE_MAP are."
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/runtime/geojson.py"
+count = 1
+reason = "GEOJSON_GEOMETRY_TYPES: this module is inlined verbatim into a generated service's schemas/geojson.py and imports nothing but pydantic, so it states the RFC 7946 geometry types itself."
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/runtime/identity_core.py"
+count = 2
+reason = "_SYMMETRIC_ALG_PREFIXES and _FETCH_URL_SCHEMES: this module is emitted verbatim into a generated service, where no Datrix package is installed, so it states both itself. _SYMMETRIC_ALG_PREFIXES is one fact with datrix-common's SYMMETRIC_ALG_PREFIXES, held equal by tests/unit/test_identity_auth_template.py. _FETCH_URL_SCHEMES is its own policy for the JWKS fetch: tightening it does not change the Management API base or the addresses a user is sent to."
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_builtins_snippets.py"
+count = 1
+reason = "_PY_FUNCTOOLS_IMPORT: the import a transpiled Python builtin needs. The kernel's SCHEMA_VERB_SCRIPT_IMPORTS holds the same line for a deploy script: a different fact."
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_date_datetime_comparison.py"
+count = 1
+reason = "_SCALAR_KINDS: Python's own comparison kind per date scalar, keyed by the scalar names. The values exist only on this target."
+
+[[baseline]]
+file = "datrix-codegen-python/src/datrix_codegen_python/transpiler/_row_struct_column_reads.py"
+count = 1
+reason = "_ISO_PARSED_CLASSES: the Python class that parses each date scalar read from a row, keyed by the scalar names. The values exist only on this target."
+
+[[baseline]]
+file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/_entity_query_aggregate_ts.py"
+count = 1
+reason = "_NUMERIC_CONVERSIONS: the JavaScript conversion each numeric scalar's aggregate result takes, keyed by the names datrix-common's NUMERIC_SCALAR_NAMES declares. A table keyed by a vocabulary, not a copy of it."
+
+[[baseline]]
+file = "datrix-codegen-typescript-core/src/datrix_codegen_typescript_core/transpiler/_expr_instance_calls.py"
+count = 1
+reason = "_STRING_RECEIVER: the builtin category a text receiver reaches. The kernel's _REVERSE_SIZED_STRING_TYPES holds the same single name for reversing a sized SQL type: an unrelated fact."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/_ui_element_modifiers.py"
+count = 1
+reason = "TEXT_ENTRY_ELEMENTS: the one home of the vocabulary, which DEBOUNCE_ELEMENTS and Angular read. Flutter's _TEXT_KINDS is a realization table keyed by it."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/_ui_inheritance.py"
+count = 1
+reason = "WORKSPACE_FORM_SECTION_KINDS: the one home of the vocabulary. datrix-codegen-common's _WORKSPACE_FORM_SCHEMA_BY_SECTION_KIND is a table keyed by it."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/identity/_provider_plan_profile_field_plan.py"
+count = 1
+reason = "SYMMETRIC_ALG_PREFIXES: the plan-time refusal. Its twin in datrix-codegen-python runtime/identity_core.py is emitted verbatim and runs where no Datrix package is installed, so it cannot import this one; tests/unit/test_identity_auth_template.py there holds the two equal."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/types/geojson.py"
+count = 1
+reason = "GEOJSON_GEOMETRY_TYPES: the one home at generation time. Its twin in datrix-codegen-python runtime/geojson.py is inlined verbatim into a generated service and imports nothing but pydantic."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/types/scalar_families.py"
+count = 1
+reason = "NUMERIC_SCALAR_NAMES: the one home of the vocabulary. TypeScript's _NUMERIC_CONVERSIONS is a table keyed by it."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/utils/network.py"
+count = 1
+reason = "EXTERNAL_URL_SCHEMES: the schemes an address may carry when a user is sent to it, which every client target refuses otherwise. The equal sets in datrix-codegen-docker zitadel_applier.py and datrix-codegen-python runtime/identity_core.py guard a Management API base and a JWKS fetch: separate policies, and tightening one does not change the others."
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/live_database_engines.py"
+count = 1
+reason = "_ENGINE_CLIENTS: how this harness reaches each RDBMS engine, keyed by the engine name. The key set is the shipped engines; the values exist only in this harness."
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/live_database_roles.py"
+count = 1
+reason = "_ROLE_CLIENTS: how this harness creates a role on each RDBMS engine, keyed by the engine name. The key set is the shipped engines; the values exist only in this harness."
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/live_database_values.py"
+count = 1
+reason = "_BOOLEAN_TEXTS: how PostgreSQL prints a boolean. The kernel's _FORMATTED_PREFIX_LETTERS holds Python string prefixes: an unrelated fact that also holds the letters f and t."
+
+[[baseline]]
+file = "datrix-testing/src/datrix_testing/log_census.py"
+count = 2
+reason = "_OPENERS and _CLOSERS: the brackets this harness balances in a log line. The harness may not import datrix-language, whose equal sets are the brackets of Datrix source."

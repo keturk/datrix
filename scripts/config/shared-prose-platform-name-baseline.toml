@@ -62,11 +62,11 @@ entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/rate_limit_p
 count = 1
 
 [[baseline]]
-entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/secret_resolver_plan.py::aws"
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/secret_resolver_plan.py::aws"
 count = 2
 
 [[baseline]]
-entry = "datrix-codegen-common/src/datrix_codegen_common/algorithms/secret_resolver_plan.py::azure"
+entry = "datrix-codegen-kernel/src/datrix_codegen_kernel/secrets/secret_resolver_plan.py::azure"
 count = 1
 
 [[baseline]]

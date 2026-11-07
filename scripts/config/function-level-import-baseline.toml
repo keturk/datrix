@@ -42,6 +42,16 @@ count = 2
 reason = "config.config_store.compatibility <-> plugin.capability / plugin.capability_resolution: config.system_config.models imports compatibility at module top, and both plugin.capability (via platform_config_contract -> datrix_model.containers -> datrix_model.service_accessors -> config.system_config.models) and plugin.capability_resolution (directly -> config.system_config.models) reach it back."
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/config/datasource/_nosql_validation.py"
+count = 1
+reason = "config.datasource._nosql_validation <-> config.datasource._rdbms_nosql_models: _rdbms_nosql_models imports this module at module top, so the NosqlConfig annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/config/datasource/rdbms_server_trust.py"
+count = 1
+reason = "config.datasource.rdbms_server_trust <-> config.datasource._rdbms_nosql_models: _rdbms_nosql_models imports this module at module top, so the RdbmsConfig annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/config/datasource/validation.py"
 count = 1
 reason = "config.datasource.validation <-> datrix_model.containers: containers -> config.unified_loader imports this module at module top, so the Application annotation import stays TYPE_CHECKING-only."
@@ -67,8 +77,33 @@ count = 1
 reason = "config.system_config.models <-> config.system_config.platform_sections: platform_sections imports SystemConfigProfileConfig from models at module top, so the platform-section validator imports declared_section_problems function-locally (the same cycle deployment_validation breaks)."
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/_base_blocks.py"
+count = 2
+reason = "datrix_model._base_blocks <-> datrix_model.enums: enums imports the block base classes from _base_blocks at module top, so the two block lookups reach the Enum class only inside their function bodies."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/_base_named.py"
+count = 17
+reason = "datrix_model._base_named <-> datrix_model.containers/enums/entity/callables/cqrs/pubsub/extern_service: every one of those node modules imports _base_named at module top, so its two symbol-resolution functions reach their classes only in their bodies."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/_service_accessors_callable_body_kind.py"
+count = 1
+reason = "datrix_model._service_accessors_callable_body_kind <-> datrix_model.containers: containers -> datrix_model._ui_style_members imports this module at module top, so the Service/UsesDirective annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/_ui_view_tree.py"
+count = 1
+reason = "datrix_model._ui_view_tree <-> datrix_model._ui_pages: _ui_pages imports this module at module top, so the Form annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/append_only.py"
+count = 1
+reason = "datrix_model.append_only <-> datrix_model.entity: entity imports append_only at module top, so the Entity annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/base.py"
-count = 19
+count = 8
 reason = "datrix_model.base <-> datrix_model.containers/enums/entity/callables/expressions/imports/blocks/cqrs/pubsub/extern_service: every one of those node modules subclasses base's Node hierarchy at module top, so base reaches their classes only inside the symbol-resolution functions and TYPE_CHECKING annotations."
 
 [[baseline]]
@@ -97,6 +132,11 @@ count = 1
 reason = "datrix_model.ingress <-> datrix_model.containers: containers imports ServiceIngressExposure from ingress at module top, so ingress' Service annotation stays TYPE_CHECKING-only."
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/modifier_vocabulary.py"
+count = 1
+reason = "datrix_model.modifier_vocabulary <-> datrix_model.callables: callables -> datrix_model.entity imports modifier_vocabulary at module top, so the Modifier annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/pubsub.py"
 count = 2
 reason = "datrix_model.pubsub <-> datrix_model.callables / datrix_model.containers: callables imports Topic and containers imports Event/PubsubBlock/Subscription from pubsub at module top, so pubsub's EventHandler and Service/Shared annotations stay TYPE_CHECKING-only."
@@ -107,19 +147,34 @@ count = 2
 reason = "datrix_model.service_accessors <-> datrix_model.containers: containers imports ServiceQueryMixin/ServiceRegistrarMixin from service_accessors at module top to declare Service, so the Service/UsesDirective annotations and depends_on's isinstance(Service) import stay deferred."
 
 [[baseline]]
+file = "datrix-common/src/datrix_common/datrix_model/update_timestamp.py"
+count = 1
+reason = "datrix_model.update_timestamp <-> datrix_model.entity: entity -> datrix_model.append_only imports update_timestamp at module top, so the Entity/Field annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
 file = "datrix-common/src/datrix_common/datrix_model/visitor_protocols.py"
 count = 1
 reason = "datrix_model.visitor_protocols <-> datrix_model.expressions: expressions imports ExpressionVisitor/StatementVisitor from visitor_protocols at module top, so the visitors' node-type annotations stay TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/deployment/secret_backend.py"
-count = 2
-reason = "deployment.secret_backend <-> config.system_config.models / plugin.capability_resolution: system_config.models imports SecretBackendPolicy from secret_backend at module top, and capability_resolution imports system_config.models at module top."
+count = 3
+reason = "deployment.secret_backend <-> config.system_config.models / plugin._capability_policy_validate_app_rdbms_connection_iden / plugin._capability_declarations: system_config.models imports SecretBackendPolicy from secret_backend at module top, and the two plugin modules (the halves of what was capability_resolution) reach secret_backend at module top, one directly and one through plugin.capability."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/identity/provider_type_registry.py"
 count = 1
 reason = "identity.provider_type_registry <-> plugin.capability_resolution / config.system_config.models: capability_resolution imports config.system_config.models at module top, which imports platform_sections, which imports capability_resolution back, so that cycle is only safe to enter from the config side; the identity planner imports this module before either is loaded, so the shared-registry default is read through a function-level import."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/_registry_instances.py"
+count = 1
+reason = "plugin._registry_instances <-> plugin.registry: registry imports this module at module top, so the PluginRegistry annotation import stays TYPE_CHECKING-only."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/_registry_runtime.py"
+count = 1
+reason = "plugin._registry_runtime <-> plugin.registry: registry imports this module at module top, so the PluginRegistry annotation import stays TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/plugin/descriptor.py"
@@ -140,6 +195,11 @@ reason = "plugin.platform_config_contract <-> config.codegen_context: codegen_co
 file = "datrix-common/src/datrix_common/plugin/platform_runtime_spec.py"
 count = 1
 reason = "plugin.platform_runtime_spec <-> deployment.runtime_bootstrap: runtime_bootstrap imports PlatformRuntimeSpec from platform_runtime_spec at module top, so the RuntimeBootstrap annotation stays TYPE_CHECKING-only."
+
+[[baseline]]
+file = "datrix-common/src/datrix_common/plugin/protocol.py"
+count = 1
+reason = "plugin.protocol <-> config.codegen_context: codegen_context -> plugin.registry imports protocol at module top, so the CodegenContext annotation import stays TYPE_CHECKING-only."
 
 [[baseline]]
 file = "datrix-common/src/datrix_common/types/ref.py"
@@ -165,8 +225,3 @@ reason = "foreign_key_naming <-> schema_snapshot: schema_snapshot imports record
 file = "datrix-rdbms-schema/src/datrix_rdbms_schema/index_naming.py"
 count = 1
 reason = "index_naming <-> schema_snapshot: schema_snapshot imports record_index_names from index_naming at module top, so the SnapshotIndex/SnapshotTable annotation imports stay TYPE_CHECKING-only."
-
-[[baseline]]
-file = "datrix-testing/src/datrix_testing/semantic_baseline.py"
-count = 1
-reason = "_typeshed has no runtime module (it exists only in type-checker stubs), so the DataclassInstance annotation import can only live under TYPE_CHECKING."
