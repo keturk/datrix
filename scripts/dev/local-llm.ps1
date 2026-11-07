@@ -10,7 +10,7 @@
     (datrix_scripts.dev.local_llm_mcp). Every request any of them sends is recorded, by size only,
     in <workspace>\.local-llm\usage.jsonl on the machine that sent it.
 
-    Pass exactly one action: -Setup, -Status, -Usage, -Pin or -Unpin.
+    Pass exactly one action: -Setup, -Status, -Usage, -Pin, -Unpin or -LoadMissing.
 
     Exit codes:
       0 = done
@@ -36,6 +36,13 @@
 .PARAMETER Unpin
     On each reachable machine, unload every model held resident indefinitely, freeing its GPU
     memory. Prints per machine what was released.
+
+.PARAMETER LoadMissing
+    On each reachable machine that holds no model at all, load the first model of the load preference it
+    has installed and keep it for the usual window (30 minutes after its last request), not indefinitely.
+    A machine holding any model is left alone. Prints per machine what was loaded, or why nothing was.
+    Discovery runs this detached whenever it finds such a machine, so nobody needs to; one run at a time
+    (a second exits at once), and output goes to <workspace>\.local-llm\load-missing.log.
 
 .PARAMETER Usage
     Report local-model requests by caller (script, hook or MCP tool) and by server over the last
@@ -67,6 +74,7 @@ param(
  [Parameter(ParameterSetName = "Run")][switch]$Usage,
  [Parameter(ParameterSetName = "Run")][switch]$Pin,
  [Parameter(ParameterSetName = "Run")][switch]$Unpin,
+ [Parameter(ParameterSetName = "Run")][switch]$LoadMissing,
  [Parameter(ParameterSetName = "Run")][int]$Days = -1,
  [Parameter(Mandatory = $true, ParameterSetName = "SelfTest")][switch]$SelfTest
 )

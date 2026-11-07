@@ -302,10 +302,22 @@ model already held at the window asked for, and unloading one to change its wind
 `LocalLlmSettings.renew_timeout_ms` (60 seconds); a timeout reads `got no answer within <n> s`, so a hung
 server shows itself in a minute with the limit it hit.
 
+**A machine holding nothing:** because the hooks and MCP tools use resident models only, such a machine
+would take no work. So discovery (every script, hook and MCP tool, `-Status` included) starts a detached
+`-LoadMissing` run when a machine in the default list answers on the standard port and holds no model at
+all, whatever the caller asked for (`start_missing_loads`). The run loads the first model of the load
+preference there that is installed and fits the GPU (a model that fails to load, out of memory for one, falls
+through to the next) for the usual window (`--local-keep-alive`, 30 minutes), never indefinitely, and exits;
+a machine holding any model is left alone. It is a separate process because a load takes minutes and a hook
+exits in seconds; it reports in `load-missing.log` how each machine ended, runs one at a time (`<workspace>\.local-llm\load-missing.lock`,
+shared lock mechanics: `datrix_scripts.detached_run`), and is not started again within five minutes of the
+last run's output (`load-missing.log`), so a model that cannot load is not retried on every call.
+
 **Residency:** because the hooks and MCP tools use resident models only, and a script loads an Ollama
-model only when no resident one is left, a machine whose Ollama holds nothing in memory takes no work in
-normal use (`-Status` shows it as `resident none; loadable …`). To make it share the work, keep a model
-resident there: set `OLLAMA_KEEP_ALIVE=-1` on that machine and load the model once; a load request
+model only when no resident one is left, a machine whose Ollama holds nothing is loaded as above and
+then holds its model for the window only; after it unloads, the next discovery loads it again
+(`-Status` shows an empty machine as `resident none; loadable …`). To keep a model there for good: set
+`OLLAMA_KEEP_ALIVE=-1` on that machine and load the model once, or run `-Pin`; a load request
 carrying `"keep_alive": -1` holds it the same way without the setting, until Ollama restarts. The pool
 never shortens a residency a model already has: it sends its own keep-alive (`--local-keep-alive`,
 default 30 minutes) only when that outlasts the model's current one, and keeps an indefinite one
@@ -325,10 +337,11 @@ answer, resident models, a line per machine holding no model indefinitely, and t
 `-Usage` lists requests by caller and by server. `-Pin` loads, on each reachable machine, the first
 installed model of the load preference and keeps it resident indefinitely, so the resident-only callers
 (the red-run digest hook) find one; it prints per machine what was pinned or why not, and nothing pins
-automatically. `-Unpin` unloads every indefinitely resident model.
+automatically. `-Unpin` unloads every indefinitely resident model. `-LoadMissing` is the run discovery
+starts for a machine holding nothing (above), and can be run by hand.
 
 Module: `datrix_scripts.dev.local_llm`; POSIX twin `dev\local-llm.sh` (`--setup`, `--status`, `--usage`,
-`--pin`, `--unpin`, `--days`, `--self-test`): `bash dev/local-llm.sh --status`. `-Setup` registers the
+`--pin`, `--unpin`, `--load-missing`, `--days`, `--self-test`): `bash dev/local-llm.sh --status`. `-Setup` registers the
 server as the venv Python running `-m datrix_scripts.dev.local_llm_mcp`.
 
 ### `local-llm-gate.ps1`

@@ -157,8 +157,9 @@ Set up, inspect and measure the local model servers behind `ask_files`, `digest_
 | Usage by caller and server | `.\dev\local-llm.ps1 -Usage -Days 7` |
 | Keep a model resident on each machine | `.\dev\local-llm.ps1 -Pin` |
 | Release resident models | `.\dev\local-llm.ps1 -Unpin` |
+| Load a model (usual window, not pinned) on each machine that holds none | `.\dev\local-llm.ps1 -LoadMissing` |
 
-Parameters: exactly one action: `-Setup`, `-Status`, `-Usage`, `-Pin`, `-Unpin`, `-SelfTest`. Modifier `-Days` (with `-Status` default 1; with `-Usage` default 7; 0 = all). Exit: 0 done, 1 could not be carried out.
+Parameters: exactly one action: `-Setup`, `-Status`, `-Usage`, `-Pin`, `-Unpin`, `-LoadMissing`, `-SelfTest`. Modifier `-Days` (with `-Status` default 1; with `-Usage` default 7; 0 = all). Exit: 0 done, 1 could not be carried out.
 
 ### `dev\local-llm-gate.ps1`
 
