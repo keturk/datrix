@@ -62,7 +62,7 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
         hash BookViewCache : prefix('bookview:'), ttl(300) {
             UUID bookId : key;
             Int viewCount;
-            DateTime lastViewed : server;
+            DateTime lastViewed;
         }
 
     }

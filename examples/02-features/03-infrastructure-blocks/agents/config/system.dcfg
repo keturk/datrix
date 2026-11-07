@@ -218,8 +218,8 @@ config system credentials.System {
         }
         alarms {
           rdsCpuUtilizationPercent = 80;
-          rdsFreeStoragePercent = 20;
-          rdsConnectionCountPercent = 80;
+          rdsFreeStorageBytes = 2147483648;
+          rdsConnectionCount = 80;
           sqsVisibleMessages = 1000;
           sqsOldestMessageAgeSeconds = 300;
           sqsDlqDepth = 0;

@@ -1,5 +1,5 @@
 
-// Advanced queries feature example - demonstrates whereIn, orderBy, whereNull, count, limit, offset, chaining
+// Advanced queries feature example - demonstrates whereIn, orderBy, whereNull, comparison calls, count, limit, offset, chaining
 
 service library.BookService('config/book-service.dcfg') : version('1.0.0'), description('Advanced query operations demonstration') {
     discovery { }
@@ -126,6 +126,40 @@ service library.BookService('config/book-service.dcfg') : version('1.0.0'), desc
             .orderBy(dueDate: asc)
             .limit(100)
             .all();
+        }
+
+        // 'gt(value)' and 'ne(value)' comparison calls: greater than, not equal
+        @path('/books/recent-unreserved')
+        get(Int afterYear) : auth(public) ->Array<bookDb.Book> {
+            return bookDb.Book
+            .where(publicationYear: gt(afterYear))
+            .where(status: ne(BookStatus.Reserved))
+            .all();
+        }
+
+        // 'contains(text)' on a builder held in a local: each reassignment adds a filter
+        @path('/books/title-search')
+        get(String? text, PageRequest page) : auth(public) ->Page<bookDb.Book> {
+            let JSON query = bookDb.Book.orderBy(title: asc);
+            if (text != null) {
+                query = query.where(title: contains(text));
+            }
+            return query.page(page);
+        }
+
+        // 'startsWith(text)' and 'endsWith(text)': '%' and '_' in the text are plain characters
+        @path('/books/by-name-parts')
+        get(String titlePrefix, String authorSuffix) : auth(public) ->Array<bookDb.Book> {
+            return bookDb.Book
+            .where(title: startsWith(titlePrefix))
+            .where(author: endsWith(authorSuffix))
+            .all();
+        }
+
+        // 'notIn(values)' matches records whose field is outside the given list
+        @path('/books/excluding-years')
+        post(Array<Int> years) : auth(public) ->Array<bookDb.Book> {
+            return bookDb.Book.where(publicationYear: notIn(years)).all();
         }
 
         // Count with multiple conditions
