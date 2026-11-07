@@ -136,7 +136,7 @@ CLI mapping: `--skip-validation` is shorthand for `--validation-level none`. `--
 
 ### Standard library (Stable)
 
-Datrix ships a **standard library**: seven `.dtrx` modules shipped with datrix-language under `datrix-language/src/datrix_language/` and loaded by `datrix_common.stdlib` (`datrix.foundation`, `datrix.geo`, `datrix.contact`, `datrix.api`, `datrix.data`, `datrix.billing`, `datrix.notification`). They provide commonly reused types, functions, and constants—`BaseEntity`, pagination helpers, `Address`, password/token helpers, rate-limit guards, geographic utilities, billing and notification enums, and similar patterns that were previously duplicated across dozens of example and production specs.
+Datrix ships a **standard library**: eight `.dtrx` modules shipped with datrix-language under `datrix-language/src/datrix_language/` and loaded by `datrix_common.stdlib` (`datrix.foundation`, `datrix.geo`, `datrix.contact`, `datrix.api`, `datrix.data`, `datrix.billing`, `datrix.notification`, `datrix.ui`). They provide commonly reused types, functions, and constants—`BaseEntity`, pagination helpers, `Address`, password/token helpers, rate-limit guards, geographic utilities, billing and notification enums, and similar patterns that were previously duplicated across dozens of example and production specs. `datrix.ui` holds client components and `fn`s; it alone is import-only, and an app receives a copy of what it imports.
 
 **Why it exists:** The same structures (base entities, auth helpers, address shapes, API guard helpers) were copy-pasted identically across projects. The stdlib centralizes those patterns so new services start from shared, reviewed definitions instead of re-declaring them in every `common.dtrx`.
 

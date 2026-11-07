@@ -130,12 +130,16 @@ beside the application (for example `.video/` in the application's folder). Clau
 ```
 <project>/
   video.config.js      the application: apps, personas, where secrets live, the videos
-  videos/<name>.js     one module per video
-  narration/           voice files (written by the engine)
-  recordings/          takes, one folder per take (written by the engine)
-  build/               cards, code pages, segment timings (written by the engine)
-  final/               finished videos, unless video.config.js points elsewhere
+  videos/<group>/<NN-name>/   one folder per video, holding everything about it:
+    video.js           the module
+    <NN-name>.mp4 ...  the finished video, its captions and its poster
+    narration/         voice files (written by the engine)
+    recordings/        takes, one folder per take (written by the engine)
+    build/             cards, code pages, segment timings (written by the engine)
 ```
+
+A video listed with `file` and `out` instead of `dir` uses peer folders in the project: `videos/<name>.js`, `narration/`,
+`recordings/`, `build/` and `final/`.
 
 ### What goes in video.config.js
 
@@ -148,7 +152,7 @@ beside the application (for example `.video/` in the application's folder). Clau
 | `brand`, `label` | Fonts and colours for the cards; a label shown over every shot of certain apps, such as "Simulated provider" (optional) |
 | `code` | Syntax grammars for code walkthroughs; the `.dtrx` grammar ships with Datrix's VS Code extension (`datrix-vscode/syntaxes/dtrx.tmLanguage.json`) (optional) |
 | `final` | Where finished videos go (optional) |
-| `videos` | Each video's module and its finished file name, numbered in viewing order (`01-…`, `02-…`) |
+| `videos` | Each video's folder (`dir`), numbered in viewing order (`01-…`, `02-…`) |
 
 The templates hold a tour, a story and a code walkthrough module to start from.
 
