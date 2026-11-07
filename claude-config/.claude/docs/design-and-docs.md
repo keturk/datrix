@@ -40,20 +40,21 @@ its ledger, so size is a design defect, not an implementation detail.
   `ledger_rules.py` refuses a ledger with more. A census that cannot fit is a split, decided now
   rather than discovered at the ledger.
 
-## Acceptance runs on the `test` profile only
+## A design's acceptance never needs a profile other than `test`
 
-A design's acceptance and verification criteria may require generating, building or running only on
-the `test` profile, which is docker compose on the local machine. No criterion requires generating
-for, building on or deploying to another profile (`development`, `production`, `aws`, `azure`, any
-other) or reaching a cloud account. There is no cloud account to run it on, and the extra runs prove
-nothing that a `test`-profile run and the static checks do not. A fact about what another target
-emits is a case row, a parity row or a test over a fixture, never a per-profile generation run.
+The author of a design writes every acceptance and verification criterion so that it is settled on
+the `test` profile alone, which is docker compose on the local machine. A criterion never asks for
+generating, building or deploying another profile (`development`, `production`, `aws`, `azure`, any
+other) or reaching a cloud account. There is no cloud account to run it on, and those runs prove
+nothing that a `test`-profile run, the gates and the tagged tests do not.
 
-- **Writing a design:** state each acceptance criterion so that one `test`-profile run, the gates
-  and the tagged tests settle it. A runtime module that only another profile emits is proven by its
-  own spec in the project's scratch harness or in the package that owns it.
-- **Reviewing a design:** `/verify-design` classes a criterion that needs another profile as
-  BLOCKING (checklist C8), and `/verify-implementation` does not run one.
+- **Write the criterion at the test profile.** "Generates on each profile the example declares" is
+  written as "generates on `test`". A fact about what another target emits is a case row, a parity
+  row or a test over a fixture, which the owning package already carries.
+- **A module only another profile emits** is proven by its own spec, run in the package that owns
+  it or in the scratch harness, not by generating that profile.
+- **Before saving a design,** read its Acceptance section for a profile name other than `test` and
+  rewrite each such criterion.
 
 ## Reviewing a design for readiness
 
