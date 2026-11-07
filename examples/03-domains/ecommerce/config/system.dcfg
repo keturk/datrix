@@ -318,13 +318,13 @@ config system ecommerce.System {
         }
         alarms {
           rdsCpuUtilizationPercent = 80;
-          rdsFreeStoragePercent = 20;
-          rdsConnectionCountPercent = 80;
+          rdsFreeStorageBytes = 2147483648;
+          rdsConnectionCount = 80;
           elasticacheCpuPercent = 75;
           elasticacheMemoryPercent = 80;
           elasticacheEvictionsPerMin = 100;
           dynamodbThrottledRequests = 0;
-          dynamodbConsumedCapacityPercent = 80;
+          dynamodbConsumedCapacityUnits = 240000;
           sqsVisibleMessages = 1000;
           sqsOldestMessageAgeSeconds = 300;
           sqsDlqDepth = 0;
@@ -335,12 +335,12 @@ config system ecommerce.System {
           amazonMqConsumerCount = 1;
           amazonMqBrokerCpuPercent = 75;
           documentdbCpuPercent = 80;
-          documentdbConnectionPercent = 80;
-          documentdbFreeStoragePercent = 20;
+          documentdbConnectionCount = 80;
+          documentdbFreeStorageBytes = 2147483648;
           opensearchClusterRed = 1;
           opensearchCpuPercent = 80;
           opensearchJvmMemoryPressurePercent = 85;
-          opensearchFreeStoragePercent = 20;
+          opensearchFreeStorageMegabytes = 2048;
         }
         lambda {
           consumerMemoryMb = 512;

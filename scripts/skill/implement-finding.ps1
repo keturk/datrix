@@ -31,7 +31,7 @@
     next batch starts.
 
     Every fix and repair step prints the finding's absolute path in its header as it starts:
-      === step 01-fix D:\datrix\findings\kernel\<the finding>.md (claude-opus-5-5, medium) ===
+      === step 01-fix D:\datrix\findings\kernel\<the finding>.md (claude-sonnet-5-5, medium) ===
 
     Step logs: <workspace>\.tmp\skill-chain\<timestamp>\.
 
@@ -56,7 +56,7 @@
     then the files lying in it directly. -Finding is unchanged: those files are worked as given.
 
 .PARAMETER Model
-    The model of each session. Default: claude-opus-5-5.
+    The model of each session. Default: claude-sonnet-5-5.
 
 .PARAMETER Effort
     The effort of each session. Default: medium.

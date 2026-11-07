@@ -101,7 +101,7 @@ run: `<step>-related-<n>\related-NN.log` beside the step logs. When the session 
 source or test (the scripts tree hosts no test suite), its last foreground `test.ps1` or `*-gate.ps1`
 run must have passed instead (a gate proves code no `test.ps1` reaches), read from the stream log.
 
-With no argument it takes the first 10 findings, one session each, on Opus, from the first inbox
+With no argument it takes the first 10 findings, one session each, on Sonnet, from the first inbox
 subfolder (area order: `python`, `typescript`, … `docs`, then other subfolders by name), going on to the
 next subfolder once the one before holds no more, and last the files lying directly in `findings`.
 A folder argument (or `-Dir azure`, or a full path such as `D:\datrix\findings\python`) names one
