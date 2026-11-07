@@ -94,7 +94,7 @@ from datrix_scripts.test.wrappers import SKILL_SCRIPTS_DIR, module_main, run_sel
 
 MODULE: Final = "datrix_scripts.skill.implement_finding"
 WRAPPER: Final = "implement-finding"
-DEFAULT_MODEL: Final = "claude-opus-5-5"
+DEFAULT_MODEL: Final = "claude-sonnet-5-5"
 DEFAULT_EFFORT: Final = "medium"
 # How many fix sessions run side by side. Each one also runs its own targeted test.ps1 runs, and those share the
 # machine's cores and the venv's install-check lock with the other sessions' runs.
@@ -375,7 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dir", default="",
                         help="Work only this folder: absolute, or relative to <workspace>/findings. "
                              "Default: the subfolders of <workspace>/findings in turn, then its own files.")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="The model of each session. Default: claude-opus-5-5.")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="The model of each session. Default: claude-sonnet-5-5.")
     parser.add_argument("--effort", choices=EFFORTS, default=DEFAULT_EFFORT,
                         help="The effort of each session. Default: medium.")
     add_chain_arguments(parser, resume=False)
@@ -638,9 +638,9 @@ def _check_a_dry_run_prints_every_session() -> None:
     assert code == EXIT_DONE, code
     assert printed.getvalue().splitlines() == [
         "", "##### batch 1 of 1: a.md, b.md",
-        "", f"=== step 01-fix {selected[0]} (claude-opus-5-5, medium) ===", "/implement-finding",
+        "", f"=== step 01-fix {selected[0]} (claude-sonnet-5-5, medium) ===", "/implement-finding",
         f"FINDING: {selected[0]}", "CLOSE: script",
-        "", f"=== step 02-fix {selected[1]} (claude-opus-5-5, medium) ===", "/implement-finding",
+        "", f"=== step 02-fix {selected[1]} (claude-sonnet-5-5, medium) ===", "/implement-finding",
         f"FINDING: {selected[1]}", "CLOSE: script",
         "=== findings ===", "", "Finding Outcome", "------- -------", "a.md    dry run", "b.md    dry run", "", "",
     ], printed.getvalue()

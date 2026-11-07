@@ -91,6 +91,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternGraphqlRequest,
     ExternalQueueControlCensus,
     LanguageConformanceProbes,
+    RealizedWhereComparison,
     TransactionUnit,
     conformance_probes_of_language_plugin,
     language_conformance_probes,
@@ -1105,6 +1106,9 @@ class _FixtureDocumentationProbes:
         return ()
 
     def bytes_json_fields(self, generated_root: Path) -> tuple[BytesJsonField, ...]:
+        return ()
+
+    def where_comparisons(self, generated_root: Path) -> tuple[RealizedWhereComparison, ...]:
         return ()
 
 

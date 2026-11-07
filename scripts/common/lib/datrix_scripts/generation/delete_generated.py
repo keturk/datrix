@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Final
 
 from datrix_scripts.cleanup_utils import plant_directory_link, remove_tree
-from datrix_scripts.code_index.background import Launcher, launch_detached
+from datrix_scripts.detached_run import Launcher, launch_detached
 from datrix_scripts.logging_utils import ColorCodes, colorize
 from datrix_scripts.paths import WORKSPACE_DIR, resolve_output_path, script_env
 from datrix_scripts.test.wrappers import GENERATION_SCRIPTS_DIR, module_main, run_self_test

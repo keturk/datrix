@@ -32,6 +32,15 @@ RESIDENCY
     outlasts what the model already has: a model kept resident indefinitely stays resident,
     and a machine kept that way keeps taking the resident-only work of hooks and MCP tools.
 
+A MACHINE HOLDING NOTHING
+    Nothing in the hooks and MCP tools loads a model, so a machine whose Ollama holds none would take
+    no work until someone loaded one. Discovery therefore starts a detached ``local-llm.ps1
+    -LoadMissing`` run when a machine answers and holds no model at all (``start_missing_loads``); the
+    run loads the first model of ``OLLAMA_LOAD_PREFERENCE`` there that is installed and fits, and exits.
+    The model is held for the pool's ordinary window, never indefinitely: only ``-Pin`` pins. A load takes
+    minutes and a hook exits in seconds, so the run is a separate process that waits for the load and
+    reports how it ended; one at a time, and not started again within ``MISSING_LOAD_RETRY_SECONDS``.
+
 FAILOVER
     A candidate is readied before it is handed a request, and a candidate that fails -- to
     load, to answer, or mid-run -- is dropped for the rest of the run and the remaining ones
@@ -60,6 +69,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from datrix_scripts.detached_run import Launcher, held_lock, launch_detached, lock_is_fresh
 from datrix_scripts.local_llm_usage import (
     OUTCOME_FAILED,
     OUTCOME_OK,
@@ -120,6 +130,17 @@ OLLAMA_KEEP_ALIVE_INDEFINITE = -1
 # residency, never a real deadline.
 OLLAMA_INDEFINITE_RESIDENCY_HORIZON = timedelta(days=100 * 365)
 
+# The module whose ``--load-missing`` action loads a model on a machine that holds none, the file
+# that run holds while it works, and where its output goes (next to the usage log).
+LOAD_MISSING_MODULE = "datrix_scripts.dev.local_llm"
+LOAD_MISSING_LOCK_NAME = "load-missing.lock"
+LOAD_MISSING_LOG_NAME = "load-missing.log"
+# A run loads for up to the load timeout; a lock older than that and a margin belongs to a run that is gone.
+MISSING_LOAD_LOCK_STALE_SECONDS = 20 * SECONDS_PER_MINUTE
+# A run that failed (a model that does not fit the GPU) is not started again for this long: its log was
+# written at the failure, so a log this fresh means a run just ended or is under way.
+MISSING_LOAD_RETRY_SECONDS = 5 * SECONDS_PER_MINUTE
+
 DEFAULT_REACHABLE_TIMEOUT_MS = 3000
 DEFAULT_LOAD_TIMEOUT_MS = 900000
 # A step of readying a model that loads nothing (renewing a model already held at the
@@ -178,6 +199,8 @@ class ServerSurvey:
 
     base_url: str
     candidates: tuple[LocalCandidate, ...]
+    # Ollama holds at least one model in memory, whatever it is and whether or not the caller wants it.
+    holds_a_model: bool
 
     def summary(self) -> str:
         resident = [c.host.model for c in self.candidates if c.resident]
@@ -381,7 +404,7 @@ def survey_ollama(base_url: str, settings: LocalLlmSettings) -> ServerSurvey:
         for model in loadable_names
         if model in answering and model not in loaded
     ]
-    return ServerSurvey(base_url, tuple(resident + loadable))
+    return ServerSurvey(base_url, tuple(resident + loadable), holds_a_model=bool(loaded))
 
 
 def ollama_base_url(machine: str, settings: LocalLlmSettings) -> str:
@@ -423,7 +446,9 @@ def discover_candidates(settings: LocalLlmSettings, report: Callable[[str], None
             report(f"Local machine {machine}: no Ollama server answered on port {settings.ollama_port}.")
         found.extend(on_machine)
 
-    candidates = [c for survey in found for c in survey.candidates]
+    start_missing_loads(settings, [m for m, on_machine in zip(settings.machines, surveys)
+                                   if on_machine and not any(s.holds_a_model for s in on_machine)])
+    candidates =[c for survey in found for c in survey.candidates]
     resident = sorted((c for c in candidates if c.resident), key=lambda c: _preference_rank(settings, c))
     if not settings.allow_load:
         return resident
@@ -593,13 +618,16 @@ def is_pinned(resident_until: datetime | None, now: datetime) -> bool:
     return resident_until is not None and resident_until - now > OLLAMA_INDEFINITE_RESIDENCY_HORIZON
 
 
+def _preferred_candidates(survey: ServerSurvey) -> list[LocalCandidate]:
+    """The ``OLLAMA_LOAD_PREFERENCE`` models the server has installed, best first."""
+    by_model = {candidate.host.model: candidate for candidate in survey.candidates}
+    return [by_model[model] for model in _wanted(OLLAMA_LOAD_PREFERENCE) if model in by_model]
+
+
 def _preferred_candidate(survey: ServerSurvey) -> LocalCandidate | None:
     """The first ``OLLAMA_LOAD_PREFERENCE`` model the server has installed, or None when it has none."""
-    by_model = {candidate.host.model: candidate for candidate in survey.candidates}
-    for model in _wanted(OLLAMA_LOAD_PREFERENCE):
-        if model in by_model:
-            return by_model[model]
-    return None
+    installed = _preferred_candidates(survey)
+    return installed[0] if installed else None
 
 
 def _pin_machine(machine: str, settings: LocalLlmSettings) -> str:
@@ -661,6 +689,62 @@ def unpinned_machine_lines(settings: LocalLlmSettings, candidates: list[LocalCan
     pinned_urls = {c.host.base_url for c in candidates if is_pinned(c.resident_until, now)}
     return [f"{machine}: no model pinned (local-llm.ps1 -Pin keeps one resident)"
             for machine in settings.machines if ollama_base_url(machine, settings) not in pinned_urls]
+
+
+def start_missing_loads(
+    settings: LocalLlmSettings, empty_machines: list[str], launch: Launcher = launch_detached
+) -> bool:
+    """Start a detached ``-LoadMissing`` run when a machine it serves answered and holds no model.
+
+    Returns True when a run was started. Nothing starts when no empty machine is one of
+    ``DEFAULT_LOCAL_MACHINES`` on the standard port (the run searches exactly those), while a run holds
+    its lock, or within ``MISSING_LOAD_RETRY_SECONDS`` of the last run's output.
+    """
+    if settings.ollama_port != OLLAMA_PORT or not set(empty_machines) & set(DEFAULT_LOCAL_MACHINES):
+        return False
+    folder = settings.usage_log.parent
+    log = folder / LOAD_MISSING_LOG_NAME
+    if lock_is_fresh(folder / LOAD_MISSING_LOCK_NAME, MISSING_LOAD_LOCK_STALE_SECONDS):
+        return False
+    if log.exists() and time.time() - log.stat().st_mtime < MISSING_LOAD_RETRY_SECONDS:
+        return False
+    launch([sys.executable, "-m", LOAD_MISSING_MODULE, "--load-missing"], log)
+    return True
+
+
+def _load_machine(machine: str, settings: LocalLlmSettings) -> str:
+    base_url = ollama_base_url(machine, settings)
+    try:
+        survey = survey_ollama(base_url, replace(settings, models=OLLAMA_LOAD_PREFERENCE))
+    except (OSError, ValueError) as exc:
+        return f"{machine}: nothing loaded: no Ollama server answers at {base_url} ({exc})"
+    if survey.holds_a_model:
+        return f"{machine}: nothing loaded: it already holds a model"
+    installed = _preferred_candidates(survey)
+    if not installed:
+        return (f"{machine}: nothing loaded: none of {', '.join(OLLAMA_LOAD_PREFERENCE)} is installed "
+                f"(install one with 'ollama pull <model>' on that machine)")
+    failures: list[str] = []
+    for candidate in installed:
+        try:
+            ready_candidate(candidate, settings)
+        except LocalLlmError as exc:
+            # A model that does not fit this GPU is no reason to leave the machine empty: try the next.
+            failures.append(f"loading {candidate.host.model} failed: {exc}")
+            continue
+        return f"{machine}: loaded {candidate.host.model} for {settings.keep_alive_seconds // SECONDS_PER_MINUTE} min"
+    return f"{machine}: nothing loaded: {'; '.join(failures)}"
+
+
+def load_missing_models(settings: LocalLlmSettings) -> list[str]:
+    """Load the first preferred installed model on every machine that holds none; one line per machine.
+
+    Holds the run's lock for the duration and raises ``LockBusy`` when another run holds it. The model
+    is held for ``settings.keep_alive_seconds``, as any pool load is: only ``pin_models`` pins.
+    """
+    with held_lock(settings.usage_log.parent / LOAD_MISSING_LOCK_NAME, MISSING_LOAD_LOCK_STALE_SECONDS):
+        with ThreadPoolExecutor(max_workers=len(settings.machines)) as pool:
+            return list(pool.map(lambda machine: _load_machine(machine, settings), settings.machines))
 
 
 def _report_to_stderr(line: str) -> None:

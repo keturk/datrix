@@ -19,7 +19,7 @@ import logging
 import sys
 from collections.abc import Callable
 
-from datrix_scripts.code_index.background import Launcher, launch_detached, start_background_summaries
+from datrix_scripts.code_index.background import start_background_summaries
 from datrix_scripts.code_index.queries import (
     DEFAULT_CANONICAL_LIMIT,
     DEFAULT_REFERENCE_FILE_LIMIT,
@@ -37,6 +37,7 @@ from datrix_scripts.code_index.queries import (
 from datrix_scripts.code_index.session import IndexSession, open_session
 from datrix_scripts.code_index.sources import CodeIndexError
 from datrix_scripts.code_index.summaries import summarizable
+from datrix_scripts.detached_run import Launcher, launch_detached
 from datrix_scripts.mcp_stdio import (
     JsonObject,
     McpServer,

@@ -36,6 +36,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternGraphqlRequest,
     ExternalQueueControlCensus,
     ExternalQueueControlModule,
+    RealizedWhereComparison,
     TransactionUnit,
 )
 from datrix_codegen_kernel.parity._conformance_probes_response_body_wire_field import (
@@ -78,6 +79,8 @@ class ProbeArgument(enum.Enum):
     HEADER_SET = "header-set"
     #: Nothing: the probe renders the target's own system-gateway artifact.
     SYSTEM_GATEWAY = "system-gateway"
+    #: Nothing: the probe renders the lifecycle preamble of the target's frontend-tree front door.
+    FRONTEND_FRONT_DOOR = "frontend-front-door"
     #: The example generated once for the run; each client target reads its own client tree in it.
     CLIENT_TREE = "client-tree"
     #: The example generated for the target, read as every file of its tree: the probe takes
@@ -497,6 +500,17 @@ def _read_off_form_fields(result: object, selector: Selector) -> Observation:
 
 
 # ---------------------------------------------------------------------------
+# Where comparisons: where_comparisons
+# ---------------------------------------------------------------------------
+
+WHERE_COMPARISONS: Final[str] = "where_comparisons"
+
+
+def _read_where_comparison_calls(result: object, selector: Selector) -> Observation:
+    return _set(item.call for item in _items(result, RealizedWhereComparison, WHERE_COMPARISONS))
+
+
+# ---------------------------------------------------------------------------
 # Transaction units: transaction_units
 # ---------------------------------------------------------------------------
 
@@ -684,6 +698,19 @@ def _read_gateway_statuses(result: object, selector: Selector) -> Observation:
 
 def _offer_gateway_statuses(result: object) -> Iterable[dict[str, SelectorValue]]:
     return [{"status": status} for status in sorted(_gateway_problems(result))]
+
+
+# ---------------------------------------------------------------------------
+# A frontend tree's lifecycle verbs: realized_frontend_verbs
+# ---------------------------------------------------------------------------
+
+REALIZED_FRONTEND_VERBS: Final[str] = "realized_frontend_verbs"
+#: The one fixture a frontend-verbs row names: the target's own frontend-tree front door.
+FRONTEND_FRONT_DOOR_FIXTURE: Final[str] = "frontend-front-door"
+
+
+def _read_frontend_verbs(result: object, selector: Selector) -> Observation:
+    return _set(_items(result, str, REALIZED_FRONTEND_VERBS))
 
 
 # ---------------------------------------------------------------------------
@@ -1085,6 +1112,20 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
             ),
         ),
         ProbeReadings(
+            WHERE_COMPARISONS,
+            ProbeArgument.GENERATED_TREE,
+            _facets(
+                FacetReading(
+                    ParityFacet(
+                        "calls",
+                        Shape.SET,
+                        summary="every where comparison call the relational queries filter with, by its DSL name",
+                    ),
+                    _read_where_comparison_calls,
+                ),
+            ),
+        ),
+        ProbeReadings(
             TRANSACTION_UNITS,
             ProbeArgument.GENERATED_TREE,
             _facets(
@@ -1139,6 +1180,16 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
                 ),
                 FacetReading(
                     ParityFacet("statuses", Shape.SET, summary="every status the gateway answers itself"), _read_gateway_statuses
+                ),
+            ),
+        ),
+        ProbeReadings(
+            REALIZED_FRONTEND_VERBS,
+            ProbeArgument.FRONTEND_FRONT_DOOR,
+            _facets(
+                FacetReading(
+                    ParityFacet("verbs", Shape.SET, summary="every lifecycle verb a frontend tree's front door realizes"),
+                    _read_frontend_verbs,
                 ),
             ),
         ),
@@ -1272,11 +1323,14 @@ PROBE_READINGS: Final[dict[str, ProbeReadings]] = {
 
 
 def accepted_inputs(readings: ProbeReadings, example_names: Sequence[str]) -> frozenset[str]:
-    """The fixtures a row of *readings*' probe may name: the registered examples, or the header-set fixtures."""
+    """The fixtures a row of *readings*' probe may name: the registered examples, the header-set
+    fixtures, or the one fixture of a probe that takes no argument."""
     if readings.argument is ProbeArgument.HEADER_SET:
         return frozenset(HEADER_SET_FIXTURES)
     if readings.argument is ProbeArgument.SYSTEM_GATEWAY:
         return frozenset({SYSTEM_GATEWAY_FIXTURE})
+    if readings.argument is ProbeArgument.FRONTEND_FRONT_DOOR:
+        return frozenset({FRONTEND_FRONT_DOOR_FIXTURE})
     return frozenset(example_names)
 
 
@@ -1304,9 +1358,11 @@ __all__ = [
     "EXTERN_GRAPHQL_REQUESTS",
     "EXTERNAL_LINK_SCHEMES",
     "EXTERNAL_QUEUE_CONTROLS",
+    "FRONTEND_FRONT_DOOR_FIXTURE",
     "HEADER_SET_FIXTURES",
     "PROBE_READINGS",
     "MARKER_KEY",
+    "REALIZED_FRONTEND_VERBS",
     "REALIZED_GATEWAY_PROBLEMS",
     "REALIZED_WEB_SECURITY_HEADERS",
     "SYSTEM_GATEWAY_FIXTURE",

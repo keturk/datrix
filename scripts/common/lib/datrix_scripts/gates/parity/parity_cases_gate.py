@@ -55,6 +55,7 @@ from datrix_codegen_kernel.parity.conformance_probes import (
     ExternClientRequest,
     ExternGraphqlRequest,
     ExternalQueueControlCensus,
+    RealizedWhereComparison,
     TransactionUnit,
     client_target_conformance_probes,
     conformance_probes_of_client_target_class,
@@ -465,10 +466,10 @@ class LiveTargets:
     def probe_arguments(self, target: str, readings: ProbeReadings, row: Case) -> tuple[object, ...]:
         """The generated tree (with every file of it, for a probe reading files), the example's enum
         with its service paths, the header set, or nothing (a probe rendering the target's own
-        system gateway)."""
+        system gateway or frontend-tree front door)."""
         if readings.argument is ProbeArgument.HEADER_SET:
             return (header_set_fixture(row.input),)
-        if readings.argument is ProbeArgument.SYSTEM_GATEWAY:
+        if readings.argument in (ProbeArgument.SYSTEM_GATEWAY, ProbeArgument.FRONTEND_FRONT_DOOR):
             return ()
         if readings.argument is ProbeArgument.EXAMPLE_ENUM:
             return self._enum_arguments(row.input, str(row.selector[ENUM_KEY]))
@@ -588,6 +589,9 @@ class _PlantedProbes:
         return ()
 
     def bytes_json_fields(self, generated_root: Path) -> tuple[BytesJsonField, ...]:
+        return ()
+
+    def where_comparisons(self, generated_root: Path) -> tuple[RealizedWhereComparison, ...]:
         return ()
 
 

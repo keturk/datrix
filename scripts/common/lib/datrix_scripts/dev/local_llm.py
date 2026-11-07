@@ -5,7 +5,8 @@ The module behind ``dev/local-llm.ps1`` (and its ``.sh`` twin): exactly one acti
 ``--setup`` registers the agents' MCP server (``datrix_scripts.dev.local_llm_mcp``) in the
 workspace's ``.mcp.json``; ``--status`` shows which servers answer and what they hold;
 ``--usage`` reports requests by caller and by server; ``--pin``/``--unpin`` keep a model
-resident on every machine, or release it.
+resident on every machine, or release it; ``--load-missing`` loads a model, for the usual window and
+not pinned, on every machine that holds none (discovery starts it detached when it finds one).
 
 Exit codes: 0 done, 1 the request could not be carried out (the message says why).
 """
@@ -18,10 +19,11 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Final
 
+from datrix_scripts.detached_run import LockBusy
 from datrix_scripts.dev.local_llm_mcp import DEFAULT_USAGE_DAYS, mcp_settings, models_status
 from datrix_scripts.dev.mcp_setup import run_setup
 from datrix_scripts.gate_harness import install_sigint_handler
-from datrix_scripts.local_llm import LocalLlmSettings, pin_models, unpin_models
+from datrix_scripts.local_llm import LocalLlmSettings, load_missing_models, pin_models, unpin_models
 from datrix_scripts.local_llm_usage import usage_report
 from datrix_scripts.paths import WORKSPACE_DIR
 from datrix_scripts.test.wrappers import DEV_SCRIPTS_DIR, module_main, run_self_test
@@ -44,6 +46,7 @@ ACTIONS: Final = (
     ("-Usage", "usage"),
     ("-Pin", "pin"),
     ("-Unpin", "unpin"),
+    ("-LoadMissing", "load_missing"),
 )
 _DAYS_ACTIONS: Final = frozenset({"status", "usage"})
 
@@ -59,6 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pin", action="store_true",
                         help="Keep the first preferred installed model resident on every machine.")
     parser.add_argument("--unpin", action="store_true", help="Unload every indefinitely resident model on every machine.")
+    # Started detached by discovery (local_llm.start_missing_loads) when a machine answers holding no model.
+    parser.add_argument("--load-missing", action="store_true",
+                        help="Load the first preferred installed model, for the usual window and not pinned, on "
+                             "every machine that holds none.")
     parser.add_argument("--days", type=int, default=DAYS_NOT_GIVEN,
                         help=f"With --status (default {DEFAULT_USAGE_DAYS}) or --usage (default {DEFAULT_REPORT_DAYS}): "
                              "days to cover; 0 = everything logged.")
@@ -93,7 +100,7 @@ def report_days(args: argparse.Namespace) -> int:
 def _check_exactly_one_action_is_required() -> None:
     parser = build_parser()
     assert refusal(parser.parse_args([])) == (
-        "Pass exactly one action: -Setup, -Status, -Usage, -Pin or -Unpin (given: none). "
+        "Pass exactly one action: -Setup, -Status, -Usage, -Pin, -Unpin or -LoadMissing (given: none). "
         "Get-Help .\\local-llm.ps1 -Full lists them."
     ), refusal(parser.parse_args([]))
     assert "(given: -Status, -Pin)" in refusal(parser.parse_args(["--pin", "--status"]))
@@ -133,6 +140,12 @@ def _run(args: argparse.Namespace) -> int:
         return EXIT_OK
     if args.unpin:
         print("\n".join(unpin_models(LocalLlmSettings(), datetime.now(UTC))))
+        return EXIT_OK
+    if args.load_missing:
+        try:
+            print("\n".join(load_missing_models(LocalLlmSettings())))
+        except LockBusy as exc:
+            print(exc)
         return EXIT_OK
     settings = mcp_settings()
     if args.status:

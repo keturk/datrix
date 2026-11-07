@@ -21,19 +21,27 @@ import threading
 import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from datrix_scripts.customer_domain_isolation import hash_term
+from datrix_scripts.detached_run import LockBusy, held_lock
 from datrix_scripts.dev.local_llm import MCP_SERVER_MODULE
 from datrix_scripts.dev.local_llm_mcp import LocalLlmServer, LocalReader
 from datrix_scripts.gate_harness import WRAPPER_DEBUG_FLAG, CheckFunc, check_list_main, check_list_parser, write_file
 from datrix_scripts.gate_log import run_as_gate
 from datrix_scripts.local_llm import (
+    DEFAULT_LOCAL_MACHINES,
+    LOAD_MISSING_LOCK_NAME,
+    LOAD_MISSING_LOG_NAME,
+    LOAD_MISSING_MODULE,
+    MISSING_LOAD_LOCK_STALE_SECONDS,
     OLLAMA_KEEP_ALIVE_INDEFINITE,
     OLLAMA_KEEP_ALIVE_UNLOAD,
     OLLAMA_LOAD_PREFERENCE,
+    OLLAMA_PORT,
     ChatRequest,
     LocalCandidate,
     LocalHost,
@@ -41,14 +49,18 @@ from datrix_scripts.local_llm import (
     LocalLlmReply,
     LocalLlmSettings,
     LocalLlmUnavailable,
+    load_missing_models,
     ollama_base_url,
     pin_models,
+    start_missing_loads,
+    survey_ollama,
     unpin_models,
     unpinned_machine_lines,
 )
 from datrix_scripts.local_llm_loopback import (
     HTTP_NOT_FOUND,
     HTTP_OK,
+    HTTP_SERVER_ERROR,
     LOOPBACK,
     Chat,
     ChatAnswer,
@@ -427,6 +439,163 @@ def check_status_names_each_machine_with_no_pinned_model() -> None:
 
 
 # ===========================================================================
+# a machine that holds no model is loaded
+# ===========================================================================
+
+
+def _installed_not_loaded(generated: list[dict[str, object]]) -> JsonResponder:
+    """A model server with the preferred model installed and nothing in memory; it records each /api/generate body."""
+
+    def respond(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
+        if method == "GET" and path == "/api/tags":
+            return HTTP_OK, {"models": [{"name": _PREFERRED, "capabilities": ["completion"]}]}
+        if method == "GET" and path == "/api/ps":
+            return HTTP_OK, {"models": []}
+        if method == "POST" and path == "/api/generate" and body is not None:
+            generated.append(body)
+            return HTTP_OK, {"model": _PREFERRED, "done": True}
+        return HTTP_NOT_FOUND, {"error": f"{method} {path}"}
+
+    return respond
+
+
+def _load_settings(port: int, temp: str) -> LocalLlmSettings:
+    return LocalLlmSettings(machines=(LOOPBACK,), reachable_timeout_ms=2000, load_timeout_ms=5000, ollama_port=port,
+                            usage_log=Path(temp) / "usage.jsonl", caller="gate")
+
+
+def check_a_machine_holding_nothing_is_loaded_for_the_usual_window_and_not_pinned() -> None:
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp:
+        generated: list[dict[str, object]] = []
+        with LoopbackJsonServer(_installed_not_loaded(generated)) as server:
+            settings = _load_settings(server.port, temp)
+            lines = load_missing_models(settings)
+        assert lines == [f"{LOOPBACK}: loaded {_PREFERRED} for 30 min"], lines
+        assert generated == [{"model": _PREFERRED, "keep_alive": settings.keep_alive_seconds}], \
+            ("the load carries the pool's window, never an indefinite keep-alive", generated)
+        assert not (Path(temp) / LOAD_MISSING_LOCK_NAME).exists(), "the run's lock is released when it ends"
+
+
+def _first_model_does_not_fit(generated: list[str]) -> JsonResponder:
+    """A model server with both preferred models installed and nothing in memory, whose GPU fits only the second."""
+    first, second = OLLAMA_LOAD_PREFERENCE[:2]
+
+    def respond(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
+        if method == "GET" and path == "/api/tags":
+            return HTTP_OK, {"models": [{"name": m, "capabilities": ["completion"]} for m in (first, second)]}
+        if method == "GET" and path == "/api/ps":
+            return HTTP_OK, {"models": []}
+        if method == "POST" and path == "/api/generate" and body is not None:
+            generated.append(str(body["model"]))
+            if body["model"] == first:
+                return HTTP_SERVER_ERROR, {"error": "cudaMalloc failed: out of memory"}
+            return HTTP_OK, {"model": second, "done": True}
+        return HTTP_NOT_FOUND, {"error": f"{method} {path}"}
+
+    return respond
+
+
+def check_a_model_that_does_not_fit_falls_through_to_the_next_preferred() -> None:
+    first, second = OLLAMA_LOAD_PREFERENCE[:2]
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp:
+        asked: list[str] = []
+        with LoopbackJsonServer(_first_model_does_not_fit(asked)) as server:
+            [line] = load_missing_models(_load_settings(server.port, temp))
+        assert line == f"{LOOPBACK}: loaded {second} for 30 min", line
+        assert asked == [first, second], ("the model that failed is tried first, then the next", asked)
+        asked.clear()
+        with LoopbackJsonServer(_first_model_does_not_fit(asked)) as server:
+            settings = replace(_load_settings(server.port, temp), keep_alive_seconds=60)
+            [line] = load_missing_models(settings)
+        assert line.endswith("for 1 min"), ("the window is the settings', not a constant", line)
+
+
+def check_a_machine_where_no_preferred_model_fits_reports_every_failure() -> None:
+    first, _ = OLLAMA_LOAD_PREFERENCE[:2]
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp:
+        generated: list[str] = []
+
+        def refuse_everything(method: str, path: str, body: dict[str, object] | None) -> tuple[int, object]:
+            status, answer = _first_model_does_not_fit(generated)(method, path, body)
+            if method == "POST":
+                return HTTP_SERVER_ERROR, {"error": "cudaMalloc failed: out of memory"}
+            return status, answer
+
+        with LoopbackJsonServer(refuse_everything) as server:
+            [line] = load_missing_models(_load_settings(server.port, temp))
+        assert line.startswith(f"{LOOPBACK}: nothing loaded: loading {first} failed") and "out of memory" in line, line
+        assert generated == list(OLLAMA_LOAD_PREFERENCE[:2]), generated
+
+
+def check_a_machine_holding_any_model_is_left_alone() -> None:
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp, LoopbackOllama(answering("ok"), ("other:7b",)) as server:
+        [line] = load_missing_models(_load_settings(server.port, temp))
+        assert line == f"{LOOPBACK}: nothing loaded: it already holds a model", line
+        assert not server.generate_bodies, ("a model the caller never asks for still counts as held", server.generate_bodies)
+
+
+def check_a_second_load_run_exits_while_one_holds_the_lock() -> None:
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp:
+        generated: list[dict[str, object]] = []
+        with LoopbackJsonServer(_installed_not_loaded(generated)) as server:
+            settings = _load_settings(server.port, temp)
+            with held_lock(Path(temp) / LOAD_MISSING_LOCK_NAME, MISSING_LOAD_LOCK_STALE_SECONDS):
+                try:
+                    load_missing_models(settings)
+                except LockBusy as busy:
+                    assert "already holds" in str(busy), busy
+                else:
+                    raise AssertionError("a second load run worked while the first held the lock")
+        assert not generated, generated
+
+
+class _RecordingLauncher:
+    """Collects the commands a load run would be started with, and leaves the log a started run leaves."""
+
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+        self.logs: list[Path] = []
+
+    def __call__(self, command: list[str], log: Path) -> None:
+        self.commands.append(command)
+        self.logs.append(log)
+        log.write_text("", encoding="utf-8")
+
+
+def check_discovery_starts_one_detached_load_for_a_machine_holding_nothing() -> None:
+    standard = DEFAULT_LOCAL_MACHINES[0]
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp:
+        settings = LocalLlmSettings(usage_log=Path(temp) / "usage.jsonl", caller="gate")
+        launcher = _RecordingLauncher()
+        assert not start_missing_loads(settings, [], launcher), "every machine holds a model: nothing to start"
+        assert not start_missing_loads(settings, ["192.0.2.1"], launcher), "a machine the run does not serve"
+        assert not start_missing_loads(replace(settings, ollama_port=OLLAMA_PORT + 1), [standard], launcher), \
+            "the run reaches the standard port only"
+        assert not launcher.commands
+        assert start_missing_loads(settings, [standard], launcher), "an empty machine starts a run"
+        assert launcher.commands == [[sys.executable, "-m", LOAD_MISSING_MODULE, "--load-missing"]], launcher.commands
+        assert launcher.logs == [Path(temp) / LOAD_MISSING_LOG_NAME], launcher.logs
+        assert not start_missing_loads(settings, [standard], launcher), \
+            "a run that just ran (or is failing to load) is not started again at once"
+        (Path(temp) / LOAD_MISSING_LOG_NAME).unlink()
+        with held_lock(Path(temp) / LOAD_MISSING_LOCK_NAME, MISSING_LOAD_LOCK_STALE_SECONDS):
+            assert not start_missing_loads(settings, [standard], launcher), "no second run while one holds the lock"
+        assert start_missing_loads(settings, [standard], launcher), "once the run is over and quiet, the next starts"
+
+
+def check_a_survey_says_whether_the_server_holds_any_model() -> None:
+    with TemporaryDirectory(prefix="local-llm-gate-") as temp:
+        with LoopbackJsonServer(_installed_not_loaded([])) as server:
+            settings = _load_settings(server.port, temp)
+            empty = survey_ollama(ollama_base_url(LOOPBACK, settings), settings)
+        assert not empty.holds_a_model, empty
+        with LoopbackOllama(answering("ok"), ("other:7b",)) as server:
+            settings = _load_settings(server.port, temp)
+            held = survey_ollama(ollama_base_url(LOOPBACK, settings), settings)
+        assert held.holds_a_model, held
+
+
+# ===========================================================================
 # readiness at the run's context window
 # ===========================================================================
 
@@ -624,6 +793,13 @@ _ALL_CHECKS: list[CheckFunc] = [
     check_pin_loads_the_preferred_model_with_an_indefinite_keep_alive,
     check_unpin_releases_only_indefinitely_resident_models,
     check_status_names_each_machine_with_no_pinned_model,
+    check_a_machine_holding_nothing_is_loaded_for_the_usual_window_and_not_pinned,
+    check_a_model_that_does_not_fit_falls_through_to_the_next_preferred,
+    check_a_machine_where_no_preferred_model_fits_reports_every_failure,
+    check_a_machine_holding_any_model_is_left_alone,
+    check_a_second_load_run_exits_while_one_holds_the_lock,
+    check_discovery_starts_one_detached_load_for_a_machine_holding_nothing,
+    check_a_survey_says_whether_the_server_holds_any_model,
     check_a_pool_readies_the_model_at_the_runs_window,
     check_a_pool_readied_without_a_window_neither_unloads_nor_names_one,
     check_a_timeout_on_a_server_that_answered_others_is_asked_again_not_dropped,

@@ -669,10 +669,10 @@ _STREAM: Final = (
 def _check_the_prompt_reaches_stdin_never_an_argument() -> None:
     options = ChainOptions(workspace=Path("w"), resume=True, permission_mode="dontAsk", max_budget_usd=2.5)
     command = step_command("C:/bin/claude.cmd", options, session_id=_SESSION.upper(), model="claude-opus-5-5[1m]",
-                           effort="high")
+                           effort="medium")
     assert command == ["C:/bin/claude.cmd", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode",
                        "dontAsk", "--resume", _SESSION, "--max-budget-usd", "2.5", "--model", "claude-opus-5-5[1m]",
-                       "--effort", "high"], command
+                       "--effort", "medium"], command
     fresh = step_command("claude", ChainOptions(workspace=Path("w")), session_id=_SESSION, model="", effort="")
     assert fresh == ["claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto"], fresh
 
